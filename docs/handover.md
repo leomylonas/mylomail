@@ -2,121 +2,92 @@
 
 ## Completed
 
-**Stage C, fifth slice — send and the outbox (§15).** Persistence `e085284`, mutations
-`23dde6a`, sync `9b455bd`, testing discipline `9508f1e`/`514a7af`, job layer `0a5b6d6`.
+**Stage C is built except for two items** (below). Commits: persistence `e085284`,
+mutations `23dde6a`, sync `9b455bd`, testing discipline `9508f1e`/`514a7af`, jobs `0a5b6d6`,
+send/outbox `7df5fb1`.
 
-- `OutboxItem` with compare-and-swap transitions. Cancel attempts `Scheduled`/`Pending` →
-  `Cancelled` while the worker attempts the same → `Sending`; exactly one wins. Once
-  `Sending`, cancellation reports "too late" and never reverts — the message may already be
-  gone, and a recheck before dispatch narrows that window without closing it.
-- The stable `Message-ID` is generated at queue time, before any attempt exists. After a
-  crash it is the only identifier on both sides of a send whose result nobody observed.
-- `SendExecutor` follows the same five steps as any mutation, `Dispatched` write included.
-  Send gets its own attempt with exactly one item, modelled as a column on the attempt so
-  "exactly one" holds by construction rather than by convention.
-- `SendReconciler` never resends. It looks for the message in Sent by the stable id within a
-  bounded window, because neither Gmail nor Graph guarantees the copy appears immediately.
-  Past the window it still does not resend: it tells the user to check their Sent mail,
-  which is the only question they can actually answer.
-- **An explicit rejection is an observed outcome.** A throttling or auth response means the
-  provider answered and the answer was no, so the item returns to the queue and the attempt
-  closes — rather than becoming ambiguous, which would make every rate-limited send
-  something the user has to go and verify.
-- `StartupReconciliation` now enumerates `PendingSends` and `UnresolvedSends`, so a
-  scheduled send survives a restart. With in-memory job storage nothing else knows it
-  existed.
-- Three SQLite traps recorded in `docs/skills/db-work.md` — `DateTimeOffset` ordering has
-  cost time twice, and `Guid` casing in raw SQL silently matches nothing.
-
-**Fourth slice — closing test gaps, and the job layer.**
-
-**Test gaps found by mutation testing.** Twelve of thirteen targeted survivors killed, and
-one of them was a real defect rather than a missing assertion:
-
-- `MutationExecutor` marked an attempt `Completed` even when the provider's batch reported
-  on fewer items than were submitted. The recovery sweep queries *from attempts*, so a
-  closed attempt took its unreported members with it and nothing ever reconciled them. The
-  attempt now goes `Ambiguous` with `ResultPersistedAt` left null. Partial batch results are
-  the normal case for a fifty-item Graph `$batch`, not an edge case.
-- New coverage for: desired-state revert on failure, on dependent cancellation, and on
-  cancellation at execution (three distinct paths); the unreported-batch-item case; the
-  lease-expiry boundary; per-message sequence scoping and pending-change independence;
-  change-stream flag application and membership removal — nothing had tested the incremental
-  apply path at all, because the tests reached those rows through coverage; and the cursor
-  advance on Gmail's staging path.
-
-**The job layer (§3, §6).** Nothing drove any of the sync or mutation code before this.
-
-- `SyncJobs` and `MutationJobs`, both `[AutomaticRetry(Attempts = 0)]` with a test asserting
-  it per job type. Retry is decided in our code: auth must not retry at all and throttling
-  must wait exactly `Retry-After`, and Hangfire's curve would fire underneath both.
-- Successors are self-scheduled rather than registered with Hangfire's recurring scheduler,
-  which is minute-granular and cannot express sub-minute polling. One coverage page per job,
-  so a long backfill resumes at page granularity.
-- `AccountGate` holds the whole account on one throttling response, so thirty mailbox jobs
-  do not wake together and get throttled again. In-memory by design: a throttle window is
-  short-lived advice, not a fact about the account. A shorter signal never shortens an
-  existing pause.
-- `StartupScheduler` releases leases orphaned by a dead process and rebuilds outstanding
-  work from the app tables — the sole recovery mechanism, since job storage is in-memory.
-  `ResumeAccountAsync` requeues blocked work immediately on reauthentication.
-- `ProviderThrottledException` and `ProviderAuthenticationException` added, so the two
-  failures that must not be retried blindly are distinguishable from every other failure.
+- **Persistence** — `MyloMailDbContext` over one `app.db`. Pragmas applied per connection,
+  not at startup, because three of the four are per-connection. Migration runs behind a
+  `VACUUM INTO` backup that is deleted only on success.
+- **Mutations (§6)** — the five concerns kept separate: per-`(AccountId, MessageId)`
+  ordering, atomic leased ownership, stable local intent, execution-time identity
+  resolution, and `MutationExecutionAttempt` for remote uncertainty with the synchronous
+  `Dispatched` write. Terminal failure re-evaluates the chain rather than cancelling it.
+- **Sync (§3)** — topology, coverage and change streams. Cursor and the data it covers
+  always commit together. Gmail's history is drained durably but unapplied during backfill,
+  then replayed in observation order. Every provider's invalid cursor takes one triggered-
+  resynchronisation path. `GenerationSnapshot` guards upserts, removals, flag changes and
+  staged replay alike.
+- **Jobs** — `SyncJobs`, `MutationJobs`, `OutboxJobs`, all `[AutomaticRetry(Attempts = 0)]`
+  because retry is decided in our code. Self-scheduling successors; `PollRegistry` stops a
+  second loop doubling the poll rate; `AccountGate` holds a whole account on one
+  `Retry-After`. `StartupScheduler` rebuilds outstanding work from the app tables, which is
+  the only recovery mechanism with in-memory job storage.
+- **Send (§15)** — compare-and-swap statuses, a stable `Message-ID` generated before the
+  first attempt, and reconciliation against Sent within a bounded window that never resends.
 
 ## Next task
 
-- **Per-operation reconciliation of ambiguous mutations.** The sweep identifies them;
-  re-establishing location for a move or existence for a deletion is still to write. Send is
-  now the worked example of what this looks like.
-- **Periodic integrity reconciliation** for the weakest IMAP tier, now that a scheduler
-  exists to hang a cadence on. Keep it distinct from triggered resynchronisation.
-- **Nothing runs end to end yet**: no production `ICredentialStore`, so no provider is
-  registered; `Program.cs` still does not map controllers or apply the per-launch token
-  middleware (§9), so Electron cannot poll `/health`. Wiring that is a short, separate piece
-  of work and would surface problems no unit test will.
+1. **Per-operation reconciliation of ambiguous mutations.** `StartupReconciliation`
+   identifies them; re-establishing location for a move or existence for a deletion is
+   unwritten. `SendReconciler` is the worked example of the shape.
+2. **Periodic integrity reconciliation** for the weakest IMAP tier — UID-set reconciliation
+   and the flag scan a valid cursor cannot express. There is now a scheduler to hang the
+   cadence on. Keep it distinct from triggered resynchronisation: same machinery, different
+   trigger and meaning.
+
+Then, before Stage D: **none of this has ever run.** No production `ICredentialStore`, so no
+provider is registered; `Program.cs` does not map controllers or apply the per-launch token
+middleware (§9), so Electron cannot poll `/health`. Five slices have been verified entirely
+against `FakeMailProvider`. Wiring one real account through topology → coverage → change
+stream → send is a short slice and will surface things no unit test can.
 
 ## Read first
 
 - `AGENTS.md`
-- `docs/architecture.md` §3 and §6, §15 for send, §16 for the scenario table
-- `docs/skills/fault-injection.md` — read this before writing any crash test
+- `docs/skills/fault-injection.md` — **before writing any crash test**; it carries three real
+  false passes from this repository and the rule that catches them
+- `docs/skills/db-work.md` — the SQLite traps section; two of them have cost time twice
+- `docs/architecture.md` §3 and §6 for the next task, §16 for the scenario table
 - `docs/reviews/invariant-review.md` before mutation, sync, reconciliation or persistence work
 
 ## Verification
 
-- `pnpm check` green: `format · tsc · eslint · stylelint · build · tests(60) · vitest`.
-- Thirteen `Category=FaultInjection` scenarios pass, each checked to fail against the
-  invariant it protects being removed.
-- Mutation baseline: **241 killed, 107 survived, 50.40%**, with `Mutations/`, `Sync/` and
-  `Scheduling/` in scope. The score fell from 55.91% while the killed count rose from 205,
-  because adding `Scheduling/` brought new unkilled mutants with it — compare killed counts,
-  not scores, across a scope change. `break` is reset to 50 as the new ratchet.
-- Remaining survivors are concentrated in `ChangeStreamService` (24), `MessageIngestor` (17),
-  `TopologySyncService` (13) and `MutationExecutor` (12). Many are noise — log strings,
-  counters, orderings — and a few in `AccountGate` are equivalent mutants that cannot change
-  behaviour. They have not been triaged individually.
+- `pnpm check` green: `format · tsc · eslint · stylelint · build · tests(71) · vitest`.
+- Eighteen `Category=FaultInjection` scenarios, **each checked to fail with the invariant it
+  protects removed**. This is not optional here: three tests in this repository have passed
+  against the exact bug they existed to catch, and two were found by an independent reviewer
+  rather than by running the suite.
+- Mutation testing runs in `pnpm check:deep` over `Mutations/`, `Sync/` and `Scheduling/`.
+  Last full baseline 241 killed / 107 survived; `break` is a ratchet at 50. Read the mutant
+  statuses, not the score — a run that times out reports an excellent score having measured
+  nothing. Do not run it alongside a build.
+- Every slice has had an independent invariant review. Three found real violations: the
+  topology-generation guard missing on removals and replay; a decorative account-removal exit
+  check plus `ChangeStreamAsync` being dead code so live sync never ran; and send treating an
+  explicit provider rejection as an unobserved outcome.
 
 ## Risks / decisions
 
-- **Reconciliation reads the local Sent mailbox, not the provider.** Sync already
-  materialises Sent, and a second lookup path would be a second answer to the same question.
-  But if Sent-mailbox sync lags past the ten-minute window, a send that actually succeeded is
-  reported as unconfirmed. That is a false negative in status reporting — never a duplicate
-  send or a silent loss — and it is the known cost of not adding a provider-level lookup.
-- **`OutboxStatus.Pending` is never set.** `Scheduled` items become `Sending` directly. It is
-  part of §15's status set and both cancel and claim already treat it as takeable, so
-  introducing it later does not reopen the race.
-- **`StartupReconciliation` still omits export jobs and notification records**, whose tables
-  do not exist. Whoever adds them must extend that sweep in the same change.
-- **Nothing composes a draft yet.** The outbox sends an existing `Draft` row; compose,
-  attachments and the reply/quote path are frontend and feature work.
-- **Notification records are not derived from staged events yet.** §3 requires notifications
-  come from the staging queue *before* canonical replay, or live mail goes unnotified for the
-  hours a large backfill takes. `StagedChangeEvent.ScannedForNotifications` exists for it.
-- The Hangfire dashboard is not mounted and the server is started with defaults; worker
-  count, queues and shutdown timeout have not been considered.
-- No production `ICredentialStore`, so no provider is registered and none of this runs
-  against a real account. Deliberate; do not register the in-memory store.
+- **No production `ICredentialStore` registration.** Deliberate; do not register the
+  in-memory store. Nothing runs against a real account until this exists.
+- **`StartupReconciliation` omits export jobs and notification records** — those tables do
+  not exist. Whoever adds them must extend the sweep in the same change, or it silently
+  under-enumerates.
+- **Notifications are not derived from staged events.** §3 requires they come from the
+  staging queue *before* canonical replay, or live mail goes unnotified for the hours a
+  backfill takes. `StagedChangeEvent.ScannedForNotifications` exists for it; there is no
+  `NotificationRecord` table.
+- **Nothing drives content acquisition.** `MessageContentState` is enumerated by the startup
+  sweep as `Queued`/`Fetching`, but no job fetches raw messages, so those states are
+  unreachable and §8's search has nothing to index.
+- **Send reconciliation reads the local Sent mailbox**, so a lagging sync can report a
+  successful send as unconfirmed. A false negative in status only — never a duplicate or a
+  silent loss.
+- **`OutboxStatus.Pending` is never set.** Part of §15's status set; cancel and claim already
+  treat it as takeable, so introducing it later does not reopen the race.
+- **Hangfire runs with default worker count, queues and shutdown timeout.** Unconsidered, and
+  the shutdown timeout interacts with §9's graceful-shutdown requirement.
 - Graph topology enumerates top-level folders only; recursive hierarchy is a follow-up.
-- Gmail's bounded-cursor conformance path has no green full run: its last one failed on a
-  send rate limit. A flake, not a defect, but not currently backed by evidence.
+- Gmail's bounded-cursor conformance path has no green full run — its last failed on a send
+  rate limit. A flake, not a defect, but not currently backed by evidence.
