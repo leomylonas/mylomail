@@ -62,6 +62,21 @@ crash-window races visible only under fault injection.
 
 ---
 
+## Environment
+
+**Node 22.** Pinned in `.nvmrc` and `engines`, and matched by CI. Node 18 is not
+supported — Stylelint 17 and other tooling require 20+, and a version mismatch shows up as
+a tool crashing rather than as a clear error.
+
+```bash
+nvm use            # reads .nvmrc
+corepack enable    # provides the pnpm version pinned in packageManager
+```
+
+`.NET 8` per `global.json`. `dotnet tool restore` once, for the type generators.
+
+---
+
 ## Checks
 
 **Use the wrappers. Do not run `dotnet`, `tsc`, `eslint` or `vitest` directly** — the
@@ -131,6 +146,9 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 - **File names are `PascalCase`**, including generated output — `MessageList.tsx`,
   `UseMessageList.ts`, `MessageList.module.css`. The one exception is `index.ts`, which
   module resolution requires by that exact name.
+- **Directories are `camelCase`**, so a path reads `stores/windowState/MessageStore.ts`.
+  The workspace package directories themselves (`electron-shell`, `shared-types`) are
+  kebab-case package names and stay as they are.
 - **Layer-first directories** under `apps/renderer/src`: `shell/`, `components/`, `hooks/`,
   `stores/`, `styles/`, `lib/`, `types/`. `shell/` is the cross-cutting layer — panels,
   registries, theme, per-window state, error mapping.

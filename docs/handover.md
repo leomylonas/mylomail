@@ -33,8 +33,15 @@
   (including generated output — `TypeContractor` pinned to `--casing Pascal`), layer-first
   directories under `apps/renderer/src`, named exports only, CSS Modules with camelCase
   class names. ESLint gained `react`, `react-hooks`, `jsx-a11y` and `check-file`, all as
-  errors; Stylelint is installed and wired into `pnpm check`. Rules in `AGENTS.md`,
-  reasoning in `docs/skills/frontend-shell.md`.
+  errors; Stylelint is installed and wired into `pnpm check`. Directories are camelCase,
+  enforced by `check-file/folder-naming-convention`. Rules in `AGENTS.md`, reasoning in
+  `docs/skills/frontend-shell.md`.
+- **Node 22 is now the supported version**, pinned in `.nvmrc` and `engines`, with CI
+  reading `node-version-file: .nvmrc` so there is one source of truth. pnpm comes from
+  `corepack enable`, which honours the `packageManager` pin. Stylelint is back on 17.
+- `scripts/watch.ts` no longer dies when a status write fails. It recreates `.dev/` each
+  flush and logs rather than throwing, so a transient failure degrades to a stale heartbeat
+  — which `pnpm status` already reports as NOT VERIFIED — instead of killing the watcher.
 
 ## Next task
 
@@ -100,9 +107,6 @@ provider interface, so it is deliberately not in the shared suite and does not y
   and sync contract surface, so definition-of-done item 5 applies.
 - `FakeMailProvider` implements `SendAsync`, draft methods and `MoveMailboxAsync` as no-ops.
   Adequate for the current suite; they need real behaviour before stage C exercises them.
-- **Local Node is 18.20.8; CI uses Node 22.** Stylelint 17 requires Node 20+, so it is
-  pinned to 16 to keep `pnpm check` working locally. The repo has no `.nvmrc` or `engines`
-  field, so nothing prevents this drifting further — worth pinning a Node version.
 - Two generated paths cannot take PascalCase names: `TypedSignalR.Client.TypeScript` writes
   a fixed `TypedSignalR.Client/index.ts`, and package entry points stay `index.ts` because
   module resolution requires that exact name.

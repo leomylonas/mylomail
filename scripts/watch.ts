@@ -68,8 +68,19 @@ function flush(): void {
 
 	// Atomic: a reader must never observe a half-written file.
 	const tmp = `${OUT}.tmp`;
-	writeFileSync(tmp, JSON.stringify(payload, null, 2));
-	renameSync(tmp, OUT);
+	try {
+		// Recreated every flush, not once at startup: the directory is transient
+		// per-machine state and something else may remove it mid-session. A no-op when it
+		// already exists.
+		mkdirSync(dirname(OUT), { recursive: true });
+		writeFileSync(tmp, JSON.stringify(payload, null, 2));
+		renameSync(tmp, OUT);
+	} catch (error) {
+		// Never let a failed status write kill the watcher. The heartbeat then goes stale
+		// and `pnpm status` reports NOT VERIFIED, which is the correct outcome — a reader
+		// must never see a stale green, and a crashed watcher is worse than a late one.
+		console.error(`[watch] could not write status: ${String(error)}`);
+	}
 }
 
 type Parser = (line: string) => Diagnostic | null;

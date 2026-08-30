@@ -39,6 +39,11 @@ Two generated paths cannot follow it. `TypedSignalR.Client.TypeScript` writes a 
 `TypedSignalR.Client/index.ts` with no naming option, and package entry points stay
 `index.ts` for the same resolution reason.
 
+**Directories are `camelCase`** — `stores/windowState/`, not `WindowState/` or
+`window-state/` — so a full path alternates visibly between folder and file:
+`stores/windowState/MessageStore.ts`. The workspace package directories (`electron-shell`,
+`shared-types`) are kebab-case package names, not source folders, and are excluded.
+
 **Directories are layer-first** under `apps/renderer/src`:
 
 ```
