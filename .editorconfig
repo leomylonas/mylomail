@@ -1,0 +1,37 @@
+# Encodes the conventions in AGENTS.md so the formatter enforces them rather than
+# contradicting them. Without this, `dotnet format` defaults to spaces for C#.
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = tab
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.{json,jsonc}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+indent_size = 2
+
+[*.cs]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_between_query_expression_clauses = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:silent
+csharp_style_namespace_declarations = file_scoped:suggestion
