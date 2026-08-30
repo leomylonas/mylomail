@@ -82,6 +82,23 @@ If `pnpm status` is unavailable, `pnpm check:fast` runs the same checks directly
 
 ---
 
+## Agent handoffs
+
+`docs/handover.md` is the committed, current-state handoff between agents. It is not a
+history or log; Git commits provide that history.
+
+At the start of a new session, after reading this file, read `docs/handover.md` when it
+exists, inspect `git status` and recent commits, and verify the recorded state before
+editing. The worktree and verification output are authoritative if they disagree with
+the handoff.
+
+Before handing off unfinished work, replace the contents of `docs/handover.md` with the
+current state, update its verification result, and commit it with the related work. Keep
+only the completed work, next task, required reading, verification, and live risks or
+decisions.
+
+---
+
 ## Build order
 
 Work proceeds in this order. See §16 of the design doc for reasoning.
@@ -138,8 +155,12 @@ Where subagents are used:
 - **Freely** — repo scanning, symbol hunting, "where is X used", file-set summarisation,
   mechanical rename. Cheap model.
 - **With care** — bounded implementation in a disjoint file set, outside mutation and
-  sync core. Read the relevant architecture section and preload the relevant skill when
-  that skill is available.
+  sync core. Read the relevant architecture section and the corresponding guide in
+  `docs/skills/` when available.
+- **Provider research** — use `docs/research/provider-research.md` for a bounded factual
+  question about IMAP, Graph, Gmail, iCalendar/iTIP, MIME, or RFC 5322. A Claude
+  `provider-research` wrapper is available; Codex may use a Terra subagent with the same
+  guide.
 - **Never** — mutation chains, execution attempts, sync state machines, reconciliation.
   These are where locally sensible code violates non-local invariants, and a delegate
   cannot see the invariant it is breaking.

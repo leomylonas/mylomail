@@ -24,17 +24,17 @@ When repository skills are available, load the one for the area you are working 
 than reading the whole design doc (~1,100 lines). Until the skills are added, read the
 listed architecture sections directly.
 
-| Skill | Covers | Design doc |
-|---|---|---|
-| `implement-provider` | `IMailProvider`/`ICalendarProvider`, per-provider divergence, conformance suite | §1, §2, §3 |
-| `mutation-work` | Ordering, ownership, intent, execution identity, remote uncertainty | §6 |
-| `sync-work` | Four sync state machines, cursor rules, per-provider topology | §3 |
-| `frontend-shell` | Panels, per-window state, Carbon, accessibility, registries | §12, §13 |
-| `fault-injection` | Kill points, harness, adding scenarios | §16 |
-| `db-work` | EF Core conventions, pragmas, migrations, FTS5 | §1, §8, §9 |
+| Skill | Status | Covers | Design doc |
+|---|---|---|---|
+| `implement-provider` | Available | `IMailProvider`/`ICalendarProvider`, per-provider divergence, conformance suite | §1, §2, §3 |
+| `mutation-work` | Available | Ordering, ownership, intent, execution identity, remote uncertainty | §6 |
+| `sync-work` | Available | Four sync state machines, cursor rules, per-provider topology | §3 |
+| `frontend-shell` | Available | Panels, per-window state, Carbon, accessibility, registries | §12, §13 |
+| `fault-injection` | Available | Kill points, harness, adding scenarios | §16 |
+| `db-work` | Available | EF Core conventions, pragmas, migrations, FTS5 | §1, §8, §9 |
 
-The listed skills are pending addition to this repository. Do not assume a slash command
-exists; use the listed architecture sections until the skills are installed.
+All listed skills are installed as Claude-discoverable wrappers over shared guides in
+`docs/skills/`. Codex should read the same shared guide for the relevant area.
 
 ---
 
@@ -43,8 +43,9 @@ exists; use the listed architecture sections until the skills are installed.
 - `invariant-review` — a Claude convenience wrapper for the shared
   `docs/reviews/invariant-review.md` checklist. Isolation is the point; it cannot be
   talked round by the reasoning that produced the diff.
-- `provider-research` — reads IMAP RFCs and provider documentation. Large input, small
-  output; ideal for isolation.
+- `provider-research` — a Claude convenience wrapper for the shared
+  `docs/research/provider-research.md` guide. It reads provider source material and
+  returns a short, cited factual answer.
 
 Do not delegate whole-system reasoning. This design is interconnected enough that a
 subagent lacking the invariants will produce locally sensible, globally wrong code.

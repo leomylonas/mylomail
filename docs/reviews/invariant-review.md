@@ -17,3 +17,20 @@ For every violation:
 
 Passing ordinary tests is not evidence that these invariants hold. Do not review
 style, naming, or feature completeness in this review.
+
+## What to be most suspicious of
+
+Changes that make code faster, simpler, or more idiomatic in the immediate vicinity.
+These invariants are non-local: code that violates one often looks better than code that
+satisfies it. Specifically watch for:
+
+- A synchronous `Dispatched` write being batched, deferred, made asynchronous, or removed.
+- A provider identifier persisted into a mutation record.
+- `Message-ID` used as a key or assumed non-null.
+- Provider identifiers moved from `MessageMailbox` onto `Message`.
+- Counts computed from local rows rather than provider-reported values.
+- `[AutomaticRetry]` with a non-zero attempt count.
+- A cursor advanced separately from the data it covers.
+- `Availability` and `Coverage` collapsed into one value.
+- Terminal failure cancelling a whole mutation chain.
+- A Graph client constructed outside the immutable-id pipeline.
