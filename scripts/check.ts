@@ -1,10 +1,10 @@
 /**
  * Full verification: build, unit tests, invariant tests. One line on success.
  *
- * A green run of five tools should cost roughly ten tokens, and a failing run should
+ * A green run of six tools should cost roughly ten tokens, and a failing run should
  * cost in proportion to the failure — not in proportion to how verbose the tools are.
  *
- *   pnpm check       build + unit + invariant
+ *   pnpm check       formatting + build + unit + invariant
  *   pnpm check:fast  the same checks the watcher does, run directly (no watcher needed)
  *   pnpm check:deep  + fault injection + provider conformance (slow, explicit only)
  */
@@ -37,7 +37,10 @@ const compileParser =
 	(line: string): Failure | null => {
 		const m = pattern.exec(line);
 		if (!m) return null;
-		return { key: m[4], text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[4]} ${m[5]}` };
+		return {
+			key: m[4],
+			text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[4]} ${m[5]}`,
+		};
 	};
 
 const testParser =
@@ -47,7 +50,9 @@ const testParser =
 		return m ? { key: m[1], text: m[1] } : null;
 	};
 
-const dotnetTest = (filter: string): Pick<Step, "command" | "args" | "parse"> => ({
+const dotnetTest = (
+	filter: string,
+): Pick<Step, "command" | "args" | "parse"> => ({
 	command: "dotnet",
 	args: [
 		"test",
@@ -63,6 +68,13 @@ const dotnetTest = (filter: string): Pick<Step, "command" | "args" | "parse"> =>
 
 const steps: Step[] = [
 	{
+		name: "format",
+		command: "pnpm",
+		args: ["format:check"],
+		parse: () => null,
+		fatal: true,
+	},
+	{
 		name: "tsc",
 		command: "npx",
 		args: ["tsc", "--noEmit", "--pretty", "false"],
@@ -76,7 +88,10 @@ const steps: Step[] = [
 		parse: (line) => {
 			const m = PATTERNS.eslint.exec(line);
 			if (!m) return null;
-			return { key: m[5], text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}` };
+			return {
+				key: m[5],
+				text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+			};
 		},
 	},
 	{
@@ -102,7 +117,10 @@ if (mode === "deep") {
 	// Slow by design: spawns and kills processes, exercises all three providers across
 	// all three IMAP capability tiers. Never run this in the inner loop.
 	steps.push({ name: "conformance", ...dotnetTest("Category=Conformance") });
-	steps.push({ name: "fault-injection", ...dotnetTest("Category=FaultInjection") });
+	steps.push({
+		name: "fault-injection",
+		...dotnetTest("Category=FaultInjection"),
+	});
 }
 
 let failed = false;
@@ -119,7 +137,8 @@ for (const step of steps) {
 
 	if (result.status === 0) {
 		const passed =
-			PATTERNS.dotnetPassed.exec(output)?.[1] ?? PATTERNS.vitestPassed.exec(output)?.[1];
+			PATTERNS.dotnetPassed.exec(output)?.[1] ??
+			PATTERNS.vitestPassed.exec(output)?.[1];
 		summary.push(passed ? `${step.name}(${passed})` : step.name);
 		continue;
 	}

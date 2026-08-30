@@ -1,2 +1,2 @@
-export const backendMode = process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
-
+export const backendMode =
+	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";

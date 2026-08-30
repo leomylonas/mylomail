@@ -11,7 +11,12 @@
  */
 
 import { readFileSync } from "node:fs";
-import { type StatusFile, type ToolName, STATUS_PATH, generation } from "./tooling.ts";
+import {
+	type StatusFile,
+	type ToolName,
+	STATUS_PATH,
+	generation,
+} from "./tooling.ts";
 
 const ROOT = process.cwd();
 const STALE_HEARTBEAT_MS = 20_000;
@@ -50,7 +55,9 @@ function main(): number {
 	const status = read();
 
 	if (status === null) {
-		console.log("NOT VERIFIED — watcher not running. Start it with `pnpm watch`,");
+		console.log(
+			"NOT VERIFIED — watcher not running. Start it with `pnpm watch`,",
+		);
 		console.log("or run `pnpm check:fast` to check directly.");
 		return 2;
 	}
@@ -64,7 +71,9 @@ function main(): number {
 	}
 
 	if (status.generation !== generation(ROOT)) {
-		console.log("STALE — files changed since last compile; recompiling. Retry shortly.");
+		console.log(
+			"STALE — files changed since last compile; recompiling. Retry shortly.",
+		);
 		return 2;
 	}
 

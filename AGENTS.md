@@ -130,10 +130,16 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 
 Where subagents are used:
 
+- **Model equivalents** — use Claude Sonnet or Codex Terra for careful bounded
+  implementation and invariant review; use Claude Haiku or Codex Luna for repository
+  scanning, symbol hunting, file-set summaries, and mechanical work. These are role
+  equivalents, not interchangeable authority to bypass the safety boundaries below.
+
 - **Freely** — repo scanning, symbol hunting, "where is X used", file-set summarisation,
   mechanical rename. Cheap model.
 - **With care** — bounded implementation in a disjoint file set, outside mutation and
-  sync core. Preload the relevant skill.
+  sync core. Read the relevant architecture section and preload the relevant skill when
+  that skill is available.
 - **Never** — mutation chains, execution attempts, sync state machines, reconciliation.
   These are where locally sensible code violates non-local invariants, and a delegate
   cannot see the invariant it is breaking.
@@ -148,5 +154,7 @@ Where subagents are used:
 3. New provider behaviour satisfies the conformance suite for **all three** providers and
    all three IMAP capability tiers.
 4. Anything touching mutation, sync or persistence has a fault-injection scenario.
-5. No formatting diffs — hooks handle this; if you see formatting churn, the hook is not
-   running.
+5. Changes to mutation, sync, reconciliation, or persistence have an invariant review
+   using `docs/reviews/invariant-review.md`.
+6. `pnpm format:check` is green. Formatting is enforced by `pnpm check` and CI; editor
+   hooks are optional conveniences, not the source of truth.

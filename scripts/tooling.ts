@@ -44,12 +44,20 @@ export interface StatusFile {
 	tools: Record<ToolName, ToolState>;
 }
 
-export const STATUS_PATH = (root: string): string => join(root, ".dev", "status.json");
+export const STATUS_PATH = (root: string): string =>
+	join(root, ".dev", "status.json");
 
 export const MAX_SHOWN = 15;
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".cs", ".css", ".json"]);
-const SKIP_DIRECTORIES = new Set(["node_modules", "bin", "obj", "dist", ".git", ".dev"]);
+const SKIP_DIRECTORIES = new Set([
+	"node_modules",
+	"bin",
+	"obj",
+	"dist",
+	".git",
+	".dev",
+]);
 
 /**
  * Cheap proxy for "has the tree changed since this result was produced".

@@ -1,0 +1,6 @@
+.dev/
+node_modules/
+**/bin/
+**/obj/
+**/dist/
+packages/shared-types/src/

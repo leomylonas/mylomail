@@ -85,7 +85,10 @@ interface WatchOptions {
 
 function watch({ name, command, args, parse, cycleStart }: WatchOptions): void {
 	const start = (): void => {
-		const child: ChildProcess = spawn(command, args, { cwd: ROOT, shell: isWindows });
+		const child: ChildProcess = spawn(command, args, {
+			cwd: ROOT,
+			shell: isWindows,
+		});
 		let buffer = "";
 
 		const onData = (chunk: Buffer): void => {
@@ -109,7 +112,10 @@ function watch({ name, command, args, parse, cycleStart }: WatchOptions): void {
 				}
 			}
 
-			if (state[name].status === "running" && state[name].diagnostics.length === 0) {
+			if (
+				state[name].status === "running" &&
+				state[name].diagnostics.length === 0
+			) {
 				state[name].status = "ok";
 				scheduleWrite();
 			}
@@ -121,7 +127,9 @@ function watch({ name, command, args, parse, cycleStart }: WatchOptions): void {
 		child.on("exit", (code: number | null) => {
 			// A watcher must not exit silently: doing so would report stale results
 			// forever. Mark it unverified and restart.
-			console.error(`[watch] ${name} exited (${code}); restarting in ${RESTART_DELAY_MS}ms`);
+			console.error(
+				`[watch] ${name} exited (${code}); restarting in ${RESTART_DELAY_MS}ms`,
+			);
 			state[name].status = "pending";
 			scheduleWrite();
 			setTimeout(start, RESTART_DELAY_MS);
@@ -134,24 +142,48 @@ function watch({ name, command, args, parse, cycleStart }: WatchOptions): void {
 watch({
 	name: "tsc",
 	command: "npx",
-	args: ["tsc", "--noEmit", "--watch", "--pretty", "false", "--preserveWatchOutput"],
+	args: [
+		"tsc",
+		"--noEmit",
+		"--watch",
+		"--pretty",
+		"false",
+		"--preserveWatchOutput",
+	],
 	cycleStart: /File change detected|Starting compilation/,
 	parse: (line) => {
 		const m = PATTERNS.tsc.exec(line);
 		if (!m) return null;
-		return { file: relativePath(ROOT, m[1]), line: Number(m[2]), code: m[4], message: m[5] };
+		return {
+			file: relativePath(ROOT, m[1]),
+			line: Number(m[2]),
+			code: m[4],
+			message: m[5],
+		};
 	},
 });
 
 watch({
 	name: "dotnet",
 	command: "dotnet",
-	args: ["watch", "build", "--project", "server/MyloMail.Api", "--nologo", "-tl:off"],
+	args: [
+		"watch",
+		"build",
+		"--project",
+		"server/MyloMail.Api",
+		"--nologo",
+		"-tl:off",
+	],
 	cycleStart: /Started|Building|File changed/,
 	parse: (line) => {
 		const m = PATTERNS.dotnet.exec(line);
 		if (!m) return null;
-		return { file: relativePath(ROOT, m[1]), line: Number(m[2]), code: m[4], message: m[5] };
+		return {
+			file: relativePath(ROOT, m[1]),
+			line: Number(m[2]),
+			code: m[4],
+			message: m[5],
+		};
 	},
 });
 

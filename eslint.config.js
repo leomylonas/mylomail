@@ -3,7 +3,14 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-	{ ignores: ["**/bin/**", "**/obj/**", "**/dist/**", "packages/shared-types/src/**"] },
+	{
+		ignores: [
+			"**/bin/**",
+			"**/obj/**",
+			"**/dist/**",
+			"packages/shared-types/src/**",
+		],
+	},
 	eslint.configs.recommended,
 	...tseslint.configs.recommended,
 	{
@@ -11,4 +18,3 @@ export default tseslint.config(
 		languageOptions: { globals: { ...globals.node, ...globals.browser } },
 	},
 );
-

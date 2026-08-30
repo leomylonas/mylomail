@@ -9,5 +9,11 @@
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["scripts/**/*.ts", "apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "scripts/**/*.ts",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.ts",
+    "tests/**/*.ts"
+  ]
 }

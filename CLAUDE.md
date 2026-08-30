@@ -20,8 +20,9 @@ Checks: `pnpm status` after each edit, `pnpm check` before finishing. Never invo
 
 ## Skills
 
-Load the skill for the area you are working in rather than reading the whole design doc
-(~1,100 lines). Each skill points into the specific sections it needs.
+When repository skills are available, load the one for the area you are working in rather
+than reading the whole design doc (~1,100 lines). Until the skills are added, read the
+listed architecture sections directly.
 
 | Skill | Covers | Design doc |
 |---|---|---|
@@ -32,16 +33,16 @@ Load the skill for the area you are working in rather than reading the whole des
 | `fault-injection` | Kill points, harness, adding scenarios | §16 |
 | `db-work` | EF Core conventions, pragmas, migrations, FTS5 | §1, §8, §9 |
 
-Invoke by name (`/mutation-work`) when you know the area; otherwise they load on
-relevance.
+The listed skills are pending addition to this repository. Do not assume a slash command
+exists; use the listed architecture sections until the skills are installed.
 
 ---
 
 ## Subagents
 
-- `invariant-review` — fresh context, given a diff and the principles, answers one
-  question: does this violate anything in the do-not-change table? Isolation is the
-  point; it cannot be talked round by the reasoning that produced the diff.
+- `invariant-review` — a Claude convenience wrapper for the shared
+  `docs/reviews/invariant-review.md` checklist. Isolation is the point; it cannot be
+  talked round by the reasoning that produced the diff.
 - `provider-research` — reads IMAP RFCs and provider documentation. Large input, small
   output; ideal for isolation.
 
