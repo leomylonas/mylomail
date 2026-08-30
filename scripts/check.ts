@@ -95,6 +95,27 @@ const steps: Step[] = [
 		},
 	},
 	{
+		// CSS Modules only; the rule set enforces camelCase class names so they read as
+		// `styles.messageRow` from TypeScript.
+		name: "stylelint",
+		command: "npx",
+		args: [
+			"stylelint",
+			"**/*.css",
+			"--allow-empty-input",
+			"--formatter",
+			"unix",
+		],
+		parse: (line) => {
+			const m = PATTERNS.stylelint.exec(line);
+			if (!m) return null;
+			return {
+				key: m[5],
+				text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+			};
+		},
+	},
+	{
 		name: "build",
 		command: "dotnet",
 		args: ["build", "--nologo", "-tl:off", "-clp:ErrorsOnly"],

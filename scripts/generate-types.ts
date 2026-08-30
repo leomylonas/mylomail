@@ -96,8 +96,9 @@ run([
 	"--dotnet-version",
 	String(DOTNET_MAJOR),
 	"--build-zod-schemas",
-	// Pinned: the tool's default casing changed between 0.22.1 and 1.0.0, which would
-	// silently rename every generated file on a tool upgrade.
+	// PascalCase file names, matching the hand-written frontend convention. Pinned
+	// explicitly because the tool's default casing changed between 0.22.1 and 1.0.0, and a
+	// default that moves silently renames every generated file on a tool upgrade.
 	"--casing",
-	"Kebab",
+	"Pascal",
 ]);

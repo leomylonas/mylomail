@@ -29,6 +29,13 @@
   spaces and contradicted the tab convention in AGENTS.md; the first indented C# file
   exposed it.
 
+- Frontend code style is now defined and enforced. PascalCase file names throughout
+  (including generated output — `TypeContractor` pinned to `--casing Pascal`), layer-first
+  directories under `apps/renderer/src`, named exports only, CSS Modules with camelCase
+  class names. ESLint gained `react`, `react-hooks`, `jsx-a11y` and `check-file`, all as
+  errors; Stylelint is installed and wired into `pnpm check`. Rules in `AGENTS.md`,
+  reasoning in `docs/skills/frontend-shell.md`.
+
 ## Next task
 
 Stage B continues: implement the three real providers, thin — authentication, topology
@@ -93,3 +100,12 @@ provider interface, so it is deliberately not in the shared suite and does not y
   and sync contract surface, so definition-of-done item 5 applies.
 - `FakeMailProvider` implements `SendAsync`, draft methods and `MoveMailboxAsync` as no-ops.
   Adequate for the current suite; they need real behaviour before stage C exercises them.
+- **Local Node is 18.20.8; CI uses Node 22.** Stylelint 17 requires Node 20+, so it is
+  pinned to 16 to keep `pnpm check` working locally. The repo has no `.nvmrc` or `engines`
+  field, so nothing prevents this drifting further — worth pinning a Node version.
+- Two generated paths cannot take PascalCase names: `TypedSignalR.Client.TypeScript` writes
+  a fixed `TypedSignalR.Client/index.ts`, and package entry points stay `index.ts` because
+  module resolution requires that exact name.
+- ESLint's React settings pin `react: { version: "19.0" }` rather than `"detect"`, because
+  React is not a dependency yet and detection throws when it is absent. Revisit when the
+  renderer actually takes its React 19 dependency in stage D.

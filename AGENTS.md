@@ -128,13 +128,30 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 
 **TypeScript / React**
 - Tab indentation, except YAML which is 2 spaces.
+- **File names are `PascalCase`**, including generated output — `MessageList.tsx`,
+  `UseMessageList.ts`, `MessageList.module.css`. The one exception is `index.ts`, which
+  module resolution requires by that exact name.
+- **Layer-first directories** under `apps/renderer/src`: `shell/`, `components/`, `hooks/`,
+  `stores/`, `styles/`, `lib/`, `types/`. `shell/` is the cross-cutting layer — panels,
+  registries, theme, per-window state, error mapping.
+- **Named exports only.** No default exports; they let the same module be imported under
+  different names.
+- Components are **function declarations**, not arrow constants, so stack traces and
+  DevTools carry a name.
 - Stores are **per-window**. Never module-level singletons — multi-window is an
   assumption made from the first line, not a feature added later.
 - Types in `packages/shared-types` are **generated**. Do not hand-edit; run
-  `pnpm generate:types`.
+  `pnpm generate:types`. Import from `@mylomail/shared-types`, never by path into its source.
+- Styling is **CSS Modules** with camelCase class names, so they read as
+  `styles.messageRow`. Carbon theme tokens before literal colours or spacing.
 - Carbon (`@carbon/react`) components before hand-rolled ones.
 - `ToastNotification` for passive feedback, `ActionableNotification` where there is an
   action — interactive content in a toast breaks WCAG.
+- Accessibility rules (`jsx-a11y`) are **errors, not warnings**. Accessibility is
+  continuous; it is not a pass at the end.
+
+Naming, structure and accessibility are enforced by `pnpm check` (ESLint and Stylelint),
+not by convention alone. `docs/skills/frontend-shell.md` carries the reasoning.
 
 **Everywhere**
 - Errors use `MutationProblemDetails` (RFC 7807 + `Category`). Never invent a new error

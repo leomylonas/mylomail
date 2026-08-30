@@ -23,6 +23,53 @@ Panel sizing has two tiers: a **global persisted default** read once when a wind
 and **live per-window state** that does not sync to other open windows. Resizing one
 window writes back the default for future windows and leaves current ones alone.
 
+## Code style
+
+Enforced by `pnpm check` (ESLint and Stylelint), not by convention alone. The rules below
+are the reasoning; the checkable summary is in `AGENTS.md`.
+
+**File names are `PascalCase`, including generated output.** One rule for every file type,
+so there is no per-file-type exception to remember and no argument about whether a hook or
+a store counts as a component. `TypeContractor` is pinned to `--casing Pascal` to match.
+`index.ts` is the single exception, and it is not a style choice: module resolution looks
+for that exact name when importing a directory, and CI runs on a case-sensitive filesystem
+while macOS does not — `Index.ts` would resolve locally and fail in CI.
+
+Two generated paths cannot follow it. `TypedSignalR.Client.TypeScript` writes a fixed
+`TypedSignalR.Client/index.ts` with no naming option, and package entry points stay
+`index.ts` for the same resolution reason.
+
+**Directories are layer-first** under `apps/renderer/src`:
+
+```
+shell/        panels, registries, theme, per-window state, ErrorCategory mapping
+components/   presentational and composite components
+hooks/        shared hooks
+stores/       per-window stores (never module-level)
+styles/       global styles and theme tokens
+lib/          SignalR client, query client, fetch client
+types/        hand-written types only; generated types live in packages/shared-types
+```
+
+`shell/` is deliberately separate rather than being one layer among many: it is the Stage D
+architecture every later view is built inside, and keeping it distinct makes it obvious when
+a feature is reaching into it rather than building on it.
+
+**Named exports only.** A default export lets the same module be imported under different
+names, so one component acquires several names across the codebase and grep stops finding
+it. Components are function declarations rather than arrow constants, so stack traces and
+React DevTools carry a name.
+
+**Styling is CSS Modules with camelCase class names**, so they read as `styles.messageRow`
+from TypeScript without bracket access. Reach for Carbon's theme tokens before literal
+colours or spacing — a token survives the theme work in Stage D, a hex value does not.
+
+**Accessibility rules are errors, not warnings.** §15 makes accessibility continuous rather
+than a late pass, and §16 puts the accessibility baseline in the shell primitives
+specifically because retrofitting it is expensive. Carbon supplies accessible components,
+but TanStack Table and Virtual are headless and provide no scaffolding, so the markup around
+them is where this is actually won or lost.
+
 ## Stack
 
 - TanStack **Query** (server state; SignalR events drive invalidation), **Router**,

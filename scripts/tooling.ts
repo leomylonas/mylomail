@@ -127,6 +127,8 @@ export const PATTERNS = {
 	tsc: /^(.+?)\((\d+),(\d+)\):\s+error\s+(TS\d+):\s+(.*)$/,
 	/** eslint -f unix: path:line:col: message [rule] */
 	eslint: /^(.+?):(\d+):(\d+):\s+(.*?)\s+\[(.+?)\]$/,
+	/** stylelint unix formatter: path:line:col: message [rule] */
+	stylelint: /^(.+?):(\d+):(\d+):\s+(.*?)\s+\[(.+?)\]$/,
 	/** msbuild: path(line,col): error CS0246: message [project] */
 	dotnet: /^(.+?)\((\d+),(\d+)\):\s+error\s+(CS\d+):\s+(.*?)(\s+\[.*\])?$/,
 	xunitFailure: /^\s*(?:Failed|X)\s+(.+?)\s*(?:\[.*\])?$/,
