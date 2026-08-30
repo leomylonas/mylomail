@@ -54,11 +54,18 @@ backstop. A surviving mutant in a guard clause is exactly this failure, found wi
 anyone having to remember.
 
 **Read the mutant statuses, not the score.** Stryker counts a timed-out mutant as killed,
-so a suite that hangs reports an excellent mutation score. The first run here scored 85.56%
-with every single mutant timing out, because the run included the live-provider conformance
-tests and each one sat waiting on OAuth. The config therefore excludes
-`Category=Conformance`. A run whose mutants are mostly `Timeout` or `NoCoverage` has
-measured nothing, whatever number it prints.
+so a run where everything times out reports an excellent mutation score. The first run here
+scored 85.56% having killed nothing at all: all 326 mutants timed out. A run whose mutants
+are mostly `Timeout` or `NoCoverage` has measured nothing, whatever number it prints.
+
+The cause is `additional-timeout`, and it is set generously on purpose: every test in this
+suite creates a real on-disk SQLite database, so a mutant run is slower than the baseline
+Stryker derives its per-mutant timeout from. The conformance suite is **not** excluded — the
+live provider subjects skip cleanly without credentials, and the five
+`FakeProviderConformanceTests` shapes are in-memory and belong in the run. An earlier
+version of this file claimed conformance caused the timeouts; measuring it showed
+identical results with and without them (205/113/8 versus 203/113/10, same three minutes),
+so that claim was wrong.
 
 The `break` threshold is a **ratchet, not a target**: it sits just under the current score
 so the suite cannot get weaker, and it should be raised as survivors are killed. The first

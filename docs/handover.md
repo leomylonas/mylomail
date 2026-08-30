@@ -54,9 +54,10 @@ The remainder of Stage C:
 - **Mutation testing is now wired into `pnpm check:deep`** (Stryker.NET, scoped to
   `Mutations/` and `Sync/`). First honest run: 205 killed, 113 survived, 55.91%. The `break`
   threshold is set to 55 as a ratchet — raise it as survivors are killed, never lower it.
-  Note the first run scored 85.56% while killing nothing at all: it included the live
-  conformance tests, every mutant timed out, and Stryker scores a timeout as a kill. Read
-  the statuses, not the score.
+  Note the first run scored 85.56% while killing nothing at all — every mutant timed out,
+  and Stryker scores a timeout as a kill. Read the statuses, not the score. The fix is
+  `additional-timeout`; the conformance suite is deliberately **not** excluded, and running
+  with and without it gives identical results in identical time.
 - **Survivors worth killing** (the rest are log strings, counters and orderings):
   cursor advance on the staging path (`ChangeStreamService` line ~201, both the null check
   and its block survive); the whole live-path `ApplyContentAsync` call (line ~119) —
