@@ -1,0 +1,13 @@
+{
+	"$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/Schemas/stryker-config.json",
+	"stryker-config": {
+		"project": "MyloMail.Api.csproj",
+		"test-projects": ["server/MyloMail.Api.Tests/MyloMail.Api.Tests.csproj"],
+		"mutate": ["**/Mutations/**/*.cs", "**/Sync/**/*.cs"],
+		"reporters": ["json", "progress"],
+		"thresholds": { "high": 90, "low": 80, "break": 55 },
+		"coverage-analysis": "perTest",
+		"test-case-filter": "Category!=Conformance",
+		"additional-timeout": 10000
+	}
+}

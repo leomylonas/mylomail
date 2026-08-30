@@ -24,14 +24,14 @@ When repository skills are available, load the one for the area you are working 
 than reading the whole design doc (~1,100 lines). Until the skills are added, read the
 listed architecture sections directly.
 
-| Skill | Status | Covers | Design doc |
-|---|---|---|---|
+| Skill                | Status    | Covers                                                                          | Design doc |
+| -------------------- | --------- | ------------------------------------------------------------------------------- | ---------- |
 | `implement-provider` | Available | `IMailProvider`/`ICalendarProvider`, per-provider divergence, conformance suite | §1, §2, §3 |
-| `mutation-work` | Available | Ordering, ownership, intent, execution identity, remote uncertainty | §6 |
-| `sync-work` | Available | Four sync state machines, cursor rules, per-provider topology | §3 |
-| `frontend-shell` | Available | Panels, per-window state, Carbon, accessibility, registries | §12, §13 |
-| `fault-injection` | Available | Kill points, harness, adding scenarios | §16 |
-| `db-work` | Available | EF Core conventions, pragmas, migrations, FTS5 | §1, §8, §9 |
+| `mutation-work`      | Available | Ordering, ownership, intent, execution identity, remote uncertainty             | §6         |
+| `sync-work`          | Available | Four sync state machines, cursor rules, per-provider topology                   | §3         |
+| `frontend-shell`     | Available | Panels, per-window state, Carbon, accessibility, registries                     | §12, §13   |
+| `fault-injection`    | Available | Kill points, harness, adding scenarios                                          | §16        |
+| `db-work`            | Available | EF Core conventions, pragmas, migrations, FTS5                                  | §1, §8, §9 |
 
 All listed skills are installed as Claude-discoverable wrappers over shared guides in
 `docs/skills/`. Codex should read the same shared guide for the relevant area.
@@ -61,3 +61,5 @@ subagent lacking the invariants will produce locally sensible, globally wrong co
 - **When something looks wrong, check the table before fixing it.** Roughly a dozen
   decisions in this codebase are deliberate and counter-intuitive.
 - **If an invariant test fails, the code is wrong.** Not the test.
+- **A passing fault-injection test is not evidence.** Break the invariant it protects, watch
+  it fail, restore. Two scenarios here have passed against the bug they existed to catch.

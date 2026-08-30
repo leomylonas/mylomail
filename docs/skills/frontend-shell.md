@@ -76,7 +76,7 @@ Colocation is the point: a component's styles, state and children live with it r
 scattered across four sibling trees, and a child component is promoted by moving one folder
 up rather than by unpicking four files. A `.tsx` whose name does not match its folder is an
 error — `local/component-folder` in `eslint.config.js`, a local rule because the convention
-is a *relationship* between file and folder, and a PascalCase folder plus a PascalCase file
+is a _relationship_ between file and folder, and a PascalCase folder plus a PascalCase file
 checked independently would happily accept `MessageList/ReadingPane.tsx`.
 
 The workspace package directories (`electron-shell`, `shared-types`) are kebab-case package
@@ -135,14 +135,14 @@ Every failure arrives as `MutationProblemDetails` (RFC 7807 + `Category`). Branc
 `Category`, never on a message string, and use the central mapping. A feature growing its
 own error handling is a bug.
 
-| Category | UI |
-|---|---|
-| `Network` | One calm “offline, will resume” state; never per-mailbox noise |
-| `Auth` | Re-authentication prompt |
-| `RateLimit` | Silent |
-| `Validation` / `ProviderRejected` | Show `Detail` |
-| `Conflict` | Keep-mine / keep-theirs choice |
-| `Unknown` | Generic indicator, logged |
+| Category                          | UI                                                             |
+| --------------------------------- | -------------------------------------------------------------- |
+| `Network`                         | One calm “offline, will resume” state; never per-mailbox noise |
+| `Auth`                            | Re-authentication prompt                                       |
+| `RateLimit`                       | Silent                                                         |
+| `Validation` / `ProviderRejected` | Show `Detail`                                                  |
+| `Conflict`                        | Keep-mine / keep-theirs choice                                 |
+| `Unknown`                         | Generic indicator, logged                                      |
 
 ## Message rendering
 

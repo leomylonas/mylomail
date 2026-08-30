@@ -31,7 +31,7 @@ one, stop and ask rather than proceeding.
 
 2. **No local record of an attempt is evidence about what the server actually did.** A
    durable record that an operation was dispatched establishes only that its outcome
-   *may* be ambiguous. Absence of a persisted response never implies the operation
+   _may_ be ambiguous. Absence of a persisted response never implies the operation
    failed remotely.
 
 3. **Never persist a cursor past changes that have not been durably persisted.** Replay
@@ -46,19 +46,19 @@ Each of these looks wrong. Each is deliberate, and each was arrived at by findin
 simpler version broken. **Tests will not catch you undoing them** — the failures are
 crash-window races visible only under fault injection.
 
-| Thing | Why it looks wrong | Why it is right |
-|---|---|---|
-| Synchronous `Dispatched` write before every provider call | Gratuitous I/O on a hot path | It is the entire crash-safety mechanism. Batching, deferring or making it async silently reopens the window |
-| `Message.Id` as identity, not `Message-ID` | The header looks like a natural key | RFC 5322 says SHOULD, not MUST, and duplicates occur in practice |
-| Provider ids on `MessageMailbox`, not `Message` | Looks like misplaced denormalisation | IMAP UIDs are folder-scoped and change on move |
-| Two count fields per mailbox | Looks redundant | Locally computed counts are wrong under bounded sync |
-| In-memory Hangfire storage | Looks fragile | Job persistence was a second source of truth. Startup reconciliation is the real recovery mechanism |
-| `[AutomaticRetry(Attempts = 0)]` everywhere | Looks like retry is missing | Auth must not retry at all; throttling must wait exactly `Retry-After`. Hangfire's curve would double-retry underneath both |
-| Terminal failure re-evaluates a chain, not cancels it | Looks inconsistent | Providers offer no transaction across operations. Cancelling turns one failure into several abandoned user intentions |
-| Separate `Availability` and `Coverage` UI state | Looks like one enum would do | A mailbox is fully usable while backfilling |
-| Raw MIME as the single stored representation | Looks wasteful next to parsed fields | Reconstructing `.eml` from parts loses DKIM signatures, original headers and encrypted parts |
-| No `IsAnswered` in `FlagUpdate` | Looks like an omission | Gmail has no `ANSWERED` label; Graph has no equivalent mutable property. Including it would overpromise uniformity |
-| `MessageOccurrenceRef` never persisted | Looks like a useful thing to store | It carries volatile provider identity. Persisting it reintroduces the staleness the mutation chain exists to prevent |
+| Thing                                                     | Why it looks wrong                   | Why it is right                                                                                                             |
+| --------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Synchronous `Dispatched` write before every provider call | Gratuitous I/O on a hot path         | It is the entire crash-safety mechanism. Batching, deferring or making it async silently reopens the window                 |
+| `Message.Id` as identity, not `Message-ID`                | The header looks like a natural key  | RFC 5322 says SHOULD, not MUST, and duplicates occur in practice                                                            |
+| Provider ids on `MessageMailbox`, not `Message`           | Looks like misplaced denormalisation | IMAP UIDs are folder-scoped and change on move                                                                              |
+| Two count fields per mailbox                              | Looks redundant                      | Locally computed counts are wrong under bounded sync                                                                        |
+| In-memory Hangfire storage                                | Looks fragile                        | Job persistence was a second source of truth. Startup reconciliation is the real recovery mechanism                         |
+| `[AutomaticRetry(Attempts = 0)]` everywhere               | Looks like retry is missing          | Auth must not retry at all; throttling must wait exactly `Retry-After`. Hangfire's curve would double-retry underneath both |
+| Terminal failure re-evaluates a chain, not cancels it     | Looks inconsistent                   | Providers offer no transaction across operations. Cancelling turns one failure into several abandoned user intentions       |
+| Separate `Availability` and `Coverage` UI state           | Looks like one enum would do         | A mailbox is fully usable while backfilling                                                                                 |
+| Raw MIME as the single stored representation              | Looks wasteful next to parsed fields | Reconstructing `.eml` from parts loses DKIM signatures, original headers and encrypted parts                                |
+| No `IsAnswered` in `FlagUpdate`                           | Looks like an omission               | Gmail has no `ANSWERED` label; Graph has no equivalent mutable property. Including it would overpromise uniformity          |
+| `MessageOccurrenceRef` never persisted                    | Looks like a useful thing to store   | It carries volatile provider identity. Persisting it reintroduces the staleness the mutation chain exists to prevent        |
 
 ---
 
@@ -83,11 +83,11 @@ corepack enable    # provides the pnpm version pinned in packageManager
 wrappers deduplicate, cap and strip output, and raw invocations produce hundreds of
 lines where the wrapper produces one.
 
-| Command | When | Cost |
-|---|---|---|
-| `pnpm status` | after each edit — reads the watcher's current state | ~1 line |
-| `pnpm check` | before declaring work done — full build, unit + invariant tests | ~1 line on success |
-| `pnpm check:deep` | only when explicitly asked — fault injection, provider conformance across all IMAP tiers | expensive, slow |
+| Command           | When                                                                                     | Cost               |
+| ----------------- | ---------------------------------------------------------------------------------------- | ------------------ |
+| `pnpm status`     | after each edit — reads the watcher's current state                                      | ~1 line            |
+| `pnpm check`      | before declaring work done — full build, unit + invariant tests                          | ~1 line on success |
+| `pnpm check:deep` | only when explicitly asked — fault injection, provider conformance across all IMAP tiers | expensive, slow    |
 
 Start the watcher once per session with `pnpm watch` in a separate terminal. `pnpm status`
 reports `STALE` if the watcher hasn't caught up, and `DEAD` if it isn't running — treat
@@ -131,6 +131,7 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 ## Conventions
 
 **C#**
+
 - Tab indentation.
 - `MutationItem` must never carry a provider identifier field. There is an architecture
   test asserting this.
@@ -142,6 +143,7 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
   operations and exceptions only.
 
 **TypeScript / React**
+
 - Tab indentation, except YAML which is 2 spaces.
 - **`PascalCase` for every file and folder**, including generated output. `src` is the one
   exception, and it is package layout rather than part of any import path. The workspace
@@ -181,6 +183,7 @@ Naming, structure and accessibility are enforced by `pnpm check` (ESLint and Sty
 not by convention alone. `docs/skills/frontend-shell.md` carries the reasoning.
 
 **Everywhere**
+
 - Errors use `MutationProblemDetails` (RFC 7807 + `Category`). Never invent a new error
   shape; never let a provider exception reach the UI unmapped.
 - English strings only, but formatting is locale-aware.
@@ -218,7 +221,12 @@ Where subagents are used:
    broken, not that a test is wrong. Do not edit an invariant test to make it pass.
 3. New provider behaviour satisfies the conformance suite for **all three** providers and
    all three IMAP capability tiers.
-4. Anything touching mutation, sync or persistence has a fault-injection scenario.
+4. Anything touching mutation, sync or persistence has a fault-injection scenario, **and
+   the scenario has been shown to fail with the invariant removed.** A scenario that passes
+   against the bug it exists to catch is worse than none: it is evidence of nothing that
+   reads as evidence of something. Break the invariant, watch the test fail, restore it, and
+   record in the handover what you broke. This has caught real false passes in this
+   repository — see `docs/skills/fault-injection.md`.
 5. Changes to mutation, sync, reconciliation, or persistence have an invariant review
    using `docs/reviews/invariant-review.md`.
 6. `pnpm format:check` is green. Formatting is enforced by `pnpm check` and CI; editor

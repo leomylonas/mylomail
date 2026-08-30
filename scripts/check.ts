@@ -160,6 +160,23 @@ if (mode === "deep") {
 		name: "fault-injection",
 		...dotnetTest("Category=FaultInjection", "fault-injection"),
 	});
+
+	// Mutation testing over the mutation and sync cores. This is the mechanical form of the
+	// discrimination check in docs/skills/fault-injection.md: a surviving mutant in a guard
+	// clause means a test passes against the bug it was written to catch. Two scenarios in
+	// this repository did exactly that, and neither was found by running the suite.
+	//
+	// Only survivors are parsed as failures. The reported mutation score is deliberately
+	// ignored: Stryker counts a timed-out mutant as killed, so a hanging suite scores well.
+	steps.push({
+		name: "mutants",
+		command: "dotnet",
+		args: ["stryker", "--solution", "MyloMail.sln", "--reporter", "progress"],
+		parse: (line) => {
+			const m = PATTERNS.strykerSurvived.exec(line);
+			return m ? { key: m[1], text: `survived: ${m[1]}` } : null;
+		},
+	});
 }
 
 let failed = false;

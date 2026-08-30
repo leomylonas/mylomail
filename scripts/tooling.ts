@@ -133,6 +133,12 @@ export const PATTERNS = {
 	dotnet: /^(.+?)\((\d+),(\d+)\):\s+error\s+(CS\d+):\s+(.*?)(\s+\[.*\])?$/,
 	xunitFailure: /^\s*(?:Failed|X)\s+(.+?)\s*(?:\[.*\])?$/,
 	vitestFailure: /^\s*(?:FAIL|×)\s+(.+)$/,
+	/**
+	 * Stryker prints one line per surviving mutant in its progress output. A survivor is a
+	 * change to the code under test that no test noticed — which for a guard clause is
+	 * exactly a test that passes against the bug it exists to catch.
+	 */
+	strykerSurvived: /^\s*\[Survived\]\s+(.+)$/,
 	dotnetPassed: /Passed!.*Passed:\s*(\d+)/,
 	vitestPassed: /Tests\s+(\d+)\s+passed/,
 } as const;

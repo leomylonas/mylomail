@@ -51,6 +51,24 @@ The remainder of Stage C:
 - Thirteen `Category=FaultInjection` scenarios pass, covering the mutation kill points, the
   sync page and cursor boundaries, staged replay, topology-generation mismatch on three
   paths, and the migration backup window.
+- **Mutation testing is now wired into `pnpm check:deep`** (Stryker.NET, scoped to
+  `Mutations/` and `Sync/`). First honest run: 205 killed, 113 survived, 55.91%. The `break`
+  threshold is set to 55 as a ratchet — raise it as survivors are killed, never lower it.
+  Note the first run scored 85.56% while killing nothing at all: it included the live
+  conformance tests, every mutant timed out, and Stryker scores a timeout as a kill. Read
+  the statuses, not the score.
+- **Survivors worth killing** (the rest are log strings, counters and orderings):
+  cursor advance on the staging path (`ChangeStreamService` line ~201, both the null check
+  and its block survive); the whole live-path `ApplyContentAsync` call (line ~119) —
+  nothing asserts change-stream application, only coverage; desired-state revert on failure
+  (`MutationExecutor` ~163, `MutationChainEvaluator` ~55 and ~97); the unreported-batch-item
+  `continue` (`MutationExecutor` ~201); pending-change creation on enqueue (`MutationQueue`
+  ~120); and the expired-lease comparison (`MutationClaimService` ~95).
+- **A third false-pass test was found this way.**
+  `Desired_state_is_never_orphaned_by_a_crash_around_enqueue` asserts that the mutation and
+  pending-change counts are equal — but the crash rolls the transaction back, so it asserts
+  `0 == 0` and holds even with pending-change creation deleted entirely. It needs a
+  surviving-enqueue case to mean anything.
 - **Every crash scenario was checked for discrimination**, and this is worth continuing.
   Two tests written this slice passed against code that had the bug they existed to catch:
   a single-page cursor test that could not observe a skip, and a generation test that
@@ -69,7 +87,7 @@ The remainder of Stage C:
   undelivered notifications. Whoever adds those tables must extend that sweep in the same
   change.
 - **Notification records are not derived from staged events yet.** §3 requires notifications
-  come from the staging queue *before* canonical replay, or live mail goes unnotified for the
+  come from the staging queue _before_ canonical replay, or live mail goes unnotified for the
   hours a large backfill takes. `StagedChangeEvent.ScannedForNotifications` exists for that
   path; there is no `NotificationRecord` table yet.
 - No production `ICredentialStore`, so no provider is registered and none of this runs

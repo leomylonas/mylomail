@@ -1,6 +1,9 @@
 # Per-machine transient state (watcher status file)
 .dev/
 
+# Mutation-testing reports (pnpm check:deep). Regenerated on every run.
+StrykerOutput/
+
 # Node
 node_modules/
 .pnpm-store/
