@@ -36,11 +36,14 @@ send/outbox `7df5fb1`.
    cadence on. Keep it distinct from triggered resynchronisation: same machinery, different
    trigger and meaning.
 
-Then, before Stage D: **none of this has ever run.** No production `ICredentialStore`, so no
-provider is registered; `Program.cs` does not map controllers or apply the per-launch token
-middleware (§9), so Electron cannot poll `/health`. Five slices have been verified entirely
-against `FakeMailProvider`. Wiring one real account through topology → coverage → change
-stream → send is a short slice and will surface things no unit test can.
+Then, before Stage D: **the app still does not run as an app.** No production
+`ICredentialStore`, so `MailProviderFactory` refuses every provider; `Program.cs` does not map
+controllers or apply the per-launch token middleware (§9), so Electron cannot poll `/health`.
+
+The sync engine itself is no longer fake-only: `ImapLiveSyncTests` drives topology → coverage
+→ change stream against the Dovecot matrix (`pnpm imap:up`) and passes, including a real
+`UIDVALIDITY` cursor. Mutation and send have no equivalent yet, and neither does Gmail or
+Graph.
 
 ## Read first
 
@@ -54,6 +57,8 @@ stream → send is a short slice and will surface things no unit test can.
 ## Verification
 
 - `pnpm check` green: `format · tsc · eslint · stylelint · build · tests(71) · vitest`.
+- The IMAP matrix (`pnpm imap:up`) passes 36 conformance cases across all three tiers, plus
+  `ImapLiveSyncTests` — the sync engine end to end against real Dovecot.
 - Eighteen `Category=FaultInjection` scenarios, **each checked to fail with the invariant it
   protects removed**. This is not optional here: three tests in this repository have passed
   against the exact bug they existed to catch, and two were found by an independent reviewer
