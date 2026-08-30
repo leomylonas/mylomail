@@ -34,10 +34,10 @@ namespace MyloMail.Api.Providers.Imap;
 public sealed partial class ImapMailProvider : IMailProvider
 {
 	private readonly ImapConnectionSettings settings;
-	private readonly IImapMailboxResolver mailboxes;
+	private readonly IProviderMailboxResolver mailboxes;
 	private ProviderCapabilities capabilities = ImapCapabilityNegotiation.Unknown;
 
-	public ImapMailProvider(ImapConnectionSettings settings, IImapMailboxResolver mailboxes)
+	public ImapMailProvider(ImapConnectionSettings settings, IProviderMailboxResolver mailboxes)
 	{
 		this.settings = settings;
 		this.mailboxes = mailboxes;

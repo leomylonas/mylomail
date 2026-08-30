@@ -52,16 +52,28 @@ const testParser =
 
 const dotnetTest = (
 	filter: string,
+	resultsFilePrefix: string,
 ): Pick<Step, "command" | "args" | "parse"> => ({
 	command: "dotnet",
 	args: [
 		"test",
+		...(process.env.MYLOMAIL_TEST_PROJECT
+			? [process.env.MYLOMAIL_TEST_PROJECT]
+			: []),
 		"--nologo",
 		"--no-build",
 		"--logger",
 		"console;verbosity=quiet",
 		"--filter",
 		filter,
+		...(process.env.MYLOMAIL_TEST_RESULTS_DIRECTORY
+			? [
+					"--logger",
+					`trx;LogFilePrefix=${resultsFilePrefix}`,
+					"--results-directory",
+					process.env.MYLOMAIL_TEST_RESULTS_DIRECTORY,
+				]
+			: []),
 	],
 	parse: testParser(PATTERNS.xunitFailure),
 });
@@ -125,7 +137,7 @@ const steps: Step[] = [
 ];
 
 if (mode !== "fast") {
-	steps.push({ name: "tests", ...dotnetTest("Category!=Deep") });
+	steps.push({ name: "tests", ...dotnetTest("Category!=Deep", "tests") });
 	steps.push({
 		name: "vitest",
 		command: "npx",
@@ -137,10 +149,16 @@ if (mode !== "fast") {
 if (mode === "deep") {
 	// Slow by design: spawns and kills processes, exercises all three providers across
 	// all three IMAP capability tiers. Never run this in the inner loop.
-	steps.push({ name: "conformance", ...dotnetTest("Category=Conformance") });
+	steps.push({
+		name: "conformance",
+		...dotnetTest(
+			process.env.MYLOMAIL_CONFORMANCE_FILTER ?? "Category=Conformance",
+			"conformance",
+		),
+	});
 	steps.push({
 		name: "fault-injection",
-		...dotnetTest("Category=FaultInjection"),
+		...dotnetTest("Category=FaultInjection", "fault-injection"),
 	});
 }
 

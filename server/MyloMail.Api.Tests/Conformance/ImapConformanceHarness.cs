@@ -16,7 +16,7 @@ namespace MyloMail.Api.Tests.Conformance;
 /// The servers come from <c>tests/imap-matrix</c> (<c>pnpm imap:up</c>). Absent, every case
 /// skips rather than fails (§11).
 /// </remarks>
-public sealed class ImapConformanceHarness : IConformanceHarness, IImapMailboxResolver
+public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailboxResolver
 {
 	private const string SourceFolder = "INBOX";
 

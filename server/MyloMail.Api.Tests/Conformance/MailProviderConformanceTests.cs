@@ -146,6 +146,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	public async Task Expired_cursor_surfaces_as_ProviderCursorInvalidException()
 	{
 		Available();
+		Skip.If(
+			!Harness.CanProduceExpiredCursor,
+			"This live provider account cannot deterministically produce an expired cursor."
+		);
 		var expired = await Harness.ExpiredCursorAsync(Harness.Source);
 
 		await Assert.ThrowsAsync<ProviderCursorInvalidException>(
@@ -202,8 +206,8 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 			return;
 		}
 
-		await Harness.SeedPageOverflowAsync(Harness.Source);
 		var baseline = await Harness.BaselineCursorAsync(Harness.Source);
+		await Harness.SeedPageOverflowAsync(Harness.Source);
 
 		var result = await Harness.Provider.SyncMailboxAsync(
 			Harness.Account,
@@ -348,6 +352,7 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	{
 		Available();
 		var occurrence = await Harness.SeedMessageAsync(Harness.Source);
+		var baseline = await Harness.BaselineCursorAsync(Harness.Source);
 
 		await Harness.Provider.SetFlagsAsync(
 			Harness.Account,
@@ -362,7 +367,6 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 			CancellationToken.None
 		);
 
-		var baseline = await Harness.BaselineCursorAsync(Harness.Source);
 		var sync = await Harness.Provider.SyncMailboxAsync(
 			Harness.Account,
 			Harness.Source,

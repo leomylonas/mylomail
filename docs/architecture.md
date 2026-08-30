@@ -369,9 +369,17 @@ public record BatchItemResult(
     MutationProblemDetails? Problem,
     IReadOnlyList<OccurrenceChange> OccurrenceChanges); // created/removed memberships
 public record OccurrenceChange(Guid MailboxId, string? NewProviderOccurrenceId, bool Removed);
+
+// Implemented by the orchestrator/persistence boundary, never by a provider cache.
+public interface IProviderMailboxResolver
+{
+    string ProviderMailboxId(Guid mailboxId);
+}
 ```
 
 **Batch results correlate on `(MessageId, MailboxId)`, not `MessageId` alone.** `RemoveFromMailbox` is membership-scoped (§6) and a message legitimately holds several occurrences under Gmail's label model (§1), so a batch can carry two refs sharing a `MessageId`; keyed on the message alone their results are indistinguishable and the caller cannot tell which membership succeeded. §6's ordering rule means the mutation worker never batches two operations for one message, so this is latent rather than live — but "per item" has to mean an item is correlatable from this contract, not by virtue of a scheduling invariant enforced elsewhere. Both identities are local and stable, so nothing volatile enters the result. Callers must not submit duplicate `(MessageId, MailboxId)` pairs in one batch.
+
+**Provider mailbox identifiers are resolved at execution time.** `MessageOccurrenceRef` deliberately carries a stable local `MailboxId`, not a persisted provider mailbox id. The mutation orchestrator supplies `IProviderMailboxResolver` to a provider for the duration of an attempt. IMAP needs it because a UID is meaningful only within its folder; Gmail needs it to remove the source label during `MoveMessagesAsync` and `RemoveFromMailboxAsync`. Graph's immutable message id addresses a move without source-folder identity, but uses the same execution boundary. A provider must not cache this map: topology reconciliation can delete and recreate a folder, so the persistence/orchestrator layer remains the one source of truth. This preserves principle 1 — no volatile provider identifier becomes a durable mutation key.
 
 `OccurrenceChanges` is what allows a move to report its destination identity — an IMAP move changes the UID, and with UIDPLUS/`MOVE` the server returns it. Where the server does not, the result flags that destination reconciliation is required rather than guessing.
 

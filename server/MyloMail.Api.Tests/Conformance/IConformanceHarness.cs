@@ -17,6 +17,12 @@ namespace MyloMail.Api.Tests.Conformance;
 /// </remarks>
 public interface IConformanceHarness : IAsyncDisposable
 {
+	/// <summary>
+	/// Whether this live subject can deterministically produce an expired provider cursor.
+	/// Gmail history expiry depends on retention time and cannot be forced for a fresh account.
+	/// </summary>
+	bool CanProduceExpiredCursor => true;
+
 	IMailProvider Provider { get; }
 
 	Account Account { get; }
