@@ -1,3 +1,5 @@
+import { basename, dirname } from "node:path";
+
 import eslint from "@eslint/js";
 import checkFile from "eslint-plugin-check-file";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -5,6 +7,51 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+
+/**
+ * A `.tsx` file must be named after the PascalCase folder it sits in.
+ *
+ * Expressed as a local rule because no off-the-shelf rule relates a file's name to its
+ * folder's, and the convention is only meaningful as that relationship: a PascalCase folder
+ * and a PascalCase file, checked independently, would happily accept
+ * `MessageList/ReadingPane.tsx`.
+ */
+const componentFolder = {
+	meta: {
+		type: "problem",
+		docs: {
+			description:
+				"A component .tsx must be named after its PascalCase folder.",
+		},
+		schema: [],
+	},
+	create(context) {
+		return {
+			Program(node) {
+				// Strip every extension, so `MessageList.test.tsx` still checks `MessageList`.
+				const base = basename(context.filename).split(".")[0];
+				const folder = basename(dirname(context.filename));
+
+				if (!/^[A-Z][A-Za-z0-9]*$/.test(folder)) {
+					context.report({
+						node,
+						message: `Component folder "${folder}" must be PascalCase.`,
+					});
+					return;
+				}
+
+				if (base !== folder) {
+					context.report({
+						node,
+						message: `"${base}.tsx" must sit in a folder named "${base}", not "${folder}". A component owns its directory, so its styles, store and child components can sit beside it.`,
+					});
+				}
+			},
+		};
+	},
+};
+
+const localPlugin = { rules: { "component-folder": componentFolder } };
 
 export default tseslint.config(
 	{
@@ -44,6 +91,39 @@ export default tseslint.config(
 				{ ignoreMiddleExtensions: true },
 			],
 		},
+	},
+
+	// The layer folders directly under `src/` are camelCase — `shell/`, `components/`,
+	// `hooks/`, `stores/`, `styles/`, `lib/`, `types/`. Component folders below them are
+	// PascalCase, enforced by `local/component-folder` rather than here, because whether a
+	// folder is a component folder depends on what it contains, which a glob cannot express.
+	//
+	// Scoped to renderer and UI source: the workspace package directories themselves
+	// (`electron-shell`, `shared-types`) are kebab-case package names, not source folders.
+	{
+		files: ["apps/renderer/src/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}"],
+		plugins: { "check-file": checkFile },
+		rules: {
+			"check-file/folder-naming-convention": [
+				"error",
+				{
+					"apps/renderer/src/*/": "CAMEL_CASE",
+					"packages/ui/src/*/": "CAMEL_CASE",
+				},
+			],
+		},
+	},
+
+	// A component owns a directory: `MessageList/MessageList.tsx`, beside
+	// `MessageList.module.css`, its store, and any child component it alone uses.
+	// Colocation only works if the component owns a folder, and the folder is only
+	// navigable if it carries the component's name.
+	//
+	// Entry points sitting directly in `src/` are exempt — they belong to no component.
+	{
+		files: ["apps/renderer/src/*/**/*.tsx", "packages/ui/src/*/**/*.tsx"],
+		plugins: { local: localPlugin },
+		rules: { "local/component-folder": "error" },
 	},
 
 	// React. Scoped to the renderer and the shared component library — the Electron main

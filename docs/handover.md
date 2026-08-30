@@ -33,9 +33,10 @@
   (including generated output — `TypeContractor` pinned to `--casing Pascal`), layer-first
   directories under `apps/renderer/src`, named exports only, CSS Modules with camelCase
   class names. ESLint gained `react`, `react-hooks`, `jsx-a11y` and `check-file`, all as
-  errors; Stylelint is installed and wired into `pnpm check`. Directories are camelCase,
-  enforced by `check-file/folder-naming-convention`. Rules in `AGENTS.md`, reasoning in
-  `docs/skills/frontend-shell.md`.
+  errors; Stylelint is installed and wired into `pnpm check`. A component owns a PascalCase
+  folder holding a `.tsx` of the same name, with its CSS module, store, tests and private
+  child components beside it; every other directory is camelCase. Rules in `AGENTS.md`,
+  reasoning in `docs/skills/frontend-shell.md`.
 - **Node 22 is now the supported version**, pinned in `.nvmrc` and `engines`, with CI
   reading `node-version-file: .nvmrc` so there is one source of truth. pnpm comes from
   `corepack enable`, which honours the `packageManager` pin. Stylelint is back on 17.
@@ -72,6 +73,10 @@ provider interface, so it is deliberately not in the shared suite and does not y
   cursor invalidation each produced 5 failures (one per shape). The suite discriminates.
 
 ## Risks / decisions
+
+- `local/component-folder` in `eslint.config.js` is a rule defined inline in the flat
+  config, not a package. It relates a file's name to its folder's, which no off-the-shelf
+  rule does. If more local rules appear, they should move to a real plugin package.
 
 - **TypeContractor carries a workaround for an upstream bug, in `scripts/generate-types.ts`.**
   `ReflectionContextHelper.GetNetCorePack` builds its pack lookup as

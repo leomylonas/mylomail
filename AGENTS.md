@@ -146,9 +146,13 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 - **File names are `PascalCase`**, including generated output — `MessageList.tsx`,
   `UseMessageList.ts`, `MessageList.module.css`. The one exception is `index.ts`, which
   module resolution requires by that exact name.
-- **Directories are `camelCase`**, so a path reads `stores/windowState/MessageStore.ts`.
-  The workspace package directories themselves (`electron-shell`, `shared-types`) are
-  kebab-case package names and stay as they are.
+- **A component owns a `PascalCase` folder containing a `.tsx` of the same name** —
+  `MessageList/MessageList.tsx`. Its CSS module, store, tests and any child components it
+  alone uses sit beside it: `MessageList.module.css`, `MessageList.store.ts`,
+  `MessageList.test.tsx`, `MessageRow/MessageRow.tsx`.
+- **All other directories are `camelCase`** — the layer folders under `src/`, and anything
+  that is not a component folder. The workspace package directories themselves
+  (`electron-shell`, `shared-types`) are kebab-case package names and stay as they are.
 - **Layer-first directories** under `apps/renderer/src`: `shell/`, `components/`, `hooks/`,
   `stores/`, `styles/`, `lib/`, `types/`. `shell/` is the cross-cutting layer — panels,
   registries, theme, per-window state, error mapping.

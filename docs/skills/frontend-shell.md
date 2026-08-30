@@ -39,10 +39,30 @@ Two generated paths cannot follow it. `TypedSignalR.Client.TypeScript` writes a 
 `TypedSignalR.Client/index.ts` with no naming option, and package entry points stay
 `index.ts` for the same resolution reason.
 
-**Directories are `camelCase`** — `stores/windowState/`, not `WindowState/` or
-`window-state/` — so a full path alternates visibly between folder and file:
-`stores/windowState/MessageStore.ts`. The workspace package directories (`electron-shell`,
-`shared-types`) are kebab-case package names, not source folders, and are excluded.
+**A component owns its directory.** The folder is `PascalCase` and holds a `.tsx` of the
+same name, with everything belonging to that component beside it:
+
+```
+components/MessageList/
+	MessageList.tsx           the component
+	MessageList.module.css    its styles
+	MessageList.store.ts      its per-window store
+	MessageList.test.tsx      its tests
+	MessageRow/               a child component only MessageList uses
+		MessageRow.tsx
+```
+
+Colocation is the point: a component's styles, state and children live with it rather than
+scattered across four sibling trees, and a child component is promoted by moving one folder
+up rather than by unpicking four files. A `.tsx` whose name does not match its folder is an
+error — `local/component-folder` in `eslint.config.js`, a local rule because the convention
+is a *relationship* between file and folder, and a PascalCase folder plus a PascalCase file
+checked independently would happily accept `MessageList/ReadingPane.tsx`.
+
+**Every other directory is `camelCase`** — the layer folders below, and anything that is not
+a component folder, so `stores/windowState/` rather than `WindowState/` or `window-state/`.
+The workspace package directories (`electron-shell`, `shared-types`) are kebab-case package
+names, not source folders, and are excluded.
 
 **Directories are layer-first** under `apps/renderer/src`:
 
