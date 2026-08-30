@@ -51,6 +51,12 @@
   flush and logs rather than throwing, so a transient failure degrades to a stale heartbeat
   — which `pnpm status` already reports as NOT VERIFIED — instead of killing the watcher.
 
+- **The IMAP capability matrix runs locally** (`tests/imap-matrix/`, `pnpm imap:up` /
+  `pnpm imap:down`): three Dovecot containers on 11143/12143/13143 advertising
+  QRESYNC+CONDSTORE+UIDPLUS+MOVE, CONDSTORE-only, and none of them. Tier 2 uses a `.`
+  delimiter and an `INBOX.` prefix, so a provider that hardcodes `/` fails one tier and
+  passes the others. Verified by probing post-login `CAPABILITY` on each.
+
 ## Next task
 
 Stage B continues: implement the three real providers, thin — authentication, topology
@@ -83,6 +89,15 @@ provider interface, so it is deliberately not in the shared suite and does not y
   dropping the mailbox from batch correlation fails 6 cases.
 
 ## Risks / decisions
+
+- **No throwaway provider accounts exist yet.** Gmail and Graph cannot be exercised at all
+  until they do, so stage B's real value — finding out whether the abstraction survives
+  contact with three providers — is only partly available. The IMAP matrix covers the tier
+  divergence locally; the provider divergence still needs real accounts.
+- The IMAP tiers are produced by overriding Dovecot's advertised `imap_capability`, not by
+  servers that genuinely lack the features. That faithfully exercises our capability
+  negotiation, which is the thing under test, but proves nothing about a server whose
+  implementation is absent or subtly broken. Green here is necessary, not sufficient.
 
 - The `tsconfig.json` `paths` mapping is verified to resolve
   (`@mylomail/shared-types/Api/Contracts/HealthDto` typechecks) but nothing in the tree

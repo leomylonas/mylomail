@@ -1,0 +1,58 @@
+# The IMAP capability matrix (§3, §11).
+#
+# Three servers that differ only in what they advertise, because the three tiers are as
+# divergent from one another as the three providers are. A provider tested against one
+# modern IMAP server proves almost nothing about the other two.
+#
+#   pnpm imap:up      start all three
+#   pnpm imap:down    stop and discard their mail
+#
+# Test-only: no TLS, plaintext auth, one static user, and mail lives in a tmpfs so every
+# restart is a clean server.
+
+name: mylomail-imap-matrix
+
+x-dovecot: &dovecot
+  image: dovecot/dovecot:2.3.21
+  restart: unless-stopped
+  tmpfs:
+    - /srv/mail:uid=1000,gid=1000,mode=0700
+  healthcheck:
+    test:
+      ["CMD-SHELL", "doveadm service status imap-login | grep -q imap-login"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+    start_period: 3s
+
+services:
+  # Tier 1 — CONDSTORE + QRESYNC + UIDPLUS + MOVE.
+  imap-qresync:
+    <<: *dovecot
+    container_name: mylomail-imap-qresync
+    ports:
+      - "127.0.0.1:11143:143"
+    volumes:
+      - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./conf/Tier-QResync.conf:/etc/dovecot/dovecot.conf:ro
+
+  # Tier 2 — CONDSTORE, no QRESYNC. Also uses a "." delimiter and an INBOX. prefix, so a
+  # provider that assumes "/" fails here and nowhere else.
+  imap-condstore:
+    <<: *dovecot
+    container_name: mylomail-imap-condstore
+    ports:
+      - "127.0.0.1:12143:143"
+    volumes:
+      - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./conf/Tier-CondStore.conf:/etc/dovecot/dovecot.conf:ro
+
+  # Tier 3 — neither, and no UIDPLUS or MOVE, so a move cannot report its destination UID.
+  imap-basic:
+    <<: *dovecot
+    container_name: mylomail-imap-basic
+    ports:
+      - "127.0.0.1:13143:143"
+    volumes:
+      - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./conf/Tier-Basic.conf:/etc/dovecot/dovecot.conf:ro
