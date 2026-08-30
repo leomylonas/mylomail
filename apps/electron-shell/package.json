@@ -1,0 +1,6 @@
+{
+  "name": "@mylomail/electron-shell",
+  "private": true,
+  "type": "module"
+}
+

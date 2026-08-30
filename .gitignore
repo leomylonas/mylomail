@@ -1,0 +1,23 @@
+# Per-machine transient state (watcher status file)
+.dev/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+bin/
+obj/
+
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+artifacts/
+
+# Logs / OS
+*.log
+.DS_Store

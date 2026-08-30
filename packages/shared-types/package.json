@@ -1,0 +1,13 @@
+{
+  "name": "@mylomail/shared-types",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@microsoft/signalr": "^8.0.17",
+    "zod": "^4.1.5"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
+

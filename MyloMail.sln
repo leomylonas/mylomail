@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.Api", "server\MyloMail.Api\MyloMail.Api.csproj", "{0FC2C8B1-4544-4F90-A6E7-B9C58ED96666}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.Api.Tests", "server\MyloMail.Api.Tests\MyloMail.Api.Tests.csproj", "{46560436-8469-49E2-B01B-2A99C9854D99}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.Api.IntegrationTests", "server\MyloMail.Api.IntegrationTests\MyloMail.Api.IntegrationTests.csproj", "{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0FC2C8B1-4544-4F90-A6E7-B9C58ED96666}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0FC2C8B1-4544-4F90-A6E7-B9C58ED96666}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0FC2C8B1-4544-4F90-A6E7-B9C58ED96666}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0FC2C8B1-4544-4F90-A6E7-B9C58ED96666}.Release|Any CPU.Build.0 = Release|Any CPU
+		{46560436-8469-49E2-B01B-2A99C9854D99}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{46560436-8469-49E2-B01B-2A99C9854D99}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{46560436-8469-49E2-B01B-2A99C9854D99}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{46560436-8469-49E2-B01B-2A99C9854D99}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
