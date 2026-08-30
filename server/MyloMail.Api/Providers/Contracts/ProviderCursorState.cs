@@ -17,7 +17,12 @@ public abstract record ProviderCursorState
 {
 	public abstract CursorKind Kind { get; }
 
-	public int Version { get; init; } = 1;
+	/// <summary>
+	/// Abstract, not a defaulted property: a new shape must state its own version. A
+	/// defaulted one is inherited silently, and a cursor mislabelled as an older shape is
+	/// worse than an opaque one — the migration reads it confidently and wrongly.
+	/// </summary>
+	public abstract int Version { get; }
 }
 
 public enum CursorKind
@@ -31,12 +36,16 @@ public enum CursorKind
 public sealed record GmailHistoryCursor(string HistoryId) : ProviderCursorState
 {
 	public override CursorKind Kind => CursorKind.GmailHistory;
+
+	public override int Version => 1;
 }
 
 /// <summary>Graph's folder-scoped delta link.</summary>
 public sealed record GraphDeltaCursor(string DeltaLink) : ProviderCursorState
 {
 	public override CursorKind Kind => CursorKind.GraphDelta;
+
+	public override int Version => 1;
 }
 
 /// <summary>
@@ -51,6 +60,8 @@ public sealed record ImapUidCursor(
 ) : ProviderCursorState
 {
 	public override CursorKind Kind => CursorKind.ImapUid;
+
+	public override int Version => 1;
 }
 
 /// <summary>

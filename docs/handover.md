@@ -122,8 +122,19 @@ provider interface, so it is deliberately not in the shared suite and does not y
   - `OccurrenceChange` carries `RequiresDestinationReconciliation`. §2 requires a provider
     that cannot report a move's destination id to flag that reconciliation is needed rather
     than guess; the record as written has no way to express it.
-- **An independent invariant review has not been run on this diff.** It touches the mutation
-  and sync contract surface, so definition-of-done item 5 applies.
+- **An invariant review of `bfc5183` was run and its findings applied** (see the commit
+  after it). One violation was found and fixed: `SyncResult.NewCursor` was non-nullable
+  beside a `HasMore` flag, so a provider mid-walk had to return *some* cursor, and the only
+  available choices either covered undelivered pages or smuggled a Graph `nextLink` into a
+  delta-cursor field. Either way the caller commits a cursor past data it has not received
+  and those pages are skipped silently — principle 3.
+- **One review finding is unresolved and needs a decision, because fixing it departs from
+  frozen architecture.** `BatchItemResult` is keyed by `MessageId` alone, exactly as §2
+  line 365 writes it. But `RemoveFromMailboxAsync` is membership-scoped (§6), and under
+  Gmail's label model one message legitimately has several occurrences, so one batch can
+  carry two refs with the same `MessageId` in different mailboxes and their results are
+  indistinguishable. Correlating on the occurrence (message plus mailbox, or a request
+  index) would fix it but changes a record the design doc specifies verbatim.
 - `FakeMailProvider` implements `SendAsync`, draft methods and `MoveMailboxAsync` as no-ops.
   Adequate for the current suite; they need real behaviour before stage C exercises them.
 - Two generated paths cannot take PascalCase names: `TypedSignalR.Client.TypeScript` writes

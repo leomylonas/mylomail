@@ -5,14 +5,19 @@ namespace MyloMail.Api.Providers.Contracts;
 public record CalendarDto(string ProviderCalendarId, string Name, string? Colour, bool IsDefault);
 
 /// <summary>
-/// One page of calendar change. As with mail, the cursor commits with the state it covers.
+/// One page of calendar change. As with mail, a cursor is returned only once it covers
+/// everything in this result and everything before it; <see cref="Continuation"/> resumes an
+/// incomplete walk and is never persisted as sync position.
 /// </summary>
 public record CalendarSyncResult(
-	string NewCursor,
+	string? NewCursor,
+	string? Continuation,
 	IReadOnlyList<CalendarEventDto> Upserted,
-	IReadOnlyList<string> DeletedProviderEventIds,
-	bool HasMore
-);
+	IReadOnlyList<string> DeletedProviderEventIds
+)
+{
+	public bool HasMore => Continuation is not null;
+}
 
 /// <summary>
 /// An event as the provider reports it. Graph's <c>recurrence</c> object is translated into

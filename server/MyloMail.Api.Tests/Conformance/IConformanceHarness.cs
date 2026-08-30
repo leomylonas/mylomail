@@ -34,6 +34,12 @@ public interface IConformanceHarness : IAsyncDisposable
 	Task<ProviderCursorState> BaselineCursorAsync(Mailbox mailbox, CancellationToken ct = default);
 
 	/// <summary>
+	/// Seeds enough messages that a single sync page cannot hold them all, so cursor
+	/// advancement can be observed mid-walk.
+	/// </summary>
+	Task SeedPageOverflowAsync(Mailbox mailbox, CancellationToken ct = default);
+
+	/// <summary>
 	/// Produces a cursor the server will reject: an IMAP <c>UIDVALIDITY</c> change, an
 	/// expired Gmail <c>historyId</c>, a Graph delta link that has gone <c>410</c>.
 	/// </summary>

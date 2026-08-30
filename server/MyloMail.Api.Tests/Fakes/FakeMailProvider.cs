@@ -24,6 +24,8 @@ namespace MyloMail.Api.Tests.Fakes;
 /// </remarks>
 public sealed class FakeMailProvider : IMailProvider
 {
+	private const int PageSize = 50;
+
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private long occurrenceSequence;
 
@@ -138,6 +140,7 @@ public sealed class FakeMailProvider : IMailProvider
 		Account account,
 		Mailbox mailbox,
 		ProviderCursorState? cursor,
+		string? continuation,
 		CancellationToken ct
 	)
 	{
@@ -149,13 +152,20 @@ public sealed class FakeMailProvider : IMailProvider
 		}
 
 		var source = Require(ProviderIdOf(mailbox));
+		var messages = source.Messages.Skip(int.TryParse(continuation, out var offset) ? offset : 0);
+		var page = messages.Take(PageSize).ToList();
+		var consumed = (int.TryParse(continuation, out var seen) ? seen : 0) + page.Count;
+		var more = consumed < source.Messages.Count;
+
 		return Task.FromResult(
 			new SyncResult(
-				CurrentCursor(),
-				[.. source.Messages.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
+				// Null while the walk is incomplete, unless this provider's cursor is monotone
+				// over what has already been returned.
+				more && !Capabilities.AdvancesCursorMidWalk ? null : CurrentCursor(),
+				more ? consumed.ToString() : null,
+				[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
 				[],
-				[.. source.Removed.Select(id => new OccurrenceRemoval(source.ProviderMailboxId, id))],
-				HasMore: false
+				[.. source.Removed.Select(id => new OccurrenceRemoval(source.ProviderMailboxId, id))]
 			)
 		);
 	}
@@ -238,11 +248,12 @@ public sealed class FakeMailProvider : IMailProvider
 					return
 					[
 						new OccurrenceChange(found.Reference.MailboxId, null, Removed: true),
+						// A server that cannot report the destination id returns nothing here,
+						// and the caller learns that from the absent id itself.
 						new OccurrenceChange(
 							target.Id,
 							Capabilities.ReportsDestinationIdOnMove ? newOccurrenceId : null,
-							Removed: false,
-							RequiresDestinationReconciliation: !Capabilities.ReportsDestinationIdOnMove
+							Removed: false
 						),
 					];
 				}

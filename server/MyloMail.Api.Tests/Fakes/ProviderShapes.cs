@@ -25,6 +25,10 @@ public static class ProviderShapes
 			ReportsDestinationIdOnMove = true,
 			SupportsIncrementalFlagChanges = true,
 			ReportsExpungesIncrementally = true,
+
+			// A historyId describes the whole list, not the page in hand.
+			AdvancesCursorMidWalk = false,
+
 			SupportsServerSideDrafts = true,
 
 			// Deleting a label leaves the messages in All Mail.
@@ -41,6 +45,11 @@ public static class ProviderShapes
 			ReportsDestinationIdOnMove = true,
 			SupportsIncrementalFlagChanges = true,
 			ReportsExpungesIncrementally = true,
+
+			// A partial delta walk yields a nextLink, not the deltaLink incremental sync
+			// needs, so there is nothing safe to commit until the walk finishes (§3).
+			AdvancesCursorMidWalk = false,
+
 			SupportsServerSideDrafts = true,
 			DeletingMailboxDeletesMessages = true,
 		};
@@ -69,6 +78,10 @@ public static class ProviderShapes
 
 			// Only QRESYNC reports expunges (VANISHED). The others need UID-set reconciliation.
 			ReportsExpungesIncrementally = tier == ImapCapabilityTier.QResync,
+
+			// HighestKnownUid is a high-water mark over what has already been returned, so a
+			// partial page can be committed without skipping anything.
+			AdvancesCursorMidWalk = true,
 
 			SupportsServerSideDrafts = true,
 			DeletingMailboxDeletesMessages = true,

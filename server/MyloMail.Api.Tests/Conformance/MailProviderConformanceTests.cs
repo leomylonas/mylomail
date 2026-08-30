@@ -63,19 +63,27 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 		var addition = Assert.Single(item.OccurrenceChanges, c => !c.Removed);
 		Assert.Equal(Harness.Destination.Id, addition.MailboxId);
 
+		// Driven by the response, not by the declaration. A provider that advertises UIDPLUS
+		// but receives no COPYUID for this particular command is exactly the case the
+		// reconciliation signal exists for, and asserting against the capability would let
+		// that through.
+		if (addition.NewProviderOccurrenceId is null)
+		{
+			Assert.True(
+				addition.RequiresDestinationReconciliation,
+				"an addition with no provider id must demand reconciliation, not be left orphaned"
+			);
+		}
+		else
+		{
+			Assert.False(addition.RequiresDestinationReconciliation);
+		}
+
 		if (Harness.Provider.Capabilities.ReportsDestinationIdOnMove)
 		{
 			Assert.False(
 				string.IsNullOrEmpty(addition.NewProviderOccurrenceId),
 				"provider claims to report destination ids, so the move must carry one"
-			);
-			Assert.False(addition.RequiresDestinationReconciliation);
-		}
-		else
-		{
-			Assert.True(
-				addition.RequiresDestinationReconciliation,
-				"a provider that cannot report the destination id must say so, not guess"
 			);
 		}
 	}
@@ -121,13 +129,14 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 					Harness.Account,
 					Harness.Source,
 					expired,
+					continuation: null,
 					CancellationToken.None
 				)
 		);
 	}
 
 	/// <summary>
-	/// A valid cursor does not raise, and the returned cursor is of the provider's own kind.
+	/// A valid cursor does not raise, and any cursor returned is of the provider's own kind.
 	/// </summary>
 	[Fact]
 	public async Task Sync_returns_a_cursor_of_the_declared_kind()
@@ -138,10 +147,48 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 			Harness.Account,
 			Harness.Source,
 			baseline,
+			continuation: null,
 			CancellationToken.None
 		);
 
-		Assert.Equal(baseline.Kind, result.NewCursor.Kind);
+		if (result.NewCursor is not null)
+		{
+			Assert.Equal(baseline.Kind, result.NewCursor.Kind);
+		}
+	}
+
+	/// <summary>
+	/// A provider must not hand back a cursor covering changes it has not yet delivered.
+	/// </summary>
+	/// <remarks>
+	/// The caller commits the cursor in the same transaction as the page. If the cursor
+	/// already covers pages still to come, those pages are skipped — permanently, and with no
+	/// error anywhere. Gmail reports a `historyId` for the whole list and Graph withholds the
+	/// `deltaLink` until the walk ends, so neither can advance mid-walk; IMAP can, because
+	/// `HighestKnownUid` is a high-water mark over what has already been returned (§1, §3).
+	/// </remarks>
+	[Fact]
+	public async Task Cursor_is_not_advanced_past_undelivered_changes()
+	{
+		if (Harness.Provider.Capabilities.AdvancesCursorMidWalk)
+		{
+			return;
+		}
+
+		await Harness.SeedPageOverflowAsync(Harness.Source);
+		var baseline = await Harness.BaselineCursorAsync(Harness.Source);
+
+		var result = await Harness.Provider.SyncMailboxAsync(
+			Harness.Account,
+			Harness.Source,
+			baseline,
+			continuation: null,
+			CancellationToken.None
+		);
+
+		Assert.True(result.HasMore, "the harness seeded more than one page");
+		Assert.Null(result.NewCursor);
+		Assert.NotNull(result.Continuation);
 	}
 
 	/// <summary>
@@ -236,6 +283,7 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 			Harness.Account,
 			Harness.Source,
 			baseline,
+			continuation: null,
 			CancellationToken.None
 		);
 

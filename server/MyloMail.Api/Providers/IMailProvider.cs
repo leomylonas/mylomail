@@ -56,10 +56,15 @@ public interface IMailProvider
 	/// <exception cref="ProviderCursorInvalidException">
 	/// The cursor can no longer be used and a baseline must be re-established (§3).
 	/// </exception>
+	/// <param name="continuation">
+	/// From a prior <see cref="SyncResult.Continuation"/>, to resume an incomplete walk.
+	/// Null starts from <paramref name="cursor"/>.
+	/// </param>
 	Task<SyncResult> SyncMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		ProviderCursorState? cursor,
+		string? continuation,
 		CancellationToken ct
 	);
 

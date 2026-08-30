@@ -73,6 +73,16 @@ public sealed class FakeConformanceHarness : IConformanceHarness
 		return Task.FromResult(new MessageOccurrenceRef(messageId, mailbox.Id, occurrenceId));
 	}
 
+	public Task SeedPageOverflowAsync(Mailbox mailbox, CancellationToken ct = default)
+	{
+		for (var i = 0; i < 60; i++)
+		{
+			provider.SeedMessage(mailbox.ProviderMailboxId!, Guid.NewGuid(), DateTimeOffset.UtcNow);
+		}
+
+		return Task.CompletedTask;
+	}
+
 	public Task<ProviderCursorState> BaselineCursorAsync(
 		Mailbox mailbox,
 		CancellationToken ct = default

@@ -25,6 +25,7 @@ public interface ICalendarProvider
 		Account account,
 		Calendar calendar,
 		string? cursor,
+		string? continuation,
 		CancellationToken ct
 	);
 

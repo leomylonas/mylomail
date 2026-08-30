@@ -53,15 +53,16 @@ public record BatchItemResult(
 /// its destination identity — an IMAP move changes the UID, and with UIDPLUS or MOVE the
 /// server returns the new one.
 /// </summary>
-/// <remarks>
-/// Where the server does not report the destination id,
-/// <see cref="NewProviderOccurrenceId"/> is null and
-/// <see cref="RequiresDestinationReconciliation"/> is set, so the caller reconciles rather
-/// than guessing (§2).
-/// </remarks>
-public record OccurrenceChange(
-	Guid MailboxId,
-	string? NewProviderOccurrenceId,
-	bool Removed,
-	bool RequiresDestinationReconciliation = false
-);
+public record OccurrenceChange(Guid MailboxId, string? NewProviderOccurrenceId, bool Removed)
+{
+	/// <summary>
+	/// An addition whose provider id is unknown. §2 requires that this be surfaced rather
+	/// than guessed at, and under an IMAP move without UIDPLUS it is the normal path, not an
+	/// edge case: the occurrence is unaddressable on the server until it is reconciled.
+	/// </summary>
+	/// <remarks>
+	/// Derived, not reported. Storing it as a separate flag would allow a change to claim no
+	/// reconciliation is needed while carrying no id, and default it to that.
+	/// </remarks>
+	public bool RequiresDestinationReconciliation => !Removed && NewProviderOccurrenceId is null;
+}

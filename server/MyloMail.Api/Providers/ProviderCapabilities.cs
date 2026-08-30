@@ -45,6 +45,14 @@ public record ProviderCapabilities
 	/// <summary>Whether expunges are reported incrementally (QRESYNC VANISHED), or require UID-set reconciliation (§3).</summary>
 	public required bool ReportsExpungesIncrementally { get; init; }
 
+	/// <summary>
+	/// Whether a cursor may be advanced while a walk is still incomplete. True only where the
+	/// cursor is monotone over the data already returned — IMAP's <c>HighestKnownUid</c> is a
+	/// high-water mark, whereas Gmail reports a <c>historyId</c> for the whole list and Graph
+	/// yields a <c>nextLink</c> rather than a <c>deltaLink</c> until the walk finishes (§3).
+	/// </summary>
+	public required bool AdvancesCursorMidWalk { get; init; }
+
 	public required bool SupportsServerSideDrafts { get; init; }
 
 	/// <summary>
