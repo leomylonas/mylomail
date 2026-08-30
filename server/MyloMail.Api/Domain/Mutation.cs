@@ -99,6 +99,12 @@ public enum MutationOperationKind
 	RemoveFromMailbox,
 	MoveToTrash,
 	DeletePermanently,
+
+	/// <summary>
+	/// Not one of the five message operations: send has no <c>MutationItem</c> and is never
+	/// part of a chain. It appears here only so an attempt can say what it was.
+	/// </summary>
+	Send,
 }
 
 public enum MutationState
@@ -142,6 +148,14 @@ public class MutationExecutionAttempt
 	public MutationOperationKind OperationKind { get; set; }
 	public MutationAttemptState State { get; set; }
 	public DateTimeOffset CreatedAt { get; set; }
+
+	/// <summary>
+	/// Set when this attempt is a send. Send gets its own attempt, always, with exactly one
+	/// item — which is a column here rather than a row in
+	/// <see cref="MutationExecutionAttemptItem"/> precisely because "exactly one" should be
+	/// true by construction rather than by convention (§6).
+	/// </summary>
+	public Guid? OutboxItemId { get; set; }
 
 	/// <summary>
 	/// Set synchronously and durably immediately before the irreversible provider call. A

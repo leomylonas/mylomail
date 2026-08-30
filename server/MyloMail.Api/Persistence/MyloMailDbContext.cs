@@ -37,6 +37,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<MutationExecutionAttemptItem> MutationExecutionAttemptItems =>
 		Set<MutationExecutionAttemptItem>();
 	public DbSet<MessagePendingChange> MessagePendingChanges => Set<MessagePendingChange>();
+	public DbSet<OutboxItem> OutboxItems => Set<OutboxItem>();
 
 	public DbSet<Draft> Drafts => Set<Draft>();
 	public DbSet<Calendar> Calendars => Set<Calendar>();
@@ -336,6 +337,11 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 			// The recovery sweep queries from attempts, not from item states.
 			e.HasIndex(x => new { x.State, x.ResultPersistedAt });
+
+			e.HasOne<OutboxItem>()
+				.WithMany()
+				.HasForeignKey(x => x.OutboxItemId)
+				.OnDelete(DeleteBehavior.Cascade);
 		});
 
 		model.Entity<MutationExecutionAttemptItem>(e =>
@@ -349,6 +355,22 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.WithMany()
 				.HasForeignKey(x => x.MutationItemId)
 				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<OutboxItem>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// No FK to Draft: the draft is deleted once the message is sent, and the outbox
+			// row outlives it as the record of what happened.
+			e.HasIndex(x => new { x.AccountId, x.Status });
+
+			// Reconciliation of an ambiguous send searches by this, so it must be findable.
+			e.HasIndex(x => x.StableMessageId).IsUnique();
 		});
 
 		model.Entity<MessagePendingChange>(e =>

@@ -16,7 +16,9 @@ public sealed record OutstandingWork(
 	IReadOnlyList<Guid> BackfillingMailboxes,
 	IReadOnlyList<Guid> NonTerminalMutationChains,
 	IReadOnlyList<Guid> AmbiguousAttempts,
-	IReadOnlyList<Guid> UnfetchedContentMessages
+	IReadOnlyList<Guid> UnfetchedContentMessages,
+	IReadOnlyList<Guid> PendingSends,
+	IReadOnlyList<Guid> UnresolvedSends
 );
 
 public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvider clock, ILogger<StartupReconciliation> logger)
@@ -25,9 +27,9 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 	/// Enumerates every source of outstanding work this build has tables for.
 	/// </summary>
 	/// <remarks>
-	/// Outbox, export and notification sources from §6's table are absent here because those
-	/// tables do not exist yet. They are listed in the handoff rather than silently omitted:
-	/// an under-enumerated sweep is exactly the failure this class exists to prevent.
+	/// Export and notification sources from §6's table are still absent because those tables
+	/// do not exist yet. They are listed in the handoff rather than silently omitted: an
+	/// under-enumerated sweep is exactly the failure this class exists to prevent.
 	/// </remarks>
 	public async Task<OutstandingWork> FindAsync(CancellationToken ct = default)
 	{
@@ -61,16 +63,34 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			.Select(c => c.MessageId)
 			.ToListAsync(ct);
 
+		// Scheduled sends waiting for their undo window. With in-memory job storage the
+		// Hangfire job is gone, so this is the only thing that makes a pending send survive
+		// a restart.
+		var pendingSends = await context
+			.OutboxItems.Where(o => o.Status == OutboxStatus.Scheduled || o.Status == OutboxStatus.Pending)
+			.Select(o => o.Id)
+			.ToListAsync(ct);
+
+		// Left mid-send by a crash, or explicitly ambiguous. Never auto-retried: a send is
+		// the one operation whose replay is externally visible.
+		var unresolvedSends = await context
+			.OutboxItems.Where(o => o.Status == OutboxStatus.Sending || o.Status == OutboxStatus.AmbiguousOutcome)
+			.Select(o => o.Id)
+			.ToListAsync(ct);
+
 		logger.LogInformation(
 			"Startup reconciliation found {Backfills} backfills, {Chains} non-terminal mutations, "
-				+ "{Ambiguous} unresolved attempts, {Content} unfetched messages.",
+				+ "{Ambiguous} unresolved attempts, {Content} unfetched messages, {Pending} pending sends, "
+				+ "{Unresolved} sends awaiting reconciliation.",
 			backfilling.Count,
 			chains.Count,
 			ambiguous.Count,
-			content.Count
+			content.Count,
+			pendingSends.Count,
+			unresolvedSends.Count
 		);
 
-		return new OutstandingWork(backfilling, chains, ambiguous, content);
+		return new OutstandingWork(backfilling, chains, ambiguous, content, pendingSends, unresolvedSends);
 	}
 
 	/// <summary>

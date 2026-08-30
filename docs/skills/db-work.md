@@ -24,3 +24,18 @@ matching. Physical message deletion is tombstone GC, not mutation-worker work.
 
 Before finishing: verify pragmas, migrate an existing database, add fault injection when
 relevant, and complete invariant review.
+
+## SQLite quirks that have already cost time
+
+**`ORDER BY` on a `DateTimeOffset` throws.** EF's SQLite provider refuses to translate it —
+`SQLite does not support expressions of type 'DateTimeOffset' in ORDER BY clauses`. Order
+client-side after materialising, or order by something else. This has bitten twice, in the
+mutation claim query and in send reconciliation.
+
+**Comparing a `DateTimeOffset` in raw SQL does not work either.** It is stored as text with
+variable-length fractional seconds, so it does not sort lexicographically. Where a
+comparison has to happen inside a statement, compare-and-swap on a value already read
+instead — see `MutationClaimService`.
+
+**Pass a `Guid` as a `Guid`, never as a string.** The driver writes it upper-case, and
+`Guid.ToString()` is lower-case, so a hand-built string parameter silently matches nothing.

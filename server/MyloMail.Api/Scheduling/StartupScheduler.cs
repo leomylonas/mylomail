@@ -43,6 +43,11 @@ public sealed class StartupScheduler(
 			// live sync would never resume on its own.
 			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
 			jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
+
+			// Pending sends and unresolved ones both go through the outbox job: it reconciles
+			// before it dispatches, so a send left mid-flight by the crash is settled before
+			// anything new goes out.
+			jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 		}
 
 		foreach (var mailboxId in work.BackfillingMailboxes)
@@ -60,11 +65,14 @@ public sealed class StartupScheduler(
 
 		logger.LogInformation(
 			"Startup scheduling: {Accounts} accounts, {Backfills} backfills resumed, {Leases} leases released, "
-				+ "{Ambiguous} attempts awaiting reconciliation.",
+				+ "{Ambiguous} attempts awaiting reconciliation, {Pending} pending sends, "
+				+ "{Unresolved} sends awaiting reconciliation.",
 			accounts.Count,
 			work.BackfillingMailboxes.Count,
 			released,
-			work.AmbiguousAttempts.Count
+			work.AmbiguousAttempts.Count,
+			work.PendingSends.Count,
+			work.UnresolvedSends.Count
 		);
 	}
 
@@ -90,5 +98,6 @@ public sealed class StartupScheduler(
 
 		jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
 		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
+		jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 	}
 }

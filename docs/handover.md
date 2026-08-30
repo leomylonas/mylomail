@@ -2,8 +2,33 @@
 
 ## Completed
 
-**Stage C, fourth slice — closing test gaps, and the job layer.** Persistence `e085284`,
-mutations `23dde6a`, sync `9b455bd`, testing discipline `9508f1e`/`514a7af`.
+**Stage C, fifth slice — send and the outbox (§15).** Persistence `e085284`, mutations
+`23dde6a`, sync `9b455bd`, testing discipline `9508f1e`/`514a7af`, job layer `0a5b6d6`.
+
+- `OutboxItem` with compare-and-swap transitions. Cancel attempts `Scheduled`/`Pending` →
+  `Cancelled` while the worker attempts the same → `Sending`; exactly one wins. Once
+  `Sending`, cancellation reports "too late" and never reverts — the message may already be
+  gone, and a recheck before dispatch narrows that window without closing it.
+- The stable `Message-ID` is generated at queue time, before any attempt exists. After a
+  crash it is the only identifier on both sides of a send whose result nobody observed.
+- `SendExecutor` follows the same five steps as any mutation, `Dispatched` write included.
+  Send gets its own attempt with exactly one item, modelled as a column on the attempt so
+  "exactly one" holds by construction rather than by convention.
+- `SendReconciler` never resends. It looks for the message in Sent by the stable id within a
+  bounded window, because neither Gmail nor Graph guarantees the copy appears immediately.
+  Past the window it still does not resend: it tells the user to check their Sent mail,
+  which is the only question they can actually answer.
+- **An explicit rejection is an observed outcome.** A throttling or auth response means the
+  provider answered and the answer was no, so the item returns to the queue and the attempt
+  closes — rather than becoming ambiguous, which would make every rate-limited send
+  something the user has to go and verify.
+- `StartupReconciliation` now enumerates `PendingSends` and `UnresolvedSends`, so a
+  scheduled send survives a restart. With in-memory job storage nothing else knows it
+  existed.
+- Three SQLite traps recorded in `docs/skills/db-work.md` — `DateTimeOffset` ordering has
+  cost time twice, and `Guid` casing in raw SQL silently matches nothing.
+
+**Fourth slice — closing test gaps, and the job layer.**
 
 **Test gaps found by mutation testing.** Twelve of thirteen targeted survivors killed, and
 one of them was a real defect rather than a missing assertion:
@@ -40,9 +65,9 @@ one of them was a real defect rather than a missing assertion:
 
 ## Next task
 
-- **Send and the outbox** — see the risks below. The largest remaining hole in §6.
 - **Per-operation reconciliation of ambiguous mutations.** The sweep identifies them;
-  re-establishing location for a move or existence for a deletion is still to write.
+  re-establishing location for a move or existence for a deletion is still to write. Send is
+  now the worked example of what this looks like.
 - **Periodic integrity reconciliation** for the weakest IMAP tier, now that a scheduler
   exists to hang a cadence on. Keep it distinct from triggered resynchronisation.
 - **Nothing runs end to end yet**: no production `ICredentialStore`, so no provider is
@@ -73,11 +98,18 @@ one of them was a real defect rather than a missing assertion:
 
 ## Risks / decisions
 
-- **Send and the outbox are still not built.** §6 gives send its own attempt with exactly one
-  item and an `AmbiguousOutcome` policy, reconciled against Sent by a pre-generated
-  `Message-ID`. `OutboxItem` has no table, so `StartupReconciliation` cannot enumerate
-  `Scheduled`/`Sending` items, in-progress exports or undelivered notifications. Whoever adds
-  those tables must extend that sweep in the same change.
+- **Reconciliation reads the local Sent mailbox, not the provider.** Sync already
+  materialises Sent, and a second lookup path would be a second answer to the same question.
+  But if Sent-mailbox sync lags past the ten-minute window, a send that actually succeeded is
+  reported as unconfirmed. That is a false negative in status reporting — never a duplicate
+  send or a silent loss — and it is the known cost of not adding a provider-level lookup.
+- **`OutboxStatus.Pending` is never set.** `Scheduled` items become `Sending` directly. It is
+  part of §15's status set and both cancel and claim already treat it as takeable, so
+  introducing it later does not reopen the race.
+- **`StartupReconciliation` still omits export jobs and notification records**, whose tables
+  do not exist. Whoever adds them must extend that sweep in the same change.
+- **Nothing composes a draft yet.** The outbox sends an existing `Draft` row; compose,
+  attachments and the reply/quote path are frontend and feature work.
 - **Notification records are not derived from staged events yet.** §3 requires notifications
   come from the staging queue *before* canonical replay, or live mail goes unnotified for the
   hours a large backfill takes. `StagedChangeEvent.ScannedForNotifications` exists for it.

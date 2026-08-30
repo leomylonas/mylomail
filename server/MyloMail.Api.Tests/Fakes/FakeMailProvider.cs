@@ -28,6 +28,7 @@ public sealed class FakeMailProvider : IMailProvider
 
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
+	private Exception? sendFailure;
 	private long occurrenceSequence;
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
@@ -55,6 +56,9 @@ public sealed class FakeMailProvider : IMailProvider
 	/// than successful, and partial batch results are the normal case, not an edge one.
 	/// </summary>
 	public void OmitFromBatchResults(string providerOccurrenceId) => omitted.Add(providerOccurrenceId);
+
+	/// <summary>Makes the next send throw, so a rejection path can be exercised.</summary>
+	public void FailSendWith(Exception failure) => sendFailure = failure;
 
 	/// <summary>Removes a mailbox behind the client's back, as another client would.</summary>
 	public void RemoveMailbox(string providerMailboxId) => mailboxes.Remove(providerMailboxId);
@@ -387,8 +391,16 @@ public sealed class FakeMailProvider : IMailProvider
 			Subject = message.Subject,
 		};
 
-	public Task SendAsync(Account account, Draft draft, string stableMessageId, CancellationToken ct) =>
-		Task.CompletedTask;
+	public Task SendAsync(Account account, Draft draft, string stableMessageId, CancellationToken ct)
+	{
+		if (sendFailure is Exception failure)
+		{
+			sendFailure = null;
+			throw failure;
+		}
+
+		return Task.CompletedTask;
+	}
 
 	public Task<DraftResult> CreateOrUpdateDraftAsync(
 		Account account,

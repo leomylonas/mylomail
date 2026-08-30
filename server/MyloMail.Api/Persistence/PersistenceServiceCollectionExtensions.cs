@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
+using MyloMail.Api.Outbox;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
@@ -57,6 +58,9 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MutationChainEvaluator>();
 		services.AddScoped<MutationExecutor>();
 		services.AddScoped<StartupReconciliation>();
+		services.AddScoped<OutboxService>();
+		services.AddScoped<SendExecutor>();
+		services.AddScoped<SendReconciler>();
 
 		return services;
 	}
@@ -86,6 +90,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddSingleton<PollRegistry>();
 		services.AddScoped<SyncJobs>();
 		services.AddScoped<MutationJobs>();
+		services.AddScoped<OutboxJobs>();
 		services.AddScoped<StartupScheduler>();
 
 		services.AddHangfire(configuration =>

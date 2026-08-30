@@ -65,6 +65,18 @@ public sealed class ImapProviderConfig : ProviderConfig
 	public string AuthMethod { get; set; } = string.Empty;
 	public string SmtpHost { get; set; } = string.Empty;
 	public int SmtpPort { get; set; }
+
+	/// <summary>
+	/// Whether to append a copy to the Sent mailbox after sending. IMAP only, and true by
+	/// default (§15).
+	/// </summary>
+	/// <remarks>
+	/// SMTP relays a message and does not file it, so the client must append the copy — but
+	/// some servers, notably Gmail over IMAP, do it server-side anyway, which is exactly why
+	/// this cannot be hardcoded either way. Gmail and Graph place the copy themselves as part
+	/// of the send, and appending there would duplicate it.
+	/// </remarks>
+	public bool AppendToSentOnSend { get; set; } = true;
 }
 
 public sealed class GmailProviderConfig : ProviderConfig;
