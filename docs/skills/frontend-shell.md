@@ -45,11 +45,12 @@ the barrel compiling. Import the module by its full path instead:
 
 ```ts
 import type { HealthDto } from "@mylomail/shared-types/Api/Contracts/HealthDto";
-import { MessageRow } from "@renderer/Components/MessageList/MessageRow/MessageRow";
+import { MessageRow } from "@mylomail/renderer/Components/MessageList/MessageRow/MessageRow";
 ```
 
 **`src` never appears in an import.** `tsconfig.json` maps `@mylomail/shared-types/*`,
-`@mylomail/ui/*`, `@renderer/*` and `@shell/*` onto each package's `src`, so the physical
+`@mylomail/ui/*`, `@mylomail/renderer/*` and `@mylomail/electron-shell/*` onto each
+package's `src`, so the physical
 layout stays conventional while specifiers stay clean. Generated types are stripped of
 their C# namespace prefix (`--strip MyloMail.Api`) for the same reason — otherwise every
 import would carry a redundant `MyloMail/Api/`.

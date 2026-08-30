@@ -38,7 +38,8 @@
   CSS module, store, tests and private child components beside it. Rules in `AGENTS.md`,
   reasoning in `docs/skills/frontend-shell.md`.
 - **No barrel files, and `src` never appears in an import.** `tsconfig.json` maps
-  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@renderer/*` and `@shell/*` onto each
+  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@mylomail/renderer/*` and
+  `@mylomail/electron-shell/*` onto each
   package's `src`. Resolution moved from `NodeNext` to `bundler`, which is what
   electron-vite-bundled code needs — `NodeNext` requires an explicit extension on every
   specifier. Generated types are stripped of the `MyloMail.Api` namespace prefix so imports

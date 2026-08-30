@@ -11,8 +11,8 @@
     "paths": {
       "@mylomail/shared-types/*": ["./packages/shared-types/src/*"],
       "@mylomail/ui/*": ["./packages/ui/src/*"],
-      "@renderer/*": ["./apps/renderer/src/*"],
-      "@shell/*": ["./apps/electron-shell/src/*"]
+      "@mylomail/renderer/*": ["./apps/renderer/src/*"],
+      "@mylomail/electron-shell/*": ["./apps/electron-shell/src/*"]
     }
   },
   "include": [

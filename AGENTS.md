@@ -158,7 +158,8 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
   path — `@mylomail/shared-types/Api/Contracts/HealthDto` — so a symbol is greppable to
   exactly one path and a re-export cannot quietly rename it.
 - **Import via the mapped prefixes**, never a relative climb or a `src` segment:
-  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@renderer/*`, `@shell/*`. Defined in
+  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@mylomail/renderer/*`,
+  `@mylomail/electron-shell/*`. Defined in
   `tsconfig.json` `paths`.
 - **Named exports only.** No default exports; they let the same module be imported under
   different names.
