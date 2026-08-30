@@ -8,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOverride);
 builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddMutations();
+builder.Services.AddSync();
 
 var app = builder.Build();
 

@@ -48,6 +48,9 @@ public sealed class FakeMailProvider : IMailProvider
 		return mailbox;
 	}
 
+	/// <summary>Removes a mailbox behind the client's back, as another client would.</summary>
+	public void RemoveMailbox(string providerMailboxId) => mailboxes.Remove(providerMailboxId);
+
 	/// <summary>
 	/// Removes an occurrence behind the client's back, as another client or another device
 	/// would. A mutation addressing it then fails on the server's terms rather than through a

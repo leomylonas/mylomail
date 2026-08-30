@@ -76,6 +76,43 @@ public class ChangeStreamState
 }
 
 /// <summary>
+/// One page of live change, drained durably but not yet applied to the canonical model (§3).
+/// </summary>
+/// <remarks>
+/// This exists for Gmail's ordering problem. The account-wide history stream and per-mailbox
+/// backfill can observe the same message in different states: baseline captured, backfill
+/// lists a message in the Inbox, another client archives it, history records the removal,
+/// and the backfill then writes its earlier view — resurrecting a membership that no longer
+/// exists. Draining history durably but unapplied while backfill runs prevents
+/// <c>historyId</c> expiry during a long full sync without admitting a concurrent writer to
+/// the canonical model.
+/// <para>
+/// <see cref="Ordinal"/> preserves the order the events were observed in, which is the only
+/// order it is safe to replay them in.
+/// </para>
+/// </remarks>
+public class StagedChangeEvent
+{
+	public Guid Id { get; set; }
+	public Guid AccountId { get; set; }
+
+	/// <summary>Monotonic per account, in observation order.</summary>
+	public long Ordinal { get; set; }
+
+	/// <summary>The serialised <c>SyncResult</c> payload, replayed verbatim.</summary>
+	public string Payload { get; set; } = string.Empty;
+
+	public DateTimeOffset StagedAt { get; set; }
+
+	/// <summary>
+	/// Notifications are derived from staged events before canonical replay, so live mail is
+	/// not silently unnotified for the hours a large backfill takes (§3). This records that
+	/// the scan has seen the event, independently of whether it has been applied.
+	/// </summary>
+	public bool ScannedForNotifications { get; set; }
+}
+
+/// <summary>
 /// Integrity reconciliation state, 1:1 with <see cref="Mailbox"/> (§1). Universal
 /// infrastructure, not an IMAP workaround, with two distinct triggers: recovery from a
 /// broken cursor (something is wrong) and periodic reconciliation despite a valid cursor,

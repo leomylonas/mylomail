@@ -24,6 +24,24 @@ public static class FaultPoints
 
 	/// <summary>After the provider call returns, before its results are persisted.</summary>
 	public const string AfterProviderCallBeforeResults = "mutation.after-provider-call-before-results";
+
+	/// <summary>
+	/// Mid-page: the page has been read from the provider, and neither it nor the cursor that
+	/// covers it has been committed.
+	/// </summary>
+	public const string SyncPageBeforeCommit = "sync.page-before-commit";
+
+	/// <summary>
+	/// After a page and its cursor have been committed, before the next page is requested.
+	/// The boundary a resumed walk restarts from.
+	/// </summary>
+	public const string SyncPageAfterCommit = "sync.page-after-commit";
+
+	/// <summary>
+	/// Gmail only: staged history has been drained durably and coverage has completed, but the
+	/// staged events have not yet been replayed into the canonical model.
+	/// </summary>
+	public const string SyncBeforeStagedReplay = "sync.before-staged-replay";
 }
 
 /// <summary>Kills the process at a named point, or does nothing.</summary>

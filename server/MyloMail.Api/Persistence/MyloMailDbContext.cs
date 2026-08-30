@@ -30,6 +30,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<MailboxCoverageState> MailboxCoverageStates => Set<MailboxCoverageState>();
 	public DbSet<ChangeStreamState> ChangeStreamStates => Set<ChangeStreamState>();
 	public DbSet<IntegrityReconciliationState> IntegrityReconciliationStates => Set<IntegrityReconciliationState>();
+	public DbSet<StagedChangeEvent> StagedChangeEvents => Set<StagedChangeEvent>();
 
 	public DbSet<MutationItem> MutationItems => Set<MutationItem>();
 	public DbSet<MutationExecutionAttempt> MutationExecutionAttempts => Set<MutationExecutionAttempt>();
@@ -255,6 +256,18 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.WithOne()
 				.HasForeignKey<IntegrityReconciliationState>(x => x.MailboxId)
 				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<StagedChangeEvent>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// Replay order is the observation order, and it must be unambiguous.
+			e.HasIndex(x => new { x.AccountId, x.Ordinal }).IsUnique();
 		});
 
 		model.Entity<ChangeStreamState>(e =>

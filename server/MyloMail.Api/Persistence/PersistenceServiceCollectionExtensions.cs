@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Persistence;
 
@@ -54,6 +55,19 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MutationChainEvaluator>();
 		services.AddScoped<MutationExecutor>();
 		services.AddScoped<StartupReconciliation>();
+
+		return services;
+	}
+
+	/// <summary>Registers the sync state machines (§3).</summary>
+	public static IServiceCollection AddSync(this IServiceCollection services)
+	{
+		services.TryAddSingleton(TimeProvider.System);
+		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
+		services.AddScoped<MessageIngestor>();
+		services.AddScoped<TopologySyncService>();
+		services.AddScoped<CoverageService>();
+		services.AddScoped<ChangeStreamService>();
 
 		return services;
 	}
