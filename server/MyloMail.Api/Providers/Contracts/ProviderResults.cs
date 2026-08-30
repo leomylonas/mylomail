@@ -39,7 +39,16 @@ public record MailboxDto
 /// The server's full hierarchical name plus its declared delimiter. The delimiter varies by
 /// server and must not be assumed (§1).
 /// </summary>
-public record ImapMailboxMetadataDto(string FullName, char HierarchyDelimiter, string? NamespacePrefix);
+/// <remarks>
+/// <paramref name="HierarchyDelimiter"/> is a single character carried as a string:
+/// <c>char</c> has no TypeScript equivalent and generates an unusable schema. The domain
+/// entity keeps <c>char</c>.
+/// </remarks>
+public record ImapMailboxMetadataDto(
+	string FullName,
+	string HierarchyDelimiter,
+	string? NamespacePrefix
+);
 
 /// <summary>
 /// The original RFC 5322 bytes. This is the single stored representation of content —

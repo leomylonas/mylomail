@@ -2,7 +2,13 @@
 
 ## Completed
 
-- Stage A remains **incomplete** — see Risks. Everything else below is stage B.
+- **Stage A is now complete.** Both halves of type generation run end to end:
+  `TypedSignalR.Client.TypeScript` and `TypeContractor`, wired into
+  `scripts/generate-types.ts` and verified idempotent (a second run produces no diff).
+- `/health` endpoint (§9) and `HealthDto`, which Electron polls before connecting the
+  renderer's SignalR client. It is also the type-generation pipeline's first real payload —
+  TypeContractor generates from controllers returning `ActionResult<T>`, so before this the
+  pipeline had nothing to carry.
 - Provider contracts for mail and calendar are in place (`server/MyloMail.Api/Providers/`),
   translated from architecture §§1–3: `IMailProvider`, `ICalendarProvider`, their factories,
   the DTOs, structured per-provider cursor state, `ProviderCapabilities` and
@@ -46,27 +52,30 @@ provider interface, so it is deliberately not in the shared suite and does not y
 
 - `pnpm check` green.
 - `pnpm check:deep` green — 50 conformance cases pass.
+- `pnpm generate:types` runs clean and is idempotent; generated output is committed.
 - The conformance suite was mutation-tested rather than merely run: making the flag update
   absolute instead of partial, dropping the move's destination identity, and swallowing
   cursor invalidation each produced 5 failures (one per shape). The suite discriminates.
 
 ## Risks / decisions
 
-- **Stage A is not complete, and cannot be closed by writing more of our own code.**
-  `TypeContractor` is installed in `.config/dotnet-tools.json` but `scripts/generate-types.ts`
-  never invokes it, so only the `tsrts` half of type generation has ever run. SETUP.md's
-  original command was wrong (`--project` is not a flag; the tool requires `--assembly` and
-  `--output`), which is likely why it was dropped.
-  Attempting to wire it now fails on this machine: TypeContractor 0.18.0 cannot resolve
-  `Microsoft.NETCore.App.Ref` on Linux. It finds the shared runtime at
-  `/usr/lib/dotnet/shared/Microsoft.NETCore.App/8.0.28/` and then throws
-  `FileNotFoundException` from `ReflectionContextHelper.GetResolver`, regardless of what
-  `--packs-path` is given, though `/usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/8.0.28/ref/net8.0/`
-  exists and is populated. Tried: the real packs path with and without a trailing separator,
-  its parent, a synthetic tree using a literal backslash separator, and a synthetic tree
-  using an exact `8.0.0` version directory. §16 already flags TypeContractor's Zod support
-  as a currency risk. This needs a decision — upgrade the tool, run it only on Windows/CI,
-  or drop it and hand-maintain the DTO types — and it is a **blocker on stage A**, not on B.
+- **TypeContractor carries a workaround for an upstream bug, in `scripts/generate-types.ts`.**
+  `ReflectionContextHelper.GetNetCorePack` builds its pack lookup as
+  `$"{packPath}\\{packName}"` with a hardcoded backslash, so on any non-Windows platform the
+  directory never exists and the tool aborts with `FileNotFoundException` before reading
+  anything. Every path below that first join uses `Path.Combine` and is fine. Confirmed
+  present in 0.18.0, 0.22.1 and 1.0.0 — this is not a version problem and upgrading will not
+  fix it. `packsPathFor` hands the tool a directory of symlinks whose names embed the literal
+  backslash. Delete it once upstream joins paths portably; the code comment links the source.
+  Worth filing upstream.
+- The tool was upgraded 0.18.0 → 1.0.0 (latest). Its default file-name casing changed to
+  `Pascal` between 0.22.1 and 1.0.0, which would silently rename every generated file on a
+  future upgrade, so `--casing Kebab` is now pinned explicitly.
+- `ImapMailboxMetadataDto.HierarchyDelimiter` is a `string`, while the domain entity keeps
+  `char` per §1. `char` has no TypeScript equivalent: TypeContractor fails on it and emits a
+  `MailboxDto` importing a file it did not generate — broken output, not merely a warning.
+- SETUP.md's original `generate:types` command was wrong: `--project` is not a TypeContractor
+  flag, the tool requires `--assembly` and `--output`. Worth reporting to whoever wrote it.
 - The `MessageDto`/`SyncResult`/`InitialSyncPage`/`AttachmentConstraints` shapes are not
   given in the design doc; they are derived from what §§1–3 require and may need adjusting
   as the real providers land. The doc-specified shapes (`IMailProvider`,
