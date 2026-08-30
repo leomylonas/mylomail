@@ -23,8 +23,16 @@ public sealed class MutationCrashWindowTests
 {
 	/// <summary>Kill point: after the optimistic local commit, before enqueue.</summary>
 	/// <remarks>
+	/// <para>
 	/// Desired state must be either applied or reverted, never orphaned. The mutation and its
-	/// pending change commit together, so a crash at this point can only lose both.
+	/// pending change commit together, so a crash at this point loses both.
+	/// </para>
+	/// <para>
+	/// The surviving enqueue is the point of the second half. An earlier version asserted only
+	/// that the two counts matched, which after a rollback is <c>0 == 0</c> — true even with
+	/// pending-change creation deleted outright. Asserting a specific surviving row is what
+	/// makes this a test.
+	/// </para>
 	/// </remarks>
 	[Fact]
 	public async Task Desired_state_is_never_orphaned_by_a_crash_around_enqueue()
@@ -40,11 +48,23 @@ public sealed class MutationCrashWindowTests
 		await harness.UsingAsync(async services =>
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
-			var pending = await context.MessagePendingChanges.ToListAsync();
-			var items = await context.MutationItems.ToListAsync();
 
-			// Whatever survived, desired state and the mutation that owns it agree.
-			Assert.Equal(items.Count, pending.Count);
+			// The crash was inside the transaction, so neither half survived it.
+			Assert.Empty(await context.MutationItems.ToListAsync());
+			Assert.Empty(await context.MessagePendingChanges.ToListAsync());
+		});
+
+		// And the next enqueue, uninterrupted, produces both halves.
+		var item = await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var pending = Assert.Single(await context.MessagePendingChanges.ToListAsync());
+
+			Assert.Equal(item.Id, pending.MutationItemId);
+			Assert.True(pending.DesiredValue);
+			Assert.Equal(MessageFlagField.IsRead, pending.Field);
 		});
 	}
 

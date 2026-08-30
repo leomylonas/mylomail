@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -214,6 +215,107 @@ public sealed class SyncTests
 			Assert.NotEmpty(await context.Messages.ToListAsync());
 		});
 	}
+
+	/// <summary>
+	/// The change stream applies what it observes. Coverage is a separate concern, and a test
+	/// that reaches the local rows through backfill proves nothing about incremental sync.
+	/// </summary>
+	[Fact]
+	public async Task The_change_stream_applies_server_side_flag_changes()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var occurrenceId = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+
+		var messageId = await harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).Id
+		);
+		Assert.False(await IsReadAsync(harness, messageId));
+
+		// Another client marks it read.
+		await harness.UsingAsync(async scope =>
+			await harness.Provider.SetFlagsAsync(
+				await harness.AccountInScopeAsync(scope),
+				[new MessageOccurrenceRef(messageId, Guid.Empty, occurrenceId)],
+				new FlagUpdate(IsRead: true, IsFlagged: null),
+				default
+			)
+		);
+
+		await SyncAsync(harness);
+
+		Assert.True(await IsReadAsync(harness, messageId));
+	}
+
+	/// <summary>
+	/// A removal removes the membership and never the canonical message: under Graph's
+	/// folder-scoped delta a move surfaces as a removal and an addition in either order, so a
+	/// message may legitimately have no memberships for a moment.
+	/// </summary>
+	[Fact]
+	public async Task The_change_stream_removes_a_membership_without_deleting_the_message()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var occurrenceId = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+
+		var messageId = await harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).Id
+		);
+
+		await harness.UsingAsync(async scope =>
+			await harness.Provider.RemoveFromMailboxAsync(
+				await harness.AccountInScopeAsync(scope),
+				[new MessageOccurrenceRef(messageId, Guid.Empty, occurrenceId)],
+				default
+			)
+		);
+
+		await SyncAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.MessageMailboxes.ToListAsync());
+			Assert.NotEmpty(await context.Messages.ToListAsync());
+		});
+	}
+
+	/// <summary>
+	/// Staging still advances the cursor, and must: the page is durably persisted, just not
+	/// yet applied. Leaving the cursor behind would re-drain the same history on every run
+	/// and never let the account finish its baseline.
+	/// </summary>
+	[Fact]
+	public async Task Staging_a_page_advances_the_cursor()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+
+		Assert.True((await SyncAsync(harness)).Staged);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var state = await context.ChangeStreamStates.SingleAsync();
+
+			Assert.NotNull(state.CursorState);
+			Assert.NotNull(state.BaselineEstablishedAt);
+		});
+	}
+
+	private static Task<bool> IsReadAsync(SyncHarness harness, Guid messageId) =>
+		harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync(m => m.Id == messageId)).IsRead
+		);
 
 	internal static Task<TopologyChange> ReconcileAsync(SyncHarness harness) =>
 		harness.UsingAsync(async scope =>

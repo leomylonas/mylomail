@@ -27,6 +27,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private const int PageSize = 50;
 
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
+	private readonly HashSet<string> omitted = [];
 	private long occurrenceSequence;
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
@@ -47,6 +48,13 @@ public sealed class FakeMailProvider : IMailProvider
 		mailboxes[providerMailboxId] = mailbox;
 		return mailbox;
 	}
+
+	/// <summary>
+	/// Makes the fake omit one occurrence from its batch results, as a provider that reports
+	/// on fewer items than were submitted. §6 treats an unreported item as unresolved rather
+	/// than successful, and partial batch results are the normal case, not an edge one.
+	/// </summary>
+	public void OmitFromBatchResults(string providerOccurrenceId) => omitted.Add(providerOccurrenceId);
 
 	/// <summary>Removes a mailbox behind the client's back, as another client would.</summary>
 	public void RemoveMailbox(string providerMailboxId) => mailboxes.Remove(providerMailboxId);
@@ -319,6 +327,11 @@ public sealed class FakeMailProvider : IMailProvider
 
 		foreach (var reference in refs)
 		{
+			if (omitted.Contains(reference.ProviderOccurrenceId))
+			{
+				continue;
+			}
+
 			var found = Locate(reference.ProviderOccurrenceId);
 			if (found is null)
 			{

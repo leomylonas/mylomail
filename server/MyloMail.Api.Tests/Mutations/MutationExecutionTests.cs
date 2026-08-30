@@ -181,6 +181,135 @@ public sealed class MutationExecutionTests
 		});
 	}
 
+	/// <summary>
+	/// Terminal failure reverts desired state. Leaving it behind shows the user a flag the
+	/// server never accepted, indefinitely and with nothing outstanding to correct it.
+	/// </summary>
+	[Fact]
+	public async Task A_failed_flag_set_reverts_its_desired_state()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		harness.Provider.RemoveMessage(await OccurrenceIdAsync(harness));
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+
+			Assert.Equal(MutationState.Failed, (await context.MutationItems.SingleAsync()).State);
+			Assert.Empty(await context.MessagePendingChanges.ToListAsync());
+			Assert.False((await context.Messages.SingleAsync(m => m.Id == harness.MessageId)).IsRead);
+		});
+	}
+
+	/// <summary>
+	/// A cancelled intent reverts its desired state too. Explicit dependency is reserved for
+	/// causal ordering that execution-time resolution cannot infer, and this is that case: a
+	/// flag change that only makes sense if the move it followed succeeded.
+	/// </summary>
+	[Fact]
+	public async Task A_cancelled_dependent_intent_reverts_its_desired_state()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var move = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.EnqueueAsync(
+					new MutationItem
+					{
+						AccountId = harness.AccountId,
+						MessageId = harness.MessageId,
+						OperationKind = MutationOperationKind.SetFlags,
+						DesiredIsRead = true,
+						DependsOnMutationItemId = move.Id,
+					}
+				)
+		);
+
+		harness.Provider.RemoveMessage(await OccurrenceIdAsync(harness));
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var items = await context.MutationItems.OrderBy(i => i.Sequence).ToListAsync();
+
+			Assert.Equal(MutationState.Failed, items[0].State);
+			Assert.Equal(MutationState.Cancelled, items[1].State);
+			Assert.Empty(await context.MessagePendingChanges.ToListAsync());
+		});
+	}
+
+	/// <summary>
+	/// An intent cancelled at execution because its target is gone reverts its desired state
+	/// too. This is a different path from a chain re-evaluation: nothing failed, the message
+	/// simply is not where the operation refers to any more.
+	/// </summary>
+	[Fact]
+	public async Task An_intent_cancelled_at_execution_reverts_its_desired_state()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		// The occurrence is gone locally, so the intent cannot be resolved to anything.
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.MessageMailboxes.RemoveRange(await context.MessageMailboxes.ToListAsync());
+			await context.SaveChangesAsync();
+		});
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+
+			Assert.Equal(MutationState.Cancelled, (await context.MutationItems.SingleAsync()).State);
+			Assert.Empty(await context.MessagePendingChanges.ToListAsync());
+		});
+	}
+
+	/// <summary>
+	/// An item the provider did not report on is unresolved, not successful.
+	/// </summary>
+	/// <remarks>
+	/// Partial batch results are the normal case: fifty items in one Graph <c>$batch</c> or
+	/// Gmail batch share a dispatch boundary but not an outcome. Marking an unreported item
+	/// done would claim knowledge of a server state nobody observed, so it stays in the
+	/// dispatched attempt and is reconciled.
+	/// </remarks>
+	[Fact]
+	public async Task An_item_the_batch_did_not_report_stays_unresolved()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		harness.Provider.OmitFromBatchResults(await OccurrenceIdAsync(harness));
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var item = await context.MutationItems.SingleAsync();
+
+			Assert.NotEqual(MutationState.Completed, item.State);
+			Assert.NotEqual(MutationState.Failed, item.State);
+
+			// Still desired, because nothing has told us it happened or did not.
+			Assert.NotEmpty(await context.MessagePendingChanges.ToListAsync());
+
+			// And still reachable from the attempt, which is what routes it to reconciliation.
+			Assert.NotEmpty(await services.GetRequiredService<StartupReconciliation>().AmbiguousItemsAsync());
+		});
+	}
+
 	internal static async Task ExecuteAsync(MutationHarness harness)
 	{
 		await harness.UsingAsync(async services =>

@@ -116,6 +116,31 @@ public sealed class MutationOrderingTests
 		Assert.Single(reclaimed);
 	}
 
+	/// <summary>
+	/// A lease that expires exactly now is still held. The boundary is deliberate: treating
+	/// the expiry instant as already expired lets a second worker take an item at the same
+	/// moment the first is still entitled to it.
+	/// </summary>
+	[Fact]
+	public async Task A_lease_expiring_exactly_now_is_not_yet_reclaimable()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await EnqueueFlagAsync(harness, isRead: true);
+
+		var lease = TimeSpan.FromMinutes(5);
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationClaimService>().ClaimAsync(harness.AccountId, "worker-1", lease, max: 10)
+		);
+
+		harness.Clock.Advance(lease);
+
+		var reclaimed = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationClaimService>().ClaimAsync(harness.AccountId, "worker-2", lease, max: 10)
+		);
+
+		Assert.Empty(reclaimed);
+	}
+
 	internal static async Task<MutationItem> EnqueueFlagAsync(MutationHarness harness, bool isRead) =>
 		await harness.UsingAsync(services =>
 			services

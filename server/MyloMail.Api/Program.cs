@@ -1,5 +1,5 @@
-using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Scheduling;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +9,7 @@ var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOv
 builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddMutations();
 builder.Services.AddSync();
+builder.Services.AddScheduling();
 
 var app = builder.Build();
 
@@ -19,10 +20,9 @@ await using (var scope = app.Services.CreateAsyncScope())
 	await scope.ServiceProvider.GetRequiredService<DatabaseBootstrapper>().MigrateAsync();
 
 	// With in-memory job storage this is the sole recovery mechanism, not a safety net
-	// behind a durable queue (§6).
-	var reconciliation = scope.ServiceProvider.GetRequiredService<StartupReconciliation>();
-	await reconciliation.ReleaseOrphanedLeasesAsync();
-	await reconciliation.FindAsync();
+	// behind a durable queue (§6). It runs after migration and before any job can be
+	// enqueued, so nothing outstanding is left unowned.
+	await scope.ServiceProvider.GetRequiredService<StartupScheduler>().ScheduleAsync();
 }
 
 await app.RunAsync();

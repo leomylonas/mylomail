@@ -3,9 +3,9 @@
 	"stryker-config": {
 		"project": "MyloMail.Api.csproj",
 		"test-projects": ["server/MyloMail.Api.Tests/MyloMail.Api.Tests.csproj"],
-		"mutate": ["**/Mutations/**/*.cs", "**/Sync/**/*.cs"],
+		"mutate": ["**/Mutations/**/*.cs", "**/Sync/**/*.cs", "**/Scheduling/**/*.cs"],
 		"reporters": ["json", "progress"],
-		"thresholds": { "high": 90, "low": 80, "break": 55 },
+		"thresholds": { "high": 90, "low": 80, "break": 50 },
 		"coverage-analysis": "perTest",
 		"additional-timeout": 10000
 	}

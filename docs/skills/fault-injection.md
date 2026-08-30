@@ -67,8 +67,20 @@ version of this file claimed conformance caused the timeouts; measuring it showe
 identical results with and without them (205/113/8 versus 203/113/10, same three minutes),
 so that claim was wrong.
 
+**Do not run it alongside a build or test run.** It instruments and rebuilds the project,
+and a concurrent `pnpm check` will fail with unrelated-looking test failures that vanish on
+a clean re-run. Both runs' results are worthless when that happens.
+
 The `break` threshold is a **ratchet, not a target**: it sits just under the current score
-so the suite cannot get weaker, and it should be raised as survivors are killed. The first
-honest run scored 55.91% (205 killed, 113 survived). Not every survivor is worth killing —
-log strings, progress counters and orderings that carry no meaning are noise — but a
-survivor in a guard clause, a cursor advance, or a state revert is a real gap.
+so the suite cannot get weaker, and it should be raised as survivors are killed. Not every
+survivor is worth killing — log strings, progress counters and orderings that carry no
+meaning are noise, and some are *equivalent mutants* that cannot change behaviour at all
+(an `&&` whose short-circuit operand is a default value, a guard clause whose removal falls
+through to the same answer). A survivor in a guard clause, a cursor advance, or a state
+revert is a real gap.
+
+**Compare killed counts, not scores, when the scope changes.** Adding a directory to
+`mutate` lowers the score even as the suite gets stronger, because new unkilled mutants
+arrive with it. The run that added `Scheduling/` went from 205 killed to 241 while the score
+fell from 55.91% to 50.40% — that is the suite improving, not regressing. Reset the ratchet
+to the new baseline and say why.

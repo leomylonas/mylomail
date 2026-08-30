@@ -1,9 +1,11 @@
+using Hangfire;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Persistence;
@@ -68,6 +70,32 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();
+
+		return services;
+	}
+
+	/// <summary>
+	/// Registers the job layer (§3, §6). Storage is in-memory by design: job persistence was
+	/// a second source of truth that could disagree with the app tables, and startup
+	/// reconciliation was always the real recovery mechanism.
+	/// </summary>
+	public static IServiceCollection AddScheduling(this IServiceCollection services)
+	{
+		services.TryAddSingleton(TimeProvider.System);
+		services.AddSingleton<AccountGate>();
+		services.AddSingleton<PollRegistry>();
+		services.AddScoped<SyncJobs>();
+		services.AddScoped<MutationJobs>();
+		services.AddScoped<StartupScheduler>();
+
+		services.AddHangfire(configuration =>
+			configuration
+				.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+				.UseSimpleAssemblyNameTypeSerializer()
+				.UseRecommendedSerializerSettings()
+				.UseInMemoryStorage()
+		);
+		services.AddHangfireServer();
 
 		return services;
 	}

@@ -137,6 +137,7 @@ public sealed class MutationExecutor(
 
 			var byKey = result.Items.ToDictionary(r => (r.MessageId, r.MailboxId));
 			var failed = new List<MutationItem>();
+			var unresolved = 0;
 
 			foreach (var (item, reference) in resolved)
 			{
@@ -145,6 +146,7 @@ public sealed class MutationExecutor(
 					// An item the batch did not report on is unresolved, not successful.
 					// Leaving it in the dispatched attempt is what routes it to
 					// reconciliation rather than to a blind retry.
+					unresolved++;
 					continue;
 				}
 
@@ -165,8 +167,26 @@ public sealed class MutationExecutor(
 				}
 			}
 
-			attempt.State = MutationAttemptState.Completed;
-			attempt.ResultPersistedAt = clock.GetUtcNow();
+			if (unresolved > 0)
+			{
+				// The attempt is not closed, because not every outcome is known. Marking it
+				// Completed here would lose the unreported items entirely: the recovery sweep
+				// queries from attempts, so an attempt claiming to be finished takes its
+				// unresolved members with it and nothing ever reconciles them.
+				attempt.State = MutationAttemptState.Ambiguous;
+
+				logger.LogWarning(
+					"Attempt {AttemptId} reported on {Reported} of {Submitted} items; the remainder are ambiguous.",
+					attempt.Id,
+					resolved.Count - unresolved,
+					resolved.Count
+				);
+			}
+			else
+			{
+				attempt.State = MutationAttemptState.Completed;
+				attempt.ResultPersistedAt = clock.GetUtcNow();
+			}
 
 			await context.SaveChangesAsync(ct);
 
