@@ -31,6 +31,12 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<ChangeStreamState> ChangeStreamStates => Set<ChangeStreamState>();
 	public DbSet<IntegrityReconciliationState> IntegrityReconciliationStates => Set<IntegrityReconciliationState>();
 
+	public DbSet<MutationItem> MutationItems => Set<MutationItem>();
+	public DbSet<MutationExecutionAttempt> MutationExecutionAttempts => Set<MutationExecutionAttempt>();
+	public DbSet<MutationExecutionAttemptItem> MutationExecutionAttemptItems =>
+		Set<MutationExecutionAttemptItem>();
+	public DbSet<MessagePendingChange> MessagePendingChanges => Set<MessagePendingChange>();
+
 	public DbSet<Draft> Drafts => Set<Draft>();
 	public DbSet<Calendar> Calendars => Set<Calendar>();
 	public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
@@ -43,6 +49,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureMessages(model);
 		ConfigureContent(model);
 		ConfigureSyncState(model);
+		ConfigureMutations(model);
 		ConfigureComposition(model);
 		ConfigureCalendar(model);
 
@@ -271,6 +278,77 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.HasFilter("\"MailboxId\" IS NULL");
 
 			e.Property(x => x.CursorState).HasJsonConversion();
+		});
+	}
+
+	private static void ConfigureMutations(ModelBuilder model)
+	{
+		model.Entity<MutationItem>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// No FK to Message: a message row may become a tombstone while mutation state
+			// still references it, and physical deletion is a garbage-collection decision
+			// based on references rather than something the mutation worker performs (§6).
+			e.HasIndex(x => x.MessageId);
+
+			// Total ordering per (AccountId, MessageId). The unique index is what makes
+			// sequence assignment safe under concurrent enqueue: two items that both believe
+			// they are next collide here rather than both being written.
+			e.HasIndex(x => new
+			{
+				x.AccountId,
+				x.MessageId,
+				x.Sequence,
+			})
+				.IsUnique();
+
+			// The claim query: eligible heads for one account.
+			e.HasIndex(x => new { x.AccountId, x.State });
+
+			e.Ignore(x => x.IsTerminal);
+		});
+
+		model.Entity<MutationExecutionAttempt>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// The recovery sweep queries from attempts, not from item states.
+			e.HasIndex(x => new { x.State, x.ResultPersistedAt });
+		});
+
+		model.Entity<MutationExecutionAttemptItem>(e =>
+		{
+			e.HasKey(x => new { x.AttemptId, x.MutationItemId });
+			e.HasOne<MutationExecutionAttempt>()
+				.WithMany(x => x.Items)
+				.HasForeignKey(x => x.AttemptId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<MutationItem>()
+				.WithMany()
+				.HasForeignKey(x => x.MutationItemId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<MessagePendingChange>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<MutationItem>()
+				.WithMany()
+				.HasForeignKey(x => x.MutationItemId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// One desired value per message per field. Two pending values for one field
+			// would be two answers to what the user asked for.
+			e.HasIndex(x => new { x.MessageId, x.Field }).IsUnique();
 		});
 	}
 

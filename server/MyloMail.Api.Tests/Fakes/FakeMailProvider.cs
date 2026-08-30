@@ -48,6 +48,19 @@ public sealed class FakeMailProvider : IMailProvider
 		return mailbox;
 	}
 
+	/// <summary>
+	/// Removes an occurrence behind the client's back, as another client or another device
+	/// would. A mutation addressing it then fails on the server's terms rather than through a
+	/// test-only failure switch.
+	/// </summary>
+	public void RemoveMessage(string providerOccurrenceId)
+	{
+		foreach (var mailbox in mailboxes.Values)
+		{
+			mailbox.Messages.Remove(providerOccurrenceId);
+		}
+	}
+
 	/// <summary>Simulates a server-side event that makes every outstanding cursor unusable.</summary>
 	public void InvalidateCursors() => cursorGeneration++;
 

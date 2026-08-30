@@ -1,5 +1,9 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Mutations;
+using MyloMail.Api.Providers;
 
 namespace MyloMail.Api.Persistence;
 
@@ -29,6 +33,27 @@ public static class PersistenceServiceCollectionExtensions
 					.AddInterceptors(provider.GetRequiredService<SqlitePragmaInterceptor>())
 		);
 		services.AddScoped<DatabaseBootstrapper>();
+
+		return services;
+	}
+
+	/// <summary>
+	/// Registers the mutation core (§6). The fault injector is registered with
+	/// <c>TryAdd</c> so a test host can substitute one; production always gets the no-op.
+	/// </summary>
+	public static IServiceCollection AddMutations(this IServiceCollection services)
+	{
+		services.TryAddSingleton(TimeProvider.System);
+
+		// Resolved from the local database at the moment of use; never cached by a provider.
+		services.TryAddScoped<IProviderMailboxResolver, DbProviderMailboxResolver>();
+		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
+		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
+		services.AddScoped<MutationQueue>();
+		services.AddScoped<MutationClaimService>();
+		services.AddScoped<MutationChainEvaluator>();
+		services.AddScoped<MutationExecutor>();
+		services.AddScoped<StartupReconciliation>();
 
 		return services;
 	}
