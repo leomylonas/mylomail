@@ -195,6 +195,75 @@ public sealed class MutationCrashWindowTests
 	}
 
 	/// <summary>
+	/// The recovery result must differ depending on whether the remote move happened: a lost
+	/// response is settled from the destination observation, rather than replaying the move.
+	/// </summary>
+	[Fact]
+	public async Task A_move_applied_before_a_crash_is_reestablished_without_a_second_move()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var occurrence = Assert.Single(await context.MessageMailboxes.Where(o => o.MessageId == harness.MessageId).ToListAsync());
+			Assert.Equal(harness.ArchiveId, occurrence.MailboxId);
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+			Assert.Empty(await services.GetRequiredService<StartupReconciliation>().AmbiguousItemsAsync());
+		});
+	}
+
+	[Fact]
+	public async Task A_move_not_reached_by_the_provider_is_requeued_after_reconciliation()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(MutationState.Pending, (await context.MutationItems.SingleAsync()).State);
+			Assert.Equal(harness.InboxId, (await context.MessageMailboxes.SingleAsync()).MailboxId);
+		});
+	}
+
+	[Fact]
+	public async Task A_delete_applied_before_a_crash_is_settled_from_nonexistence()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+			Assert.Empty(await context.MessageMailboxes.ToListAsync());
+		});
+	}
+
+	/// <summary>
 	/// Startup reconciliation is the sole recovery mechanism with in-memory job storage, so
 	/// it must find every outstanding item — a lease left behind by a dead process included.
 	/// </summary>

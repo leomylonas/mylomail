@@ -34,8 +34,10 @@ public sealed class SyncJobs(
 	TopologySyncService topology,
 	CoverageService coverage,
 	ChangeStreamService changes,
+	IntegrityReconciliationService integrity,
 	AccountGate gate,
 	PollRegistry polls,
+	IntegrityRegistry integrityLoops,
 	IMailProviderFactory providers,
 	IBackgroundJobClient jobs,
 	ILogger<SyncJobs> logger
@@ -64,6 +66,25 @@ public sealed class SyncJobs(
 		}
 
 		await StartChangeStreamsAsync(account, ct);
+		await StartIntegrityReconciliationAsync(account, ct);
+	}
+
+	/// <summary>Starts the slower degraded-IMAP maintenance loop, once per mailbox.</summary>
+	public async Task StartIntegrityReconciliationAsync(Account account, CancellationToken ct = default)
+	{
+		if (!await integrity.RequiredAsync(account, ct))
+		{
+			return;
+		}
+
+		var mailboxIds = await context.Mailboxes.Where(m => m.AccountId == account.Id).Select(m => m.Id).ToListAsync(ct);
+		foreach (var mailboxId in mailboxIds)
+		{
+			if (integrityLoops.TryStart(account.Id, mailboxId))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.IntegrityAsync(account.Id, mailboxId, default));
+			}
+		}
 	}
 
 	/// <summary>
@@ -213,6 +234,47 @@ public sealed class SyncJobs(
 		await GuardAsync(account, () => changes.ReplayStagedAsync(account, ct), ct);
 	}
 
+	/// <summary>
+	/// Reconciles IMAP UID membership, and basic-tier flags, on a cadence even with a valid
+	/// cursor. This is not triggered resync and never resets the cursor.
+	/// </summary>
+	public async Task IntegrityAsync(Guid accountId, Guid mailboxId, CancellationToken ct = default)
+	{
+		var account = await RunnableAsync(accountId, ct);
+		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
+		if (account is null || mailbox is null)
+		{
+			integrityLoops.Stop(accountId, mailboxId);
+			return;
+		}
+
+		try
+		{
+			await GuardAsync(account, () => integrity.ReconcileAsync(account, mailbox, ct), ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception)
+		{
+			integrityLoops.Stop(accountId, mailboxId);
+			throw;
+		}
+
+		if (!await StillRunnableAsync(accountId, ct))
+		{
+			integrityLoops.Stop(accountId, mailboxId);
+			return;
+		}
+
+		jobs.Schedule<SyncJobs>(
+			j => j.IntegrityAsync(accountId, mailboxId, default),
+			TimeSpan.FromMinutes(30) + gate.Delay(accountId)
+		);
+	}
+
 	private TimeSpan PollInterval(Account account) =>
 		TimeSpan.FromSeconds(Math.Max(account.PollIntervalSeconds, 1));
 
@@ -309,6 +371,7 @@ public sealed class SyncJobs(
 		{
 			logger.LogInformation("Account {AccountId} stopped being runnable while its job ran.", accountId);
 			polls.StopAll(accountId);
+			integrityLoops.StopAll(accountId);
 		}
 
 		return runnable;

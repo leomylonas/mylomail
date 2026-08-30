@@ -15,6 +15,7 @@ namespace MyloMail.Api.Scheduling;
 public sealed class MutationJobs(
 	MyloMailDbContext context,
 	MutationClaimService claims,
+	MutationReconciler reconciler,
 	MutationExecutor executor,
 	AccountGate gate,
 	IBackgroundJobClient jobs,
@@ -44,6 +45,10 @@ public sealed class MutationJobs(
 			jobs.Schedule<MutationJobs>(j => j.DrainAsync(accountId, default), gate.Delay(accountId));
 			return;
 		}
+
+		// A dispatched local attempt says only that the provider may have seen it. Settle
+		// those attempts before claiming any work, so no move or deletion is blindly replayed.
+		await reconciler.ReconcileAsync(accountId, ct);
 
 		var claimed = await claims.ClaimAsync(accountId, Environment.MachineName, LeaseDuration, max: 50, ct);
 		if (claimed.Count == 0)

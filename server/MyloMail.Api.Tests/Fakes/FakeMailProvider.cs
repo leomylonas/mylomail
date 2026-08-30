@@ -198,6 +198,25 @@ public sealed class FakeMailProvider : IMailProvider
 		);
 	}
 
+	public Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+		Account account,
+		Mailbox mailbox,
+		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
+		CancellationToken ct
+	)
+	{
+		var source = Require(ProviderIdOf(mailbox));
+		var flags = Capabilities.SupportsIncrementalFlagChanges
+			? []
+			: source.Messages.Select(pair => new OccurrenceFlagChange(
+				source.ProviderMailboxId,
+				pair.Key,
+				pair.Value.IsRead,
+				pair.Value.IsFlagged
+			)).ToList();
+		return Task.FromResult(new MailboxIntegritySnapshot(source.Messages.Keys.ToHashSet(), flags));
+	}
+
 	private static int CursorGenerationOf(ProviderCursorState cursor) =>
 		cursor switch
 		{
@@ -382,7 +401,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private MessageDto ToDto(string providerMailboxId, string occurrenceId, FakeMessage message) =>
 		new()
 		{
-			ProviderStableId = Type == ProviderType.Imap ? null : occurrenceId,
+			ProviderStableId = Type == ProviderType.Imap ? null : $"message-{message.MessageId}",
 			Occurrences = [new MessageOccurrenceDto(providerMailboxId, occurrenceId)],
 			MessageIdHeader = message.MessageIdHeader,
 			ReceivedAt = message.ReceivedAt,

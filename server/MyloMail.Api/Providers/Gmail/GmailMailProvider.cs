@@ -187,6 +187,13 @@ public sealed partial class GmailMailProvider(
 		}
 	}
 
+	public Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+		Account account,
+		Mailbox mailbox,
+		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
+		CancellationToken ct
+	) => throw new NotSupportedException("Gmail's history stream does not require periodic mailbox integrity reconciliation.");
+
 	public async Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,

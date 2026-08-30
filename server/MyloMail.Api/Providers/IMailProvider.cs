@@ -69,6 +69,17 @@ public interface IMailProvider
 	);
 
 	/// <summary>
+	/// Reads the provider facts an integrity pass can express but an incremental cursor
+	/// cannot. Currently this is required for degraded IMAP UID-set reconciliation.
+	/// </summary>
+	Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+		Account account,
+		Mailbox mailbox,
+		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
+		CancellationToken ct
+	);
+
+	/// <summary>
 	/// Content acquisition is one raw fetch per message (§1). Body, headers, attachment
 	/// metadata and search content are all parsed from this; there is no separate body or
 	/// attachment fetch. Gmail <c>format=RAW</c>, Graph <c>$value</c>, IMAP

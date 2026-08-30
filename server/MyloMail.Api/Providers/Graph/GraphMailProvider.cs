@@ -176,6 +176,13 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		}
 	}
 
+	public Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+		Account account,
+		DomainMailbox mailbox,
+		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
+		CancellationToken ct
+	) => throw new NotSupportedException("Graph delta reports removals and does not require periodic mailbox integrity reconciliation.");
+
 	private async Task<GraphServiceClient> ClientAsync(Account account, CancellationToken ct)
 	{
 		await oauth.AcquireTokenAsync(account, ct);

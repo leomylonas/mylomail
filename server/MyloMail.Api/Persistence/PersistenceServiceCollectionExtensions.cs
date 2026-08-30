@@ -57,6 +57,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MutationClaimService>();
 		services.AddScoped<MutationChainEvaluator>();
 		services.AddScoped<MutationExecutor>();
+		services.AddScoped<MutationReconciler>();
 		services.AddScoped<StartupReconciliation>();
 		services.AddScoped<OutboxService>();
 		services.AddScoped<SendExecutor>();
@@ -74,6 +75,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();
+		services.AddScoped<IntegrityReconciliationService>();
 
 		return services;
 	}
@@ -88,6 +90,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton(TimeProvider.System);
 		services.AddSingleton<AccountGate>();
 		services.AddSingleton<PollRegistry>();
+		services.AddSingleton<IntegrityRegistry>();
 		services.AddScoped<SyncJobs>();
 		services.AddScoped<MutationJobs>();
 		services.AddScoped<OutboxJobs>();

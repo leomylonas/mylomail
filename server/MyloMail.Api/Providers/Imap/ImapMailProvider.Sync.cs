@@ -120,6 +120,44 @@ public sealed partial class ImapMailProvider
 		);
 	}
 
+	public async Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+		Account account,
+		Mailbox mailbox,
+		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
+		CancellationToken ct
+	)
+	{
+		using var client = await ConnectAsync(ct);
+		var folder = await OpenAsync(client, mailbox, FolderAccess.ReadOnly, ct);
+		var uids = await folder.SearchAsync(SearchQuery.All, ct);
+		var existing = uids.Select(uid => uid.Id.ToString()).ToHashSet(StringComparer.Ordinal);
+
+		// On the weakest tier the periodic pass is also the only honest source of flag
+		// changes. CONDSTORE already supplies CHANGEDSINCE through the fast stream.
+		IReadOnlyList<OccurrenceFlagChange> flags = [];
+		if (!capabilities.SupportsIncrementalFlagChanges && uids.Count > 0)
+		{
+			var summaries = await folder.FetchAsync(
+				uids,
+				MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.ModSeq,
+				ct
+			);
+			flags =
+			[
+				.. summaries.Select(summary => new OccurrenceFlagChange(
+					folder.FullName,
+					summary.UniqueId.Id.ToString(),
+					(summary.Flags ?? MessageFlags.None).HasFlag(MessageFlags.Seen),
+					(summary.Flags ?? MessageFlags.None).HasFlag(MessageFlags.Flagged),
+					(long?)summary.ModSeq
+				)),
+			];
+		}
+
+		await client.DisconnectAsync(true, ct);
+		return new MailboxIntegritySnapshot(existing, flags);
+	}
+
 	private async Task<IReadOnlyList<OccurrenceFlagChange>> FlagChangesAsync(
 		IMailFolder folder,
 		ImapUidCursor? previous,

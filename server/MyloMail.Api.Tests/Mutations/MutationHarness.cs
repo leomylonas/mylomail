@@ -121,7 +121,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 			{
 				Id = MessageId,
 				AccountId = Account.Id,
-				ProviderStableId = "m-1",
+				ProviderStableId = $"message-{MessageId}",
 				ReceivedAt = DateTimeOffset.UnixEpoch,
 				Occurrences =
 				[

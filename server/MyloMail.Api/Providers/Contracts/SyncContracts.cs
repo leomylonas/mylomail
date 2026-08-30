@@ -72,3 +72,13 @@ public record OccurrenceFlagChange(
 /// message may transiently have zero memberships (§3).
 /// </remarks>
 public record OccurrenceRemoval(string ProviderMailboxId, string ProviderOccurrenceId);
+
+/// <summary>
+/// A point-in-time observation used by periodic integrity reconciliation. It is deliberately
+/// not a cursor: degraded IMAP must compare the server UID set even when its incremental
+/// cursor is valid.
+/// </summary>
+public record MailboxIntegritySnapshot(
+	IReadOnlySet<string> ExistingOccurrenceIds,
+	IReadOnlyList<OccurrenceFlagChange> FlagChanges
+);
