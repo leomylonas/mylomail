@@ -6,6 +6,7 @@ using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
+using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
 
 namespace MyloMail.Api.Providers.Gmail;
 
@@ -154,7 +155,7 @@ public sealed partial class GmailMailProvider(
 
 			var upserted = await MessagesAsync(
 				service,
-				changedMessageIds.Select(id => new Message { Id = id }),
+				changedMessageIds.Select(id => new GmailMessage { Id = id }),
 				ct
 			);
 			IReadOnlyList<OccurrenceRemoval> removed =
@@ -214,7 +215,7 @@ public sealed partial class GmailMailProvider(
 
 	private static async Task<IReadOnlyList<MessageDto>> MessagesAsync(
 		GmailService service,
-		IEnumerable<Message> summaries,
+		IEnumerable<GmailMessage> summaries,
 		CancellationToken ct
 	)
 	{
@@ -234,7 +235,7 @@ public sealed partial class GmailMailProvider(
 		return messages;
 	}
 
-	private static MessageDto ToDto(Message message)
+	private static MessageDto ToDto(GmailMessage message)
 	{
 		var headers = (message.Payload?.Headers ?? [])
 			.Where(header => header.Name is not null)

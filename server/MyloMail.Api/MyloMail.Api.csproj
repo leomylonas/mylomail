@@ -1,9 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 	<ItemGroup>
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.30" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.30">
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
 		<PackageReference Include="Google.Apis.Gmail.v1" Version="1.75.0.4225" />
 		<PackageReference Include="MailKit" Version="4.17.0" />
 		<PackageReference Include="Microsoft.Graph" Version="5.104.0" />
 		<PackageReference Include="Microsoft.Identity.Client" Version="4.88.0" />
 		<PackageReference Include="TypedSignalR.Client.TypeScript.Attributes" Version="1.17.0" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="MyloMail.Api.Tests" />
 	</ItemGroup>
 </Project>

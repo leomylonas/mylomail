@@ -1,0 +1,331 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using MyloMail.Api.Domain;
+
+namespace MyloMail.Api.Persistence;
+
+/// <summary>
+/// The one authoritative database, <c>app.db</c> (§9). There is deliberately no second
+/// database: Hangfire storage is in-memory and non-authoritative, and startup
+/// reconciliation rebuilds outstanding work from these tables.
+/// </summary>
+public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : DbContext(options)
+{
+	public DbSet<Account> Accounts => Set<Account>();
+	public DbSet<SendIdentity> SendIdentities => Set<SendIdentity>();
+	public DbSet<AccountTrustedCertificate> AccountTrustedCertificates => Set<AccountTrustedCertificate>();
+	public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+	public DbSet<Domain.ImapMailboxMetadata> ImapMailboxMetadata => Set<Domain.ImapMailboxMetadata>();
+
+	public DbSet<Message> Messages => Set<Message>();
+	public DbSet<MessageMailbox> MessageMailboxes => Set<MessageMailbox>();
+	public DbSet<Domain.MessageHeaders> MessageHeaders => Set<Domain.MessageHeaders>();
+	public DbSet<MessageBody> MessageBodies => Set<MessageBody>();
+	public DbSet<MessageRaw> MessageRaws => Set<MessageRaw>();
+	public DbSet<MessageContentState> MessageContentStates => Set<MessageContentState>();
+	public DbSet<Attachment> Attachments => Set<Attachment>();
+	public DbSet<MessageSearchContent> MessageSearchContents => Set<MessageSearchContent>();
+
+	public DbSet<MailboxTopologySyncState> MailboxTopologySyncStates => Set<MailboxTopologySyncState>();
+	public DbSet<MailboxCoverageState> MailboxCoverageStates => Set<MailboxCoverageState>();
+	public DbSet<ChangeStreamState> ChangeStreamStates => Set<ChangeStreamState>();
+	public DbSet<IntegrityReconciliationState> IntegrityReconciliationStates => Set<IntegrityReconciliationState>();
+
+	public DbSet<Draft> Drafts => Set<Draft>();
+	public DbSet<Calendar> Calendars => Set<Calendar>();
+	public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+	public DbSet<Domain.AppSettings> AppSettings => Set<Domain.AppSettings>();
+
+	protected override void OnModelCreating(ModelBuilder model)
+	{
+		ConfigureAccounts(model);
+		ConfigureMailboxes(model);
+		ConfigureMessages(model);
+		ConfigureContent(model);
+		ConfigureSyncState(model);
+		ConfigureComposition(model);
+		ConfigureCalendar(model);
+
+		model.Entity<Domain.AppSettings>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.Property(x => x.Id).ValueGeneratedNever();
+			e.ToTable(t => t.HasCheckConstraint("CK_AppSettings_SingleRow", "\"Id\" = 1"));
+		});
+	}
+
+	private static void ConfigureAccounts(ModelBuilder model)
+	{
+		model.Entity<Account>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.Property(x => x.ProviderConfig).HasJsonConversion();
+			e.Property(x => x.DisplayName).IsRequired();
+		});
+
+		model.Entity<SendIdentity>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => x.AccountId);
+
+			// Exactly one default per account. The default identity's address is the
+			// authoritative address for the account, so two of them is not a display
+			// glitch — it is two answers to "who is this account".
+			e.HasIndex(x => x.AccountId)
+				.HasDatabaseName("IX_SendIdentities_AccountId_Default")
+				.IsUnique()
+				.HasFilter("\"IsDefault\" = 1");
+		});
+
+		model.Entity<AccountTrustedCertificate>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.AccountId, x.Thumbprint }).IsUnique();
+		});
+	}
+
+	private static void ConfigureMailboxes(ModelBuilder model)
+	{
+		model.Entity<Mailbox>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// Self-referencing hierarchy. Restrict rather than cascade: a topology
+			// reconciliation that deletes a parent must decide what happens to children
+			// explicitly, not have the database silently remove a subtree.
+			e.HasOne<Mailbox>()
+				.WithMany()
+				.HasForeignKey(x => x.ParentId)
+				.OnDelete(DeleteBehavior.Restrict);
+
+			// Provider mailbox ids are unique within an account where they exist at all.
+			// Synthesised Gmail hierarchy nodes have none, and SQLite treats NULLs as
+			// distinct, so several may coexist.
+			e.HasIndex(x => new { x.AccountId, x.ProviderMailboxId }).IsUnique();
+
+			e.HasOne(x => x.ImapMetadata)
+				.WithOne()
+				.HasForeignKey<ImapMailboxMetadata>(x => x.MailboxId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<ImapMailboxMetadata>(e => e.HasKey(x => x.MailboxId));
+	}
+
+	private static void ConfigureMessages(ModelBuilder model)
+	{
+		model.Entity<Message>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			e.Property(x => x.From).HasAddressListConversion();
+			e.Property(x => x.To).HasAddressListConversion();
+			e.Property(x => x.Cc).HasAddressListConversion();
+			e.Property(x => x.Bcc).HasAddressListConversion();
+			e.Property(x => x.ReplyToAddresses).HasAddressListConversion();
+			e.Property(x => x.SenderAddress).HasJsonConversion();
+
+			// Matching an incoming provider object prefers ProviderStableId; it is unique
+			// per account where the provider supplies one, and absent for IMAP.
+			e.HasIndex(x => new { x.AccountId, x.ProviderStableId }).IsUnique();
+
+			// The (AccountId, MessageIdHeader, ReceivedAt) matching heuristic, and the
+			// list view's ordering.
+			e.HasIndex(x => new { x.AccountId, x.MessageIdHeader });
+			e.HasIndex(x => new { x.AccountId, x.ReceivedAt });
+		});
+
+		model.Entity<MessageMailbox>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Message>()
+				.WithMany(x => x.Occurrences)
+				.HasForeignKey(x => x.MessageId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<Mailbox>()
+				.WithMany()
+				.HasForeignKey(x => x.MailboxId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// One row per message per mailbox, and one occurrence id per mailbox.
+			e.HasIndex(x => new { x.MessageId, x.MailboxId }).IsUnique();
+			e.HasIndex(x => new { x.MailboxId, x.ProviderOccurrenceId }).IsUnique();
+		});
+	}
+
+	private static void ConfigureContent(ModelBuilder model)
+	{
+		ConfigureMessageOwned<MessageHeaders>(model, e =>
+		{
+			e.Property(x => x.Headers).HasJsonConversion();
+		});
+		ConfigureMessageOwned<MessageBody>(model);
+		ConfigureMessageOwned<MessageRaw>(model);
+		ConfigureMessageOwned<MessageContentState>(model, e =>
+		{
+			// Background content acquisition claims work by status.
+			e.HasIndex(x => x.Status);
+		});
+
+		model.Entity<Attachment>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Message>()
+				.WithMany()
+				.HasForeignKey(x => x.MessageId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => x.MessageId);
+		});
+
+		model.Entity<MessageSearchContent>(e =>
+		{
+			// An INTEGER key, not the Guid used elsewhere: FTS5 external-content tables
+			// require a stable integer rowid (§8).
+			e.HasKey(x => x.RowId);
+			e.Property(x => x.RowId).ValueGeneratedOnAdd();
+			e.HasOne<Message>()
+				.WithMany()
+				.HasForeignKey(x => x.MessageId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => x.MessageId).IsUnique();
+		});
+	}
+
+	private static void ConfigureMessageOwned<T>(ModelBuilder model, Action<EntityTypeBuilder<T>>? extra = null)
+		where T : class
+	{
+		model.Entity<T>(e =>
+		{
+			e.HasKey("MessageId");
+			e.HasOne<Message>()
+				.WithOne()
+				.HasForeignKey<T>("MessageId")
+				.OnDelete(DeleteBehavior.Cascade);
+			extra?.Invoke(e);
+		});
+	}
+
+	private static void ConfigureSyncState(ModelBuilder model)
+	{
+		model.Entity<MailboxTopologySyncState>(e =>
+		{
+			e.HasKey(x => x.AccountId);
+			e.HasOne<Account>()
+				.WithOne()
+				.HasForeignKey<MailboxTopologySyncState>(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<MailboxCoverageState>(e =>
+		{
+			e.HasKey(x => x.MailboxId);
+			e.HasOne<Mailbox>()
+				.WithOne()
+				.HasForeignKey<MailboxCoverageState>(x => x.MailboxId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<IntegrityReconciliationState>(e =>
+		{
+			e.HasKey(x => x.MailboxId);
+			e.HasOne<Mailbox>()
+				.WithOne()
+				.HasForeignKey<IntegrityReconciliationState>(x => x.MailboxId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<ChangeStreamState>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<Mailbox>()
+				.WithMany()
+				.HasForeignKey(x => x.MailboxId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// One stream per scope. MailboxId is null for Gmail, whose stream is
+			// account-wide; SQLite's NULL-distinct semantics would not enforce that on its
+			// own, so the account-scoped row gets a filtered unique index of its own.
+			e.HasIndex(x => new { x.AccountId, x.MailboxId }).IsUnique();
+			e.HasIndex(x => x.AccountId)
+				.IsUnique()
+				.HasFilter("\"MailboxId\" IS NULL");
+
+			e.Property(x => x.CursorState).HasJsonConversion();
+		});
+	}
+
+	private static void ConfigureComposition(ModelBuilder model)
+	{
+		model.Entity<Draft>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<SendIdentity>()
+				.WithMany()
+				.HasForeignKey(x => x.SendIdentityId)
+				.OnDelete(DeleteBehavior.Restrict);
+
+			e.Property(x => x.To).HasAddressListConversion();
+			e.Property(x => x.Cc).HasAddressListConversion();
+			e.Property(x => x.Bcc).HasAddressListConversion();
+			e.Property(x => x.Attachments).HasJsonConversion();
+		});
+	}
+
+	private static void ConfigureCalendar(ModelBuilder model)
+	{
+		model.Entity<Calendar>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.AccountId, x.ProviderCalendarId }).IsUnique();
+		});
+
+		model.Entity<CalendarEvent>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Calendar>()
+				.WithMany()
+				.HasForeignKey(x => x.CalendarId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			e.Property(x => x.Organizer).HasJsonConversion();
+			e.Property(x => x.Attendees).HasJsonConversion();
+			e.Property(x => x.Reminders).HasJsonConversion();
+			e.Property(x => x.RecurrenceRules).HasJsonConversion();
+			e.Property(x => x.RecurrenceDates).HasJsonConversion();
+			e.Property(x => x.ExceptionDates).HasJsonConversion();
+
+			e.HasIndex(x => new { x.CalendarId, x.ProviderEventId }).IsUnique();
+
+			// Invites are matched against events by iCalendar UID.
+			e.HasIndex(x => x.ICalUid);
+		});
+	}
+}

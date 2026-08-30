@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
+using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Providers.Graph;
 
@@ -144,7 +145,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 					ct
 				)
 				: await delta.WithUrl(url).GetAsDeltaGetResponseAsync(null, ct);
-			IReadOnlyList<Message> values = page?.Value ?? [];
+			IReadOnlyList<GraphMessage> values = page?.Value ?? [];
 			IReadOnlyList<OccurrenceRemoval> removed =
 			[
 				.. values
@@ -204,7 +205,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		"internetMessageHeaders",
 	];
 
-	private static MessageDto ToDto(Message message)
+	private static MessageDto ToDto(GraphMessage message)
 	{
 		var headers = (message.InternetMessageHeaders ?? [])
 			.Where(header => header.Name is not null)

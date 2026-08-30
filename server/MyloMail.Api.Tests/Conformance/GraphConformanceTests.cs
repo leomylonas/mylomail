@@ -6,6 +6,7 @@ using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Graph;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
+using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Tests.Conformance;
 
@@ -89,7 +90,7 @@ public sealed class GraphConformanceHarness : IConformanceHarness
 	public async Task<MessageOccurrenceRef> SeedMessageAsync(DomainMailbox mailbox, CancellationToken ct = default)
 	{
 		var message = await client.Me.MailFolders[mailbox.ProviderMailboxId!].Messages.PostAsync(
-			new Message { Subject = $"MyloMail conformance {Guid.NewGuid():N}", Body = new ItemBody { Content = "seed" } },
+			new GraphMessage { Subject = $"MyloMail conformance {Guid.NewGuid():N}", Body = new ItemBody { Content = "seed" } },
 			null,
 			ct
 		);

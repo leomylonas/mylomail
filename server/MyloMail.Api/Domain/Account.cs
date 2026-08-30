@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MyloMail.Api.Domain;
 
 /// <summary>
@@ -44,6 +46,15 @@ public class Account
 }
 
 /// <summary>Non-secret, provider-specific account configuration. Never carries credentials.</summary>
+/// <remarks>
+/// Persisted as JSON on <see cref="Account"/>. The discriminator is declared here rather
+/// than in the persistence layer so that a new configuration shape cannot be added without
+/// also giving it a stable stored name.
+/// </remarks>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$providerConfig")]
+[JsonDerivedType(typeof(ImapProviderConfig), "imap")]
+[JsonDerivedType(typeof(GmailProviderConfig), "gmail")]
+[JsonDerivedType(typeof(Microsoft365ProviderConfig), "microsoft365")]
 public abstract class ProviderConfig;
 
 public sealed class ImapProviderConfig : ProviderConfig

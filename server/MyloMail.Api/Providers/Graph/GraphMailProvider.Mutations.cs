@@ -6,6 +6,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
+using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Providers.Graph;
 
@@ -57,7 +58,7 @@ public sealed partial class GraphMailProvider
 			var steps = new Dictionary<string, MessageOccurrenceRef>();
 			foreach (var reference in group)
 			{
-				var message = new Message();
+				var message = new GraphMessage();
 				if (update.IsRead is bool read)
 				{
 					message.IsRead = read;

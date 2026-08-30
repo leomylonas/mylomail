@@ -7,6 +7,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Gmail;
+using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
 
 namespace MyloMail.Api.Tests.Conformance;
 
@@ -104,7 +105,7 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 	public async Task<MessageOccurrenceRef> SeedMessageAsync(Mailbox mailbox, CancellationToken ct = default)
 	{
 		var sent = await service.Users.Messages
-			.Send(new Message { Raw = RawMessage("seed") }, "me")
+			.Send(new GmailMessage { Raw = RawMessage("seed") }, "me")
 			.ExecuteAsync(ct);
 		var id = sent.Id ?? throw new InvalidOperationException("Gmail did not return the seeded message id.");
 		createdMessages.Add(id);

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MyloMail.Api.Providers.Contracts;
 
 /// <summary>
@@ -13,6 +15,10 @@ namespace MyloMail.Api.Providers.Contracts;
 /// one is not, and it is silent.
 /// </para>
 /// </remarks>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$cursor")]
+[JsonDerivedType(typeof(GmailHistoryCursor), "gmailHistory")]
+[JsonDerivedType(typeof(GraphDeltaCursor), "graphDelta")]
+[JsonDerivedType(typeof(ImapUidCursor), "imapUid")]
 public abstract record ProviderCursorState
 {
 	public abstract CursorKind Kind { get; }
