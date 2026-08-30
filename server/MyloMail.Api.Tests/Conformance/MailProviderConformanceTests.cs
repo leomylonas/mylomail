@@ -22,15 +22,37 @@ namespace MyloMail.Api.Tests.Conformance;
 [Trait("Category", "Deep")]
 public abstract class MailProviderConformanceTests : IAsyncLifetime
 {
-	private IConformanceHarness harness = null!;
+	private IConformanceHarness? harness;
 
-	protected IConformanceHarness Harness => harness;
+	protected IConformanceHarness Harness =>
+		harness ?? throw new InvalidOperationException("harness unavailable");
 
 	protected abstract Task<IConformanceHarness> CreateHarnessAsync();
 
-	public async Task InitializeAsync() => harness = await CreateHarnessAsync();
+	/// <summary>
+	/// Non-null when this subject cannot run here — no credentials, no container. §11
+	/// requires such a suite to skip rather than fail, so the same tests run safely in any
+	/// environment with only whatever happens to be reachable.
+	/// </summary>
+	protected virtual string? SkipReason => null;
 
-	public async Task DisposeAsync() => await harness.DisposeAsync();
+	public async Task InitializeAsync()
+	{
+		if (SkipReason is null)
+		{
+			harness = await CreateHarnessAsync();
+		}
+	}
+
+	public async Task DisposeAsync()
+	{
+		if (harness is not null)
+		{
+			await harness.DisposeAsync();
+		}
+	}
+
+	private void Available() => Skip.If(SkipReason is not null, SkipReason ?? string.Empty);
 
 	/// <summary>
 	/// A move must report where the message ended up, or say that it cannot.
@@ -42,9 +64,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// <see cref="OccurrenceChange.RequiresDestinationReconciliation"/> is set so the caller
 	/// reconciles rather than guessing (§2).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Move_reports_destination_identity_or_demands_reconciliation()
 	{
+		Available();
 		var occurrence = await Harness.SeedMessageAsync(Harness.Source);
 
 		var result = await Harness.Provider.MoveMessagesAsync(
@@ -91,9 +114,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// <summary>
 	/// The canonical message survives a move. Only the occurrence changes.
 	/// </summary>
-	[Fact]
+	[SkippableFact]
 	public async Task Move_preserves_canonical_message_identity()
 	{
+		Available();
 		var occurrence = await Harness.SeedMessageAsync(Harness.Source);
 
 		var result = await Harness.Provider.MoveMessagesAsync(
@@ -118,9 +142,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// provider leaking its native error (a raw <c>404</c>, <c>410</c>, or a
 	/// <c>UIDVALIDITY</c> mismatch) breaks recovery for every caller (§3).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Expired_cursor_surfaces_as_ProviderCursorInvalidException()
 	{
+		Available();
 		var expired = await Harness.ExpiredCursorAsync(Harness.Source);
 
 		await Assert.ThrowsAsync<ProviderCursorInvalidException>(
@@ -138,9 +163,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// <summary>
 	/// A valid cursor does not raise, and any cursor returned is of the provider's own kind.
 	/// </summary>
-	[Fact]
+	[SkippableFact]
 	public async Task Sync_returns_a_cursor_of_the_declared_kind()
 	{
+		Available();
 		var baseline = await Harness.BaselineCursorAsync(Harness.Source);
 
 		var result = await Harness.Provider.SyncMailboxAsync(
@@ -167,9 +193,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// `deltaLink` until the walk ends, so neither can advance mid-walk; IMAP can, because
 	/// `HighestKnownUid` is a high-water mark over what has already been returned (§1, §3).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Cursor_is_not_advanced_past_undelivered_changes()
 	{
+		Available();
 		if (Harness.Provider.Capabilities.AdvancesCursorMidWalk)
 		{
 			return;
@@ -199,9 +226,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// discard the outcome of the rest. A provider that collapses a batch into one aggregate
 	/// result forces the caller to retry work that already succeeded (§2).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Batch_results_are_per_item()
 	{
+		Available();
 		var good = await Harness.SeedMessageAsync(Harness.Source);
 		var bad = await Harness.UnresolvableOccurrenceAsync(Harness.Source);
 
@@ -239,9 +267,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// membership succeeded, and would either retry a removal that already happened or
 	/// abandon one that did not.
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Occurrences_of_one_message_are_reported_separately()
 	{
+		Available();
 		if (!Harness.Provider.Capabilities.SupportsMultipleMailboxMembership)
 		{
 			return;
@@ -284,9 +313,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// cannot be rendered correctly. <see cref="ErrorCategory.Unknown"/> is a legitimate
 	/// answer; not answering is not (§15).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Failed_batch_items_carry_a_categorised_problem()
 	{
+		Available();
 		var bad = await Harness.UnresolvableOccurrenceAsync(Harness.Source);
 
 		var result = await Harness.Provider.SetFlagsAsync(
@@ -313,9 +343,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// field is nullable. A provider that treats the update as absolute-per-message will
 	/// silently unflag messages on a mark-as-read (§2).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public async Task Null_flag_fields_are_left_unchanged()
 	{
+		Available();
 		var occurrence = await Harness.SeedMessageAsync(Harness.Source);
 
 		await Harness.Provider.SetFlagsAsync(
@@ -356,9 +387,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// one causes the caller to skip reconciliation it actually needs, and the resulting gap
 	/// is silent (§3).
 	/// </remarks>
-	[Fact]
+	[SkippableFact]
 	public void Capabilities_are_internally_consistent()
 	{
+		Available();
 		var capabilities = Harness.Provider.Capabilities;
 
 		Assert.Equal(Harness.Provider.Type, capabilities.Type);
@@ -392,9 +424,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// Gmail's change stream is account-scoped; Graph's and IMAP's are mailbox-scoped.
 	/// Per-label Gmail cursors would be fiction and would race between label jobs (§1, §3).
 	/// </summary>
-	[Fact]
+	[SkippableFact]
 	public void Change_stream_scope_matches_the_provider()
 	{
+		Available();
 		var expected =
 			Harness.Provider.Type == Api.Domain.ProviderType.Gmail
 				? ChangeStreamScope.Account
@@ -408,9 +441,10 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// Graph mail folder destroys them. The UI states the actual outcome, so the capability
 	/// must be reported accurately rather than defaulted (§2).
 	/// </summary>
-	[Fact]
+	[SkippableFact]
 	public void Mailbox_deletion_semantics_are_declared()
 	{
+		Available();
 		var expected = Harness.Provider.Type != Api.Domain.ProviderType.Gmail;
 
 		Assert.Equal(expected, Harness.Provider.Capabilities.DeletingMailboxDeletesMessages);

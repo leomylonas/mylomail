@@ -57,9 +57,20 @@
   delimiter and an `INBOX.` prefix, so a provider that hardcodes `/` fails one tier and
   passes the others. Verified by probing post-login `CAPABILITY` on each.
 
+- **`ImapMailProvider` is implemented thin and passes the shared conformance suite at all
+  three capability tiers** (`server/MyloMail.Api/Providers/Imap/`, MailKit). Authentication,
+  topology listing with the server-declared delimiter and namespace prefix, initial sync,
+  incremental sync with `UIDVALIDITY` invalidation, raw fetch via `BODY.PEEK[]`, flags, move
+  and the three deletion shapes. Send, drafts and mailbox management throw
+  `NotSupportedException` rather than returning a plausible empty result.
+- Conformance cases are now skippable (`Xunit.SkippableFact`): with no
+  `TEST_IMAP_*_HOST/PORT` set, the 36 IMAP cases skip rather than fail (§11). Verified in
+  both directions — with the variables set and the containers stopped, all 36 fail, which is
+  what proves they genuinely connect rather than passing vacuously.
+
 ## Next task
 
-Stage B continues: implement the three real providers, thin — authentication, topology
+Stage B continues: implement the remaining two real providers, thin — authentication, topology
 listing, one read path, one mutation each — with each supplying an `IConformanceHarness`
 so it inherits the shared suite. `ImapMailProvider` should be run against all three
 capability tiers.
@@ -89,6 +100,33 @@ provider interface, so it is deliberately not in the shared suite and does not y
   dropping the mailbox from batch correlation fails 6 cases.
 
 ## Risks / decisions
+
+- **Two gaps in the provider contract that only a real provider exposes.** Both are stage
+  B doing its job (§16: "establish whether the abstraction actually holds"), and neither is
+  fixed, because fixing either amends frozen architecture:
+  1. **IMAP capabilities are per-connection, not per-type.** §2 declares
+     `Capabilities` as a provider property and `IMailProviderFactory` resolves by
+     `ProviderType`, which assumes capabilities belong to the type. A QRESYNC server and a
+     basic server are different providers as far as recovery policy is concerned, so
+     `ImapMailProvider` has to be instantiated per account and the factory cannot be a
+     simple type switch. Currently handled by constructing the provider per account and
+     negotiating on every connect; before negotiation it reports the weakest tier, so a
+     caller skips no reconciliation it needs.
+  2. **`MessageOccurrenceRef` cannot be addressed by an IMAP provider on its own.** It
+     carries a local `MailboxId` and a `ProviderOccurrenceId`, but a UID is meaningless
+     without its folder, so `SetFlagsAsync`, `MoveMessagesAsync`, `RemoveFromMailboxAsync`
+     and `FetchRawMessageAsync` all receive a reference the provider cannot resolve. Gmail
+     and Graph are unaffected — their occurrence id is account-wide. Worked around with
+     `IImapMailboxResolver`, injected by the caller, which is arguably the right home for it
+     since the orchestrator already owns local identity; the alternative is adding the
+     provider mailbox id to the ref, which changes a record §2 writes verbatim.
+- `MoveToTrashAsync` and `DeletePermanentlyAsync` currently do what
+  `RemoveFromMailboxAsync` does — flag `\Deleted` and expunge. They remain separate methods
+  because the difference is user-visible (§2, §6); making trash actually move to the Trash
+  folder is stage C work.
+- Expunge detection is not implemented: below QRESYNC it is UID-set reconciliation, which
+  belongs with the reconciliation machinery in stage C rather than in a thin read path.
+  `SyncResult.Removed` is therefore always empty for IMAP today.
 
 - **No throwaway provider accounts exist yet.** Gmail and Graph cannot be exercised at all
   until they do, so stage B's real value — finding out whether the abstraction survives
