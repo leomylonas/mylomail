@@ -143,19 +143,23 @@ The epics in §13 of the design doc are **requirements, not a build sequence**.
 
 **TypeScript / React**
 - Tab indentation, except YAML which is 2 spaces.
-- **File names are `PascalCase`**, including generated output — `MessageList.tsx`,
-  `UseMessageList.ts`, `MessageList.module.css`. The one exception is `index.ts`, which
-  module resolution requires by that exact name.
-- **A component owns a `PascalCase` folder containing a `.tsx` of the same name** —
+- **`PascalCase` for every file and folder**, including generated output. `src` is the one
+  exception, and it is package layout rather than part of any import path. The workspace
+  package directories themselves (`electron-shell`, `shared-types`) are kebab-case package
+  names and stay as they are.
+- **A component owns a folder containing a `.tsx` of the same name** —
   `MessageList/MessageList.tsx`. Its CSS module, store, tests and any child components it
   alone uses sit beside it: `MessageList.module.css`, `MessageList.store.ts`,
   `MessageList.test.tsx`, `MessageRow/MessageRow.tsx`.
-- **All other directories are `camelCase`** — the layer folders under `src/`, and anything
-  that is not a component folder. The workspace package directories themselves
-  (`electron-shell`, `shared-types`) are kebab-case package names and stay as they are.
-- **Layer-first directories** under `apps/renderer/src`: `shell/`, `components/`, `hooks/`,
-  `stores/`, `styles/`, `lib/`, `types/`. `shell/` is the cross-cutting layer — panels,
+- **Layer-first directories** under `apps/renderer/src`: `Shell/`, `Components/`, `Hooks/`,
+  `Stores/`, `Styles/`, `Lib/`, `Types/`. `Shell/` is the cross-cutting layer — panels,
   registries, theme, per-window state, error mapping.
+- **No barrel files.** No `index.ts`, no re-export hubs. Import the module by its full
+  path — `@mylomail/shared-types/Api/Contracts/HealthDto` — so a symbol is greppable to
+  exactly one path and a re-export cannot quietly rename it.
+- **Import via the mapped prefixes**, never a relative climb or a `src` segment:
+  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@renderer/*`, `@shell/*`. Defined in
+  `tsconfig.json` `paths`.
 - **Named exports only.** No default exports; they let the same module be imported under
   different names.
 - Components are **function declarations**, not arrow constants, so stack traces and

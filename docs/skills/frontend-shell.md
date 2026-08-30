@@ -28,22 +28,41 @@ window writes back the default for future windows and leaves current ones alone.
 Enforced by `pnpm check` (ESLint and Stylelint), not by convention alone. The rules below
 are the reasoning; the checkable summary is in `AGENTS.md`.
 
-**File names are `PascalCase`, including generated output.** One rule for every file type,
-so there is no per-file-type exception to remember and no argument about whether a hook or
-a store counts as a component. `TypeContractor` is pinned to `--casing Pascal` to match.
-`index.ts` is the single exception, and it is not a style choice: module resolution looks
-for that exact name when importing a directory, and CI runs on a case-sensitive filesystem
-while macOS does not — `Index.ts` would resolve locally and fail in CI.
+**`PascalCase` for every file and folder, including generated output.** One rule for the
+whole tree: no per-file-type exception to remember, and no judgement about whether a folder
+is a layer or a component. `TypeContractor` is pinned to `--casing Pascal` to match.
 
-Two generated paths cannot follow it. `TypedSignalR.Client.TypeScript` writes a fixed
-`TypedSignalR.Client/index.ts` with no naming option, and package entry points stay
-`index.ts` for the same resolution reason.
+`src` is excluded, because it is package layout rather than part of an import path — see
+imports below. `TypedSignalR.Client.TypeScript` is the one thing that cannot comply: it
+writes a fixed `TypedSignalR.Client/index.ts` with no naming option. It is generated, and
+`packages/shared-types/src` is excluded from linting.
+
+## Imports
+
+**No barrel files.** A barrel re-exports a symbol under a second path and often a second
+name, so a symbol stops being greppable to one location, and deleting the original leaves
+the barrel compiling. Import the module by its full path instead:
+
+```ts
+import type { HealthDto } from "@mylomail/shared-types/Api/Contracts/HealthDto";
+import { MessageRow } from "@renderer/Components/MessageList/MessageRow/MessageRow";
+```
+
+**`src` never appears in an import.** `tsconfig.json` maps `@mylomail/shared-types/*`,
+`@mylomail/ui/*`, `@renderer/*` and `@shell/*` onto each package's `src`, so the physical
+layout stays conventional while specifiers stay clean. Generated types are stripped of
+their C# namespace prefix (`--strip MyloMail.Api`) for the same reason — otherwise every
+import would carry a redundant `MyloMail/Api/`.
+
+Resolution is `moduleResolution: "bundler"`. `NodeNext` requires an explicit file extension
+on every specifier, which is wrong for code electron-vite bundles and would put `.js` or
+`.ts` into every import.
 
 **A component owns its directory.** The folder is `PascalCase` and holds a `.tsx` of the
 same name, with everything belonging to that component beside it:
 
 ```
-components/MessageList/
+Components/MessageList/
 	MessageList.tsx           the component
 	MessageList.module.css    its styles
 	MessageList.store.ts      its per-window store
@@ -59,21 +78,19 @@ error — `local/component-folder` in `eslint.config.js`, a local rule because t
 is a *relationship* between file and folder, and a PascalCase folder plus a PascalCase file
 checked independently would happily accept `MessageList/ReadingPane.tsx`.
 
-**Every other directory is `camelCase`** — the layer folders below, and anything that is not
-a component folder, so `stores/windowState/` rather than `WindowState/` or `window-state/`.
 The workspace package directories (`electron-shell`, `shared-types`) are kebab-case package
 names, not source folders, and are excluded.
 
 **Directories are layer-first** under `apps/renderer/src`:
 
 ```
-shell/        panels, registries, theme, per-window state, ErrorCategory mapping
-components/   presentational and composite components
-hooks/        shared hooks
-stores/       per-window stores (never module-level)
-styles/       global styles and theme tokens
-lib/          SignalR client, query client, fetch client
-types/        hand-written types only; generated types live in packages/shared-types
+Shell/        panels, registries, theme, per-window state, ErrorCategory mapping
+Components/   presentational and composite components
+Hooks/        shared hooks
+Stores/       per-window stores (never module-level)
+Styles/       global styles and theme tokens
+Lib/          SignalR client, query client, fetch client
+Types/        hand-written types only; generated types live in packages/shared-types
 ```
 
 `shell/` is deliberately separate rather than being one layer among many: it is the Stage D

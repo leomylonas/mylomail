@@ -33,10 +33,16 @@
   (including generated output — `TypeContractor` pinned to `--casing Pascal`), layer-first
   directories under `apps/renderer/src`, named exports only, CSS Modules with camelCase
   class names. ESLint gained `react`, `react-hooks`, `jsx-a11y` and `check-file`, all as
-  errors; Stylelint is installed and wired into `pnpm check`. A component owns a PascalCase
-  folder holding a `.tsx` of the same name, with its CSS module, store, tests and private
-  child components beside it; every other directory is camelCase. Rules in `AGENTS.md`,
+  errors; Stylelint is installed and wired into `pnpm check`. PascalCase for every file and
+  folder except `src`; a component owns a folder holding a `.tsx` of the same name, with its
+  CSS module, store, tests and private child components beside it. Rules in `AGENTS.md`,
   reasoning in `docs/skills/frontend-shell.md`.
+- **No barrel files, and `src` never appears in an import.** `tsconfig.json` maps
+  `@mylomail/shared-types/*`, `@mylomail/ui/*`, `@renderer/*` and `@shell/*` onto each
+  package's `src`. Resolution moved from `NodeNext` to `bundler`, which is what
+  electron-vite-bundled code needs — `NodeNext` requires an explicit extension on every
+  specifier. Generated types are stripped of the `MyloMail.Api` namespace prefix so imports
+  do not carry a redundant `MyloMail/Api/`.
 - **Node 22 is now the supported version**, pinned in `.nvmrc` and `engines`, with CI
   reading `node-version-file: .nvmrc` so there is one source of truth. pnpm comes from
   `corepack enable`, which honours the `packageManager` pin. Stylelint is back on 17.
@@ -74,6 +80,13 @@ provider interface, so it is deliberately not in the shared suite and does not y
 
 ## Risks / decisions
 
+- The `tsconfig.json` `paths` mapping is verified to resolve
+  (`@mylomail/shared-types/Api/Contracts/HealthDto` typechecks) but nothing in the tree
+  imports it yet, so it is not exercised by `pnpm check`. Stage D will be the first real
+  use; if it has broken by then, that is where it will show.
+- Vite and Vitest will each need the same aliases as `tsconfig.json` `paths` when the
+  renderer is built in stage D — `vite-tsconfig-paths` is the usual way to avoid stating
+  them twice.
 - `local/component-folder` in `eslint.config.js` is a rule defined inline in the flat
   config, not a package. It relates a file's name to its folder's, which no off-the-shelf
   rule does. If more local rules appear, they should move to a real plugin package.

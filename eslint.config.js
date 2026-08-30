@@ -69,46 +69,41 @@ export default tseslint.config(
 		languageOptions: { globals: { ...globals.node, ...globals.browser } },
 	},
 
-	// File naming. PascalCase throughout, including the generated output, so there is one
-	// rule rather than a per-file-type exception nobody remembers.
+	// PascalCase files and PascalCase folders, everywhere, including generated output. One
+	// rule for the whole tree — no layer-versus-component distinction to adjudicate, and
+	// nothing that depends on what a folder happens to contain.
 	//
-	// `index.ts` is the single exception, and it is not a style choice: module resolution
-	// looks for that exact name when importing a directory, and the CI runner's filesystem
-	// is case-sensitive even though macOS is not. `Index.ts` would resolve locally and fail
-	// in CI.
+	// `src` itself is excluded: it is a package-layout convention, not part of an import
+	// path (see the `paths` mapping in tsconfig.json).
 	{
 		files: [
 			"apps/**/*.{ts,tsx}",
 			"packages/ui/**/*.{ts,tsx}",
 			"tests/**/*.{ts,tsx}",
 		],
-		ignores: ["**/index.ts", "**/index.tsx"],
 		plugins: { "check-file": checkFile },
 		rules: {
 			"check-file/filename-naming-convention": [
 				"error",
-				{ "**/*.{ts,tsx}": "PASCAL_CASE" },
+				{ "**/!(index|Index).{ts,tsx}": "PASCAL_CASE" },
 				{ ignoreMiddleExtensions: true },
 			],
-		},
-	},
-
-	// The layer folders directly under `src/` are camelCase — `shell/`, `components/`,
-	// `hooks/`, `stores/`, `styles/`, `lib/`, `types/`. Component folders below them are
-	// PascalCase, enforced by `local/component-folder` rather than here, because whether a
-	// folder is a component folder depends on what it contains, which a glob cannot express.
-	//
-	// Scoped to renderer and UI source: the workspace package directories themselves
-	// (`electron-shell`, `shared-types`) are kebab-case package names, not source folders.
-	{
-		files: ["apps/renderer/src/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}"],
-		plugins: { "check-file": checkFile },
-		rules: {
 			"check-file/folder-naming-convention": [
 				"error",
 				{
-					"apps/renderer/src/*/": "CAMEL_CASE",
-					"packages/ui/src/*/": "CAMEL_CASE",
+					"apps/renderer/src/**/": "PASCAL_CASE",
+					"apps/electron-shell/src/**/": "PASCAL_CASE",
+					"packages/ui/src/**/": "PASCAL_CASE",
+				},
+			],
+			// No barrel files. Imports name the module they come from in full, so a symbol
+			// is greppable to exactly one path and a re-export cannot quietly rename it.
+			"check-file/filename-blocklist": [
+				"error",
+				{
+					// Exempted from the casing rule above so this speaks once, and clearly.
+					"**/{index,Index}.{ts,tsx}":
+						"*.{ts,tsx} — barrel files are not used; import the module by its full path.",
 				},
 			],
 		},

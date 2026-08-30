@@ -82,7 +82,7 @@ run([
 	"--project",
 	"server/MyloMail.Api/MyloMail.Api.csproj",
 	"--output",
-	"packages/shared-types/src/signalr",
+	"packages/shared-types/src/SignalR",
 ]);
 
 run([
@@ -90,7 +90,7 @@ run([
 	"--assembly",
 	ASSEMBLY,
 	"--output",
-	"packages/shared-types/src/api",
+	"packages/shared-types/src/Api",
 	"--packs-path",
 	packsPathFor(findPacksPath()),
 	"--dotnet-version",
@@ -101,4 +101,8 @@ run([
 	// default that moves silently renames every generated file on a tool upgrade.
 	"--casing",
 	"Pascal",
+	// Without this every path carries a redundant `MyloMail/Api/` prefix, so an import
+	// reads `.../Api/MyloMail/Api/Contracts/HealthDto`.
+	"--strip",
+	"MyloMail.Api",
 ]);

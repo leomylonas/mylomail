@@ -1,13 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "@mylomail/shared-types/*": ["./packages/shared-types/src/*"],
+      "@mylomail/ui/*": ["./packages/ui/src/*"],
+      "@renderer/*": ["./apps/renderer/src/*"],
+      "@shell/*": ["./apps/electron-shell/src/*"]
+    }
   },
   "include": [
     "scripts/**/*.ts",
