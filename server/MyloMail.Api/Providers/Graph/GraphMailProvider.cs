@@ -168,7 +168,8 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 				removed
 			);
 		}
-		catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 410)
+		catch (Microsoft.Kiota.Abstractions.ApiException ex)
+			when (url is not null && ex.ResponseStatusCode is 400 or 410)
 		{
 			throw new ProviderCursorInvalidException("Graph delta cursor has been invalidated.", ex);
 		}

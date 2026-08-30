@@ -58,6 +58,11 @@ fault injection. Read the relevant architecture sections before making a change.
   move destination identity, canonical message identity, per-item batches, occurrence
   handling, categorized failure, and partial flag updates. Evidence:
   `.dev/test-results/graph-mutations/conformance_net8.0_20260830224332.trx`.
+- The full live Graph suite ran. Ten of its eleven original cases passed, including the
+  page-overflow cursor assertion; Graph reports a malformed delta token as HTTP 400 rather
+  than 410, so the provider now maps either status (when following a cursor) to
+  `ProviderCursorInvalidException`. The focused eleventh case then passed:
+  `.dev/test-results/graph-expired-cursor/`.
 - Per the owner’s request, the long full-sync/page-overflow test was not rerun after the
   Gmail fixture fix; its earlier successful result remains the verification for that path.
 
