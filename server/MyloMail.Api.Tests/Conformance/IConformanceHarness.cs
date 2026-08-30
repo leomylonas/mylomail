@@ -34,6 +34,17 @@ public interface IConformanceHarness : IAsyncDisposable
 	Task<ProviderCursorState> BaselineCursorAsync(Mailbox mailbox, CancellationToken ct = default);
 
 	/// <summary>
+	/// Places one message in two mailboxes and returns a reference to each occurrence. Both
+	/// share a <c>MessageId</c>. Only meaningful where
+	/// <see cref="ProviderCapabilities.SupportsMultipleMailboxMembership"/> is set.
+	/// </summary>
+	Task<(MessageOccurrenceRef First, MessageOccurrenceRef Second)> SeedSharedMessageAsync(
+		Mailbox first,
+		Mailbox second,
+		CancellationToken ct = default
+	);
+
+	/// <summary>
 	/// Seeds enough messages that a single sync page cannot hold them all, so cursor
 	/// advancement can be observed mid-walk.
 	/// </summary>

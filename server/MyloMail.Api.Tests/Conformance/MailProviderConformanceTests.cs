@@ -214,13 +214,66 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 
 		Assert.Equal(2, result.Items.Count);
 
-		var goodItem = Assert.Single(result.Items, i => i.MessageId == good.MessageId);
+		var goodItem = Assert.Single(
+			result.Items,
+			i => i.MessageId == good.MessageId && i.MailboxId == good.MailboxId
+		);
 		Assert.True(goodItem.Succeeded);
 		Assert.Null(goodItem.Problem);
 
-		var badItem = Assert.Single(result.Items, i => i.MessageId == bad.MessageId);
+		var badItem = Assert.Single(
+			result.Items,
+			i => i.MessageId == bad.MessageId && i.MailboxId == bad.MailboxId
+		);
 		Assert.False(badItem.Succeeded);
 		Assert.NotNull(badItem.Problem);
+	}
+
+	/// <summary>
+	/// Two occurrences of one message in one batch produce two distinguishable results.
+	/// </summary>
+	/// <remarks>
+	/// <c>RemoveFromMailbox</c> is membership-scoped (§6), and under Gmail's label model one
+	/// message genuinely belongs to several mailboxes (§1), so a batch can carry two refs
+	/// sharing a <c>MessageId</c>. Keyed on the message alone the caller cannot tell which
+	/// membership succeeded, and would either retry a removal that already happened or
+	/// abandon one that did not.
+	/// </remarks>
+	[Fact]
+	public async Task Occurrences_of_one_message_are_reported_separately()
+	{
+		if (!Harness.Provider.Capabilities.SupportsMultipleMailboxMembership)
+		{
+			return;
+		}
+
+		var (first, second) = await Harness.SeedSharedMessageAsync(
+			Harness.Source,
+			Harness.Destination
+		);
+		Assert.Equal(first.MessageId, second.MessageId);
+
+		var result = await Harness.Provider.RemoveFromMailboxAsync(
+			Harness.Account,
+			[first],
+			CancellationToken.None
+		);
+
+		var item = Assert.Single(result.Items);
+		Assert.Equal(first.MailboxId, item.MailboxId);
+		Assert.NotEqual(second.MailboxId, item.MailboxId);
+
+		// The untouched membership survives: removing one label is not removing the message.
+		var stillThere = await Harness.Provider.SetFlagsAsync(
+			Harness.Account,
+			[second],
+			new FlagUpdate(IsRead: true, IsFlagged: null),
+			CancellationToken.None
+		);
+		Assert.True(
+			Assert.Single(stillThere.Items).Succeeded,
+			"removing one occurrence must not remove the other"
+		);
 	}
 
 	/// <summary>

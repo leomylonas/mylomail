@@ -24,7 +24,7 @@
 - `FakeMailProvider` (`server/MyloMail.Api.Tests/Fakes/`) as a first-class test double per
   §11, constructed with explicit capabilities so it can wear any provider shape.
 - `ProviderShapes` declares the capability set for Gmail, Graph and each IMAP tier. The
-  conformance suite runs against all five shapes: 50 cases.
+  conformance suite runs against all five shapes: 60 cases.
 - `.editorconfig` added. C# had no formatter configuration, so `dotnet format` defaulted to
   spaces and contradicted the tab convention in AGENTS.md; the first indented C# file
   exposed it.
@@ -73,11 +73,14 @@ provider interface, so it is deliberately not in the shared suite and does not y
 ## Verification
 
 - `pnpm check` green.
-- `pnpm check:deep` green — 50 conformance cases pass.
+- `pnpm check:deep` green — 60 conformance cases pass.
 - `pnpm generate:types` runs clean and is idempotent; generated output is committed.
 - The conformance suite was mutation-tested rather than merely run: making the flag update
   absolute instead of partial, dropping the move's destination identity, and swallowing
   cursor invalidation each produced 5 failures (one per shape). The suite discriminates.
+- The three assertions added since were mutation-tested the same way: advancing a cursor
+  mid-walk regardless of capability fails the two shapes that cannot (Gmail, Graph), and
+  dropping the mailbox from batch correlation fails 6 cases.
 
 ## Risks / decisions
 
@@ -128,13 +131,19 @@ provider interface, so it is deliberately not in the shared suite and does not y
   available choices either covered undelivered pages or smuggled a Graph `nextLink` into a
   delta-cursor field. Either way the caller commits a cursor past data it has not received
   and those pages are skipped silently — principle 3.
-- **One review finding is unresolved and needs a decision, because fixing it departs from
-  frozen architecture.** `BatchItemResult` is keyed by `MessageId` alone, exactly as §2
-  line 365 writes it. But `RemoveFromMailboxAsync` is membership-scoped (§6), and under
-  Gmail's label model one message legitimately has several occurrences, so one batch can
-  carry two refs with the same `MessageId` in different mailboxes and their results are
-  indistinguishable. Correlating on the occurrence (message plus mailbox, or a request
-  index) would fix it but changes a record the design doc specifies verbatim.
+- **`docs/architecture.md` §2 has been amended, with the owner's approval.**
+  `BatchItemResult` now carries `MailboxId`, so results correlate on
+  `(MessageId, MailboxId)` rather than on the message alone. `RemoveFromMailbox` is
+  membership-scoped (§6) and a message holds several occurrences under Gmail's label model
+  (§1), so a batch can carry two refs sharing a `MessageId` whose results would otherwise be
+  indistinguishable. §6's ordering rule means the mutation worker never batches two
+  operations for one message, so this was latent rather than live; it was fixed anyway
+  because "per item" should mean an item is correlatable from the provider contract itself,
+  rather than by virtue of a scheduling invariant enforced elsewhere.
+  **The design document and the code were changed in the same commit deliberately.** Leaving
+  §2 stating the old record would be worse than either option: the next agent would read the
+  frozen doc, see the code disagree, and "correct" it back.
+  Callers must not submit duplicate `(MessageId, MailboxId)` pairs in one batch.
 - `FakeMailProvider` implements `SendAsync`, draft methods and `MoveMailboxAsync` as no-ops.
   Adequate for the current suite; they need real behaviour before stage C exercises them.
 - Two generated paths cannot take PascalCase names: `TypedSignalR.Client.TypeScript` writes

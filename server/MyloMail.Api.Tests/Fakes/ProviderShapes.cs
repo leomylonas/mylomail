@@ -29,6 +29,10 @@ public static class ProviderShapes
 			// A historyId describes the whole list, not the page in hand.
 			AdvancesCursorMidWalk = false,
 
+			// One message, a set of labels — the whole reason occurrences are modelled as a
+			// many-to-many rather than a column on the message (§1).
+			SupportsMultipleMailboxMembership = true,
+
 			SupportsServerSideDrafts = true,
 
 			// Deleting a label leaves the messages in All Mail.
@@ -49,7 +53,7 @@ public static class ProviderShapes
 			// A partial delta walk yields a nextLink, not the deltaLink incremental sync
 			// needs, so there is nothing safe to commit until the walk finishes (§3).
 			AdvancesCursorMidWalk = false,
-
+			SupportsMultipleMailboxMembership = false,
 			SupportsServerSideDrafts = true,
 			DeletingMailboxDeletesMessages = true,
 		};
@@ -82,6 +86,7 @@ public static class ProviderShapes
 			// HighestKnownUid is a high-water mark over what has already been returned, so a
 			// partial page can be committed without skipping anything.
 			AdvancesCursorMidWalk = true,
+			SupportsMultipleMailboxMembership = false,
 
 			SupportsServerSideDrafts = true,
 			DeletingMailboxDeletesMessages = true,

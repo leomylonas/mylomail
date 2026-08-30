@@ -309,6 +309,7 @@ public sealed class FakeMailProvider : IMailProvider
 				items.Add(
 					new BatchItemResult(
 						reference.MessageId,
+						reference.MailboxId,
 						Succeeded: false,
 						new MutationProblemDetails
 						{
@@ -324,7 +325,9 @@ public sealed class FakeMailProvider : IMailProvider
 			}
 
 			var located = found.Value with { Reference = reference };
-			items.Add(new BatchItemResult(reference.MessageId, true, null, apply(located)));
+			items.Add(
+				new BatchItemResult(reference.MessageId, reference.MailboxId, true, null, apply(located))
+			);
 		}
 
 		return new BatchResult(items);

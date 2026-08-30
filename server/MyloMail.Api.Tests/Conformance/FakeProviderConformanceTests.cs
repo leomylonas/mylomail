@@ -73,6 +73,33 @@ public sealed class FakeConformanceHarness : IConformanceHarness
 		return Task.FromResult(new MessageOccurrenceRef(messageId, mailbox.Id, occurrenceId));
 	}
 
+	public Task<(MessageOccurrenceRef First, MessageOccurrenceRef Second)> SeedSharedMessageAsync(
+		Mailbox first,
+		Mailbox second,
+		CancellationToken ct = default
+	)
+	{
+		// One canonical message, two memberships — the same Guid on both refs.
+		var messageId = Guid.NewGuid();
+		var firstOccurrence = provider.SeedMessage(
+			first.ProviderMailboxId!,
+			messageId,
+			DateTimeOffset.UtcNow
+		);
+		var secondOccurrence = provider.SeedMessage(
+			second.ProviderMailboxId!,
+			messageId,
+			DateTimeOffset.UtcNow
+		);
+
+		return Task.FromResult(
+			(
+				new MessageOccurrenceRef(messageId, first.Id, firstOccurrence),
+				new MessageOccurrenceRef(messageId, second.Id, secondOccurrence)
+			)
+		);
+	}
+
 	public Task SeedPageOverflowAsync(Mailbox mailbox, CancellationToken ct = default)
 	{
 		for (var i = 0; i < 60; i++)

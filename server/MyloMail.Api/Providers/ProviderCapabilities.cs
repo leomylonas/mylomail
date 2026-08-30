@@ -53,6 +53,13 @@ public record ProviderCapabilities
 	/// </summary>
 	public required bool AdvancesCursorMidWalk { get; init; }
 
+	/// <summary>
+	/// Whether one message can belong to several mailboxes at once. True for Gmail, where a
+	/// message has one canonical existence and a set of labels; for IMAP and Graph there is
+	/// always exactly one membership (§1).
+	/// </summary>
+	public required bool SupportsMultipleMailboxMembership { get; init; }
+
 	public required bool SupportsServerSideDrafts { get; init; }
 
 	/// <summary>

@@ -364,11 +364,14 @@ public record FlagUpdate(bool? IsRead, bool? IsFlagged); // null = leave unchang
 public record BatchResult(IReadOnlyList<BatchItemResult> Items);
 public record BatchItemResult(
     Guid MessageId,
+    Guid MailboxId,          // correlation key is (MessageId, MailboxId) — see below
     bool Succeeded,
     MutationProblemDetails? Problem,
     IReadOnlyList<OccurrenceChange> OccurrenceChanges); // created/removed memberships
 public record OccurrenceChange(Guid MailboxId, string? NewProviderOccurrenceId, bool Removed);
 ```
+
+**Batch results correlate on `(MessageId, MailboxId)`, not `MessageId` alone.** `RemoveFromMailbox` is membership-scoped (§6) and a message legitimately holds several occurrences under Gmail's label model (§1), so a batch can carry two refs sharing a `MessageId`; keyed on the message alone their results are indistinguishable and the caller cannot tell which membership succeeded. §6's ordering rule means the mutation worker never batches two operations for one message, so this is latent rather than live — but "per item" has to mean an item is correlatable from this contract, not by virtue of a scheduling invariant enforced elsewhere. Both identities are local and stable, so nothing volatile enters the result. Callers must not submit duplicate `(MessageId, MailboxId)` pairs in one batch.
 
 `OccurrenceChanges` is what allows a move to report its destination identity — an IMAP move changes the UID, and with UIDPLUS/`MOVE` the server returns it. Where the server does not, the result flags that destination reconciliation is required rather than guessing.
 

@@ -38,11 +38,29 @@ public record FlagUpdate(bool? IsRead, bool? IsFlagged);
 public record BatchResult(IReadOnlyList<BatchItemResult> Items);
 
 /// <summary>
-/// Per-item outcome. Results are genuinely per item — a batch that reports one aggregate
-/// success or failure is a conformance failure, because partial success is the normal case.
+/// Per-item outcome, correlated to the submitted occurrence by
+/// <c>(MessageId, MailboxId)</c>. Results are genuinely per item — a batch that reports one
+/// aggregate success or failure is a conformance failure, because partial success is the
+/// normal case.
 /// </summary>
+/// <remarks>
+/// <b><see cref="MailboxId"/> is an amendment to the record as written in §2</b>, which keys
+/// results on <c>MessageId</c> alone. <c>RemoveFromMailbox</c> is membership-scoped (§6) and
+/// a message legitimately has several occurrences under Gmail's label model (§1), so a batch
+/// can carry two refs sharing a <c>MessageId</c> and their results would be
+/// indistinguishable — the caller could not tell which membership succeeded.
+/// <para>
+/// §6's ordering rule means the mutation worker never batches two operations for one message
+/// today, so this is not a live bug. It is fixed regardless because "per item" should mean an
+/// item is correlatable from the contract itself, not by virtue of a scheduling invariant
+/// enforced elsewhere. Both identities are local and stable, so this leaks no volatile
+/// provider identity into the result.
+/// </para>
+/// Callers must not submit duplicate <c>(MessageId, MailboxId)</c> pairs in one batch.
+/// </remarks>
 public record BatchItemResult(
 	Guid MessageId,
+	Guid MailboxId,
 	bool Succeeded,
 	MutationProblemDetails? Problem,
 	IReadOnlyList<OccurrenceChange> OccurrenceChanges
