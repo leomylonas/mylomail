@@ -93,6 +93,39 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				},
 			)
 			.toBe(1);
+		// Search reads the FTS index that content acquisition populated, and scopes to the
+		// selected mailbox after the match (§8).
+		const search = window.getByRole("searchbox", { name: /Search mail/ });
+		await search.fill("Second");
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeVisible();
+		await expect(
+			window.getByRole("button", { name: /First message/ }),
+		).toBeHidden();
+
+		// Field-scoped queries work because the index has real columns rather than one blob.
+		await search.fill("Subject:First");
+		await expect(
+			window.getByRole("button", { name: /First message/ }),
+		).toBeVisible();
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeHidden();
+
+		await search.fill("");
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeVisible();
+
+		// New mail arriving on the server reaches an open window without anything else
+		// prompting it — the point of raising MessageReceived at all (§7).
+		await appendMessage(imapPort, "Third message");
+		await expect(
+			window.getByRole("button", { name: /Third message/ }),
+		).toBeVisible({
+			timeout: 90_000,
+		});
 	} finally {
 		await app.close();
 	}

@@ -10,6 +10,8 @@ export const queryKeys = {
 	mailboxes: (accountId: string) => ["mailboxes", accountId] as const,
 	messages: (mailboxId: string) => ["messages", mailboxId] as const,
 	pending: (accountId: string) => ["pending", accountId] as const,
+	search: (accountId: string, query: string, mailboxId: string | null) =>
+		["search", accountId, query, mailboxId] as const,
 };
 
 /**
@@ -53,13 +55,22 @@ export function connectHub(queryClient: QueryClient): HubConnection {
 		});
 	});
 
-	for (const event of ["MessageReceived", "MessageUpdated"]) {
+	// New mail, a changed flag, or a deletion all mean the list is stale. Invalidating by
+	// prefix rather than by mailbox because a message can belong to several at once, and the
+	// event does not say which lists are showing it.
+	for (const event of ["MessageReceived", "MessageUpdated", "MessageDeleted"]) {
 		hub.on(event, () => {
 			void queryClient.invalidateQueries({ queryKey: ["messages"] });
+			void queryClient.invalidateQueries({ queryKey: ["search"] });
 		});
 	}
 
-	hub.on("MessageDeleted", () => {
+	// A change the user asked for that will not happen. Surfaced rather than swallowed: the
+	// optimistic state has already been reverted, so without this the flag simply springs
+	// back with no explanation.
+	hub.on("MessageSyncFailed", (messageId: string, reason: string) => {
+		console.warn(`message ${messageId} could not be updated: ${reason}`);
+		void queryClient.invalidateQueries({ queryKey: ["pending"] });
 		void queryClient.invalidateQueries({ queryKey: ["messages"] });
 	});
 

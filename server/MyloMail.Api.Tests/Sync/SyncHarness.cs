@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Sync;
@@ -37,6 +39,9 @@ internal sealed class SyncHarness : IAsyncDisposable
 
 	public FakeTimeProvider Clock { get; }
 
+	/// <summary>Records the §7 events raised, so a test can assert which one fired.</summary>
+	public RecordingHubEvents Events { get; } = new();
+
 	public Account Account { get; private set; } = null!;
 
 	public static async Task<SyncHarness> CreateAsync(ProviderCapabilities capabilities)
@@ -54,6 +59,7 @@ internal sealed class SyncHarness : IAsyncDisposable
 			.AddSingleton<TimeProvider>(Clock)
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubFactory(Provider))
+			.AddSingleton<IHubEvents>(Events)
 			.AddMutations()
 			.AddSync()
 			.BuildServiceProvider();
@@ -113,4 +119,65 @@ internal sealed class SyncHarness : IAsyncDisposable
 	{
 		public IMailProvider For(Account account) => provider;
 	}
+}
+
+/// <summary>Records what was announced rather than announcing it.</summary>
+internal sealed class RecordingHubEvents : IHubEvents
+{
+	public List<MessageSummaryDto> Received { get; } = [];
+
+	public List<MessageSummaryDto> Updated { get; } = [];
+
+	public List<Guid> Deleted { get; } = [];
+
+	public List<MailboxSummaryDto> Mailboxes { get; } = [];
+
+	public List<Guid> TreeChanges { get; } = [];
+
+	public void Clear()
+	{
+		Received.Clear();
+		Updated.Clear();
+		Deleted.Clear();
+		Mailboxes.Clear();
+		TreeChanges.Clear();
+	}
+
+	public Task MessageReceivedAsync(MessageSummaryDto message)
+	{
+		Received.Add(message);
+		return Task.CompletedTask;
+	}
+
+	public Task MessageUpdatedAsync(MessageSummaryDto message)
+	{
+		Updated.Add(message);
+		return Task.CompletedTask;
+	}
+
+	public Task MessageDeletedAsync(Guid messageId)
+	{
+		Deleted.Add(messageId);
+		return Task.CompletedTask;
+	}
+
+	public Task MailboxUpdatedAsync(MailboxSummaryDto mailbox)
+	{
+		Mailboxes.Add(mailbox);
+		return Task.CompletedTask;
+	}
+
+	public Task MailboxTreeChangedAsync(Guid accountId)
+	{
+		TreeChanges.Add(accountId);
+		return Task.CompletedTask;
+	}
+
+	public Task SyncProgressAsync(SyncProgressDto progress) => Task.CompletedTask;
+
+	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
+
+	public Task MessageSyncFailedAsync(Guid messageId, string reason) => Task.CompletedTask;
+
+	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 }

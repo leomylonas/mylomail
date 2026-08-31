@@ -25,13 +25,14 @@
    the hub wired to cache invalidation, a Carbon sidebar and message list. Still to build —
    HTML body rendering, TanStack Router/Virtual/Table, compose with
    Lexical, and the toast/context-menu/shortcut/error registries.
-4. **Raise the remaining §7 events.** `AccountStatusChanged`, `MailboxTreeChanged` and
-   `SyncProgress` now have producers — the first two were found missing by the e2e test, since
-   without them a new account and its mailboxes never appeared. The rest still need wiring. `IMailClient` declares all of them so none is orphaned,
+4. **The last §7 events without producers**: `ExportProgress`, `DraftUpdated`,
+   `CalendarEventUpdated`, `CalendarConflictDetected` and `ConnectivityChanged` — each waiting
+   on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **Search over the FTS index.** The index is populated and column-scoped queries work, but
-   nothing queries it — §7's `Search` hub method does not exist, and neither does any UI.
+5. **The registries** — toast, context menu, shortcuts, error mapping.
+   `MutationProblemDetails.Category` still has no consumer, so a failed mutation reaches the
+   renderer as a console warning rather than anything a user sees.
 
 ### Credential storage decision
 

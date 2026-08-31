@@ -25,18 +25,29 @@ export function MessageList({
 	hub,
 	accountId,
 	mailboxId,
+	query,
 	onSelect,
 }: {
 	hub: HubConnection;
 	accountId: string;
 	mailboxId: string;
+	query: string;
 	onSelect: (messageId: string) => void;
 }) {
 	const queryClient = useQueryClient();
+	const searching = query.trim().length > 0;
 
+	// One list, two sources. Searching scopes to the selected mailbox, because a search from
+	// inside a folder that silently returned results from everywhere would be a different
+	// question than the one the user asked.
 	const messages = useQuery({
-		queryKey: queryKeys.messages(mailboxId),
-		queryFn: () => hub.invoke<MessageSummary[]>("GetMessages", mailboxId, 100),
+		queryKey: searching
+			? queryKeys.search(accountId, query, mailboxId)
+			: queryKeys.messages(mailboxId),
+		queryFn: () =>
+			searching
+				? hub.invoke<MessageSummary[]>("Search", accountId, query, mailboxId)
+				: hub.invoke<MessageSummary[]>("GetMessages", mailboxId, 100),
 	});
 
 	// What the user has asked for and the server has not yet confirmed. Merged over
@@ -65,7 +76,11 @@ export function MessageList({
 	if (messages.isError)
 		return <p className={styles.empty}>Could not load messages.</p>;
 	if (messages.data.length === 0)
-		return <p className={styles.empty}>Nothing here yet.</p>;
+		return (
+			<p className={styles.empty}>
+				{searching ? "No messages match that search." : "Nothing here yet."}
+			</p>
+		);
 
 	return (
 		<ul className={styles.list}>

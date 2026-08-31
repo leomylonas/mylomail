@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
+import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
@@ -23,6 +24,7 @@ interface Account {
  */
 export function AppShell() {
 	const { hub, status } = useHub();
+	const [query, setQuery] = useState("");
 	const store = useWindowStore();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
@@ -63,11 +65,13 @@ export function AppShell() {
 					<div />
 				)}
 				<div className={styles.reading}>
+					<SearchBox query={query} onChange={setQuery} />
 					{hub && selectedAccountId && selectedMailboxId ? (
 						<MessageList
 							hub={hub}
 							accountId={selectedAccountId}
 							mailboxId={selectedMailboxId}
+							query={query}
 							onSelect={(messageId) =>
 								store.setState("selectedMessageId", messageId)
 							}

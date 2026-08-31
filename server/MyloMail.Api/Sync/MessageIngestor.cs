@@ -6,6 +6,17 @@ using MyloMail.Api.Providers.Contracts;
 namespace MyloMail.Api.Sync;
 
 /// <summary>
+/// What one ingest changed, so the caller can announce it.
+/// </summary>
+/// <remarks>
+/// Separated from the ingest itself because <b>only the caller knows which kind of sync this
+/// is</b>. A message arriving during backfill is part of a backlog the user already has;
+/// the same message arriving from the change stream is new mail. §7 draws that line, and
+/// nothing inside the ingestor can see it.
+/// </remarks>
+public sealed record IngestResult(IReadOnlyList<Message> Created, IReadOnlyList<Message> Updated);
+
+/// <summary>
 /// Turns provider observations into local rows. Every write here is an upsert, which is what
 /// makes replaying a page safe — and replay is the price of never skipping one (§3).
 /// </summary>
@@ -27,7 +38,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	/// says nothing about the others.
 	/// </para>
 	/// </param>
-	public async Task<int> IngestAsync(
+	public async Task<IngestResult> IngestAsync(
 		Account account,
 		IReadOnlyList<MessageDto> messages,
 		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
@@ -35,11 +46,14 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		CancellationToken ct = default
 	)
 	{
-		var ingested = 0;
+		var created = new List<Message>();
+		var updated = new List<Message>();
 
 		foreach (var dto in messages)
 		{
 			var message = await MatchAsync(account, dto, ct);
+			var isNew = message is null;
+			var membershipChanged = false;
 
 			if (message is null)
 			{
@@ -73,13 +87,24 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 					continue;
 				}
 
-				await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
+				membershipChanged |= await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
 			}
 
-			ingested++;
+			if (isNew)
+			{
+				created.Add(message);
+			}
+			else if (membershipChanged || context.Entry(message).State == EntityState.Modified)
+			{
+				// Only when something actually differs. A provider that returns the whole
+				// mailbox on every poll — IMAP does — would otherwise report every message as
+				// updated every minute, and an event that fires when nothing happened tells a
+				// listener nothing at all (§7).
+				updated.Add(message);
+			}
 		}
 
-		return ingested;
+		return new IngestResult(created, updated);
 	}
 
 	/// <summary>
@@ -167,7 +192,8 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		message.SizeEstimate = dto.SizeEstimate;
 	}
 
-	private async Task UpsertOccurrenceAsync(
+	/// <summary>Upserts one membership, reporting whether it actually changed anything.</summary>
+	private async Task<bool> UpsertOccurrenceAsync(
 		Message message,
 		Mailbox mailbox,
 		MessageOccurrenceDto dto,
@@ -196,11 +222,12 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 					ImapModSeq = dto.ImapModSeq,
 				}
 			);
-			return;
+			return true;
 		}
 
 		existing.ProviderOccurrenceId = dto.ProviderOccurrenceId;
 		existing.ImapModSeq = dto.ImapModSeq ?? existing.ImapModSeq;
+		return context.Entry(existing).State == EntityState.Modified;
 	}
 
 	/// <summary>
@@ -235,7 +262,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	}
 
 	/// <summary>Applies a server-observed flag change to server-known state.</summary>
-	public async Task ApplyFlagChangeAsync(
+	public async Task<Message?> ApplyFlagChangeAsync(
 		Mailbox mailbox,
 		OccurrenceFlagChange change,
 		GenerationSnapshot generations,
@@ -244,7 +271,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	{
 		if (!generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
 		{
-			return;
+			return null;
 		}
 
 		var occurrence = await context.MessageMailboxes.FirstOrDefaultAsync(
@@ -254,17 +281,18 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 
 		if (occurrence is null)
 		{
-			return;
+			return null;
 		}
 
 		var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == occurrence.MessageId, ct);
 		if (message is null)
 		{
-			return;
+			return null;
 		}
 
 		message.IsRead = change.IsRead ?? message.IsRead;
 		message.IsFlagged = change.IsFlagged ?? message.IsFlagged;
 		occurrence.ImapModSeq = change.ImapModSeq ?? occurrence.ImapModSeq;
+		return message;
 	}
 }

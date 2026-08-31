@@ -97,6 +97,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetMessageBody", messageId);
     }
 
+    public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {
+        return await this.connection.invoke("Search", accountId, query, mailboxId);
+    }
+
     public readonly setFlags = async (accountId: string, messageIds: string[], isRead: (boolean | undefined), isFlagged: (boolean | undefined)): Promise<void> => {
         return await this.connection.invoke("SetFlags", accountId, messageIds, isRead, isFlagged);
     }

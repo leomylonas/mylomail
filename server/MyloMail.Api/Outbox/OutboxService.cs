@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Outbox;
@@ -14,7 +16,7 @@ namespace MyloMail.Api.Outbox;
 /// window in which both observe <see cref="OutboxStatus.Scheduled"/> and both proceed — one
 /// cancelling a message the other is already sending.
 /// </remarks>
-public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock)
+public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock, IHubEvents events)
 {
 	private const string TransitionSql = """
 		UPDATE "OutboxItems"
@@ -51,6 +53,10 @@ public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock)
 
 		context.OutboxItems.Add(item);
 		await context.SaveChangesAsync(ct);
+
+		// The outbox is the one place a user watches a thing they cannot cancel much longer,
+		// so every transition is reported (§7, §15).
+		await AnnounceAsync(item.Id, ct);
 		return item;
 	}
 
@@ -118,7 +124,24 @@ public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock)
 		);
 
 		context.ChangeTracker.Clear();
+
+		if (rows == 1)
+		{
+			await AnnounceAsync(id, ct);
+		}
+
 		return rows == 1;
+	}
+
+	private async Task AnnounceAsync(Guid outboxItemId, CancellationToken ct)
+	{
+		var item = await context.OutboxItems.AsNoTracking().FirstOrDefaultAsync(o => o.Id == outboxItemId, ct);
+		if (item is not null)
+		{
+			await events.OutboxStatusChangedAsync(
+				new OutboxItemDto(item.Id, item.AccountId, item.Status, item.ScheduledSendAt, item.LastError)
+			);
+		}
 	}
 
 	/// <summary>

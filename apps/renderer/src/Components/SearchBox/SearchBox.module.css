@@ -1,0 +1,4 @@
+.box {
+	padding: var(--cds-spacing-03) var(--cds-spacing-05);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}

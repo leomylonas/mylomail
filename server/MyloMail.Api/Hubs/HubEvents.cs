@@ -24,6 +24,20 @@ public interface IHubEvents
 
 	Task MessageSyncFailedAsync(Guid messageId, string reason);
 
+	/// <summary>
+	/// New mail. <b>Steady-state sync only.</b>
+	/// </summary>
+	/// <remarks>
+	/// Never raised for initial sync: a new account's backlog is not news, and announcing
+	/// thousands of messages the user already had is the flood §13 Epic 9 exists to prevent.
+	/// The caller decides, because only it knows which kind of sync it is running.
+	/// </remarks>
+	Task MessageReceivedAsync(MessageSummaryDto message);
+
+	Task MessageUpdatedAsync(MessageSummaryDto message);
+
+	Task MessageDeletedAsync(Guid messageId);
+
 	Task AccountStatusChangedAsync(AccountDto account);
 }
 
@@ -46,6 +60,12 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 	public Task MessageSyncFailedAsync(Guid messageId, string reason) =>
 		hub.Clients.All.MessageSyncFailed(messageId, reason);
 
+	public Task MessageReceivedAsync(MessageSummaryDto message) => hub.Clients.All.MessageReceived(message);
+
+	public Task MessageUpdatedAsync(MessageSummaryDto message) => hub.Clients.All.MessageUpdated(message);
+
+	public Task MessageDeletedAsync(Guid messageId) => hub.Clients.All.MessageDeleted(messageId);
+
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
 }
 
@@ -63,6 +83,12 @@ public sealed class NoHubEvents : IHubEvents
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 
 	public Task MessageSyncFailedAsync(Guid messageId, string reason) => Task.CompletedTask;
+
+	public Task MessageReceivedAsync(MessageSummaryDto message) => Task.CompletedTask;
+
+	public Task MessageUpdatedAsync(MessageSummaryDto message) => Task.CompletedTask;
+
+	public Task MessageDeletedAsync(Guid messageId) => Task.CompletedTask;
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 }

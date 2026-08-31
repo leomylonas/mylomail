@@ -33,6 +33,13 @@ export type IMailHub = {
     getMessageBody(messageId: string): Promise<MessageBodyDto>;
     /**
     * @param accountId Transpiled from System.Guid
+    * @param query Transpiled from string
+    * @param mailboxId Transpiled from System.Guid?
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
+    */
+    search(accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]>;
+    /**
+    * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
     * @param isRead Transpiled from bool?
     * @param isFlagged Transpiled from bool?

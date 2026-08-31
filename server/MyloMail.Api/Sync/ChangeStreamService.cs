@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -23,6 +25,7 @@ public sealed class ChangeStreamService(
 	MessageIngestor ingestor,
 	TimeProvider clock,
 	IFaultInjector faults,
+	IHubEvents events,
 	ILogger<ChangeStreamService> logger
 )
 {
@@ -88,7 +91,45 @@ public sealed class ChangeStreamService(
 			return new ChangeStreamOutcome(pages, Staged: stage, ResyncTriggered: true);
 		}
 
+		await AnnounceMailboxAsync(mailbox, ct);
 		return new ChangeStreamOutcome(pages, stage, ResyncTriggered: false);
+	}
+
+	/// <summary>
+	/// Reports the mailbox's counts at the end of a run.
+	/// </summary>
+	/// <remarks>
+	/// Both numbers are sent, because they answer different questions: the provider's count is
+	/// what the sidebar shows, and the local one is only correct for "how much is held here"
+	/// (§1). Sending one and letting the UI guess would make bounded sync look like data loss.
+	/// </remarks>
+	private async Task AnnounceMailboxAsync(Mailbox mailbox, CancellationToken ct)
+	{
+		var current = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailbox.Id, ct);
+		if (current is null)
+		{
+			return;
+		}
+
+		var localCount = await context.MessageMailboxes.CountAsync(o => o.MailboxId == mailbox.Id, ct);
+		var coverage = await context
+			.MailboxCoverageStates.Where(c => c.MailboxId == mailbox.Id)
+			.Select(c => (CoverageStatus?)c.Status)
+			.FirstOrDefaultAsync(ct);
+
+		await events.MailboxUpdatedAsync(
+			new MailboxSummaryDto(
+				current.Id,
+				current.AccountId,
+				current.ParentId,
+				current.Name,
+				current.SpecialUse,
+				current.ProviderTotalCount,
+				current.ProviderUnreadCount,
+				localCount,
+				coverage ?? CoverageStatus.NotStarted
+			)
+		);
 	}
 
 	/// <summary>
@@ -110,13 +151,14 @@ public sealed class ChangeStreamService(
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
+		IngestResult ingested = new([], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-			await ApplyContentAsync(account, result, mailboxes, generations, ct);
+			ingested = await ApplyContentAsync(account, result, mailboxes, generations, ct);
 
 			if (result.NewCursor is not null)
 			{
@@ -131,9 +173,24 @@ public sealed class ChangeStreamService(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		// After the commit, never before: an event announcing mail that a crash then discarded
+		// would leave the UI showing something the database does not have.
+		//
+		// These are steady-state changes by construction — this is the change stream, not
+		// backfill — so a new message here is genuinely new mail (§7).
+		foreach (var message in ingested.Created)
+		{
+			await events.MessageReceivedAsync(MessageEventMapper.ToSummary(message));
+		}
+
+		foreach (var message in ingested.Updated)
+		{
+			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(message));
+		}
 	}
 
-	private async Task ApplyContentAsync(
+	private async Task<IngestResult> ApplyContentAsync(
 		Account account,
 		SyncResult result,
 		Dictionary<string, Mailbox> mailboxes,
@@ -141,13 +198,18 @@ public sealed class ChangeStreamService(
 		CancellationToken ct
 	)
 	{
-		await ingestor.IngestAsync(account, result.Upserted, mailboxes, generations, ct);
+		var ingested = await ingestor.IngestAsync(account, result.Upserted, mailboxes, generations, ct);
+		var changed = new List<Domain.Message>(ingested.Updated);
 
 		foreach (var change in result.FlagChanges)
 		{
 			if (mailboxes.TryGetValue(change.ProviderMailboxId, out var target))
 			{
-				await ingestor.ApplyFlagChangeAsync(target, change, generations, ct);
+				var message = await ingestor.ApplyFlagChangeAsync(target, change, generations, ct);
+				if (message is not null)
+				{
+					changed.Add(message);
+				}
 			}
 		}
 
@@ -160,6 +222,8 @@ public sealed class ChangeStreamService(
 				await ingestor.RemoveOccurrenceAsync(target, removal.ProviderOccurrenceId, generations, ct);
 			}
 		}
+
+		return new IngestResult(ingested.Created, changed);
 	}
 
 	/// <summary>

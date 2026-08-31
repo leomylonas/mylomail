@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Mutations;
@@ -9,7 +10,7 @@ namespace MyloMail.Api.Mutations;
 /// What happens to the rest of a chain after one of its items fails, and the optimistic
 /// state that goes with it (§6).
 /// </summary>
-public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvider clock)
+public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvider clock, IHubEvents events)
 {
 	/// <summary>
 	/// Re-evaluates later intentions against current server-known state.
@@ -53,6 +54,13 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 			item.LeaseExpiresAt = null;
 
 			await RevertDesiredStateAsync(item, ct);
+
+			// The user asked for this and it will not happen. Saying so is the whole reason
+			// the failure carries the originating cause (§6).
+			await events.MessageSyncFailedAsync(
+				item.MessageId,
+				item.LastError ?? "This change could not be applied."
+			);
 		}
 	}
 

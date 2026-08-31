@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Mutations;
@@ -36,6 +37,8 @@ public interface IMailHub
 
 	Task<MessageBodyDto> GetMessageBody(Guid messageId);
 
+	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
+
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
 
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
@@ -43,7 +46,9 @@ public interface IMailHub
 	Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
 }
 
-public class MailHub(MyloMailDbContext context, MutationQueue mutations) : Hub<IMailClient>, IMailHub
+public class MailHub(MyloMailDbContext context, MutationQueue mutations, MessageSearch search)
+	: Hub<IMailClient>,
+		IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
 	{
@@ -142,6 +147,16 @@ public class MailHub(MyloMailDbContext context, MutationQueue mutations) : Hub<I
 			state?.Status == ContentStatus.Indexed
 		);
 	}
+
+	/// <summary>
+	/// Full-text search, optionally within one mailbox.
+	/// </summary>
+	/// <remarks>
+	/// Scoping is applied after the match rather than indexed, so moving a message between
+	/// folders never requires reindexing it (§8).
+	/// </remarks>
+	public Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId) =>
+		search.SearchAsync(accountId, query, mailboxId);
 
 	public async Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged)
 	{

@@ -109,6 +109,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MessageIngestor>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();
+		services.AddScoped<MessageSearch>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();

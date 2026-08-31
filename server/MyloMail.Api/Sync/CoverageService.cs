@@ -70,7 +70,9 @@ public sealed class CoverageService(
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
 
-			coverage.MessagesFetched += ingested;
+			// Backfill raises no per-message events: this is a backlog the user already has,
+			// and announcing it would be the notification flood §13 Epic 9 rules out.
+			coverage.MessagesFetched += ingested.Created.Count + ingested.Updated.Count;
 			coverage.EstimatedTotal = page.EstimatedTotal ?? coverage.EstimatedTotal;
 			coverage.ResumeToken = page.ResumeToken;
 			coverage.LastError = null;
