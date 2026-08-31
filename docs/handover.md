@@ -23,9 +23,12 @@ into `Main.ts`** — the real entry point still needs the setup/unlock dialog ca
 cache invalidation, sidebar with nested folder management, message list, HTML rendering,
 compose and send via a Lexical editor (HTML is the stored form — never Lexical's own JSON
 state, since a sent message is MIME and persisting editor state would tie the mail format to
-an editor version), server-side drafts, toast/context-menu/shortcut/error registries. Not
-built: TanStack Router/Virtual/Table, attachments (see below), remote-draft materialisation,
-inline image rendering.
+an editor version), server-side drafts, and attachments. Received attachments are listed and
+can be saved or opened; the latter decodes the stored raw MIME into a private temp copy and
+uses a native Electron confirmation for dangerous file types. Compose accepts file-picker and
+drag/drop attachments; draft attachment bytes are structured authoring state and IMAP emits
+them as MIME attachments. Not built: TanStack Router/Virtual/Table, remote-draft
+materialisation, inline image rendering.
 
 **No provider client ids are configured.** The mechanism exists (`AGENTS.md`, "Provider
 client registration"); nothing supplies `Providers:Gmail:ClientId`/`ClientSecret` or
@@ -44,35 +47,25 @@ covers all three; each was checked to fail with its half of the fix reverted. If
 
 ## Next task
 
-1. **Attachments — untouched, and the recommended next slice.** `Attachment` rows are parsed
-   at ingest and `HasNonInlineAttachments` reaches the message list; nothing else exists — no
-   way to view, open, or save one, and no way to attach one while composing. §9 specifies the
-   receiving half: extraction to `<DataDirectory>/tmp/attachments/<guid>/<filename>`,
-   `0700`/`0600` permissions set at creation, executable bit never set, MIME filenames treated
-   as untrusted input, a confirmation before opening anything that can run code, and a sweep
-   of that directory at startup. The sending half needs somewhere to hold a draft's attachment
-   bytes before send — `DraftAttachment` is metadata-only today, and §1's no-`AttachmentBlob`
-   rule is about received mail, where raw MIME already holds the bytes, so it doesn't apply
-   here without adaptation.
-2. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog.
-3. **Supply real provider client ids** (see above).
-4. **`cid:` inline images don't render.** Rewrite logic, the part endpoint, routing, and the
+1. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog.
+2. **Supply real provider client ids** (see above).
+3. **`cid:` inline images don't render.** Rewrite logic, the part endpoint, routing, and the
    sanitiser are all individually verified correct; what's left is that the fetch inside the
    rendering component never settles, and the failure is invisible because Playwright doesn't
    surface Electron's renderer console. Instrument the component to write its outcome into the
    DOM rather than console.log before debugging further — every console-based probe so far
    cost a full run and produced ambiguity. The e2e currently asserts the safe fallback
    behaviour (`src` stays `cid:`), so it isn't regressing anything while this is open.
-5. **Remote drafts aren't materialised locally.** Outbound works (a draft saved here reaches
+4. **Remote drafts aren't materialised locally.** Outbound works (a draft saved here reaches
    the server); a draft started elsewhere doesn't become a local `Draft`. It's correctly
    excluded from message materialisation, so it also doesn't wrongly appear as mail — it's
    just invisible.
-6. **§7 events without producers**: `ExportProgress`, `DraftUpdated`, `CalendarEventUpdated`,
+5. **§7 events without producers**: `ExportProgress`, `DraftUpdated`, `CalendarEventUpdated`,
    `CalendarConflictDetected`, `ConnectivityChanged`. `IMailClient` declares all of them so
    none is orphaned; only `SyncProgress` currently fires. Each is blocked on the feature that
    would produce it, not on wiring — `DraftUpdated` and `ConnectivityChanged` are probably
    closest now that drafts and folder management exist.
-7. **Calendar is unstarted.** `ICalendarProvider` is an interface with no implementation, no
+6. **Calendar is unstarted.** `ICalendarProvider` is an interface with no implementation, no
    domain model, no sync, no UI — effectively a second Stage C.
 
 ## Read first
@@ -89,7 +82,8 @@ covers all three; each was checked to fail with its half of the fix reverted. If
 - `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(126),
   vitest(35).
 - All five Playwright e2e specs pass together in one run against the local Dovecot matrix and
-  Mailpit sink (`pnpm imap:up` first).
+  Mailpit sink (`pnpm imap:up` first). If Playwright says `Process failed to launch!` before
+  every spec, remove `ELECTRON_RUN_AS_NODE` for that invocation; it turns Electron into Node.
 - `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation
   testing. Mutation ratchet is 47 (measured baseline 47.23%, 306 killed / 134 survived / 9
   timeout) — raise it as survivors are killed, don't lower it to make a run pass.
@@ -105,3 +99,6 @@ covers all three; each was checked to fail with its half of the fix reverted. If
   it requeues rather than guessing.
 - Node 22 is required: `source "$HOME/.nvm/nvm.sh" && nvm use` before any wrapper script.
 - Never invoke `dotnet`, `tsc`, `eslint`, or `vitest` directly — use `pnpm status`/`pnpm check`.
+- `AttachmentTempDirectory` uses a native Unix `open(..., 0600)` path because the pinned .NET
+  8 runtime cannot create an asynchronous `FileStream` with Unix permissions atomically. Do
+  not replace it with create-then-chmod; that creates the world-readable window §9 forbids.

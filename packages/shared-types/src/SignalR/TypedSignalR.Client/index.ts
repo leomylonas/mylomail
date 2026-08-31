@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, SaveDraftRequest, DraftDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, SaveDraftRequest, DraftDto, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -97,6 +97,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetMessageBody", messageId);
     }
 
+    public readonly getAttachmentMetadata = async (messageId: string): Promise<AttachmentDto[]> => {
+        return await this.connection.invoke("GetAttachmentMetadata", messageId);
+    }
+
     public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {
         return await this.connection.invoke("Search", accountId, query, mailboxId);
     }
@@ -127,6 +131,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly deleteMailbox = async (mailboxId: string): Promise<boolean> => {
         return await this.connection.invoke("DeleteMailbox", mailboxId);
+    }
+
+    public readonly getAccountCapabilities = async (accountId: string): Promise<AccountCapabilitiesDto> => {
+        return await this.connection.invoke("GetAccountCapabilities", accountId);
     }
 
     public readonly updateAccount = async (settings: AccountSettingsDto): Promise<AccountSettingsDto> => {

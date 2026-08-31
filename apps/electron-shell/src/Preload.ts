@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
 	backendConnectionChannel,
+	openAttachmentChannel,
 	type BackendConnection,
 } from "@mylomail/electron-shell/BackendConnection";
 
@@ -14,4 +15,10 @@ import {
 contextBridge.exposeInMainWorld("backend", {
 	connect: (): Promise<BackendConnection> =>
 		ipcRenderer.invoke(backendConnectionChannel) as Promise<BackendConnection>,
+	openAttachment: (messageId: string, attachmentId: string): Promise<string> =>
+		ipcRenderer.invoke(
+			openAttachmentChannel,
+			messageId,
+			attachmentId,
+		) as Promise<string>,
 });

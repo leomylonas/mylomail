@@ -130,6 +130,22 @@ export type MessageBodyDto = {
     isFetched: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.AttachmentDto */
+export type AttachmentDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from string */
+    filename: string;
+    /** Transpiled from string */
+    mimeType: string;
+    /** Transpiled from long */
+    size: number;
+    /** Transpiled from bool */
+    isInline: boolean;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.DraftDto */
 export type DraftDto = {
     /** Transpiled from System.Guid */
@@ -146,6 +162,22 @@ export type DraftDto = {
     subject: string;
     /** Transpiled from string */
     bodyHtml: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.DraftAttachmentDto> */
+    attachments: DraftAttachmentDto[];
+}
+
+/** Transpiled from MyloMail.Api.Contracts.DraftAttachmentDto */
+export type DraftAttachmentDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from string */
+    filename: string;
+    /** Transpiled from string */
+    mimeType: string;
+    /** Transpiled from long */
+    size: number;
+    /** Transpiled from bool */
+    isInline: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.SaveDraftRequest */
@@ -166,6 +198,14 @@ export type SaveDraftRequest = {
     subject: string;
     /** Transpiled from string */
     bodyHtml: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.AccountCapabilitiesDto */
+export type AccountCapabilitiesDto = {
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from bool */
+    deletingMailboxDeletesMessages: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AccountSettingsDto */

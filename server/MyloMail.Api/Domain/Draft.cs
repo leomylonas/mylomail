@@ -80,4 +80,10 @@ public class DraftAttachment
 	public long Size { get; set; }
 	public string? ContentId { get; set; }
 	public bool IsInline { get; set; }
+
+	/// <summary>
+	/// Bytes belonging to a mutable local authoring document. Received messages deliberately
+	/// have no equivalent blob: their original MIME is canonical (§1).
+	/// </summary>
+	public byte[] Content { get; set; } = [];
 }

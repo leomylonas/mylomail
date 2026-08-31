@@ -40,6 +40,8 @@ public interface IMailHub
 
 	Task<MessageBodyDto> GetMessageBody(Guid messageId);
 
+	Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId);
+
 	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
 
 	Task<DraftDto> SaveDraft(SaveDraftRequest request);
@@ -174,6 +176,13 @@ public class MailHub(
 		);
 	}
 
+	public async Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId) =>
+		await context.Attachments
+			.Where(a => a.MessageId == messageId)
+			.OrderBy(a => a.Filename)
+			.Select(a => new AttachmentDto(a.Id, a.MessageId, a.Filename, a.MimeType, a.Size, a.IsInline))
+			.ToListAsync();
+
 	/// <summary>
 	/// Full-text search, optionally within one mailbox.
 	/// </summary>
@@ -206,7 +215,8 @@ public class MailHub(
 			draft.Cc,
 			draft.Bcc,
 			draft.Subject,
-			draft.BodyHtml
+			draft.BodyHtml,
+			[.. draft.Attachments.Select(a => new DraftAttachmentDto(a.Id, a.Filename, a.MimeType, a.Size, a.IsInline))]
 		);
 	}
 

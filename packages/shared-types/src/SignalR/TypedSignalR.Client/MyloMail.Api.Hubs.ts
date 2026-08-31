@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, SaveDraftRequest, DraftDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, SaveDraftRequest, DraftDto, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -31,6 +31,11 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageBodyDto>
     */
     getMessageBody(messageId: string): Promise<MessageBodyDto>;
+    /**
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.AttachmentDto>>
+    */
+    getAttachmentMetadata(messageId: string): Promise<AttachmentDto[]>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param query Transpiled from string
@@ -76,6 +81,11 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<bool>
     */
     deleteMailbox(mailboxId: string): Promise<boolean>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountCapabilitiesDto>
+    */
+    getAccountCapabilities(accountId: string): Promise<AccountCapabilitiesDto>;
     /**
     * @param settings Transpiled from MyloMail.Api.Contracts.AccountSettingsDto
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountSettingsDto>

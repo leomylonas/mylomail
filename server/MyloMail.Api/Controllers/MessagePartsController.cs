@@ -57,4 +57,5 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 		// something executable.
 		return File(decoded, part.ContentType.MimeType);
 	}
+
 }

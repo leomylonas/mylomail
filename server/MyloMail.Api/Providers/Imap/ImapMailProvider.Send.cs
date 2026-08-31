@@ -117,11 +117,16 @@ public sealed partial class ImapMailProvider
 
 		// A plain-text alternative alongside the HTML, because a message with no text part is
 		// unreadable in clients that prefer one and reads poorly in notification previews.
-		message.Body = new BodyBuilder
+		var body = new BodyBuilder
 		{
 			HtmlBody = draft.BodyHtml,
 			TextBody = ToPlainText(draft.BodyHtml),
-		}.ToMessageBody();
+		};
+		foreach (var attachment in draft.Attachments)
+		{
+			body.Attachments.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType));
+		}
+		message.Body = body.ToMessageBody();
 
 		return message;
 	}

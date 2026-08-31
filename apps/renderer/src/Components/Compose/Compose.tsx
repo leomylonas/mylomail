@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, TextInput } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
@@ -7,6 +7,13 @@ import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 interface Sent {
 	outboxItemId: string;
 	cancelled: boolean;
+}
+
+interface DraftAttachment {
+	id: string;
+	filename: string;
+	mimeType: string;
+	size: number;
 }
 
 /**
@@ -32,6 +39,8 @@ export function Compose({
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(null);
 	const [savedAt, setSavedAt] = useState<string | null>(null);
+	const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+	const fileInput = useRef<HTMLInputElement>(null);
 
 	/**
 	 * Saves without sending.
@@ -58,6 +67,15 @@ export function Compose({
 	};
 
 	const send = async () => {
+		if (
+			!attachments.length &&
+			/\b(attached|attachment|attach)\b/i.test(body) &&
+			!window.confirm(
+				"Your message mentions an attachment, but none is attached. Send anyway?",
+			)
+		) {
+			return;
+		}
 		setBusy(true);
 		try {
 			const draft = await hub.invoke<{ id: string }>("SaveDraft", {
@@ -73,6 +91,43 @@ export function Compose({
 
 			const outboxItemId = await hub.invoke<string>("SendDraft", draft.id);
 			setSent({ outboxItemId, cancelled: false });
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const addFiles = async (files: FileList | File[]) => {
+		setBusy(true);
+		try {
+			const id = await save();
+			for (const file of Array.from(files)) {
+				const form = new FormData();
+				form.append("file", file);
+				const response = await fetch(`/drafts/${id}/attachments`, {
+					method: "POST",
+					body: form,
+				});
+				if (!response.ok) throw new Error(`Could not attach ${file.name}.`);
+				const attachment = (await response.json()) as DraftAttachment;
+				setAttachments((current) => [...current, attachment]);
+			}
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const removeAttachment = async (attachmentId: string) => {
+		if (!draftId) return;
+		setBusy(true);
+		try {
+			const response = await fetch(
+				`/drafts/${draftId}/attachments/${attachmentId}`,
+				{ method: "DELETE" },
+			);
+			if (!response.ok) throw new Error("Could not remove the attachment.");
+			setAttachments((current) =>
+				current.filter((attachment) => attachment.id !== attachmentId),
+			);
 		} finally {
 			setBusy(false);
 		}
@@ -112,7 +167,14 @@ export function Compose({
 	}
 
 	return (
-		<div className={styles.compose}>
+		<div
+			className={styles.compose}
+			onDragOver={(event) => event.preventDefault()}
+			onDrop={(event) => {
+				event.preventDefault();
+				void addFiles(event.dataTransfer.files);
+			}}
+		>
 			<TextInput
 				id="compose-to"
 				labelText="To"
@@ -126,7 +188,41 @@ export function Compose({
 				onChange={(event) => setSubject(event.target.value)}
 			/>
 			<Editor onChange={setBody} />
+			<input
+				className={styles.fileInput}
+				ref={fileInput}
+				type="file"
+				multiple
+				onChange={(event) =>
+					event.target.files && void addFiles(event.target.files)
+				}
+			/>
+			{attachments.length ? (
+				<ul className={styles.attachments} aria-label="Attached files">
+					{attachments.map((attachment) => (
+						<li key={attachment.id}>
+							{attachment.filename}
+							<Button
+								size="sm"
+								kind="ghost"
+								disabled={busy}
+								onClick={() => void removeAttachment(attachment.id)}
+							>
+								Remove
+							</Button>
+						</li>
+					))}
+				</ul>
+			) : null}
 			<div className={styles.actions}>
+				<Button
+					size="sm"
+					kind="tertiary"
+					disabled={busy}
+					onClick={() => fileInput.current?.click()}
+				>
+					Attach files
+				</Button>
 				<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
 					Send
 				</Button>

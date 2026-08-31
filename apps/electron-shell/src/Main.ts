@@ -1,10 +1,11 @@
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { app, BrowserWindow, ipcMain, session, shell } from "electron";
+import { basename, dirname, join } from "node:path";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
 	backendConnectionChannel,
+	openAttachmentChannel,
 	type BackendConnection,
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
@@ -53,6 +54,43 @@ export async function startShell(): Promise<void> {
 
 	// Held here and handed over on request, so the token never reaches a command line.
 	ipcMain.handle(backendConnectionChannel, () => connection);
+	ipcMain.handle(
+		openAttachmentChannel,
+		async (event, messageId: unknown, attachmentId: unknown) => {
+			if (!isGuid(messageId) || !isGuid(attachmentId)) {
+				throw new Error("A valid attachment is required.");
+			}
+
+			// Electron, not the renderer, asks the authenticated backend to materialise the
+			// copy. A renderer can therefore never hand shell.openPath an arbitrary local path.
+			const response = await session.defaultSession.fetch(
+				`${origin}/messages/${messageId}/attachments/${attachmentId}/open`,
+				{ method: "POST" },
+			);
+			if (!response.ok) throw new Error("Could not prepare this attachment.");
+			const { path } = (await response.json()) as { path?: unknown };
+			if (typeof path !== "string" || !isAttachmentTempPath(path)) {
+				throw new Error("The backend returned an invalid attachment path.");
+			}
+
+			if (isDangerousAttachment(path)) {
+				const answer = await dialog.showMessageBox(
+					BrowserWindow.fromWebContents(event.sender)!,
+					{
+						type: "warning",
+						buttons: ["Open", "Cancel"],
+						defaultId: 1,
+						cancelId: 1,
+						message: "This attachment may run code.",
+						detail: `Open ${basename(path)} anyway?`,
+					},
+				);
+				if (answer.response !== 0) return "";
+			}
+
+			return shell.openPath(path);
+		},
+	);
 
 	// The port, never the token: this line is diagnostics, and the token is the backend's
 	// only defence against another local process.
@@ -132,6 +170,35 @@ async function openExternally(url: string): Promise<void> {
 		// Not a URL at all. Nothing to open, and nothing to report: this is a link in
 		// someone else's email, not a fault in the app.
 	}
+}
+
+const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const dangerousExtensions = new Set([
+	".bat",
+	".cmd",
+	".desktop",
+	".exe",
+	".msi",
+	".ps1",
+	".sh",
+]);
+
+function isGuid(value: unknown): value is string {
+	return typeof value === "string" && guid.test(value);
+}
+
+function isAttachmentTempPath(path: string): boolean {
+	const parent = dirname(path);
+	return (
+		basename(dirname(parent)) === "attachments" && guid.test(basename(parent))
+	);
+}
+
+function isDangerousAttachment(path: string): boolean {
+	const extension = basename(path)
+		.slice(basename(path).lastIndexOf("."))
+		.toLowerCase();
+	return dangerousExtensions.has(extension);
 }
 
 /**

@@ -90,6 +90,46 @@ public sealed class DraftService(
 		await events.DraftUpdatedAsync(draftId);
 	}
 
+	public async Task<DraftAttachment> AddAttachmentAsync(
+		Guid draftId,
+		string filename,
+		string mimeType,
+		byte[] content,
+		CancellationToken ct = default
+	)
+	{
+		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
+		var attachment = new DraftAttachment
+		{
+			Id = Guid.NewGuid(),
+			Filename = filename,
+			MimeType = mimeType,
+			Size = content.LongLength,
+			Content = content,
+		};
+		draft.Attachments = [.. draft.Attachments, attachment];
+		draft.SavedAt = clock.GetUtcNow();
+		await context.SaveChangesAsync(ct);
+		dispatcher.RequestPush(draft.AccountId);
+		await events.DraftUpdatedAsync(draft.Id);
+		return attachment;
+	}
+
+	public async Task RemoveAttachmentAsync(Guid draftId, Guid attachmentId, CancellationToken ct = default)
+	{
+		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
+		var remaining = draft.Attachments.Where(a => a.Id != attachmentId).ToArray();
+		if (remaining.Length == draft.Attachments.Count)
+		{
+			return;
+		}
+		draft.Attachments = remaining;
+		draft.SavedAt = clock.GetUtcNow();
+		await context.SaveChangesAsync(ct);
+		dispatcher.RequestPush(draft.AccountId);
+		await events.DraftUpdatedAsync(draft.Id);
+	}
+
 	/// <summary>
 	/// Queues a draft for sending, after the account's undo-send delay.
 	/// </summary>

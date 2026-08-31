@@ -8,6 +8,7 @@
 
 /** The channel the renderer uses to learn where the backend is. */
 export const backendConnectionChannel = "backend:connection";
+export const openAttachmentChannel = "attachment:open";
 
 /**
  * Where the backend is listening.

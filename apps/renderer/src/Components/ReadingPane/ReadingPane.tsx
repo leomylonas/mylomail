@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { SkeletonText } from "@carbon/react";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
+import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
 
 interface MessageBody {
@@ -39,20 +40,47 @@ export function ReadingPane({
 		<article className={styles.pane} aria-label="Message">
 			<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
-			{body.data ? <Body body={body.data} messageId={messageId} /> : null}
+			{body.data ? (
+				<Body body={body.data} messageId={messageId} hub={hub} />
+			) : null}
 		</article>
 	);
 }
 
-function Body({ body, messageId }: { body: MessageBody; messageId: string }) {
+function Body({
+	body,
+	messageId,
+	hub,
+}: {
+	body: MessageBody;
+	messageId: string;
+	hub: HubConnection;
+}) {
 	if (!body.isFetched)
 		return <p className={styles.waiting}>Downloading this message…</p>;
 
 	// HTML preferred where both exist: it is what the sender composed, and the plain-text
 	// alternative is usually a degraded copy of it.
-	if (body.html) return <MessageHtml html={body.html} messageId={messageId} />;
+	if (body.html)
+		return (
+			<>
+				<MessageHtml html={body.html} messageId={messageId} />
+				<AttachmentList hub={hub} messageId={messageId} />
+			</>
+		);
 
-	if (body.text) return <div className={styles.body}>{body.text}</div>;
+	if (body.text)
+		return (
+			<>
+				<div className={styles.body}>{body.text}</div>
+				<AttachmentList hub={hub} messageId={messageId} />
+			</>
+		);
 
-	return <p className={styles.waiting}>This message has no body.</p>;
+	return (
+		<>
+			<p className={styles.waiting}>This message has no body.</p>
+			<AttachmentList hub={hub} messageId={messageId} />
+		</>
+	);
 }

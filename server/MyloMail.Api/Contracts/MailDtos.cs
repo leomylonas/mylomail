@@ -67,6 +67,17 @@ public record SyncProgressDto(
 [TranspilationSource]
 public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched);
 
+/// <summary>Received attachment metadata; bytes remain solely in the raw MIME (§1).</summary>
+[TranspilationSource]
+public record AttachmentDto(
+	Guid Id,
+	Guid MessageId,
+	string Filename,
+	string MimeType,
+	long Size,
+	bool IsInline
+);
+
 /// <summary>
 /// A change the user asked for that will not happen (§6, §7).
 /// </summary>
@@ -84,8 +95,12 @@ public record DraftDto(
 	IReadOnlyList<Address> Cc,
 	IReadOnlyList<Address> Bcc,
 	string Subject,
-	string BodyHtml
+	string BodyHtml,
+	IReadOnlyList<DraftAttachmentDto> Attachments
 );
+
+[TranspilationSource]
+public record DraftAttachmentDto(Guid Id, string Filename, string MimeType, long Size, bool IsInline);
 
 /// <summary>What the compose window sends when it saves or sends.</summary>
 [TranspilationSource]

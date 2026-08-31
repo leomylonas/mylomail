@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.FileProviders;
+using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -30,6 +31,10 @@ builder.Services.AddSingleton<IHubEvents, HubEvents>();
 
 var app = builder.Build();
 app.UseLaunchToken();
+
+var attachmentTemp = app.Services.GetRequiredService<AttachmentTempDirectory>();
+attachmentTemp.Cleanup();
+app.Lifetime.ApplicationStopping.Register(attachmentTemp.Cleanup);
 
 // The renderer is served from this origin so that one cookie authenticates every request it
 // makes, including the WebSocket handshake. Serving it from file:// is what forced a token
