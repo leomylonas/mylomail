@@ -29,6 +29,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
 	private Exception? sendFailure;
+	private string? authFailure;
 	private long occurrenceSequence;
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
@@ -109,8 +110,19 @@ public sealed class FakeMailProvider : IMailProvider
 			"a synthesised mailbox has no provider object and cannot be addressed"
 		);
 
+	/// <summary>Makes authentication report a rejection, as a wrong password would.</summary>
+	public void FailAuthentication(string reason) => authFailure = reason;
+
 	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
-		Task.FromResult(new AuthResult(true, AuthState.Connected, null));
+		Task.FromResult(
+			authFailure is string reason
+				? new AuthResult(
+					false,
+					AuthState.NeedsReauth,
+					new MutationProblemDetails { Title = "Authentication failed", Detail = reason, Category = ErrorCategory.Auth }
+				)
+				: new AuthResult(true, AuthState.Connected, null)
+		);
 
 	public Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct)
 	{

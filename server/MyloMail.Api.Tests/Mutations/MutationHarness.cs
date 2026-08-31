@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Persistence;
 
@@ -58,7 +60,10 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddSingleton<TimeProvider>(Clock)
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubProviderFactory(Provider))
+			.AddSingleton<ICredentialStore, InMemoryCredentialStore>()
 			.AddMutations()
+			.AddSync()
+			.AddScheduling()
 			.BuildServiceProvider();
 
 	/// <summary>Simulates a hard kill and restart: new process, same database file.</summary>

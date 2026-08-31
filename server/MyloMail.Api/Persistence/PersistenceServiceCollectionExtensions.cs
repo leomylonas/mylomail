@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MyloMail.Api.Accounts;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Outbox;
@@ -109,6 +110,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MutationJobs>();
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<StartupScheduler>();
+		services.AddScoped<AccountProvisioningService>();
 
 		services.AddHangfire(configuration =>
 			configuration
