@@ -177,7 +177,7 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 
-	public Task MessageSyncFailedAsync(Guid messageId, string reason) => Task.CompletedTask;
+	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 }

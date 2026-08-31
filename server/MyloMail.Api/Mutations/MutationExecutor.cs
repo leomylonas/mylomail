@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -18,6 +20,7 @@ public sealed class MutationExecutor(
 	TimeProvider clock,
 	IFaultInjector faults,
 	MutationChainEvaluator chains,
+	IHubEvents events,
 	ILogger<MutationExecutor> logger
 )
 {
@@ -120,16 +123,24 @@ public sealed class MutationExecutor(
 		// Step 5 — per-item outcomes and the attempt's terminal state, in one transaction.
 		// An attempt is never observable as Completed with unpersisted results, nor results
 		// observable without the attempt closed.
-		await PersistResultsAsync(attempt, resolved, result, ct);
+		var failures = await PersistResultsAsync(attempt, resolved, result, ct);
+
+		// After the commit. The user's optimistic change has just been reverted, so this is
+		// the only thing standing between them and a flag that silently springs back.
+		foreach (var failure in failures)
+		{
+			await events.MessageSyncFailedAsync(failure);
+		}
 	}
 
-	private async Task PersistResultsAsync(
+	private async Task<IReadOnlyList<MutationFailureDto>> PersistResultsAsync(
 		MutationExecutionAttempt attempt,
 		List<(MutationItem Item, MessageOccurrenceRef Ref)> resolved,
 		BatchResult result,
 		CancellationToken ct
 	)
 	{
+		var failures = new List<MutationFailureDto>();
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -164,6 +175,13 @@ public sealed class MutationExecutor(
 					item.LeaseExpiresAt = null;
 					await chains.RevertDesiredStateAsync(item, ct);
 					failed.Add(item);
+					failures.Add(
+						new MutationFailureDto(
+							item.MessageId,
+							item.FailureCategory ?? ErrorCategory.Unknown,
+							item.LastError
+						)
+					);
 				}
 			}
 
@@ -200,6 +218,8 @@ public sealed class MutationExecutor(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		return failures;
 	}
 
 	private async Task ApplySuccessAsync(MutationItem item, BatchItemResult outcome, CancellationToken ct)

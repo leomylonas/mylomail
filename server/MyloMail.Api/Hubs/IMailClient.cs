@@ -43,7 +43,7 @@ public interface IMailClient
 	Task ExportProgress(Guid exportId, int written, int total);
 
 	/// <summary>A mutation item reaching terminal failure (§6).</summary>
-	Task MessageSyncFailed(Guid messageId, string reason);
+	Task MessageSyncFailed(MutationFailureDto failure);
 
 	Task DraftUpdated(Guid draftId);
 

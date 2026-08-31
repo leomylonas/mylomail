@@ -6,6 +6,7 @@ namespace MyloMail.Api.Errors;
 /// UI behaviour, so a new error must be mapped into this enum rather than escaping as a
 /// flat string.
 /// </summary>
+[Tapper.TranspilationSource]
 public enum ErrorCategory
 {
 	Network,

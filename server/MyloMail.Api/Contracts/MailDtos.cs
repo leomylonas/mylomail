@@ -1,4 +1,5 @@
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using Tapper;
 
 namespace MyloMail.Api.Contracts;
@@ -65,6 +66,17 @@ public record SyncProgressDto(
 /// </remarks>
 [TranspilationSource]
 public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched);
+
+/// <summary>
+/// A change the user asked for that will not happen (§6, §7).
+/// </summary>
+/// <remarks>
+/// Carries the category, not just a message. The category is the whole point of the error
+/// taxonomy: it decides whether the UI offers a retry, a sign-in, a conflict resolution or
+/// nothing at all, and a bare string would leave every screen guessing from prose.
+/// </remarks>
+[TranspilationSource]
+public record MutationFailureDto(Guid MessageId, ErrorCategory Category, string? Detail);
 
 [TranspilationSource]
 public record OutboxItemDto(

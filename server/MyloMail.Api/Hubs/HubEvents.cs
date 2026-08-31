@@ -22,7 +22,7 @@ public interface IHubEvents
 
 	Task OutboxStatusChangedAsync(OutboxItemDto item);
 
-	Task MessageSyncFailedAsync(Guid messageId, string reason);
+	Task MessageSyncFailedAsync(MutationFailureDto failure);
 
 	/// <summary>
 	/// New mail. <b>Steady-state sync only.</b>
@@ -57,8 +57,8 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => hub.Clients.All.OutboxStatusChanged(item);
 
-	public Task MessageSyncFailedAsync(Guid messageId, string reason) =>
-		hub.Clients.All.MessageSyncFailed(messageId, reason);
+	public Task MessageSyncFailedAsync(MutationFailureDto failure) =>
+		hub.Clients.All.MessageSyncFailed(failure);
 
 	public Task MessageReceivedAsync(MessageSummaryDto message) => hub.Clients.All.MessageReceived(message);
 
@@ -82,7 +82,7 @@ public sealed class NoHubEvents : IHubEvents
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 
-	public Task MessageSyncFailedAsync(Guid messageId, string reason) => Task.CompletedTask;
+	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
 
 	public Task MessageReceivedAsync(MessageSummaryDto message) => Task.CompletedTask;
 

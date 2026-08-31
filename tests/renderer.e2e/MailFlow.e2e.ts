@@ -118,6 +118,14 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 			window.getByRole("button", { name: /Second message/ }),
 		).toBeVisible();
 
+		// A change the server refuses is shown, not swallowed. The message is deleted from the
+		// server behind the app's back, so the mutation fails on its own terms.
+		await clearInbox(imapPort);
+		await window.getByRole("button", { name: /Second message/ }).click();
+		await expect(
+			window.getByRole("region", { name: "Notifications" }),
+		).toContainText(/refused|wrong|went wrong/i, { timeout: 90_000 });
+
 		// New mail arriving on the server reaches an open window without anything else
 		// prompting it — the point of raising MessageReceived at all (§7).
 		await appendMessage(imapPort, "Third message");

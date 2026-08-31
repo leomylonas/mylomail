@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -111,11 +111,10 @@ export type IMailClient = {
     exportProgress(exportId: string, written: number, total: number): Promise<void>;
     /**
     * A mutation item reaching terminal failure (§6).
-    * @param messageId Transpiled from System.Guid
-    * @param reason Transpiled from string
+    * @param failure Transpiled from MyloMail.Api.Contracts.MutationFailureDto
     * @returns Transpiled from System.Threading.Tasks.Task
     */
-    messageSyncFailed(messageId: string, reason: string): Promise<void>;
+    messageSyncFailed(failure: MutationFailureDto): Promise<void>;
     /**
     * @param draftId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task

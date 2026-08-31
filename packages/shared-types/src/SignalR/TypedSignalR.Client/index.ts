@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -134,7 +134,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __messageDeleted = (...args: [string]) => receiver.messageDeleted(...args);
         const __syncProgress = (...args: [SyncProgressDto]) => receiver.syncProgress(...args);
         const __exportProgress = (...args: [string, number, number]) => receiver.exportProgress(...args);
-        const __messageSyncFailed = (...args: [string, string]) => receiver.messageSyncFailed(...args);
+        const __messageSyncFailed = (...args: [MutationFailureDto]) => receiver.messageSyncFailed(...args);
         const __draftUpdated = (...args: [string]) => receiver.draftUpdated(...args);
         const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);

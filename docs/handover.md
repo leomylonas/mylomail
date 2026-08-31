@@ -30,9 +30,9 @@
    on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **The registries** — toast, context menu, shortcuts, error mapping.
-   `MutationProblemDetails.Category` still has no consumer, so a failed mutation reaches the
-   renderer as a console warning rather than anything a user sees.
+5. **The remaining registries** — context menus and keyboard shortcuts. §13 specifies both as
+   standing conventions wired up per feature: message context menus (reply, flag, move,
+   delete, save-as-eml) and Outlook/Gmail key bindings.
 
 ### Credential storage decision
 

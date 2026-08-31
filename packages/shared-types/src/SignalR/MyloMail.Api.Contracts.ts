@@ -2,6 +2,7 @@
 /* eslint-disable */
 /* tslint:disable */
 import type { ProviderType, AuthState, SpecialUse, CoverageStatus, Address, OutboxStatus } from './MyloMail.Api.Domain';
+import type { ErrorCategory } from './MyloMail.Api.Errors';
 
 /** Transpiled from MyloMail.Api.Contracts.AccountDto */
 export type AccountDto = {
@@ -127,6 +128,16 @@ export type MessageBodyDto = {
     html?: string;
     /** Transpiled from bool */
     isFetched: boolean;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.MutationFailureDto */
+export type MutationFailureDto = {
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from MyloMail.Api.Errors.ErrorCategory */
+    category: ErrorCategory;
+    /** Transpiled from string? */
+    detail?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.OutboxItemDto */

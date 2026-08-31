@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
@@ -58,8 +59,11 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 			// The user asked for this and it will not happen. Saying so is the whole reason
 			// the failure carries the originating cause (§6).
 			await events.MessageSyncFailedAsync(
-				item.MessageId,
-				item.LastError ?? "This change could not be applied."
+				new MutationFailureDto(
+					item.MessageId,
+					item.FailureCategory ?? ErrorCategory.Unknown,
+					item.LastError
+				)
 			);
 		}
 	}

@@ -5,6 +5,9 @@ import {
 	createWindowStore,
 	type WindowState,
 } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
+import { createNotificationStore } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { NotificationStoreContext } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { NotificationArea } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationArea/NotificationArea";
 
 const WindowStoreContext = createContext<Store<WindowState> | null>(null);
 
@@ -18,6 +21,7 @@ const WindowStoreContext = createContext<Store<WindowState> | null>(null);
  */
 export function WindowScope({ children }: { children: ReactNode }) {
 	const store = useMemo(() => createWindowStore(), []);
+	const notifications = useMemo(() => createNotificationStore(), []);
 	const queryClient = useMemo(
 		() =>
 			new QueryClient({
@@ -37,7 +41,10 @@ export function WindowScope({ children }: { children: ReactNode }) {
 	return (
 		<QueryClientProvider client={queryClient}>
 			<WindowStoreContext.Provider value={store}>
-				{children}
+				<NotificationStoreContext.Provider value={notifications}>
+					{children}
+					<NotificationArea />
+				</NotificationStoreContext.Provider>
 			</WindowStoreContext.Provider>
 		</QueryClientProvider>
 	);
