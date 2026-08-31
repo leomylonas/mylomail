@@ -38,6 +38,8 @@ public interface IHubEvents
 
 	Task MessageDeletedAsync(Guid messageId);
 
+	Task DraftUpdatedAsync(Guid draftId);
+
 	Task AccountStatusChangedAsync(AccountDto account);
 }
 
@@ -66,6 +68,8 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task MessageDeletedAsync(Guid messageId) => hub.Clients.All.MessageDeleted(messageId);
 
+	public Task DraftUpdatedAsync(Guid draftId) => hub.Clients.All.DraftUpdated(draftId);
+
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
 }
 
@@ -89,6 +93,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task MessageUpdatedAsync(MessageSummaryDto message) => Task.CompletedTask;
 
 	public Task MessageDeletedAsync(Guid messageId) => Task.CompletedTask;
+
+	public Task DraftUpdatedAsync(Guid draftId) => Task.CompletedTask;
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 }

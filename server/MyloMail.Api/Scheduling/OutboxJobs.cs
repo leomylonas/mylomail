@@ -11,6 +11,16 @@ namespace MyloMail.Api.Scheduling;
 /// Dispatches due outbox items and reconciles the ones whose outcome is unknown (§15).
 /// </summary>
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
+/// <summary>Schedules an outbox run for when its next item is due.</summary>
+public sealed class OutboxDispatcher(IBackgroundJobClient jobs) : IOutboxDispatcher
+{
+	public void RequestSend(Guid accountId, TimeSpan delay) =>
+		jobs.Schedule<OutboxJobs>(
+			job => job.RunAsync(accountId, default),
+			delay > TimeSpan.Zero ? delay : TimeSpan.Zero
+		);
+}
+
 [AutomaticRetry(Attempts = 0)]
 public sealed class OutboxJobs(
 	MyloMailDbContext context,

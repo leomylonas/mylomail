@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Sync;
 using TypedSignalR.Client;
 
 namespace MyloMail.Api.Hubs;
@@ -39,6 +41,22 @@ public interface IMailHub
 
 	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
 
+	Task<DraftDto> SaveDraft(SaveDraftRequest request);
+
+	Task DeleteDraft(Guid draftId);
+
+	Task<Guid> SendDraft(Guid draftId);
+
+	Task<bool> CancelScheduledSend(Guid outboxItemId);
+
+	Task CreateMailbox(Guid accountId, string name, Guid? parentId);
+
+	Task RenameMailbox(Guid mailboxId, string newName);
+
+	Task<bool> DeleteMailbox(Guid mailboxId);
+
+	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
+
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
 
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
@@ -46,9 +64,13 @@ public interface IMailHub
 	Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
 }
 
-public class MailHub(MyloMailDbContext context, MutationQueue mutations, MessageSearch search)
-	: Hub<IMailClient>,
-		IMailHub
+public class MailHub(
+	MyloMailDbContext context,
+	MutationQueue mutations,
+	MessageSearch search,
+	DraftService drafts,
+	MailboxManagement mailboxes
+) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
 	{
@@ -157,6 +179,82 @@ public class MailHub(MyloMailDbContext context, MutationQueue mutations, Message
 	/// </remarks>
 	public Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId) =>
 		search.SearchAsync(accountId, query, mailboxId);
+
+	public async Task<DraftDto> SaveDraft(SaveDraftRequest request)
+	{
+		var draft = await drafts.SaveAsync(
+			new DraftInput(
+				request.DraftId,
+				request.AccountId,
+				request.InReplyToMessageId,
+				request.To,
+				request.Cc,
+				request.Bcc,
+				request.Subject,
+				request.BodyHtml
+			)
+		);
+
+		return new DraftDto(
+			draft.Id,
+			draft.AccountId,
+			draft.To,
+			draft.Cc,
+			draft.Bcc,
+			draft.Subject,
+			draft.BodyHtml
+		);
+	}
+
+	public Task DeleteDraft(Guid draftId) => drafts.DeleteAsync(draftId);
+
+	/// <summary>
+	/// Queues a draft for sending and returns the outbox item, which is what cancellation
+	/// addresses during the undo window (§15).
+	/// </summary>
+	public async Task<Guid> SendDraft(Guid draftId) => (await drafts.SendAsync(draftId)).Id;
+
+	/// <summary>
+	/// Attempts to cancel. False means the worker already took it, and the answer is final:
+	/// once sending, the message may be on its way and pretending otherwise would be a lie.
+	/// </summary>
+	public Task<bool> CancelScheduledSend(Guid outboxItemId) => drafts.CancelSendAsync(outboxItemId);
+
+	public Task CreateMailbox(Guid accountId, string name, Guid? parentId) =>
+		mailboxes.CreateAsync(accountId, name, parentId);
+
+	public Task RenameMailbox(Guid mailboxId, string newName) =>
+		mailboxes.RenameAsync(mailboxId, newName);
+
+	/// <summary>Returns whether the messages went with the folder, which differs by provider (§2).</summary>
+	public Task<bool> DeleteMailbox(Guid mailboxId) => mailboxes.DeleteAsync(mailboxId);
+
+	/// <summary>
+	/// Updates the settings a user can change.
+	/// </summary>
+	/// <remarks>
+	/// Deliberately not everything on <c>Account</c>: auth state and sync progress are the
+	/// system's to write, and letting a settings screen set them would make the UI a second
+	/// source of truth for facts it does not observe (§1).
+	/// </remarks>
+	public async Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings)
+	{
+		var account = await context.Accounts.FirstAsync(a => a.Id == settings.Id);
+
+		account.DisplayName = settings.DisplayName;
+		account.Color = settings.Color;
+		account.PollIntervalSeconds = Math.Max(settings.PollIntervalSeconds, 15);
+		account.PollingEnabled = settings.PollingEnabled;
+		account.UndoSendDelaySeconds = Math.Max(settings.UndoSendDelaySeconds, 0);
+		account.NotificationsEnabled = settings.NotificationsEnabled;
+
+		await context.SaveChangesAsync();
+		return settings with
+		{
+			PollIntervalSeconds = account.PollIntervalSeconds,
+			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
+		};
+	}
 
 	public async Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged)
 	{

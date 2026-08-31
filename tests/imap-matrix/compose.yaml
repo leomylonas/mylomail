@@ -56,3 +56,22 @@ services:
     volumes:
       - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
       - ./conf/Tier-Basic.conf:/etc/dovecot/dovecot.conf:ro
+
+  # An SMTP sink, so sending can be verified rather than assumed. Dovecot does not speak
+  # SMTP, so without this the send path could only be tested as far as the client's own
+  # socket — which is exactly the kind of "tested" that means nothing.
+  smtp:
+    image: axllent/mailpit:v1.21
+    container_name: mylomail-smtp
+    ports:
+      - "127.0.0.1:11025:1025"
+      # Mailpit's HTTP API, which lets a test ask what actually arrived.
+      - "127.0.0.1:18025:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30

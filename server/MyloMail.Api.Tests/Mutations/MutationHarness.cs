@@ -44,6 +44,9 @@ internal sealed class MutationHarness : IAsyncDisposable
 	/// <summary>Records drain requests instead of running jobs.</summary>
 	public RecordingMutationDispatcher Dispatcher { get; } = new();
 
+	/// <summary>Records outbox dispatch requests instead of sending.</summary>
+	public RecordingOutboxDispatcher OutboxDispatcher { get; } = new();
+
 	public FakeTimeProvider Clock { get; }
 
 	public Account Account { get; private set; } = null!;
@@ -72,6 +75,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddSingleton<Hangfire.IBackgroundJobClient>(new Fakes.RecordingJobClient())
 			// Also after AddScheduling, which registers the real dispatcher unconditionally.
 			.AddSingleton<IMutationDispatcher>(Dispatcher)
+			.AddSingleton<MyloMail.Api.Outbox.IOutboxDispatcher>(OutboxDispatcher)
 			.BuildServiceProvider();
 
 	/// <summary>Simulates a hard kill and restart: new process, same database file.</summary>
@@ -170,6 +174,14 @@ internal sealed class MutationHarness : IAsyncDisposable
 	{
 		public IMailProvider For(Account account) => provider;
 	}
+}
+
+/// <summary>Records which accounts were asked to send, and after how long.</summary>
+internal sealed class RecordingOutboxDispatcher : MyloMail.Api.Outbox.IOutboxDispatcher
+{
+	public List<(Guid AccountId, TimeSpan Delay)> Requests { get; } = [];
+
+	public void RequestSend(Guid accountId, TimeSpan delay) => Requests.Add((accountId, delay));
 }
 
 /// <summary>Records which accounts were asked to drain.</summary>

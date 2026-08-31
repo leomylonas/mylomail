@@ -103,7 +103,10 @@ public sealed class MailProviderFactory(
 				config.Port,
 				config.UseSsl,
 				config.UserName,
-				System.Text.Encoding.UTF8.GetString(stored.Data)
+				System.Text.Encoding.UTF8.GetString(stored.Data),
+				config.SmtpHost,
+				config.SmtpPort,
+				config.AppendToSentOnSend
 			),
 			mailboxes
 		);

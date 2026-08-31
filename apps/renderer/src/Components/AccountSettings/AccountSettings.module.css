@@ -1,0 +1,6 @@
+.settings {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-04);
+	padding: var(--cds-spacing-05);
+}

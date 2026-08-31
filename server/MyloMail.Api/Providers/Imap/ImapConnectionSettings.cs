@@ -15,5 +15,16 @@ public sealed record ImapConnectionSettings(
 	int Port,
 	bool UseSsl,
 	string UserName,
-	string Password
+	string Password,
+	string SmtpHost = "",
+	int SmtpPort = 0,
+	/// <summary>
+	/// Whether to append a copy to the Sent mailbox after sending (§15).
+	/// </summary>
+	/// <remarks>
+	/// SMTP relays a message and does not file it, so the client must append the copy — but
+	/// some servers, notably Gmail over IMAP, do it themselves, and appending there would
+	/// duplicate it. There is no way to detect which, so it is configuration.
+	/// </remarks>
+	bool AppendToSent = true
 );

@@ -42,9 +42,12 @@
    through the console or a compound `page.evaluate` cost a full run and produced ambiguity.
    The e2e asserts the current behaviour (`src` stays `cid:`) so it keeps guarding the
    security properties instead of being disabled.
-6. **Compose and send from the UI.** The outbox, undo-send and ambiguous-outcome
-   reconciliation are all built and tested; nothing can write a draft. Needs Lexical and
-   TanStack Form.
+6. **Rich composition.** The compose body is a plain textarea escaped into HTML. §12
+   specifies Lexical; a hand-rolled editor would have to be unbuilt, so the textarea is
+   deliberately temporary while the send path underneath it is complete and tested.
+7. **Server-side drafts.** Drafts are local only. `CreateOrUpdateDraftAsync` and
+   `DeleteDraftAsync` still throw on IMAP, so a draft started here never appears on another
+   device.
 
 ### Credential storage decision
 

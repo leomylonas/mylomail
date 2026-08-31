@@ -46,6 +46,22 @@ public sealed class SendExecutor(
 			return;
 		}
 
+		// Resolved here rather than stored on the draft: the identity is the stored fact and
+		// its address is derived from it, so there is one answer to which address a draft
+		// sends from (§1).
+		draft.FromAddress = await context
+			.SendIdentities.Where(i => i.Id == draft.SendIdentityId)
+			.Select(i => i.EmailAddress)
+			.FirstAsync(ct);
+
+		if (draft.InReplyToMessageId is Guid inReplyTo)
+		{
+			draft.InReplyToHeader = await context
+				.Messages.Where(m => m.Id == inReplyTo)
+				.Select(m => m.MessageIdHeader)
+				.FirstOrDefaultAsync(ct);
+		}
+
 		// Step 2 — the attempt, with exactly one item by construction.
 		var attempt = new MutationExecutionAttempt
 		{

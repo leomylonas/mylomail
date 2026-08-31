@@ -3,6 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
+import { Compose } from "@mylomail/renderer/Components/Compose/Compose";
+import {
+	AccountSettings,
+	type AccountSettingsValues,
+} from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
+import { Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
@@ -13,6 +19,11 @@ interface Account {
 	id: string;
 	displayName: string;
 	emailAddress: string;
+	color: string;
+	pollIntervalSeconds?: number;
+	pollingEnabled?: boolean;
+	undoSendDelaySeconds?: number;
+	notificationsEnabled?: boolean;
 }
 
 /**
@@ -25,6 +36,9 @@ interface Account {
 export function AppShell() {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
+	const [pane, setPane] = useState<"reading" | "compose" | "settings">(
+		"reading",
+	);
 	const store = useWindowStore();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
@@ -57,6 +71,21 @@ export function AppShell() {
 			<header className={styles.header}>
 				<h1 className={styles.title}>MyloMail</h1>
 				<span className={styles.status}>{describe(status, accounts.data)}</span>
+				<Button
+					size="sm"
+					disabled={!selectedAccountId}
+					onClick={() => setPane("compose")}
+				>
+					New message
+				</Button>
+				<Button
+					size="sm"
+					kind="ghost"
+					disabled={!selectedAccountId}
+					onClick={() => setPane("settings")}
+				>
+					Settings
+				</Button>
 			</header>
 
 			<div className={styles.panels}>
@@ -82,7 +111,21 @@ export function AppShell() {
 						<p style={{ padding: "1rem" }}>Select a mailbox.</p>
 					)}
 				</div>
-				{hub && selectedMessageId ? (
+				{hub && selectedAccountId && pane === "compose" ? (
+					<Compose
+						hub={hub}
+						accountId={selectedAccountId}
+						onClose={() => setPane("reading")}
+					/>
+				) : null}
+				{hub && selectedAccountId && pane === "settings" ? (
+					<AccountSettings
+						hub={hub}
+						initial={toSettings(accounts.data, selectedAccountId)}
+						onClose={() => setPane("reading")}
+					/>
+				) : null}
+				{hub && selectedMessageId && pane === "reading" ? (
 					<ReadingPane
 						hub={hub}
 						messageId={selectedMessageId}
@@ -92,6 +135,24 @@ export function AppShell() {
 			</div>
 		</div>
 	);
+}
+
+/** The settings form's starting values, from the account list the shell already holds. */
+function toSettings(
+	accounts: Account[] | undefined,
+	accountId: string,
+): AccountSettingsValues {
+	const account = accounts?.find((candidate) => candidate.id === accountId);
+
+	return {
+		id: accountId,
+		displayName: account?.displayName ?? "",
+		color: account?.color ?? "",
+		pollIntervalSeconds: account?.pollIntervalSeconds ?? 60,
+		pollingEnabled: account?.pollingEnabled ?? true,
+		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
+		notificationsEnabled: account?.notificationsEnabled ?? true,
+	};
 }
 
 function describe(status: string, accounts: Account[] | undefined): string {

@@ -130,6 +130,62 @@ export type MessageBodyDto = {
     isFetched: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.DraftDto */
+export type DraftDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    to: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    cc: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    bcc: Address[];
+    /** Transpiled from string */
+    subject: string;
+    /** Transpiled from string */
+    bodyHtml: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.SaveDraftRequest */
+export type SaveDraftRequest = {
+    /** Transpiled from System.Guid */
+    draftId?: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from System.Guid */
+    inReplyToMessageId?: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    to: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    cc: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    bcc: Address[];
+    /** Transpiled from string */
+    subject: string;
+    /** Transpiled from string */
+    bodyHtml: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.AccountSettingsDto */
+export type AccountSettingsDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from string */
+    displayName: string;
+    /** Transpiled from string */
+    color: string;
+    /** Transpiled from int */
+    pollIntervalSeconds: number;
+    /** Transpiled from bool */
+    pollingEnabled: boolean;
+    /** Transpiled from int */
+    undoSendDelaySeconds: number;
+    /** Transpiled from bool */
+    notificationsEnabled: boolean;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.MutationFailureDto */
 export type MutationFailureDto = {
     /** Transpiled from System.Guid */

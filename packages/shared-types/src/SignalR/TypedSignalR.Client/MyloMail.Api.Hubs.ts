@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, SaveDraftRequest, DraftDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -38,6 +38,49 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
     */
     search(accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]>;
+    /**
+    * @param request Transpiled from MyloMail.Api.Contracts.SaveDraftRequest
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.DraftDto>
+    */
+    saveDraft(request: SaveDraftRequest): Promise<DraftDto>;
+    /**
+    * @param draftId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    deleteDraft(draftId: string): Promise<void>;
+    /**
+    * @param draftId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Guid>
+    */
+    sendDraft(draftId: string): Promise<string>;
+    /**
+    * @param outboxItemId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<bool>
+    */
+    cancelScheduledSend(outboxItemId: string): Promise<boolean>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @param name Transpiled from string
+    * @param parentId Transpiled from System.Guid?
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    createMailbox(accountId: string, name: string, parentId: (string | undefined)): Promise<void>;
+    /**
+    * @param mailboxId Transpiled from System.Guid
+    * @param newName Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    renameMailbox(mailboxId: string, newName: string): Promise<void>;
+    /**
+    * @param mailboxId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<bool>
+    */
+    deleteMailbox(mailboxId: string): Promise<boolean>;
+    /**
+    * @param settings Transpiled from MyloMail.Api.Contracts.AccountSettingsDto
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountSettingsDto>
+    */
+    updateAccount(settings: AccountSettingsDto): Promise<AccountSettingsDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>

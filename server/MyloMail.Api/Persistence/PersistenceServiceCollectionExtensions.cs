@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.Accounts;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Content;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
@@ -87,6 +88,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
+		services.TryAddSingleton<IOutboxDispatcher, NoOutboxDispatcher>();
 		services.AddScoped<MutationQueue>();
 		services.AddScoped<MutationClaimService>();
 		services.AddScoped<MutationChainEvaluator>();
@@ -110,6 +112,8 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();
 		services.AddScoped<MessageSearch>();
+		services.AddScoped<DraftService>();
+		services.AddScoped<MailboxManagement>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();
@@ -135,6 +139,7 @@ public static class PersistenceServiceCollectionExtensions
 		// Replaces the no-op default, so intent enqueued by the hub is executed promptly
 		// instead of waiting for the next startup sweep.
 		services.AddSingleton<IMutationDispatcher, MutationDispatcher>();
+		services.AddSingleton<IOutboxDispatcher, OutboxDispatcher>();
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<ContentJobs>();
 		services.AddScoped<StartupScheduler>();

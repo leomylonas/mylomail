@@ -16,7 +16,12 @@ namespace MyloMail.Api.Outbox;
 /// window in which both observe <see cref="OutboxStatus.Scheduled"/> and both proceed — one
 /// cancelling a message the other is already sending.
 /// </remarks>
-public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock, IHubEvents events)
+public sealed class OutboxService(
+	MyloMailDbContext context,
+	TimeProvider clock,
+	IHubEvents events,
+	IOutboxDispatcher dispatcher
+)
 {
 	private const string TransitionSql = """
 		UPDATE "OutboxItems"
@@ -57,6 +62,13 @@ public sealed class OutboxService(MyloMailDbContext context, TimeProvider clock,
 		// The outbox is the one place a user watches a thing they cannot cancel much longer,
 		// so every transition is reported (§7, §15).
 		await AnnounceAsync(item.Id, ct);
+
+		// Asked for after the commit, and scheduled for when the undo window closes rather
+		// than now: dispatching immediately would send the message the user still believes
+		// they can stop. Without this the item waits for the next startup sweep — queued,
+		// durable, and never sent.
+		dispatcher.RequestSend(item.AccountId, item.ScheduledSendAt - now);
+
 		return item;
 	}
 

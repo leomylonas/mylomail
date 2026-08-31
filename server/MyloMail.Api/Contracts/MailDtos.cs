@@ -75,6 +75,43 @@ public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool Is
 /// taxonomy: it decides whether the UI offers a retry, a sign-in, a conflict resolution or
 /// nothing at all, and a bare string would leave every screen guessing from prose.
 /// </remarks>
+/// <summary>A draft as the compose window holds it (§1).</summary>
+[TranspilationSource]
+public record DraftDto(
+	Guid Id,
+	Guid AccountId,
+	IReadOnlyList<Address> To,
+	IReadOnlyList<Address> Cc,
+	IReadOnlyList<Address> Bcc,
+	string Subject,
+	string BodyHtml
+);
+
+/// <summary>What the compose window sends when it saves or sends.</summary>
+[TranspilationSource]
+public record SaveDraftRequest(
+	Guid? DraftId,
+	Guid AccountId,
+	Guid? InReplyToMessageId,
+	IReadOnlyList<Address> To,
+	IReadOnlyList<Address> Cc,
+	IReadOnlyList<Address> Bcc,
+	string Subject,
+	string BodyHtml
+);
+
+/// <summary>The per-account settings a user can change (§1).</summary>
+[TranspilationSource]
+public record AccountSettingsDto(
+	Guid Id,
+	string DisplayName,
+	string Color,
+	int PollIntervalSeconds,
+	bool PollingEnabled,
+	int UndoSendDelaySeconds,
+	bool NotificationsEnabled
+);
+
 [TranspilationSource]
 public record MutationFailureDto(Guid MessageId, ErrorCategory Category, string? Detail);
 

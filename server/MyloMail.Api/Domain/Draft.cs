@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace MyloMail.Api.Domain;
 
 /// <summary>
@@ -29,6 +31,26 @@ public class Draft
 	/// conflict handling — without it the guarantee is unenforceable (§1, §15).
 	/// </summary>
 	public string? ProviderRevision { get; set; }
+
+	/// <summary>
+	/// The address this draft sends from, resolved at send time from its
+	/// <see cref="SendIdentityId"/>.
+	/// </summary>
+	/// <remarks>
+	/// Deliberately not persisted. The identity is the stored fact; its address is derived,
+	/// and storing both would be two answers to which address a draft sends from — the same
+	/// duplication <see cref="Account"/> avoids by having no address column at all (§1). The
+	/// provider needs the resolved value, so the caller fills it in before dispatch.
+	/// </remarks>
+	[NotMapped]
+	public string FromAddress { get; set; } = string.Empty;
+
+	/// <summary>
+	/// The RFC 5322 <c>Message-ID</c> of the message being replied to, resolved at send time
+	/// from <see cref="InReplyToMessageId"/>. Not persisted, for the same reason.
+	/// </summary>
+	[NotMapped]
+	public string? InReplyToHeader { get; set; }
 }
 
 public class DraftAttachment

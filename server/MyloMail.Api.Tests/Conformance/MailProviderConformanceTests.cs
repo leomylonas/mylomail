@@ -64,6 +64,25 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	/// <see cref="OccurrenceChange.RequiresDestinationReconciliation"/> is set so the caller
 	/// reconciles rather than guessing (§2).
 	/// </remarks>
+	/// <summary>
+	/// Every provider reports an inbox.
+	/// </summary>
+	/// <remarks>
+	/// Trivial-looking, and it caught a real failure: on an IMAP server whose personal
+	/// namespace prefix is "INBOX.", enumerating that namespace returns the folders beneath
+	/// the inbox and not the inbox itself. The account then synced perfectly and appeared to
+	/// have no inbox — visible only on one of the three tiers, which is what the matrix is for.
+	/// </remarks>
+	[SkippableFact]
+	public async Task Topology_includes_an_inbox()
+	{
+		Available();
+
+		var mailboxes = await Harness.Provider.ListMailboxesAsync(Harness.Account, default);
+
+		Assert.Contains(mailboxes, mailbox => mailbox.SpecialUse == Api.Domain.SpecialUse.Inbox);
+	}
+
 	[SkippableFact]
 	public async Task Move_reports_destination_identity_or_demands_reconciliation()
 	{

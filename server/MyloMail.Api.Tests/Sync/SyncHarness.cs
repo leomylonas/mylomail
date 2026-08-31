@@ -155,6 +155,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 		return Task.CompletedTask;
 	}
 
+	public Task DraftUpdatedAsync(Guid draftId) => Task.CompletedTask;
+
 	public Task MessageDeletedAsync(Guid messageId)
 	{
 		Deleted.Add(messageId);

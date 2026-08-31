@@ -116,7 +116,22 @@ public sealed partial class ImapMailProvider : IMailProvider
 
 		var result = new List<MailboxDto>();
 
-		foreach (var folder in await client.GetFoldersAsync(space, cancellationToken: ct))
+		// INBOX explicitly, and first.
+		//
+		// It does not necessarily appear in the personal namespace's own listing: on a server
+		// whose namespace prefix is "INBOX." — which the CondStore tier of the local matrix
+		// uses precisely to catch this — enumerating that namespace returns the folders
+		// *under* INBOX and not INBOX itself. Enumerating the namespace alone therefore
+		// discovers every folder except the one the user cares about most, and the account
+		// syncs perfectly while appearing to have no inbox at all.
+		var folders = new List<IMailFolder> { client.Inbox };
+		folders.AddRange(
+			(await client.GetFoldersAsync(space, cancellationToken: ct)).Where(candidate =>
+				!candidate.FullName.Equals(client.Inbox.FullName, StringComparison.OrdinalIgnoreCase)
+			)
+		);
+
+		foreach (var folder in folders)
 		{
 			if (folder.Attributes.HasFlag(FolderAttributes.NonExistent))
 			{

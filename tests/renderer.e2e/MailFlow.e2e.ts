@@ -6,7 +6,12 @@ import {
 	inboxFlags,
 } from "@mylomail/renderer-e2e/SeedImap";
 
-/** The QRESYNC tier of the local matrix (`pnpm imap:up`). */
+/**
+ * The QRESYNC tier of the local matrix of the local matrix (`pnpm imap:up`).
+ *
+ * Each spec uses a different tier so they cannot disturb one another's mailbox — they share
+ * no state, and the suite covers three capability tiers rather than one.
+ */
 const imapPort = 11143;
 
 /**

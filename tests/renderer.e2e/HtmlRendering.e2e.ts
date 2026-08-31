@@ -5,7 +5,13 @@ import {
 	clearInbox,
 } from "@mylomail/renderer-e2e/SeedImap";
 
-const imapPort = 11143;
+/**
+ * The CONDSTORE tier of the local matrix (`pnpm imap:up`).
+ *
+ * Each spec uses a different tier so they cannot disturb one another's mailbox — they share
+ * no state, and the suite covers three capability tiers rather than one.
+ */
+const imapPort = 12143;
 
 /**
  * The reading pane against a message written to attack it (§13).
@@ -32,7 +38,7 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 					secret: "password",
 					imap: {
 						host: "127.0.0.1",
-						port: 11143,
+						port: 12143,
 						useSsl: false,
 						userName: "test@mylomail.local",
 						smtpHost: "127.0.0.1",

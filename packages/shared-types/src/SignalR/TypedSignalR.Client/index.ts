@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, SaveDraftRequest, DraftDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -99,6 +99,38 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {
         return await this.connection.invoke("Search", accountId, query, mailboxId);
+    }
+
+    public readonly saveDraft = async (request: SaveDraftRequest): Promise<DraftDto> => {
+        return await this.connection.invoke("SaveDraft", request);
+    }
+
+    public readonly deleteDraft = async (draftId: string): Promise<void> => {
+        return await this.connection.invoke("DeleteDraft", draftId);
+    }
+
+    public readonly sendDraft = async (draftId: string): Promise<string> => {
+        return await this.connection.invoke("SendDraft", draftId);
+    }
+
+    public readonly cancelScheduledSend = async (outboxItemId: string): Promise<boolean> => {
+        return await this.connection.invoke("CancelScheduledSend", outboxItemId);
+    }
+
+    public readonly createMailbox = async (accountId: string, name: string, parentId: (string | undefined)): Promise<void> => {
+        return await this.connection.invoke("CreateMailbox", accountId, name, parentId);
+    }
+
+    public readonly renameMailbox = async (mailboxId: string, newName: string): Promise<void> => {
+        return await this.connection.invoke("RenameMailbox", mailboxId, newName);
+    }
+
+    public readonly deleteMailbox = async (mailboxId: string): Promise<boolean> => {
+        return await this.connection.invoke("DeleteMailbox", mailboxId);
+    }
+
+    public readonly updateAccount = async (settings: AccountSettingsDto): Promise<AccountSettingsDto> => {
+        return await this.connection.invoke("UpdateAccount", settings);
     }
 
     public readonly setFlags = async (accountId: string, messageIds: string[], isRead: (boolean | undefined), isFlagged: (boolean | undefined)): Promise<void> => {
