@@ -19,8 +19,9 @@
    `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
    binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
    stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Account creation.** Nothing writes an `Account`, its `SendIdentity`, or its credential —
-   so there is no way to get an account into the database except by hand.
+3. **Expose account creation over the API.** `AccountProvisioningService` adds and removes
+   accounts, but no controller calls it, so an account still has to be inserted from a test or
+   by hand. This needs DTOs and a `pnpm generate:types` run.
 
 ### Credential storage decision
 

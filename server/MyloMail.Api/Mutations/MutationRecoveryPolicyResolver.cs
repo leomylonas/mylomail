@@ -33,6 +33,15 @@ public static class MutationRecoveryPolicyResolver
 			MutationOperationKind.RemoveFromMailbox when capabilities.Type == ProviderType.Gmail =>
 				MutationRecoveryPolicy.RetrySafe,
 
+			// Send is never recovered here. It is owned by SendReconciler, which settles it
+			// against the Sent mailbox by its stable Message-ID, and MutationReconciler
+			// excludes attempts carrying an OutboxItemId. Stating it explicitly means the
+			// safety comes from the operation's own type rather than from that filter holding:
+			// a send that fell through to ReconcileThenRetry would be re-executed after an
+			// observation said it had not arrived, which is how a duplicate reaches a
+			// recipient.
+			MutationOperationKind.Send => MutationRecoveryPolicy.AmbiguousOutcome,
+
 			_ => MutationRecoveryPolicy.ReconcileThenRetry,
 		};
 }

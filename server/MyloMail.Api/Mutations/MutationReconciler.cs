@@ -42,6 +42,19 @@ public sealed class MutationReconciler(
 		foreach (var attempt in attempts)
 		{
 			var policy = MutationRecoveryPolicyResolver.For(attempt.OperationKind, providers.For(account).Capabilities);
+
+			if (policy == MutationRecoveryPolicy.AmbiguousOutcome)
+			{
+				// Only send resolves to this, and it belongs to SendReconciler. Reaching here
+				// means the OutboxItemId filter above has stopped holding, so this refuses
+				// rather than reconciling a send under move semantics.
+				logger.LogError(
+					"Attempt {AttemptId} resolved to an ambiguous-outcome policy in the mutation reconciler, "
+						+ "which does not own that recovery path.",
+					attempt.Id
+				);
+				continue;
+			}
 			if (policy == MutationRecoveryPolicy.RetrySafe)
 			{
 				await RequeueAsync(attempt, ct);
