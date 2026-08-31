@@ -91,9 +91,20 @@ export async function appendHostileHtmlMessage(
 
 /** Removes every message from INBOX, so a test starts from a known mailbox. */
 export async function clearInbox(port: number): Promise<void> {
+	await clearFolder(port, "INBOX");
+}
+
+/**
+ * Empties a folder so a spec starts from a known server state.
+ *
+ * Drafts in particular accumulate across runs, and a leftover draft is not inert: it is
+ * ingested like any other message, so it participates in identity matching. One did exactly
+ * that and rewrote a seeded inbox message's subject.
+ */
+export async function clearFolder(port: number, folder: string): Promise<void> {
 	await session(port, async (send) => {
 		await send("b1 LOGIN test@mylomail.local password");
-		await send("b2 SELECT INBOX");
+		await send(`b2 SELECT ${folder}`);
 		await send("b3 STORE 1:* +FLAGS (\\Deleted)");
 		await send("b4 EXPUNGE");
 		await send("b5 LOGOUT");

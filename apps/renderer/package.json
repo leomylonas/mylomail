@@ -4,9 +4,16 @@
   "type": "module",
   "dependencies": {
     "@carbon/react": "^1.115.0",
+    "@lexical/html": "^0.49.0",
+    "@lexical/link": "^0.49.0",
+    "@lexical/list": "^0.49.0",
+    "@lexical/react": "^0.49.0",
+    "@lexical/rich-text": "^0.49.0",
+    "@lexical/utils": "^0.49.0",
     "@microsoft/signalr": "^8.0.29",
     "@tanstack/react-query": "^5.102.8",
     "dompurify": "^3.4.14",
+    "lexical": "^0.49.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-granular-store": "^0.2.0"

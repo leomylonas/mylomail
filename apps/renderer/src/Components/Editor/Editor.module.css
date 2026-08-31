@@ -1,0 +1,40 @@
+.shell {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--cds-border-strong);
+	background: var(--cds-field);
+}
+
+.toolbar {
+	display: flex;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-02);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.surface {
+	position: relative;
+	min-height: 12rem;
+}
+
+.input {
+	min-height: 12rem;
+	padding: var(--cds-spacing-04);
+	outline: none;
+}
+
+.placeholder {
+	position: absolute;
+	top: var(--cds-spacing-04);
+	left: var(--cds-spacing-04);
+	color: var(--cds-text-placeholder);
+	pointer-events: none;
+}
+
+.input :global(strong) {
+	font-weight: 700;
+}
+
+.input :global(em) {
+	font-style: italic;
+}

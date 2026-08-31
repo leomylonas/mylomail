@@ -51,7 +51,25 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 
 		foreach (var dto in messages)
 		{
-			var message = await MatchAsync(account, dto, ct);
+			// A draft on the server is a Draft, never both (§1), so one drafts occurrence
+			// excludes the whole observation rather than just that occurrence. Under Gmail's
+			// label model a draft carries DRAFT alongside its other labels, and dropping only
+			// the DRAFT occurrence would materialise the remaining one as ordinary mail —
+			// the same draft appearing twice, which is precisely what the rule forbids.
+			//
+			// It also has to happen before matching: a drafts observation that found an
+			// unrelated message would have its fields overwritten by Apply.
+			if (
+				dto.Occurrences.Any(occurrence =>
+					mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox)
+					&& mailbox.SpecialUse == SpecialUse.Drafts
+				)
+			)
+			{
+				continue;
+			}
+
+			var message = await MatchAsync(account, dto, mailboxesByProviderId, ct);
 			var isNew = message is null;
 			var membershipChanged = false;
 
@@ -87,14 +105,6 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 					continue;
 				}
 
-				// A remote draft becomes a Draft, never a Message — and never both, which is
-				// what materialising the Drafts folder normally would produce: the same draft
-				// appearing twice, once as mail and once as something the user can edit (§1).
-				if (mailbox.SpecialUse == SpecialUse.Drafts)
-				{
-					continue;
-				}
-
 				membershipChanged |= await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
 			}
 
@@ -120,7 +130,12 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	/// one, then the per-mailbox occurrence identity, then
 	/// <c>(AccountId, MessageIdHeader, ReceivedAt)</c> as a heuristic.
 	/// </summary>
-	private async Task<Message?> MatchAsync(Account account, MessageDto dto, CancellationToken ct)
+	private async Task<Message?> MatchAsync(
+		Account account,
+		MessageDto dto,
+		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
+		CancellationToken ct
+	)
 	{
 		if (dto.ProviderStableId is not null)
 		{
@@ -137,8 +152,21 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 
 		foreach (var occurrence in dto.Occurrences)
 		{
+			// Scoped to the mailbox, because an occurrence id is only unique within one.
+			// An IMAP UID is per-folder, so an unscoped lookup merges the message holding
+			// UID 2 in the Drafts folder with the unrelated one holding UID 2 in the inbox —
+			// and §1 is explicit that merging two distinct messages is the unrecoverable
+			// direction. Observed: a leftover draft rewrote a seeded inbox message's subject.
+			if (!mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox))
+			{
+				continue;
+			}
+
 			var byOccurrence = await context
-				.MessageMailboxes.Where(o => o.ProviderOccurrenceId == occurrence.ProviderOccurrenceId)
+				.MessageMailboxes.Where(o =>
+					o.MailboxId == mailbox.Id
+					&& o.ProviderOccurrenceId == occurrence.ProviderOccurrenceId
+				)
 				.Join(
 					context.Messages.Where(m => m.AccountId == account.Id),
 					o => o.MessageId,

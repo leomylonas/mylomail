@@ -56,7 +56,12 @@ test("a composed message is sent and arrives at the server", async () => {
 
 		await window.getByLabel("To").fill("someone@example.org");
 		await window.getByLabel("Subject").fill(subject);
-		await window.getByLabel("Message").fill("Sent from a test.");
+		// The rich editor is a contenteditable, not a field: typing is the only way to
+		// exercise the path that actually produces the HTML.
+		await window.getByLabel("Message", { exact: true }).click();
+		await window.keyboard.type("Plain words and ");
+		await window.getByRole("button", { name: "Bold" }).click();
+		await window.keyboard.type("bold ones");
 		await window.getByRole("button", { name: "Send", exact: true }).click();
 
 		await expect(window.getByText("Sending…")).toBeVisible();

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import {
 	bodiesIn,
-	clearInbox,
+	clearFolder,
 	countWithSubject,
 } from "@mylomail/renderer-e2e/SeedImap";
 
@@ -22,7 +22,7 @@ const imapPort = 11143;
  * unit tests do not already cover.
  */
 test("a saved draft is stored in the server's Drafts folder", async () => {
-	await clearInbox(imapPort);
+	await clearFolder(imapPort, "Drafts");
 
 	const { app, window } = await launchApp();
 	const subject = `Draft ${Date.now()}`;

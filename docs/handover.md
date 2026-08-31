@@ -7,6 +7,20 @@
 - If no native store is usable, `MYLOMAIL_MASTER_PASSWORD` enables the encrypted SQLite fallback. It uses PBKDF2-SHA256 (600,000 iterations), a random salt, an AES-GCM verifier, and per-credential AES-GCM ciphertext. Passwords and provider credentials are never stored in plaintext.
 - If neither native storage nor a master password is available (or the password is wrong), startup exits with code `78` before scheduling work. Electron can use that code to prompt, then restart the backend with the per-launch password.
 - Independent invariant review of the credential fallback and persistence changes found no architectural violations.
+- Compose is a Lexical rich-text editor. **HTML is the stored form, never Lexical's own JSON
+  state**: a draft's body is HTML and a sent message is MIME, so persisting editor state would
+  tie the mail format to an editor version. The e2e asserts the formatting survives to the SMTP
+  server, not merely to the editor.
+- Server-side drafts are implemented for IMAP, which removed the last provider stub. An update
+  is an append followed by an expunge of the old copy, in that order — the reverse loses the
+  draft if the append fails.
+- **Message identity is now scoped to a mailbox.** `MessageIngestor` matched occurrences on
+  `ProviderOccurrenceId` alone; an IMAP UID is unique only within a folder, so a draft holding
+  UID 2 merged with the unrelated inbox message holding UID 2 — the unrecoverable direction of
+  §1. The Drafts exclusion also ran after matching, letting a draft overwrite a real message,
+  and skipping only drafts occurrences would double-materialise a Gmail draft that carries
+  DRAFT alongside another label (found by invariant review). `MessageIdentityTests` covers all
+  three, each checked to fail with its half of the fix removed.
 - `startBackend` in the Electron shell implements the restart protocol and is unit-tested: it strips any inherited master password on the initial launch, issues a fresh launch token for each process, prompts only after code `78`, and passes the password only to the restarted process.
 
 ## Next task
@@ -23,8 +37,8 @@
    stored under `MailProviderFactory.ImapPasswordFormat`.
 3. **Continue Stage D** (§12, §13). The foundation is in: per-window store and query client,
    the hub wired to cache invalidation, a Carbon sidebar and message list. Still to build —
-   HTML body rendering, TanStack Router/Virtual/Table, compose with
-   Lexical, and the toast/context-menu/shortcut/error registries.
+   TanStack Router/Virtual/Table. HTML body rendering, compose and send, server-side drafts,
+   the Lexical editor and the toast/context-menu/shortcut/error registries are done.
 4. **The last §7 events without producers**: `ExportProgress`, `DraftUpdated`,
    `CalendarEventUpdated`, `CalendarConflictDetected` and `ConnectivityChanged` — each waiting
    on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
@@ -42,10 +56,7 @@
    through the console or a compound `page.evaluate` cost a full run and produced ambiguity.
    The e2e asserts the current behaviour (`src` stays `cid:`) so it keeps guarding the
    security properties instead of being disabled.
-6. **Rich composition.** The compose body is a plain textarea escaped into HTML. §12
-   specifies Lexical; a hand-rolled editor would have to be unbuilt, so the textarea is
-   deliberately temporary while the send path underneath it is complete and tested.
-7. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
+6. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
    here reaches the server — but a draft started on another device does not become a local
    `Draft`. The Drafts mailbox is correctly excluded from message materialisation, so it does
    not appear as mail either; it simply is not shown.
@@ -71,7 +82,10 @@ and encrypts fallback credentials in SQLite; it never persists the password.
 
 ## Verification
 
-- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(76), vitest(2).
+- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(125), vitest(35).
+- All four Playwright e2e specs pass against the local Dovecot matrix and the Mailpit sink.
+  The identity bug above was found by that suite and by nothing else: it appeared only when
+  specs ran in order, because it needed a leftover draft on the server to collide with.
 - `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation testing.
 - Mutation scope expanded with the new reconciliation services and integrity loop. The measured baseline is 47.23% (306 killed / 134 survived / 9 timeout), so `stryker-config.json` resets the ratchet to 47, just below that baseline. Raise it as survivors are killed.
 

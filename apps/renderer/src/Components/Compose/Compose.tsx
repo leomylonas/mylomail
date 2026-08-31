@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, TextArea, TextInput } from "@carbon/react";
+import { Button, TextInput } from "@carbon/react";
+import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
@@ -11,10 +12,9 @@ interface Sent {
 /**
  * Compose and send.
  *
- * The body is plain text for now, escaped into HTML at save. §12 specifies Lexical for rich
- * composition, and this is deliberately not a hand-rolled substitute for it: a bespoke
- * editor would have to be unbuilt, whereas a textarea is obviously temporary and exercises
- * the whole send path underneath — which is the part with the crash-safety machinery.
+ * The body is composed in Lexical and stored as HTML (§12). The editor's own state is never
+ * persisted: a draft's body is HTML and a sent message is MIME, so storing editor JSON would
+ * tie the mail format to an editor version.
  */
 export function Compose({
 	hub,
@@ -49,7 +49,7 @@ export function Compose({
 			cc: [],
 			bcc: [],
 			subject,
-			bodyHtml: toHtml(body),
+			bodyHtml: body,
 		});
 
 		setDraftId(draft.id);
@@ -68,7 +68,7 @@ export function Compose({
 				cc: [],
 				bcc: [],
 				subject,
-				bodyHtml: toHtml(body),
+				bodyHtml: body,
 			});
 
 			const outboxItemId = await hub.invoke<string>("SendDraft", draft.id);
@@ -125,13 +125,7 @@ export function Compose({
 				value={subject}
 				onChange={(event) => setSubject(event.target.value)}
 			/>
-			<TextArea
-				id="compose-body"
-				labelText="Message"
-				rows={10}
-				value={body}
-				onChange={(event) => setBody(event.target.value)}
-			/>
+			<Editor onChange={setBody} />
 			<div className={styles.actions}>
 				<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
 					Send
@@ -164,19 +158,4 @@ function parseAddresses(
 		.map((part) => part.trim())
 		.filter((part) => part.includes("@"))
 		.map((email) => ({ name: null, email }));
-}
-
-/**
- * Escapes the typed text into HTML.
- *
- * Escaped rather than passed through: whatever the user types is text, and treating it as
- * markup would let a pasted fragment become live HTML in someone else's client.
- */
-function toHtml(text: string): string {
-	const escaped = text
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;");
-
-	return `<p>${escaped.replaceAll("\n", "<br>")}</p>`;
 }

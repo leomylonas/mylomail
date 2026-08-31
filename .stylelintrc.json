@@ -1,5 +1,7 @@
 {
-  "extends": ["stylelint-config-standard"],
+  "extends": [
+    "stylelint-config-standard"
+  ],
   "rules": {
     "selector-class-pattern": [
       "^[a-z][a-zA-Z0-9]+$",
@@ -8,7 +10,19 @@
       }
     ],
     "custom-property-pattern": null,
-    "declaration-property-value-no-unknown": true
+    "declaration-property-value-no-unknown": true,
+    "selector-pseudo-class-no-unknown": [
+      true,
+      {
+        "ignorePseudoClasses": ["global"],
+        "message": "`:global` is CSS Modules' escape hatch for styling markup a component does not author, such as an editor's generated tags. Anything else unknown is a typo."
+      }
+    ]
   },
-  "ignoreFiles": ["**/node_modules/**", "**/dist/**", "**/bin/**", "**/obj/**"]
+  "ignoreFiles": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/bin/**",
+    "**/obj/**"
+  ]
 }
