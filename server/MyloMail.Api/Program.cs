@@ -19,6 +19,7 @@ builder.Services.AddProviderClients(builder.Configuration);
 builder.Services.AddMutations();
 builder.Services.AddSync();
 builder.Services.AddScheduling();
+builder.Services.AddSchedulingWorkers();
 builder.Services.AddControllers();
 
 var app = builder.Build();

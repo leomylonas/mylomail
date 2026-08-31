@@ -14,14 +14,16 @@
 1. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog. The supervisor,
    the health probe and the backend contract all exist and are tested; nothing calls them
    from the actual Electron entry point yet.
-2. **Supply provider client configuration per deployment.** `MailProviderFactory` now builds
+2. **Supply the actual client ids.** The mechanism and its documentation exist (`AGENTS.md`,
+   Provider client registration); no values are configured anywhere.
+   Previously: `MailProviderFactory` now builds
    real providers, but nothing supplies `Providers:Gmail:ClientId`/`ClientSecret` or
    `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
    binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
    stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Expose account creation over the API.** `AccountProvisioningService` adds and removes
-   accounts, but no controller calls it, so an account still has to be inserted from a test or
-   by hand. This needs DTOs and a `pnpm generate:types` run.
+3. **Stage D.** Electron is not installed and the renderer is a stub. `startBackend`, the
+   health probe and the backend contract are all built and tested but nothing calls them from
+   an entry point.
 
 ### Credential storage decision
 

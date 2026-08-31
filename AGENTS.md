@@ -75,6 +75,26 @@ corepack enable    # provides the pnpm version pinned in packageManager
 
 `.NET 8` per `global.json`. `dotnet tool restore` once, for the type generators.
 
+### Provider client registration
+
+Gmail and Graph need this application's own client registration before any account can
+authenticate. It is deployment configuration, not a credential, so it comes from the
+environment and **is never committed**:
+
+```bash
+Providers__Gmail__ClientId=...        # installed-app client
+Providers__Gmail__ClientSecret=...    # §5: distributing this in a desktop binary is unresolved
+Providers__Graph__ClientId=...
+Providers__Graph__Authority=...       # optional; defaults to the common authority
+```
+
+Without them `MailProviderFactory` raises `ProviderNotConfiguredException`, which the API
+reports as `501`, distinct from a rejected credential's `400`. A user can fix the second and
+not the first.
+
+IMAP needs no registration: an account carries its own `ImapProviderConfig` and its password
+lives in the credential store.
+
 ---
 
 ## Checks

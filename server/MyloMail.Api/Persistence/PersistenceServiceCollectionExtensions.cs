@@ -119,8 +119,21 @@ public static class PersistenceServiceCollectionExtensions
 				.UseRecommendedSerializerSettings()
 				.UseInMemoryStorage()
 		);
-		services.AddHangfireServer();
+		return services;
+	}
 
+	/// <summary>
+	/// Starts the background workers that actually run the jobs.
+	/// </summary>
+	/// <remarks>
+	/// Deliberately separate from <see cref="AddScheduling"/>. Registering the client is
+	/// harmless; starting workers is not — a test host that enqueues a job would have it
+	/// executed against the test database, concurrently with the assertions, which shows up as
+	/// an intermittent failure somewhere unrelated. Only the application composes both.
+	/// </remarks>
+	public static IServiceCollection AddSchedulingWorkers(this IServiceCollection services)
+	{
+		services.AddHangfireServer();
 		return services;
 	}
 }
