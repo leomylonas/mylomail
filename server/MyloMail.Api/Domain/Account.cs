@@ -90,6 +90,9 @@ public sealed class ImapProviderConfig : ProviderConfig
 	/// <summary>SMTP may reuse IMAP's credential or select its own secure-store slot.</summary>
 	public CredentialSource SmtpCredentialSource { get; set; } = CredentialSource.ReuseImap;
 
+	/// <summary>SMTP uses the IMAP user name unless it has an independently configured login.</summary>
+	public string? SmtpUserName { get; set; }
+
 	/// <summary>
 	/// Optional independently configured CalDAV endpoint. IMAP alone never implies a calendar.
 	/// </summary>

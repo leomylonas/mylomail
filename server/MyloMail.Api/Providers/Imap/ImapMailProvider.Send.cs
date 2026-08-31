@@ -52,7 +52,11 @@ public sealed partial class ImapMailProvider
 			// unprompted fails against them.
 			if (smtp.Capabilities.HasFlag(SmtpCapabilities.Authentication))
 			{
-				await smtp.AuthenticateAsync(settings.UserName, settings.Password, ct);
+				await smtp.AuthenticateAsync(
+					settings.SmtpUserName ?? settings.UserName,
+					settings.SmtpPassword ?? settings.Password,
+					ct
+				);
 			}
 
 			await smtp.SendAsync(message, ct);

@@ -98,6 +98,42 @@ public sealed class MailProviderFactoryTests
 		Assert.Equal(ProviderType.Imap, failure.Provider);
 	}
 
+	[Fact]
+	public async Task An_independent_smtp_credential_is_resolved_from_its_own_slot()
+	{
+		var accountId = Guid.NewGuid();
+		var store = new InMemoryCredentialStore();
+		await store.StoreAsync(
+			accountId,
+			new CredentialPayload(MailProviderFactory.ImapPasswordFormat, "imap-password"u8.ToArray()),
+			CancellationToken.None
+		);
+		await store.StoreSlotAsync(
+			accountId,
+			CredentialSlots.Smtp,
+			new CredentialPayload(MailProviderFactory.SmtpPasswordFormat, "smtp-password"u8.ToArray()),
+			CancellationToken.None
+		);
+
+		var provider = Create(new ProviderClientOptions(), store)
+			.For(
+				new Account
+				{
+					Id = accountId,
+					ProviderType = ProviderType.Imap,
+					ProviderConfig = new ImapProviderConfig
+					{
+						Host = "imap.example.org",
+						Port = 993,
+						SmtpCredentialSource = CredentialSource.Independent,
+						SmtpUserName = "smtp-user",
+					},
+				}
+			);
+
+		Assert.IsType<ImapMailProvider>(provider);
+	}
+
 	private static MailProviderFactory Create(ProviderClientOptions options, ICredentialStore? store = null) =>
 		new(Options.Create(options), store ?? new InMemoryCredentialStore(), new StubResolver());
 

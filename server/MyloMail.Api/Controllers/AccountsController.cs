@@ -79,6 +79,10 @@ public class AccountsController(
 		{
 			return Problem("Independent SMTP credentials need a password.", statusCode: 400, title: "Missing SMTP credential");
 		}
+		if (request.Imap is { ReuseImapCredentialForSmtp: false, SmtpUserName: null or "" })
+		{
+			return Problem("Independent SMTP credentials need a user name.", statusCode: 400, title: "Missing SMTP user name");
+		}
 
 		try
 		{
@@ -145,6 +149,7 @@ public class AccountsController(
 				SmtpHost = request.Imap.SmtpHost,
 				SmtpPort = request.Imap.SmtpPort,
 				SmtpCredentialSource = request.Imap.ReuseImapCredentialForSmtp ? CredentialSource.ReuseImap : CredentialSource.Independent,
+				SmtpUserName = request.Imap.SmtpUserName,
 				CalDav = request.CalDav is null ? null : new CalDavProviderConfig
 				{
 					Endpoint = request.CalDav.Endpoint,

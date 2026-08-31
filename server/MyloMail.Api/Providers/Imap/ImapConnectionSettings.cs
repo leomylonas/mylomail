@@ -18,6 +18,8 @@ public sealed record ImapConnectionSettings(
 	string Password,
 	string SmtpHost = "",
 	int SmtpPort = 0,
+	string? SmtpUserName = null,
+	string? SmtpPassword = null,
 	/// <summary>
 	/// Whether to append a copy to the Sent mailbox after sending (§15).
 	/// </summary>

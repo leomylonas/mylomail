@@ -26,6 +26,7 @@ public sealed class MailProviderFactory(
 {
 	/// <summary>The credential-store format used for an IMAP account's password.</summary>
 	public const string ImapPasswordFormat = "imap-password";
+	public const string SmtpPasswordFormat = "smtp-basic-password";
 
 	public IMailProvider For(Account account) =>
 		account.ProviderType switch
@@ -97,6 +98,15 @@ public sealed class MailProviderFactory(
 			);
 		}
 
+		var smtpStored = config.SmtpCredentialSource == CredentialSource.ReuseImap
+			? stored
+			: credentials.RetrieveSlotAsync(account.Id, CredentialSlots.Smtp, CancellationToken.None).GetAwaiter().GetResult()
+				?? throw new ProviderNotConfiguredException(ProviderType.Imap, "a stored SMTP password");
+		if (config.SmtpCredentialSource == CredentialSource.Independent && smtpStored.Format != SmtpPasswordFormat)
+		{
+			throw new ProviderNotConfiguredException(ProviderType.Imap, $"a '{SmtpPasswordFormat}' credential");
+		}
+
 		return new ImapMailProvider(
 			new ImapConnectionSettings(
 				config.Host,
@@ -106,6 +116,8 @@ public sealed class MailProviderFactory(
 				System.Text.Encoding.UTF8.GetString(stored.Data),
 				config.SmtpHost,
 				config.SmtpPort,
+				config.SmtpUserName,
+				System.Text.Encoding.UTF8.GetString(smtpStored.Data),
 				config.AppendToSentOnSend
 			),
 			mailboxes

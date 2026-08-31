@@ -56,7 +56,8 @@ public record ImapAccountSettings(
 	string SmtpHost,
 	int SmtpPort,
 	bool ReuseImapCredentialForSmtp = true,
-	string? SmtpSecret = null
+	string? SmtpSecret = null,
+	string? SmtpUserName = null
 );
 
 [TranspilationSource]

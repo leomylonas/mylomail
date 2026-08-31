@@ -60,6 +60,8 @@ export type ImapAccountSettings = {
     reuseImapCredentialForSmtp: boolean;
     /** Transpiled from string? */
     smtpSecret?: string;
+    /** Transpiled from string? */
+    smtpUserName?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.CalDavAccountSettings */
