@@ -528,10 +528,17 @@ public interface ICredentialStore
 - Never stored on `Account` or in plain SQLite columns.
 - Per-OS keychain implementations: Linux (`libsecret`/Secret Service, graceful fallback if unavailable), Windows (DPAPI), macOS (Keychain Services).
 - `CredentialStoreResolver` probes platform availability at startup and selects accordingly.
+- **Implementation boundary:** the .NET backend owns `ICredentialStore` and accesses native
+  OS secret stores directly. Electron never receives or retains provider credentials; it
+  only presents master-password setup/unlock UI and sends that password over the already
+  authenticated loopback connection when the fallback store is active.
 - **Fallback: master-password store.** Where no OS keychain is available (a Linux system with no Secret Service provider running, most commonly), credentials are encrypted in SQLite under a key the user controls:
   - The user sets a master password; the encryption key is **derived** from it via Argon2id (or PBKDF2 with a high iteration count) using a stored random salt — the password is never the key directly, so a weak password isn't directly a weak key.
   - A verifier blob (a known value encrypted under the derived key) is stored so correctness can be checked at unlock without decrypting everything.
   - The derived key is held **in memory only**, zeroed on shutdown; the user re-enters the master password each launch.
+  - Without a usable native store and without a supplied master password, startup exits with a
+    dedicated recoverable code. Electron prompts, then restarts the backend with the
+    per-launch password; the password is never persisted.
   - **Behavioural consequence worth stating plainly**: with this store active, the app starts _locked_ and **no background sync, notification, or scheduled send can run until the user unlocks it**. This is a real, visible difference from keychain-backed operation and must be communicated in the UI, not discovered.
   - The user is told at setup that this path is weaker and less convenient than an OS keychain, with guidance on enabling one.
 - Retrieved only at point of use (auth/token refresh), never eagerly loaded with `Account`.
@@ -746,6 +753,8 @@ Hangfire supplies the worker pool, delayed execution and the dashboard, backed b
 - Electron polls a `/health` endpoint before connecting the renderer's SignalR client.
 - Graceful shutdown on `before-quit` (dedicated shutdown signal/endpoint), not a hard kill — allows in-flight jobs to finish and SQLite to close cleanly.
 - Electron detects unexpected backend process exit and offers restart.
+- A recoverable credential-store exit specifically triggers master-password setup/unlock and
+  restart, rather than being presented as an unexpected backend crash.
 - A per-launch random token (passed via env var at spawn) is required on all API/SignalR connections — prevents any other local process from connecting to the backend. The renderer supplies it via SignalR's **access token factory** (`accessTokenFactory` on `HubConnectionBuilder`), and as a bearer header for the few REST calls; the backend validates it in middleware and rejects mismatches with `401` before any hub/endpoint logic runs.
 
 ### AppSettings (single-row table in the app DB)

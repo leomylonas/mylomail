@@ -10,6 +10,7 @@
 		<PackageReference Include="MailKit" Version="4.17.0" />
 		<PackageReference Include="Microsoft.Graph" Version="5.104.0" />
 		<PackageReference Include="Microsoft.Identity.Client" Version="4.88.0" />
+		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
 		<PackageReference Include="TypedSignalR.Client.TypeScript.Attributes" Version="1.17.0" />
 	</ItemGroup>
 	<ItemGroup>

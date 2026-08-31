@@ -1,5 +1,7 @@
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
+using MyloMail.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,11 +9,25 @@ var builder = WebApplication.CreateBuilder(args);
 // can be read (§15).
 var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOverride);
 builder.Services.AddPersistence(dataDirectory);
+builder.Services.AddSingleton<ICredentialStore>(_ => new NativeCredentialStore(dataDirectory));
 builder.Services.AddMutations();
 builder.Services.AddSync();
 builder.Services.AddScheduling();
+builder.Services.AddControllers();
 
 var app = builder.Build();
+app.UseLaunchToken();
+app.MapControllers();
+
+try
+{
+	_ = app.Services.GetRequiredService<ICredentialStore>();
+}
+catch (CredentialStoreUnavailableException)
+{
+	Environment.ExitCode = CredentialStoreUnavailableException.ExitCode;
+	return;
+}
 
 // Migration runs at startup, behind a VACUUM INTO backup, and surfaces failure rather than
 // retrying (§9).

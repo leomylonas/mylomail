@@ -17,6 +17,18 @@ Before Stage D, make the app runnable:
 4. Apply the per-launch token middleware from architecture §9.
 5. Verify the backend starts and Electron can poll `/health` using the launch token.
 
+### Credential storage decision
+
+The .NET backend owns `ICredentialStore` and accesses Windows DPAPI, macOS Keychain Services,
+or Linux Secret Service/libsecret directly. Electron never accesses provider credentials; it
+only presents master-password setup/unlock UI and sends the password over the authenticated
+loopback connection when the encrypted SQLite fallback is active.
+
+If no native store is usable, a backend launch without a master password exits with a dedicated
+recoverable code. Electron catches it, prompts for setup/unlock, and restarts the backend with
+the per-launch password. The backend derives an in-memory key, validates a persisted verifier,
+and encrypts fallback credentials in SQLite; it never persists the password.
+
 ## Read first
 
 - `AGENTS.md`
