@@ -7,6 +7,7 @@ using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
@@ -26,6 +27,7 @@ internal sealed class SyncHarness : IAsyncDisposable
 	{
 		Database = database;
 		Provider = provider;
+		CalendarProvider = new FakeCalendarProvider();
 		Faults = new ScriptedFaultInjector();
 		Clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
 		services = Build();
@@ -34,6 +36,8 @@ internal sealed class SyncHarness : IAsyncDisposable
 	public TestDatabase Database { get; }
 
 	public FakeMailProvider Provider { get; }
+
+	public FakeCalendarProvider CalendarProvider { get; }
 
 	public ScriptedFaultInjector Faults { get; }
 
@@ -59,6 +63,7 @@ internal sealed class SyncHarness : IAsyncDisposable
 			.AddSingleton<TimeProvider>(Clock)
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubFactory(Provider))
+			.AddSingleton<ICalendarProviderFactory>(new StubCalendarFactory(CalendarProvider))
 			.AddSingleton<IHubEvents>(Events)
 			.AddMutations()
 			.AddSync()
@@ -119,6 +124,59 @@ internal sealed class SyncHarness : IAsyncDisposable
 	{
 		public IMailProvider For(Account account) => provider;
 	}
+
+	private sealed class StubCalendarFactory(ICalendarProvider provider) : ICalendarProviderFactory
+	{
+		public ICalendarProvider For(ProviderType type) => provider;
+	}
+}
+
+internal sealed class FakeCalendarProvider : ICalendarProvider
+{
+	public List<string?> Cursors { get; } = [];
+
+	public bool InvalidateFirstBaselineContinuation { get; set; }
+
+	private bool baselineContinuationReturned;
+
+	public ProviderType Type => ProviderType.Imap;
+
+	public Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct) =>
+		Task.FromResult<IReadOnlyList<CalendarDto>>([new("calendar", "Calendar", null, true)]);
+
+	public Task<CalendarSyncResult> SyncCalendarAsync(Account account, Calendar calendar, string? cursor, string? continuation, CancellationToken ct)
+	{
+		Cursors.Add(cursor);
+		if (InvalidateFirstBaselineContinuation && continuation is not null)
+		{
+			InvalidateFirstBaselineContinuation = false;
+			throw new ProviderCursorInvalidException("The baseline continuation expired.");
+		}
+		if (InvalidateFirstBaselineContinuation && !baselineContinuationReturned)
+		{
+			baselineContinuationReturned = true;
+			return Task.FromResult(new CalendarSyncResult(null, "baseline-next", [Event("partial")], []));
+		}
+		return Task.FromResult(
+			cursor is null
+				? new CalendarSyncResult("token-1", null, [Event("one")], [])
+				: new CalendarSyncResult("token-2", null, [], [])
+		);
+	}
+
+	private static CalendarEventDto Event(string id) => new()
+	{
+		ProviderEventId = id,
+		ICalUid = id,
+		ProviderRevision = "etag-1",
+		Start = DateTimeOffset.UnixEpoch,
+		End = DateTimeOffset.UnixEpoch.AddHours(1),
+	};
+
+	public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) => throw new NotSupportedException();
+	public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) => throw new NotSupportedException();
+	public Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct) => throw new NotSupportedException();
+	public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, CancellationToken ct) => throw new NotSupportedException();
 }
 
 /// <summary>Records what was announced rather than announcing it.</summary>

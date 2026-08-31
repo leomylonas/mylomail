@@ -61,6 +61,12 @@ public class CalendarEvent
 	/// <summary>Null on the master; set on modified and cancelled instances.</summary>
 	public Guid? RecurrenceMasterId { get; set; }
 
+	/// <summary>
+	/// The provider-side master reference is retained solely to resolve the local canonical
+	/// relationship when instances and their master arrive on different sync pages.
+	/// </summary>
+	public string? RecurrenceMasterProviderEventId { get; set; }
+
 	/// <summary>iCalendar <c>RECURRENCE-ID</c> — which occurrence this overrides.</summary>
 	public DateTimeOffset? RecurrenceId { get; set; }
 

@@ -266,6 +266,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<Guid?>("RecurrenceMasterId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RecurrenceMasterProviderEventId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RecurrenceRules")
                         .IsRequired()
                         .HasColumnType("TEXT");

@@ -112,6 +112,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.AddScoped<MessageIngestor>();
+		services.AddScoped<CalendarSyncService>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();
 		services.AddScoped<MessageSearch>();
