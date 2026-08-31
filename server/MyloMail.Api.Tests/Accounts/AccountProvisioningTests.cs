@@ -70,6 +70,7 @@ public sealed class AccountProvisioningTests
 					spy,
 					services.GetRequiredService<MyloMail.Api.Providers.IMailProviderFactory>(),
 					services.GetRequiredService<MyloMail.Api.Scheduling.StartupScheduler>(),
+					services.GetRequiredService<MyloMail.Api.Hubs.IHubEvents>(),
 					TimeProvider.System,
 					services.GetRequiredService<ILogger<AccountProvisioningService>>()
 				).AddAsync(new NewAccount("Test", ProviderType.Gmail, "someone@example.org", null, Secret()))

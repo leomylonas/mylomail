@@ -1,0 +1,36 @@
+.tree {
+	overflow-y: auto;
+	height: 100%;
+	padding: var(--cds-spacing-03);
+	border-right: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
+}
+
+.item {
+	display: flex;
+	gap: var(--cds-spacing-03);
+	align-items: baseline;
+	justify-content: space-between;
+	width: 100%;
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	border: none;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.item:hover {
+	background: var(--cds-layer-hover);
+}
+
+.selected {
+	background: var(--cds-layer-selected);
+	font-weight: 600;
+}
+
+.count {
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+}

@@ -14,7 +14,8 @@
       "@mylomail/shared-types/*": ["./packages/shared-types/src/*"],
       "@mylomail/ui/*": ["./packages/ui/src/*"],
       "@mylomail/renderer/*": ["./apps/renderer/src/*"],
-      "@mylomail/electron-shell/*": ["./apps/electron-shell/src/*"]
+      "@mylomail/electron-shell/*": ["./apps/electron-shell/src/*"],
+      "@mylomail/renderer-e2e/*": ["./tests/renderer.e2e/*"]
     }
   },
   "include": [

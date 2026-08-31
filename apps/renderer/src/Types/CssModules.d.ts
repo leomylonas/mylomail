@@ -9,3 +9,6 @@ declare module "*.module.css" {
 	const classes: Record<string, string>;
 	export default classes;
 }
+
+/** Carbon ships its styles as Sass, imported for side effects only. */
+declare module "*.scss";

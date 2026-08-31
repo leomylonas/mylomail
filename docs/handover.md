@@ -21,9 +21,13 @@
    `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
    binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
    stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Stage D proper** (§12, §13): panels, per-window state, Carbon, the registries, and
-   TanStack Query over the hub proxy. The transport exists; nothing consumes it yet.
-4. **Raise the remaining §7 events.** `IMailClient` declares all of them so none is orphaned,
+3. **Continue Stage D** (§12, §13). The foundation is in: per-window store and query client,
+   the hub wired to cache invalidation, a Carbon sidebar and message list. Still to build —
+   the reading pane (needs content acquisition), TanStack Router/Virtual/Table, compose with
+   Lexical, and the toast/context-menu/shortcut/error registries.
+4. **Raise the remaining §7 events.** `AccountStatusChanged`, `MailboxTreeChanged` and
+   `SyncProgress` now have producers — the first two were found missing by the e2e test, since
+   without them a new account and its mailboxes never appeared. The rest still need wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
 5. **Content acquisition.** `MessageContentState` is enumerated by the startup sweep as

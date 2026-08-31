@@ -161,6 +161,25 @@ if (mode === "deep") {
 		...dotnetTest("Category=FaultInjection", "fault-injection"),
 	});
 
+	// The product, driven as a user drives it, against the local IMAP matrix. It asks the
+	// mail server what happened rather than asking the app what it believes — which is the
+	// only reason it catches a mutation that is recorded locally and never sent.
+	steps.push({
+		name: "e2e",
+		command: "npx",
+		args: [
+			"playwright",
+			"test",
+			"--config",
+			"tests/renderer.e2e/Playwright.config.ts",
+			"--reporter=list",
+		],
+		parse: (line) => {
+			const match = /^\s*✘\s+\d+\s+(.+?)(?:\s+\(\d+.*\))?$/.exec(line);
+			return match ? { key: match[1], text: match[1] } : null;
+		},
+	});
+
 	// Mutation testing over the mutation and sync cores. This is the mechanical form of the
 	// discrimination check in docs/skills/fault-injection.md: a surviving mutant in a guard
 	// clause means a test passes against the bug it was written to catch. Two scenarios in

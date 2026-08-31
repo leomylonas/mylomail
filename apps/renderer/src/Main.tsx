@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BackendStatus } from "@mylomail/renderer/Shell/BackendStatus/BackendStatus";
+import { AppShell } from "@mylomail/renderer/Shell/AppShell/AppShell";
+import { WindowScope } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
+import "@carbon/react/index.scss";
 
 export const applicationName = "MyloMail";
 
@@ -9,6 +11,8 @@ if (!container) throw new Error("The renderer root element is missing.");
 
 createRoot(container).render(
 	<StrictMode>
-		<BackendStatus />
+		<WindowScope>
+			<AppShell />
+		</WindowScope>
 	</StrictMode>,
 );

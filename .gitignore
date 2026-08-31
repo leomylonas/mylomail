@@ -4,6 +4,10 @@
 # Mutation-testing reports (pnpm check:deep). Regenerated on every run.
 StrykerOutput/
 
+# Playwright artefacts from `pnpm e2e`.
+test-results/
+playwright-report/
+
 # Node
 node_modules/
 .pnpm-store/

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -18,6 +19,7 @@ public sealed class TopologySyncService(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	TimeProvider clock,
+	IHubEvents events,
 	ILogger<TopologySyncService> logger
 )
 {
@@ -86,6 +88,14 @@ public sealed class TopologySyncService(
 			updated,
 			removed
 		);
+
+		// Announced after the commit, and only when the tree actually changed: §7 pairs this
+		// event with folder discovery, and raising it on every poll would make it useless as
+		// a signal.
+		if (added > 0 || removed > 0)
+		{
+			await events.MailboxTreeChangedAsync(account.Id);
+		}
 
 		return new TopologyChange(added, updated, removed);
 	}

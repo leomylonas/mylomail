@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Scheduling;
@@ -31,6 +33,7 @@ public sealed class AccountProvisioningService(
 	ICredentialStore credentials,
 	IMailProviderFactory providers,
 	StartupScheduler scheduler,
+	IHubEvents events,
 	TimeProvider clock,
 	ILogger<AccountProvisioningService> logger
 )
@@ -115,6 +118,11 @@ public sealed class AccountProvisioningService(
 
 		logger.LogInformation("Account {AccountId} added for {Provider}.", accountId, request.ProviderType);
 
+		// Announced before scheduling, so a window that is already open shows the account
+		// while its first sync is still running rather than only once something else happens
+		// to refresh it (§7).
+		await events.AccountStatusChangedAsync(AccountDtoFactory.ToDto(account, request.EmailAddress));
+
 		await scheduler.ResumeAccountAsync(accountId, ct);
 		return account;
 	}
@@ -148,7 +156,26 @@ public sealed class AccountProvisioningService(
 		await credentials.DeleteAsync(accountId, ct);
 
 		logger.LogInformation("Account {AccountId} removed at {At}.", accountId, clock.GetUtcNow());
+
+		account.IsEnabled = false;
+		await events.AccountStatusChangedAsync(AccountDtoFactory.ToDto(account, address: null));
 	}
+}
+
+internal static class AccountDtoFactory
+{
+	public static AccountDto ToDto(Account account, string? address) =>
+		new(
+			account.Id,
+			account.DisplayName,
+			address ?? string.Empty,
+			account.ProviderType,
+			account.AuthState,
+			account.IsEnabled,
+			account.LastAuthError,
+			account.Color,
+			account.SortOrder
+		);
 }
 
 /// <summary>
