@@ -7,13 +7,14 @@
 - If no native store is usable, `MYLOMAIL_MASTER_PASSWORD` enables the encrypted SQLite fallback. It uses PBKDF2-SHA256 (600,000 iterations), a random salt, an AES-GCM verifier, and per-credential AES-GCM ciphertext. Passwords and provider credentials are never stored in plaintext.
 - If neither native storage nor a master password is available (or the password is wrong), startup exits with code `78` before scheduling work. Electron can use that code to prompt, then restart the backend with the per-launch password.
 - Independent invariant review of the credential fallback and persistence changes found no architectural violations.
+- `startBackend` in the Electron shell implements the restart protocol and is unit-tested: it strips any inherited master password on the initial launch, issues a fresh launch token for each process, prompts only after code `78`, and passes the password only to the restarted process.
 
 ## Next task
 
 Before Stage D, complete the remaining runnable-app wiring:
 
 1. Register provider-specific OAuth/client configuration so `MailProviderFactory` can construct real providers.
-2. Implement Electron child-process startup: initial normal launch, code-78 handling, password prompt, and restarted launch with `MYLOMAIL_MASTER_PASSWORD`.
+2. Wire `startBackend` into the Electron runtime with its actual setup/unlock dialog and concrete authenticated `/health` waiter.
 3. Verify Electron polls `/health` with its per-launch bearer token in both native-store and fallback starts.
 
 ### Credential storage decision
@@ -37,7 +38,7 @@ and encrypts fallback credentials in SQLite; it never persists the password.
 
 ## Verification
 
-- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(76), vitest.
+- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(76), vitest(2).
 - `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation testing.
 - Mutation scope expanded with the new reconciliation services and integrity loop. The measured baseline is 47.23% (306 killed / 134 survived / 9 timeout), so `stryker-config.json` resets the ratchet to 47, just below that baseline. Raise it as survivors are killed.
 
