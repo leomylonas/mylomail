@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -29,6 +30,18 @@ builder.Services.AddSingleton<IHubEvents, HubEvents>();
 
 var app = builder.Build();
 app.UseLaunchToken();
+
+// The renderer is served from this origin so that one cookie authenticates every request it
+// makes, including the WebSocket handshake. Serving it from file:// is what forced a token
+// into the hub URL.
+if (Environment.GetEnvironmentVariable("MYLOMAIL_RENDERER_PATH") is string rendererPath
+	&& Directory.Exists(rendererPath))
+{
+	var files = new PhysicalFileProvider(Path.GetFullPath(rendererPath));
+	app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
+	app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
+}
+
 app.MapControllers();
 app.MapHub<MailHub>("/hub");
 

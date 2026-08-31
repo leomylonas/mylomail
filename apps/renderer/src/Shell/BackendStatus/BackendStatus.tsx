@@ -4,7 +4,6 @@ import styles from "@mylomail/renderer/Shell/BackendStatus/BackendStatus.module.
 
 interface BackendConnection {
 	origin: string;
-	launchToken: string;
 }
 
 declare global {
@@ -37,10 +36,12 @@ export function BackendStatus() {
 				const bridge = window.backend;
 				if (!bridge) throw new Error("preload bridge unavailable");
 
-				const connection = await bridge.connect();
-				const health = await request(connection, "/health");
-				const accounts = await request(connection, "/accounts");
-				await openHub(connection);
+				// The origin is still fetched so the renderer fails loudly if the shell has not
+				// wired it up, but requests are relative: the page is served by the backend.
+				await bridge.connect();
+				const health = await request("/health");
+				const accounts = await request("/accounts");
+				await openHub();
 
 				if (!cancelled)
 					console.info(
@@ -85,20 +86,20 @@ function describe(probe: Probe): string {
 /**
  * Opens the hub connection.
  *
- * The token goes through `accessTokenFactory` because a WebSocket handshake cannot carry
- * custom headers — SignalR appends it as a query parameter, which the backend's launch-token
- * middleware accepts for exactly this reason (§9).
+ * A WebSocket handshake cannot carry custom headers, which is normally why SignalR appends an
+ * access token to the URL. It does not here: the page is same-origin with the backend, so the
+ * handshake sends the httpOnly launch cookie instead and no token appears in a URL (§9).
  *
  * Automatic reconnect is deliberate, and on reconnect the client must invalidate and refetch
  * its active queries: while disconnected it missed every event, and pending mutations alone
  * cannot repair a stale cache (§7). There are no queries to invalidate yet, so this logs
  * where that will go.
  */
-async function openHub(connection: BackendConnection): Promise<void> {
+async function openHub(): Promise<void> {
 	const hub = new HubConnectionBuilder()
-		.withUrl(`${connection.origin}/hub`, {
-			accessTokenFactory: () => connection.launchToken,
-		})
+		// No access-token factory: the page is served from the backend's origin, so the
+		// handshake carries the launch cookie by itself and the token stays out of the URL.
+		.withUrl("/hub")
 		.withAutomaticReconnect()
 		// SignalR logs the negotiated URL at Information, and that URL carries the access
 		// token as a query parameter — so the default level writes the launch token into the
@@ -118,13 +119,9 @@ async function openHub(connection: BackendConnection): Promise<void> {
 	console.info("hub connected");
 }
 
-async function request(
-	connection: BackendConnection,
-	path: string,
-): Promise<unknown> {
-	const response = await fetch(`${connection.origin}${path}`, {
-		headers: { Authorization: `Bearer ${connection.launchToken}` },
-	});
+async function request(path: string): Promise<unknown> {
+	// Same-origin, so the launch cookie goes along and no header is needed.
+	const response = await fetch(path);
 	if (!response.ok) throw new Error(`${path} responded ${response.status}`);
 	return response.json();
 }

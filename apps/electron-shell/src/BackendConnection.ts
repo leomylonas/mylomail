@@ -9,8 +9,14 @@
 /** The channel the renderer uses to learn where the backend is. */
 export const backendConnectionChannel = "backend:connection";
 
-/** Where the backend is listening, and the token every request to it must carry (§9). */
+/**
+ * Where the backend is listening.
+ *
+ * <b>The launch token is deliberately absent.</b> The renderer is served from the backend's
+ * own origin and authenticates with an httpOnly cookie the main process sets before anything
+ * loads, so the token never enters the renderer process — and cannot be read by script there
+ * even if something in the page tried (§9).
+ */
 export interface BackendConnection {
 	origin: string;
-	launchToken: string;
 }

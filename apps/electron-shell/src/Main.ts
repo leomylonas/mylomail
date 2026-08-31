@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
@@ -30,10 +30,19 @@ export async function startShell(): Promise<void> {
 		waitUntilReady: (launch) => waitForBackendHealth(launch),
 	});
 
-	const connection: BackendConnection = {
-		origin: `http://127.0.0.1:${backend.port}`,
-		launchToken: backend.launchToken,
-	};
+	const origin = `http://127.0.0.1:${backend.port}`;
+	const connection: BackendConnection = { origin };
+
+	// Set before any window exists, so the very first document request is authenticated.
+	// httpOnly keeps it out of reach of page script: the renderer authenticates without ever
+	// holding the token.
+	await session.defaultSession.cookies.set({
+		url: origin,
+		name: "mylomail_launch",
+		value: backend.launchToken,
+		httpOnly: true,
+		sameSite: "strict",
+	});
 
 	// Held here and handed over on request, so the token never reaches a command line.
 	ipcMain.handle(backendConnectionChannel, () => connection);
@@ -45,10 +54,10 @@ export async function startShell(): Promise<void> {
 	// The backend is a child of this process, so it must not outlive it.
 	app.on("before-quit", () => backend.child.kill("SIGTERM"));
 
-	await createWindow();
+	await createWindow(origin);
 }
 
-async function createWindow(): Promise<BrowserWindow> {
+async function createWindow(origin: string): Promise<BrowserWindow> {
 	const window = new BrowserWindow({
 		width: 1280,
 		height: 800,
@@ -64,15 +73,22 @@ async function createWindow(): Promise<BrowserWindow> {
 	});
 
 	window.once("ready-to-show", () => window.show());
+	window.webContents.on("did-fail-load", (_e, code, description, url) =>
+		console.error(`load failed ${code} ${description} ${url}`),
+	);
+	window.webContents.on("render-process-gone", (_e, details) =>
+		console.error(`renderer gone: ${details.reason}`),
+	);
 
 	// Without this a renderer failure is invisible: the window simply shows nothing, and the
 	// main process's log stays clean while the app is broken.
 	window.webContents.on("console-message", (event) => {
 		console.info(`[renderer] ${event.message}`);
 	});
-	await window.loadFile(
-		join(here, "..", "..", "renderer", "dist", "index.html"),
-	);
+	// Loaded over http from the backend rather than from disk: same-origin is what lets one
+	// httpOnly cookie authenticate documents, assets, fetches and the WebSocket handshake
+	// alike, and keeps the launch token out of every URL.
+	await window.loadURL(origin);
 	return window;
 }
 

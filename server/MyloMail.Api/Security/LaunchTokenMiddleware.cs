@@ -27,14 +27,26 @@ public sealed class LaunchTokenMiddleware(RequestDelegate next, string expectedT
 		await next(context);
 	}
 
+	/// <summary>The cookie the shell sets for this launch, before it loads anything.</summary>
+	public const string CookieName = "mylomail_launch";
+
 	/// <summary>
-	/// The token from the <c>Authorization</c> header, or from the query string.
+	/// The token from the <c>Authorization</c> header, or from the launch cookie.
 	/// </summary>
 	/// <remarks>
-	/// A WebSocket handshake cannot carry custom headers, which is why SignalR clients pass the
-	/// token as <c>access_token</c> — §9's access-token factory. Both forms are accepted, and
-	/// both are compared the same way; refusing the query form would mean the hub could not be
-	/// authenticated at all, and adding an exemption for it would mean it was not.
+	/// <para>
+	/// The cookie exists because a WebSocket handshake cannot carry custom headers. SignalR's
+	/// usual answer is an <c>access_token</c> query parameter, which is deliberately <b>not</b>
+	/// accepted here: a URL is the most quotable thing in any system, ending up in logs, crash
+	/// reports and referrers, and this token is the backend's only defence against another
+	/// local process.
+	/// </para>
+	/// <para>
+	/// A cookie works only because the renderer is served from this origin, which is why it is
+	/// served from here rather than from <c>file://</c>. Same-origin requests — documents,
+	/// assets, fetches and the WebSocket handshake alike — carry it automatically, so the
+	/// renderer never has to hold the token at all.
+	/// </para>
 	/// </remarks>
 	private static string? Supplied(HttpContext context)
 	{
@@ -45,9 +57,7 @@ public sealed class LaunchTokenMiddleware(RequestDelegate next, string expectedT
 			return header[scheme.Length..];
 		}
 
-		return context.Request.Query.TryGetValue("access_token", out var queryToken)
-			? queryToken.ToString()
-			: null;
+		return context.Request.Cookies.TryGetValue(CookieName, out var cookie) ? cookie : null;
 	}
 }
 
