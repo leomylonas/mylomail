@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using MyloMail.Api.Credentials;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
@@ -21,10 +22,15 @@ builder.Services.AddSync();
 builder.Services.AddScheduling();
 builder.Services.AddSchedulingWorkers();
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
+
+// The real publisher replaces the no-op default only where a hub actually exists.
+builder.Services.AddSingleton<IHubEvents, HubEvents>();
 
 var app = builder.Build();
 app.UseLaunchToken();
 app.MapControllers();
+app.MapHub<MailHub>("/hub");
 
 // Migration runs at startup, behind a VACUUM INTO backup, and surfaces failure rather than
 // retrying (§9).

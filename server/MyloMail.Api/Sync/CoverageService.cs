@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 
@@ -22,6 +24,7 @@ public sealed class CoverageService(
 	MessageIngestor ingestor,
 	TimeProvider clock,
 	IFaultInjector faults,
+	IHubEvents events,
 	ILogger<CoverageService> logger
 )
 {
@@ -82,6 +85,12 @@ public sealed class CoverageService(
 		});
 
 		faults.Reached(FaultPoints.SyncPageAfterCommit);
+
+		// After the page is committed, never before: an event announcing progress that a crash
+		// then discarded would leave the UI ahead of the database.
+		await events.SyncProgressAsync(
+			new SyncProgressDto(mailbox.Id, coverage.Status, coverage.MessagesFetched, coverage.EstimatedTotal)
+		);
 
 		logger.LogInformation(
 			"Coverage page for mailbox {MailboxId}: {Count} messages, more={HasMore}.",

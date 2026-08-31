@@ -1,3 +1,4 @@
+using Tapper;
 namespace MyloMail.Api.Domain;
 
 /// <summary>
@@ -49,6 +50,7 @@ public class OutboxItem
 /// Once <see cref="Sending"/>, cancellation reports "too late" and must not revert: a
 /// recheck immediately before dispatch narrows that window but cannot close it.
 /// </remarks>
+[TranspilationSource]
 public enum OutboxStatus
 {
 	Draft,

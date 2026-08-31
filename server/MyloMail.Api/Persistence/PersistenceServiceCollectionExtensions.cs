@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.Accounts;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Providers;
@@ -102,6 +103,7 @@ public static class PersistenceServiceCollectionExtensions
 	{
 		services.TryAddSingleton(TimeProvider.System);
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
+		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.AddScoped<MessageIngestor>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();

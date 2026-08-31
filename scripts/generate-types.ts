@@ -85,6 +85,20 @@ run([
 	"packages/shared-types/src/SignalR",
 ]);
 
+// tsrts prints its exceptions and exits zero, so a failed transpilation looks exactly like a
+// successful one to the caller. It once emitted only the shared components and no hub proxy
+// at all, and nothing noticed. Assert on the artefact instead of trusting the exit code.
+const hubProxy = join(
+	root,
+	"packages/shared-types/src/SignalR/TypedSignalR.Client/MyloMail.Api.Hubs.ts",
+);
+if (!existsSync(hubProxy)) {
+	throw new Error(
+		"tsrts produced no hub proxy — check its output above for a transpilation exception, " +
+			"usually a DTO missing [TranspilationSource].",
+	);
+}
+
 run([
 	"typecontractor",
 	"--assembly",

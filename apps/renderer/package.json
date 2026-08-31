@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@microsoft/signalr": "^8.0.29",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   }

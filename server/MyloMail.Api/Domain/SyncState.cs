@@ -1,4 +1,5 @@
 using MyloMail.Api.Providers.Contracts;
+using Tapper;
 
 namespace MyloMail.Api.Domain;
 
@@ -40,6 +41,7 @@ public class MailboxCoverageState
 	public string? LastError { get; set; }
 }
 
+[TranspilationSource]
 public enum CoverageStatus
 {
 	NotStarted,

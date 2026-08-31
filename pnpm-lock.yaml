@@ -76,6 +76,9 @@ importers:
 
   apps/renderer:
     dependencies:
+      '@microsoft/signalr':
+        specifier: ^8.0.29
+        version: 8.0.29
       react:
         specifier: ^19.2.8
         version: 19.2.8

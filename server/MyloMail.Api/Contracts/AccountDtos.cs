@@ -1,4 +1,5 @@
 using MyloMail.Api.Domain;
+using Tapper;
 
 namespace MyloMail.Api.Contracts;
 
@@ -7,6 +8,7 @@ namespace MyloMail.Api.Contracts;
 /// <paramref name="EmailAddress"/> comes from the account's default <c>SendIdentity</c>,
 /// which is the authoritative address — <c>Account</c> deliberately has no address column.
 /// </remarks>
+[TranspilationSource]
 public record AccountDto(
 	Guid Id,
 	string DisplayName,
@@ -27,6 +29,7 @@ public record AccountDto(
 /// credential store and never written to a column, so it appears here and nowhere in the
 /// resource model (§4).
 /// </remarks>
+[TranspilationSource]
 public record AddAccountRequest(
 	string DisplayName,
 	ProviderType ProviderType,
@@ -43,6 +46,7 @@ public record AddAccountRequest(
 /// address: servers commonly authenticate on a bare user name, or on an address that differs
 /// from the send-as one.
 /// </remarks>
+[TranspilationSource]
 public record ImapAccountSettings(
 	string Host,
 	int Port,

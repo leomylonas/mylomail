@@ -1,4 +1,5 @@
 using MyloMail.Api.Errors;
+using Tapper;
 
 namespace MyloMail.Api.Domain;
 
@@ -206,6 +207,7 @@ public class MessagePendingChange
 	public Guid MutationItemId { get; set; }
 }
 
+[TranspilationSource]
 public enum MessageFlagField
 {
 	IsRead,

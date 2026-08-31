@@ -21,8 +21,14 @@
    `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
    binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
    stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Stage D proper** (§12, §13): panels, per-window state, Carbon, the registries. The shell
-   now launches and reaches the backend, so this builds on something that runs.
+3. **Stage D proper** (§12, §13): panels, per-window state, Carbon, the registries, and
+   TanStack Query over the hub proxy. The transport exists; nothing consumes it yet.
+4. **Raise the remaining §7 events.** `IMailClient` declares all of them so none is orphaned,
+   but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
+   it, not on SignalR, so they stay testable.
+5. **Content acquisition.** `MessageContentState` is enumerated by the startup sweep as
+   `Queued`/`Fetching`, but nothing fetches raw messages, so those states are unreachable and
+   §8's search has nothing to index.
 
 ### Credential storage decision
 

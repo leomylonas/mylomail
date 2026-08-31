@@ -3,6 +3,9 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
+import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
+import type { MailboxSummaryDto, MessageSummaryDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
 // components
@@ -41,19 +44,128 @@ class ReceiverMethodSubscription implements Disposable {
 // API
 
 export type HubProxyFactoryProvider = {
+    (hubType: "IMailHub"): HubProxyFactory<IMailHub>;
 }
 
 export const getHubProxyFactory = ((hubType: string) => {
+    if(hubType === "IMailHub") {
+        return IMailHub_HubProxyFactory.Instance;
+    }
 }) as HubProxyFactoryProvider;
 
 export type ReceiverRegisterProvider = {
+    (receiverType: "IMailClient"): ReceiverRegister<IMailClient>;
 }
 
 export const getReceiverRegister = ((receiverType: string) => {
+    if(receiverType === "IMailClient") {
+        return IMailClient_Binder.Instance;
+    }
 }) as ReceiverRegisterProvider;
 
 // HubProxy
 
+class IMailHub_HubProxyFactory implements HubProxyFactory<IMailHub> {
+    public static Instance = new IMailHub_HubProxyFactory();
+
+    private constructor() {
+    }
+
+    public readonly createHubProxy = (connection: HubConnection): IMailHub => {
+        return new IMailHub_HubProxy(connection);
+    }
+}
+
+class IMailHub_HubProxy implements IMailHub {
+
+    public constructor(private connection: HubConnection) {
+    }
+
+    public readonly getMailboxes = async (accountId: string): Promise<MailboxSummaryDto[]> => {
+        return await this.connection.invoke("GetMailboxes", accountId);
+    }
+
+    public readonly getMessages = async (mailboxId: string, take: number): Promise<MessageSummaryDto[]> => {
+        return await this.connection.invoke("GetMessages", mailboxId, take);
+    }
+
+    public readonly getPendingSyncState = async (accountId: string): Promise<PendingChangeDto[]> => {
+        return await this.connection.invoke("GetPendingSyncState", accountId);
+    }
+
+    public readonly setFlags = async (accountId: string, messageIds: string[], isRead: (boolean | undefined), isFlagged: (boolean | undefined)): Promise<void> => {
+        return await this.connection.invoke("SetFlags", accountId, messageIds, isRead, isFlagged);
+    }
+
+    public readonly moveMessages = async (accountId: string, messageIds: string[], targetMailboxId: string): Promise<void> => {
+        return await this.connection.invoke("MoveMessages", accountId, messageIds, targetMailboxId);
+    }
+
+    public readonly moveToTrash = async (accountId: string, messageIds: string[]): Promise<void> => {
+        return await this.connection.invoke("MoveToTrash", accountId, messageIds);
+    }
+}
+
 
 // Receiver
+
+class IMailClient_Binder implements ReceiverRegister<IMailClient> {
+
+    public static Instance = new IMailClient_Binder();
+
+    private constructor() {
+    }
+
+    public readonly register = (connection: HubConnection, receiver: IMailClient): Disposable => {
+
+        const __accountStatusChanged = (...args: [AccountDto]) => receiver.accountStatusChanged(...args);
+        const __mailboxUpdated = (...args: [MailboxSummaryDto]) => receiver.mailboxUpdated(...args);
+        const __mailboxTreeChanged = (...args: [string]) => receiver.mailboxTreeChanged(...args);
+        const __messageReceived = (...args: [MessageSummaryDto]) => receiver.messageReceived(...args);
+        const __messageUpdated = (...args: [MessageSummaryDto]) => receiver.messageUpdated(...args);
+        const __messageDeleted = (...args: [string]) => receiver.messageDeleted(...args);
+        const __syncProgress = (...args: [SyncProgressDto]) => receiver.syncProgress(...args);
+        const __exportProgress = (...args: [string, number, number]) => receiver.exportProgress(...args);
+        const __messageSyncFailed = (...args: [string, string]) => receiver.messageSyncFailed(...args);
+        const __draftUpdated = (...args: [string]) => receiver.draftUpdated(...args);
+        const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
+        const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
+        const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
+        const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
+
+        connection.on("AccountStatusChanged", __accountStatusChanged);
+        connection.on("MailboxUpdated", __mailboxUpdated);
+        connection.on("MailboxTreeChanged", __mailboxTreeChanged);
+        connection.on("MessageReceived", __messageReceived);
+        connection.on("MessageUpdated", __messageUpdated);
+        connection.on("MessageDeleted", __messageDeleted);
+        connection.on("SyncProgress", __syncProgress);
+        connection.on("ExportProgress", __exportProgress);
+        connection.on("MessageSyncFailed", __messageSyncFailed);
+        connection.on("DraftUpdated", __draftUpdated);
+        connection.on("OutboxStatusChanged", __outboxStatusChanged);
+        connection.on("CalendarEventUpdated", __calendarEventUpdated);
+        connection.on("CalendarConflictDetected", __calendarConflictDetected);
+        connection.on("ConnectivityChanged", __connectivityChanged);
+
+        const methodList: ReceiverMethod[] = [
+            { methodName: "AccountStatusChanged", method: __accountStatusChanged },
+            { methodName: "MailboxUpdated", method: __mailboxUpdated },
+            { methodName: "MailboxTreeChanged", method: __mailboxTreeChanged },
+            { methodName: "MessageReceived", method: __messageReceived },
+            { methodName: "MessageUpdated", method: __messageUpdated },
+            { methodName: "MessageDeleted", method: __messageDeleted },
+            { methodName: "SyncProgress", method: __syncProgress },
+            { methodName: "ExportProgress", method: __exportProgress },
+            { methodName: "MessageSyncFailed", method: __messageSyncFailed },
+            { methodName: "DraftUpdated", method: __draftUpdated },
+            { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
+            { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
+            { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
+            { methodName: "ConnectivityChanged", method: __connectivityChanged }
+        ]
+
+        return new ReceiverMethodSubscription(connection, methodList);
+    }
+}
 

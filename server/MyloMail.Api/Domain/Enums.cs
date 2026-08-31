@@ -1,5 +1,7 @@
+using Tapper;
 namespace MyloMail.Api.Domain;
 
+[TranspilationSource]
 public enum ProviderType
 {
 	Imap,
@@ -10,6 +12,7 @@ public enum ProviderType
 /// <summary>
 /// Authentication state only. Sync progress lives in the sync-state tables (§1), never here.
 /// </summary>
+[TranspilationSource]
 public enum AuthState
 {
 	Connected,
@@ -17,6 +20,7 @@ public enum AuthState
 	Error,
 }
 
+[TranspilationSource]
 public enum SpecialUse
 {
 	None,
@@ -28,6 +32,7 @@ public enum SpecialUse
 	Archive,
 }
 
+[TranspilationSource]
 public enum InitialSyncMode
 {
 	LastNMonths,
@@ -35,6 +40,7 @@ public enum InitialSyncMode
 	Full,
 }
 
+[TranspilationSource]
 public enum CertificateTrustMode
 {
 	Default,
