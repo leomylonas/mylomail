@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { SkeletonText } from "@carbon/react";
+import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
 
 interface MessageBody {
@@ -38,26 +39,20 @@ export function ReadingPane({
 		<article className={styles.pane} aria-label="Message">
 			<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
-			{body.data ? <Body body={body.data} /> : null}
+			{body.data ? <Body body={body.data} messageId={messageId} /> : null}
 		</article>
 	);
 }
 
-function Body({ body }: { body: MessageBody }) {
+function Body({ body, messageId }: { body: MessageBody; messageId: string }) {
 	if (!body.isFetched)
 		return <p className={styles.waiting}>Downloading this message…</p>;
 
-	if (body.text) return <div className={styles.body}>{body.text}</div>;
+	// HTML preferred where both exist: it is what the sender composed, and the plain-text
+	// alternative is usually a degraded copy of it.
+	if (body.html) return <MessageHtml html={body.html} messageId={messageId} />;
 
-	// Markup is not rendered yet: displaying remote-authored HTML needs the sanitising and
-	// remote-content policy from §13, and showing it unsanitised to save a step here would be
-	// the single worst thing this app could do.
-	if (body.html)
-		return (
-			<p className={styles.waiting}>
-				This message is HTML only. Rendering it safely is still to come.
-			</p>
-		);
+	if (body.text) return <div className={styles.body}>{body.text}</div>;
 
 	return <p className={styles.waiting}>This message has no body.</p>;
 }

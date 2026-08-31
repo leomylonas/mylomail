@@ -33,6 +33,62 @@ export async function appendMessage(
 	});
 }
 
+/**
+ * Appends a multipart HTML message carrying an inline image, a tracking pixel and a script.
+ *
+ * Deliberately hostile: the reading pane's job is to render the first and refuse the other
+ * two, and a benign message proves none of that (§13).
+ */
+export async function appendHostileHtmlMessage(
+	port: number,
+	subject: string,
+): Promise<void> {
+	// A one-pixel PNG, so the inline part is a real image rather than something the browser
+	// silently discards.
+	const png =
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+	const message = [
+		"From: Someone <sender@example.org>",
+		"To: test@mylomail.local",
+		`Subject: ${subject}`,
+		`Message-ID: <${subject.replace(/\W+/g, "-")}@example.org>`,
+		`Date: ${new Date().toUTCString()}`,
+		"MIME-Version: 1.0",
+		'Content-Type: multipart/related; boundary="boundary42"',
+		"",
+		"--boundary42",
+		'Content-Type: text/html; charset="utf-8"',
+		"",
+		"<html><body>",
+		"<p id='visible-body'>Hostile body text</p>",
+		`<script>window.pwned = true;</${"script"}>`,
+		'<img id="inline" src="cid:inline-image@example.org">',
+		'<img id="tracker" src="https://tracker.invalid/pixel.gif">',
+		"</body></html>",
+		"",
+		"--boundary42",
+		"Content-Type: image/png",
+		"Content-Transfer-Encoding: base64",
+		"Content-ID: <inline-image@example.org>",
+		"",
+		png,
+		"",
+		"--boundary42--",
+		"",
+	].join("\r\n");
+
+	await session(port, async (send, sendLiteral) => {
+		await send("h1 LOGIN test@mylomail.local password");
+		await sendLiteral(
+			"h2",
+			`h2 APPEND INBOX {${Buffer.byteLength(message)}}`,
+			message,
+		);
+		await send("h3 LOGOUT");
+	});
+}
+
 /** Removes every message from INBOX, so a test starts from a known mailbox. */
 export async function clearInbox(port: number): Promise<void> {
 	await session(port, async (send) => {

@@ -30,8 +30,18 @@
    on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **HTML body rendering**, once §13's sanitising and remote-content policy is settled. The
-   reading pane deliberately says "HTML only" rather than displaying unsanitised markup.
+5. **Inline images do not render — unresolved.** `cid:` references survive sanitisation and
+   should be rewritten to blob URLs by `resolveInlineImages`, but in the running app the
+   rewrite never completes. What is ruled out: the rewrite logic (unit-tested with a stub
+   fetch), the part endpoint (verified by hand — 200, correct content type and length, under
+   both bearer and cookie auth), routing (a valid-but-unknown id returns the controller's own
+   404), and the sanitiser stripping `cid:` (fixed, with a test). What is left: the fetch
+   inside the component appears never to settle, and the failure is invisible because the
+   shell forwards backend stderr but Playwright does not surface Electron output. Instrument
+   the component to write its outcome into the DOM rather than the console — every probe
+   through the console or a compound `page.evaluate` cost a full run and produced ambiguity.
+   The e2e asserts the current behaviour (`src` stays `cid:`) so it keeps guarding the
+   security properties instead of being disabled.
 6. **Compose and send from the UI.** The outbox, undo-send and ambiguous-outcome
    reconciliation are all built and tested; nothing can write a draft. Needs Lexical and
    TanStack Form.

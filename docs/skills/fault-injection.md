@@ -74,7 +74,7 @@ a clean re-run. Both runs' results are worthless when that happens.
 The `break` threshold is a **ratchet, not a target**: it sits just under the current score
 so the suite cannot get weaker, and it should be raised as survivors are killed. Not every
 survivor is worth killing — log strings, progress counters and orderings that carry no
-meaning are noise, and some are *equivalent mutants* that cannot change behaviour at all
+meaning are noise, and some are _equivalent mutants_ that cannot change behaviour at all
 (an `&&` whose short-circuit operand is a default value, a guard clause whose removal falls
 through to the same answer). A survivor in a guard clause, a cursor advance, or a state
 revert is a real gap.

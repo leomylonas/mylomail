@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, session, shell } from "electron";
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
@@ -29,6 +29,13 @@ export async function startShell(): Promise<void> {
 		requestMasterPassword: promptForMasterPassword,
 		waitUntilReady: (launch) => waitForBackendHealth(launch),
 	});
+
+	// The backend's own output, which was piped and then never read — so anything it logged,
+	// including every unhandled error, went into a pipe nobody drained. Forwarded rather than
+	// inherited so it stays distinguishable from the shell's own logging.
+	backend.child.stderr?.on("data", (chunk: Buffer) =>
+		process.stderr.write(`[backend] ${chunk.toString("utf8")}`),
+	);
 
 	const origin = `http://127.0.0.1:${backend.port}`;
 	const connection: BackendConnection = { origin };
@@ -72,6 +79,22 @@ async function createWindow(origin: string): Promise<BrowserWindow> {
 		},
 	});
 
+	// Navigation and window-open interception (§13). Message content is remote-authored, and
+	// the renderer holds the capability to mutate mail — so a link that navigated the window
+	// would replace a privileged document with an attacker's page. Nothing navigates: links
+	// open in the user's browser, where they belong, and anything else is refused.
+	window.webContents.setWindowOpenHandler(({ url }) => {
+		void openExternally(url);
+		return { action: "deny" };
+	});
+
+	window.webContents.on("will-navigate", (event, url) => {
+		if (url !== origin && !url.startsWith(`${origin}/`)) {
+			event.preventDefault();
+			void openExternally(url);
+		}
+	});
+
 	window.once("ready-to-show", () => window.show());
 	window.webContents.on("did-fail-load", (_e, code, description, url) =>
 		console.error(`load failed ${code} ${description} ${url}`),
@@ -90,6 +113,25 @@ async function createWindow(origin: string): Promise<BrowserWindow> {
 	// alike, and keeps the launch token out of every URL.
 	await window.loadURL(origin);
 	return window;
+}
+
+/**
+ * Hands a link to the operating system, if it is one worth handing over.
+ *
+ * Only http and https. A message can contain any scheme it likes, and passing `file:`, or a
+ * custom scheme registered by some other application, to the OS is how a link in an email
+ * becomes code execution.
+ */
+async function openExternally(url: string): Promise<void> {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+			await shell.openExternal(url);
+		}
+	} catch {
+		// Not a URL at all. Nothing to open, and nothing to report: this is a link in
+		// someone else's email, not a fault in the app.
+	}
 }
 
 /**

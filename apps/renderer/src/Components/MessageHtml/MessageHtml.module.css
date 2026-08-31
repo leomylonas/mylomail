@@ -1,0 +1,17 @@
+.frame {
+	width: 100%;
+	min-height: 20rem;
+	border: none;
+	background: var(--cds-field);
+}
+
+.notice {
+	display: flex;
+	gap: var(--cds-spacing-03);
+	align-items: center;
+	margin-bottom: var(--cds-spacing-03);
+	padding: var(--cds-spacing-03);
+	background: var(--cds-layer);
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+}
