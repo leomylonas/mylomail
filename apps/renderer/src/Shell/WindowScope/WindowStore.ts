@@ -5,6 +5,15 @@ export interface WindowState {
 	selectedAccountId: string | null;
 	selectedMailboxId: string | null;
 	selectedMessageId: string | null;
+
+	/**
+	 * The selected message's subject.
+	 *
+	 * Held beside the id because the reading pane has no way to ask for one message: the hub
+	 * offers a list and a body, and the subject belongs to neither. Kept in the window store
+	 * rather than component state so it cannot drift from the selection it describes.
+	 */
+	selectedMessageSubject: string;
 	sidebarWidth: number;
 }
 
@@ -21,6 +30,7 @@ export function createWindowStore(): Store<WindowState> {
 		selectedAccountId: null,
 		selectedMailboxId: null,
 		selectedMessageId: null,
+		selectedMessageSubject: "",
 		sidebarWidth: 260,
 	});
 }

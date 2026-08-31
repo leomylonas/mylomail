@@ -37,7 +37,7 @@ export function MessageList({
 	accountId: string;
 	mailboxId: string;
 	query: string;
-	onSelect: (messageId: string) => void;
+	onSelect: (message: { id: string; subject: string }) => void;
 }) {
 	const queryClient = useQueryClient();
 	const searching = query.trim().length > 0;
@@ -146,7 +146,7 @@ export function MessageList({
 									setMenu({ x: event.clientX, y: event.clientY, message });
 								}}
 								onClick={() => {
-									onSelect(message.id);
+									onSelect(message);
 									// Opening a message marks it read, as every mail client does.
 									// Already-read messages enqueue nothing: a redundant mutation
 									// would still be a real provider call.

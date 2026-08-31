@@ -49,6 +49,11 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 			.getByRole("button", { name: /Hostile message/ })
 			.click({ timeout: 60_000 });
 
+		// The pane names the message it is showing.
+		await expect(
+			window.getByRole("heading", { name: "Hostile message", level: 2 }),
+		).toBeVisible({ timeout: 60_000 });
+
 		const body = window.frameLocator('iframe[title="Message body"]');
 		await expect(body.locator("#visible-body")).toHaveText(
 			"Hostile body text",

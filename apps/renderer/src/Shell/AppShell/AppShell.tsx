@@ -29,6 +29,7 @@ export function AppShell() {
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const selectedMessageId = useStoreValue(store, "selectedMessageId");
+	const selectedMessageSubject = useStoreValue(store, "selectedMessageSubject");
 	const sidebarWidth = useStoreValue(store, "sidebarWidth");
 
 	const accounts = useQuery({
@@ -72,16 +73,21 @@ export function AppShell() {
 							accountId={selectedAccountId}
 							mailboxId={selectedMailboxId}
 							query={query}
-							onSelect={(messageId) =>
-								store.setState("selectedMessageId", messageId)
-							}
+							onSelect={(message) => {
+								store.setState("selectedMessageId", message.id);
+								store.setState("selectedMessageSubject", message.subject);
+							}}
 						/>
 					) : (
 						<p style={{ padding: "1rem" }}>Select a mailbox.</p>
 					)}
 				</div>
 				{hub && selectedMessageId ? (
-					<ReadingPane hub={hub} messageId={selectedMessageId} subject="" />
+					<ReadingPane
+						hub={hub}
+						messageId={selectedMessageId}
+						subject={selectedMessageSubject}
+					/>
 				) : null}
 			</div>
 		</div>
