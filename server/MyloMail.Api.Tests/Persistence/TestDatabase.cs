@@ -58,7 +58,7 @@ internal sealed class TestDatabase : IAsyncDisposable
 		try
 		{
 			await context.Database.ExecuteSqlRawAsync(
-				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\") VALUES ('integrity-check');"
+				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\", \"rank\") VALUES ('integrity-check', 1);"
 			);
 		}
 		catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 1)

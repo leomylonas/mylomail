@@ -42,8 +42,17 @@ are how it finds the terms to remove. Passing the new ones deletes terms that we
 indexed, and the mismatch surfaces as `database disk image is malformed` on some later,
 unrelated write — nowhere near the cause, and looking nothing like a logic error. Snapshot
 the row before changing it. `INSERT INTO "MessageSearchIndex"("MessageSearchIndex") VALUES
-('integrity-check')` asks FTS5 to verify itself, and `TestDatabase` runs it on disposal so a
-mismatch fails the test that caused it.
+('integrity-check', 1)` asks FTS5 to verify itself, and `TestDatabase` runs it on disposal so
+a mismatch fails the test that caused it. **The `1` is not optional** — without it the check
+compares the index only against itself, and an index that disagrees with its content table
+passes.
+
+**An inconsistent index is repairable and loses nothing.** `INSERT INTO
+"MessageSearchIndex"("MessageSearchIndex") VALUES ('rebuild')` regenerates it from the
+content table, which is derived from stored message content. Startup checks and rebuilds
+automatically, so a corrupt index is a slow launch rather than a broken app. Prefer a rebuild
+to per-row deletes for any bulk removal: getting one row's old values wrong corrupts the
+index silently.
 
 **Deleting a `Message` is restricted while its search content exists.** Cascading would
 remove the row the index mirrors and leave the terms behind — searchable, pointing at

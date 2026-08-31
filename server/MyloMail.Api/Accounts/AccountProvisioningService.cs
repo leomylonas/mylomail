@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
@@ -34,6 +35,7 @@ public sealed class AccountProvisioningService(
 	IMailProviderFactory providers,
 	StartupScheduler scheduler,
 	IHubEvents events,
+	SearchIndexer search,
 	TimeProvider clock,
 	ILogger<AccountProvisioningService> logger
 )
@@ -147,6 +149,11 @@ public sealed class AccountProvisioningService(
 		account.IsEnabled = false;
 		account.LastAuthError = null;
 		await context.SaveChangesAsync(ct);
+
+		// Before the account goes: messages cascade from it, and a message cannot be deleted
+		// while it is still indexed — the index would otherwise be left describing rows that
+		// no longer exist (§8).
+		await search.RemoveForAccountAsync(accountId, ct);
 
 		context.Accounts.Remove(account);
 		await context.SaveChangesAsync(ct);

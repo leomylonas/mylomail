@@ -101,6 +101,50 @@ public sealed class SearchIndexerTests
 		await harness.AssertIndexIsIntactAsync();
 	}
 
+	/// <summary>
+	/// Removing an account must still work when its messages are indexed.
+	/// </summary>
+	/// <remarks>
+	/// Messages cascade from the account, and search content now restricts deletion of a
+	/// message — so without the index being cleared first, removing an account would fail on
+	/// a foreign key the user has no way to understand.
+	/// </remarks>
+	[Fact]
+	public async Task An_account_with_indexed_messages_can_still_be_removed()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Indexed", "some body", "alice@example.org");
+
+		await harness.DeleteAccountAsync();
+
+		Assert.Equal(0, await harness.MatchCountAsync("body"));
+		await harness.AssertIndexIsIntactAsync();
+	}
+
+	/// <summary>
+	/// A damaged index can be rebuilt from content, without losing anything.
+	/// </summary>
+	/// <remarks>
+	/// This is the recovery path: the index is derived data, so the content table can always
+	/// regenerate it. The damage below is inflicted directly, because that is the only way to
+	/// produce the state a bug would produce.
+	/// </remarks>
+	[Fact]
+	public async Task A_damaged_index_can_be_rebuilt_from_content()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Quarterly report", "the numbers are attached", "alice@example.org");
+
+		await harness.CorruptIndexAsync();
+		Assert.False(await harness.IsIntactAsync());
+
+		await harness.RebuildAsync();
+
+		Assert.True(await harness.IsIntactAsync());
+		Assert.Equal(1, await harness.MatchCountAsync("numbers"));
+		Assert.Equal(1, await harness.MatchCountAsync("Subject:Quarterly"));
+	}
+
 	private sealed class IndexHarness : IAsyncDisposable
 	{
 		private readonly TestDatabase database = new();
@@ -185,6 +229,51 @@ public sealed class SearchIndexerTests
 			return Convert.ToInt32(await command.ExecuteScalarAsync());
 		}
 
+		/// <summary>Desynchronises the index the way a bad update does: terms for a row that no longer matches.</summary>
+		public async Task CorruptIndexAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var row = await context.MessageSearchContents.SingleAsync();
+
+			await context.Database.ExecuteSqlAsync(
+				$"""
+				INSERT INTO "MessageSearchIndex"("rowid", "Subject", "BodyText", "FromAddresses", "ToAddresses", "CcAddresses")
+				VALUES ({row.RowId}, {"phantom"}, {"phantom terms"}, '', '', '');
+				"""
+			);
+		}
+
+		public async Task<bool> IsIntactAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			return await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.IsIntactAsync(CancellationToken.None);
+		}
+
+		public async Task RebuildAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			await scope.ServiceProvider.GetRequiredService<SearchIndexer>().RebuildAsync(CancellationToken.None);
+		}
+
+		/// <summary>Deletes the account, as account removal does.</summary>
+		public async Task DeleteAccountAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+
+			// The ordering account removal performs: clear the index, then delete.
+			await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.RemoveForAccountAsync(account.Id, CancellationToken.None);
+
+			context.Accounts.Remove(account);
+			await context.SaveChangesAsync();
+		}
+
 		/// <summary>Deletes the message the way any other code would, without touching the index.</summary>
 		public async Task DeleteMessageRowAsync()
 		{
@@ -207,7 +296,7 @@ public sealed class SearchIndexerTests
 			await using var scope = services.CreateAsyncScope();
 			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
 			await context.Database.ExecuteSqlRawAsync(
-				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\") VALUES ('integrity-check');"
+				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\", \"rank\") VALUES ('integrity-check', 1);"
 			);
 		}
 

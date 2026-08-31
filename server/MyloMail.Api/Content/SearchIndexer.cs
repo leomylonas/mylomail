@@ -89,6 +89,71 @@ public sealed class SearchIndexer(MyloMailDbContext context)
 		await context.SaveChangesAsync(ct);
 	}
 
+	/// <summary>
+	/// Removes every message of one account from the index and its content table.
+	/// </summary>
+	/// <remarks>
+	/// Bulk removal rebuilds rather than deleting term by term. A per-row delete has to hand
+	/// FTS5 each row's old values back exactly, and getting one wrong corrupts the index
+	/// silently; a rebuild reconstructs the whole index from the content table, which is the
+	/// authority. Account removal is rare enough that the cost does not matter, and being
+	/// unconditionally correct here does.
+	/// </remarks>
+	public async Task RemoveForAccountAsync(Guid accountId, CancellationToken ct)
+	{
+		var removed = await context
+			.MessageSearchContents.Where(content =>
+				context.Messages.Any(m => m.Id == content.MessageId && m.AccountId == accountId)
+			)
+			.ExecuteDeleteAsync(ct);
+
+		if (removed > 0)
+		{
+			await RebuildAsync(ct);
+		}
+	}
+
+	/// <summary>
+	/// Rebuilds the index from the content table, discarding whatever it held.
+	/// </summary>
+	/// <remarks>
+	/// <b>This loses no mail.</b> The index is derived data: every indexed term comes from
+	/// <c>MessageSearchContents</c>, which is itself derived from stored message content. It
+	/// is the recovery path for an index that has become inconsistent — the one repair that
+	/// cannot make things worse, because it does not read the index it is replacing.
+	/// </remarks>
+	public Task RebuildAsync(CancellationToken ct) =>
+		context.Database.ExecuteSqlRawAsync(
+			"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\") VALUES ('rebuild');",
+			ct
+		);
+
+	/// <summary>
+	/// Whether the index still matches its content table.
+	/// </summary>
+	/// <remarks>
+	/// FTS5's own check. Worth asking because an inconsistency is silent where it is created
+	/// and surfaces much later as a write failing with "database disk image is malformed".
+	/// </remarks>
+	public async Task<bool> IsIntactAsync(CancellationToken ct)
+	{
+		try
+		{
+			// The `1` matters: without it FTS5 only checks the index against itself, and an
+			// index that disagrees with its content table — the failure mode that actually
+			// happens here — passes.
+			await context.Database.ExecuteSqlRawAsync(
+				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\", \"rank\") VALUES ('integrity-check', 1);",
+				ct
+			);
+			return true;
+		}
+		catch (SqliteException)
+		{
+			return false;
+		}
+	}
+
 	private Task DeleteFromIndexAsync(MessageSearchContent indexed, CancellationToken ct) =>
 		context.Database.ExecuteSqlRawAsync(
 			"""

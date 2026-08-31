@@ -1,5 +1,6 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
@@ -18,6 +19,7 @@ namespace MyloMail.Api.Scheduling;
 public sealed class StartupScheduler(
 	MyloMailDbContext context,
 	StartupReconciliation reconciliation,
+	SearchIndexer search,
 	PollRegistry polls,
 	IBackgroundJobClient jobs,
 	ILogger<StartupScheduler> logger
@@ -28,6 +30,16 @@ public sealed class StartupScheduler(
 		// A lease held by the process that just died owns nothing now. This says nothing
 		// about what the server saw — that is the attempt's business, and an item from an
 		// unresolved attempt is reconciled rather than re-executed.
+		// Checked at startup and repaired rather than left to fail later. The index is derived
+		// data — every term in it comes from content the database still holds — so rebuilding
+		// costs time and loses nothing, whereas an inconsistent index surfaces as a write
+		// failing with "database disk image is malformed" somewhere unrelated (§8).
+		if (!await search.IsIntactAsync(ct))
+		{
+			logger.LogWarning("The search index was inconsistent with its content and is being rebuilt.");
+			await search.RebuildAsync(ct);
+		}
+
 		var released = await reconciliation.ReleaseOrphanedLeasesAsync(ct);
 		var work = await reconciliation.FindAsync(ct);
 

@@ -71,6 +71,7 @@ public sealed class AccountProvisioningTests
 					services.GetRequiredService<MyloMail.Api.Providers.IMailProviderFactory>(),
 					services.GetRequiredService<MyloMail.Api.Scheduling.StartupScheduler>(),
 					services.GetRequiredService<MyloMail.Api.Hubs.IHubEvents>(),
+					services.GetRequiredService<MyloMail.Api.Content.SearchIndexer>(),
 					TimeProvider.System,
 					services.GetRequiredService<ILogger<AccountProvisioningService>>()
 				).AddAsync(new NewAccount("Test", ProviderType.Gmail, "someone@example.org", null, Secret()))
