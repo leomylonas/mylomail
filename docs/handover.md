@@ -19,6 +19,12 @@ individual changes.
   It preserves provider revisions, refuses a draft observation without one before a cursor
   can advance, and applies the same topology-generation guards as message upserts/removals.
   `GetDrafts` is exposed on the hub; `DraftUpdated` fires after remote changes commit.
+- IMAP account configuration now selects credential reuse or an independent secure-store
+  credential for both SMTP and the pending CalDAV path (`db5f723`, `104e3ac`). Independent
+  SMTP includes its own user name and is resolved only at send time; reuse references the
+  primary IMAP credential without copying it. Provisioning cleans all slots before an attempted
+  database commit, while retaining them after an ambiguous commit failure so it never creates a
+  committed account with no credential. Account removal deletes every slot after durable removal.
 
 ## Next task
 
@@ -31,9 +37,9 @@ individual changes.
    sync state machine/job, hub CRUD/read surface, or renderer. Pick one provider path and
    implement a genuine thin slice; do not add a no-op provider or a second source of truth.
 
-   The agreed first path is CalDAV with HTTP Basic username/password. CalDAV and SMTP each
-   need an explicit choice between the account's primary IMAP credential and an independently
-   stored credential; reuse is a reference, never a copied password.
+   The agreed first path is CalDAV with HTTP Basic username/password. Its account configuration
+   and credential storage are ready; implement the actual `CalDavCalendarProvider` and vertical
+   slice next. CalDAV and SMTP reuse references the primary IMAP credential rather than copying it.
 3. **Finish event producers with their features.** Current producers exist for account status,
    mailbox tree/update, message received/updated, sync progress, outbox status and drafts.
    `ExportProgress`, `CalendarEventUpdated`, `CalendarConflictDetected`, and
@@ -54,7 +60,10 @@ individual changes.
 ## Verification
 
 - `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, backend tests
-  (131), Vitest (35).
+  (132), Vitest (35), before the final SMTP test addition; `pnpm status` subsequently reported
+  tsc, eslint and backend checks clean. The full check is normally complete in about 30 seconds
+  but this session's command runner returned at its 30-second ceiling before emitting its final
+  summary after that additional test.
 - Remote-draft coverage test proves a Drafts MIME observation yields a `Draft`, emits
   `DraftUpdated`, and does not create a `Message`.
 - `SyncCrashWindowTests.A_staged_remote_draft_survives_server_deletion_and_crash_before_replay`
@@ -66,6 +75,9 @@ individual changes.
 - An independent invariant review of `2cc273d` found and drove fixes for missing
   generation guards, missing provider revisions, and a potential cursor skip. The final review
   found no architectural invariant violation.
+- An independent invariant review of the credential-slot slice found and fixed the pre-commit
+  cleanup and ambiguous-commit handling; its final review found no architectural invariant
+  violations.
 
 ## Live risks / decisions
 
