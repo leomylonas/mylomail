@@ -16,6 +16,16 @@ interface DraftAttachment {
 	size: number;
 }
 
+export interface OpenDraft {
+	id: string;
+	to: { name: string | null; email: string }[];
+	cc: { name: string | null; email: string }[];
+	bcc: { name: string | null; email: string }[];
+	subject: string;
+	bodyHtml: string;
+	attachments: DraftAttachment[];
+}
+
 /**
  * Compose and send.
  *
@@ -27,19 +37,25 @@ export function Compose({
 	hub,
 	accountId,
 	onClose,
+	draft,
 }: {
 	hub: HubConnection;
 	accountId: string;
 	onClose: () => void;
+	draft?: OpenDraft;
 }) {
-	const [to, setTo] = useState("");
-	const [subject, setSubject] = useState("");
-	const [body, setBody] = useState("");
+	const [to, setTo] = useState(() => formatAddresses(draft?.to));
+	const [cc, setCc] = useState(() => formatAddresses(draft?.cc));
+	const [bcc, setBcc] = useState(() => formatAddresses(draft?.bcc));
+	const [subject, setSubject] = useState(draft?.subject ?? "");
+	const [body, setBody] = useState(draft?.bodyHtml ?? "");
 	const [sent, setSent] = useState<Sent | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [draftId, setDraftId] = useState<string | null>(null);
+	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
 	const [savedAt, setSavedAt] = useState<string | null>(null);
-	const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+	const [attachments, setAttachments] = useState<DraftAttachment[]>(
+		draft?.attachments ?? [],
+	);
 	const fileInput = useRef<HTMLInputElement>(null);
 
 	/**
@@ -55,8 +71,8 @@ export function Compose({
 			accountId,
 			inReplyToMessageId: null,
 			to: parseAddresses(to),
-			cc: [],
-			bcc: [],
+			cc: parseAddresses(cc),
+			bcc: parseAddresses(bcc),
 			subject,
 			bodyHtml: body,
 		});
@@ -83,8 +99,8 @@ export function Compose({
 				accountId,
 				inReplyToMessageId: null,
 				to: parseAddresses(to),
-				cc: [],
-				bcc: [],
+				cc: parseAddresses(cc),
+				bcc: parseAddresses(bcc),
 				subject,
 				bodyHtml: body,
 			});
@@ -182,12 +198,24 @@ export function Compose({
 				onChange={(event) => setTo(event.target.value)}
 			/>
 			<TextInput
+				id="compose-cc"
+				labelText="Cc"
+				value={cc}
+				onChange={(event) => setCc(event.target.value)}
+			/>
+			<TextInput
+				id="compose-bcc"
+				labelText="Bcc"
+				value={bcc}
+				onChange={(event) => setBcc(event.target.value)}
+			/>
+			<TextInput
 				id="compose-subject"
 				labelText="Subject"
 				value={subject}
 				onChange={(event) => setSubject(event.target.value)}
 			/>
-			<Editor onChange={setBody} />
+			<Editor onChange={setBody} initialHtml={draft?.bodyHtml} />
 			<input
 				className={styles.fileInput}
 				ref={fileInput}
@@ -254,4 +282,8 @@ function parseAddresses(
 		.map((part) => part.trim())
 		.filter((part) => part.includes("@"))
 		.map((email) => ({ name: null, email }));
+}
+
+function formatAddresses(addresses: OpenDraft["to"] | undefined): string {
+	return addresses?.map((address) => address.email).join(", ") ?? "";
 }

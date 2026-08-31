@@ -1,0 +1,14 @@
+.drafts {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.drafts li {
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.empty {
+	padding: var(--cds-spacing-05);
+	color: var(--cds-text-secondary);
+}

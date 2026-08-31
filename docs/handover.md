@@ -19,6 +19,10 @@ individual changes.
   It preserves provider revisions, refuses a draft observation without one before a cursor
   can advance, and applies the same topology-generation guards as message upserts/removals.
   `GetDrafts` is exposed on the hub; `DraftUpdated` fires after remote changes commit.
+- Remote drafts are visible in the renderer's account-scoped Drafts panel and reopen in
+  compose with recipients, HTML body and attachments intact. The panel refetches on
+  `DraftUpdated`; compose remounts the Lexical editor from the stored HTML for the selected
+  draft instead of creating a second local representation.
 - IMAP account configuration now selects credential reuse or an independent secure-store
   credential for both SMTP and the pending CalDAV path (`db5f723`, `104e3ac`). Independent
   SMTP includes its own user name and is resolved only at send time; reuse references the
@@ -52,8 +56,6 @@ individual changes.
    `MessageDeleted`/`MessageSyncFailed` should be audited against their physical-deletion and
    terminal-mutation transitions before adding events: a removal of one occurrence is not a
    deleted canonical message.
-4. **Expose remote drafts in the renderer.** `GetDrafts` and `DraftUpdated` now make them
-   queryable, but the compose UI has no draft list or reopen flow yet.
 
 ## Read first
 

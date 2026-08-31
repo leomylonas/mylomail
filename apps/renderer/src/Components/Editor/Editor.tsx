@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { $generateHtmlFromNodes } from "@lexical/html";
+import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
 import { LinkNode } from "@lexical/link";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
@@ -13,6 +13,8 @@ import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { Button } from "@carbon/react";
 import {
 	FORMAT_TEXT_COMMAND,
+	$getRoot,
+	$insertNodes,
 	type EditorState,
 	type LexicalEditor,
 } from "lexical";
@@ -29,9 +31,11 @@ import styles from "@mylomail/renderer/Components/Editor/Editor.module.css";
 export function Editor({
 	onChange,
 	placeholder = "Write your message",
+	initialHtml = "",
 }: {
 	onChange: (html: string) => void;
 	placeholder?: string;
+	initialHtml?: string;
 }) {
 	return (
 		<LexicalComposer
@@ -41,6 +45,17 @@ export function Editor({
 				// A composition failure must not take the window with it: the surrounding
 				// compose form still holds the user's recipients and subject.
 				onError: (error) => console.error(`editor: ${error.message}`),
+				editorState: initialHtml
+					? (editor) => {
+							const document = new DOMParser().parseFromString(
+								initialHtml,
+								"text/html",
+							);
+							const nodes = $generateNodesFromDOM(editor, document);
+							$getRoot().select();
+							$insertNodes(nodes);
+						}
+					: undefined,
 				theme: {
 					text: { bold: "bold", italic: "italic" },
 				},

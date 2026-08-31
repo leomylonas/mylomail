@@ -38,3 +38,8 @@
 	min-height: 0;
 	overflow-y: auto;
 }
+
+.draftPanel {
+	min-height: 0;
+	overflow-y: auto;
+}

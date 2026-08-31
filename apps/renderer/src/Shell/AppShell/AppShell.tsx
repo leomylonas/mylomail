@@ -3,7 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
-import { Compose } from "@mylomail/renderer/Components/Compose/Compose";
+import {
+	Compose,
+	type OpenDraft,
+} from "@mylomail/renderer/Components/Compose/Compose";
+import { DraftList } from "@mylomail/renderer/Components/DraftList/DraftList";
 import {
 	AccountSettings,
 	type AccountSettingsValues,
@@ -36,9 +40,10 @@ interface Account {
 export function AppShell() {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
-	const [pane, setPane] = useState<"reading" | "compose" | "settings">(
-		"reading",
-	);
+	const [pane, setPane] = useState<
+		"reading" | "compose" | "settings" | "drafts"
+	>("reading");
+	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	const store = useWindowStore();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
@@ -74,9 +79,20 @@ export function AppShell() {
 				<Button
 					size="sm"
 					disabled={!selectedAccountId}
-					onClick={() => setPane("compose")}
+					onClick={() => {
+						setOpenDraft(undefined);
+						setPane("compose");
+					}}
 				>
 					New message
+				</Button>
+				<Button
+					size="sm"
+					kind="ghost"
+					disabled={!selectedAccountId}
+					onClick={() => setPane("drafts")}
+				>
+					Drafts
 				</Button>
 				<Button
 					size="sm"
@@ -113,10 +129,24 @@ export function AppShell() {
 				</div>
 				{hub && selectedAccountId && pane === "compose" ? (
 					<Compose
+						key={openDraft?.id ?? "new"}
 						hub={hub}
 						accountId={selectedAccountId}
+						draft={openDraft}
 						onClose={() => setPane("reading")}
 					/>
+				) : null}
+				{hub && selectedAccountId && pane === "drafts" ? (
+					<div className={styles.draftPanel}>
+						<DraftList
+							hub={hub}
+							accountId={selectedAccountId}
+							onOpen={(draft) => {
+								setOpenDraft(draft);
+								setPane("compose");
+							}}
+						/>
+					</div>
 				) : null}
 				{hub && selectedAccountId && pane === "settings" ? (
 					<AccountSettings
