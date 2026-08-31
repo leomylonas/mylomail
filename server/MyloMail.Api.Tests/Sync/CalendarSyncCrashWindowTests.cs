@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -15,7 +16,7 @@ public sealed class CalendarSyncCrashWindowTests
 	[Fact]
 	public async Task A_precommit_crash_replays_the_calendar_page_before_advancing_its_token()
 	{
-		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap);
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
 		harness.Faults.ArmAt(FaultPoints.SyncPageBeforeCommit);
 		await Assert.ThrowsAsync<SimulatedCrashException>(() => SynchronizeAsync(harness));
 		await harness.RestartAsync();
@@ -33,7 +34,7 @@ public sealed class CalendarSyncCrashWindowTests
 	[Fact]
 	public async Task A_postcommit_crash_resumes_from_the_committed_calendar_token()
 	{
-		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap);
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
 		harness.Faults.ArmAt(FaultPoints.SyncPageAfterCommit);
 		await Assert.ThrowsAsync<SimulatedCrashException>(() => SynchronizeAsync(harness));
 		await harness.RestartAsync();
@@ -45,7 +46,7 @@ public sealed class CalendarSyncCrashWindowTests
 	[Fact]
 	public async Task An_invalid_baseline_continuation_discards_its_partial_page_before_restart()
 	{
-		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap);
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
 		harness.CalendarProvider.InvalidateFirstBaselineContinuation = true;
 
 		await SynchronizeAsync(harness);
