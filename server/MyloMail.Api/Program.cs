@@ -1,9 +1,12 @@
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://127.0.0.1:0");
 
 // Resolved before the database path is known, and therefore before anything in AppSettings
 // can be read (§15).
@@ -43,4 +46,8 @@ await using (var scope = app.Services.CreateAsyncScope())
 	await scope.ServiceProvider.GetRequiredService<StartupScheduler>().ScheduleAsync();
 }
 
-await app.RunAsync();
+await app.StartAsync();
+var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()?.Addresses;
+var address = addresses?.SingleOrDefault() ?? throw new InvalidOperationException("Backend did not bind a loopback address.");
+Console.Out.WriteLine($"MYLOMAIL_PORT={new Uri(address).Port}");
+await app.WaitForShutdownAsync();

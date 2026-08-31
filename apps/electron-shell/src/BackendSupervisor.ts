@@ -9,15 +9,25 @@ export interface BackendLaunch {
 	launchToken: string;
 }
 
+/** A launch that has answered `/health`, and the loopback port it answered on. */
+export interface ReadyBackend extends BackendLaunch {
+	port: number;
+}
+
 export interface BackendSupervisorOptions {
 	command: string;
 	args: readonly string[];
 	requestMasterPassword(): Promise<string | undefined>;
-	waitUntilReady(backend: BackendLaunch): Promise<void>;
+
+	/**
+	 * Resolves with the loopback port once the backend answers. The port is assigned by the
+	 * OS, so this is the only route by which anything else learns how to reach it.
+	 */
+	waitUntilReady(backend: BackendLaunch): Promise<number>;
 	spawnProcess?(
 		command: string,
 		args: readonly string[],
-		options: { env: NodeJS.ProcessEnv },
+		options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe"] },
 	): ChildProcess;
 }
 
@@ -27,12 +37,14 @@ export interface BackendSupervisorOptions {
  */
 export async function startBackend(
 	options: BackendSupervisorOptions,
-): Promise<BackendLaunch> {
+): Promise<ReadyBackend> {
 	const spawnProcess = options.spawnProcess ?? spawn;
 	const initial = launch(options, spawnProcess);
 	try {
-		await waitForReadyOrExit(initial, options.waitUntilReady);
-		return initial;
+		return {
+			...initial,
+			port: await waitForReadyOrExit(initial, options.waitUntilReady),
+		};
 	} catch (exitCode) {
 		if (exitCode !== credentialStoreUnavailableExitCode)
 			throw new Error(
@@ -44,8 +56,10 @@ export async function startBackend(
 	if (!password)
 		throw new Error("Credential storage requires a master password.");
 	const restarted = launch(options, spawnProcess, password);
-	await waitForReadyOrExit(restarted, options.waitUntilReady);
-	return restarted;
+	return {
+		...restarted,
+		port: await waitForReadyOrExit(restarted, options.waitUntilReady),
+	};
 }
 
 function launch(
@@ -64,6 +78,7 @@ function launch(
 				? {}
 				: { MYLOMAIL_MASTER_PASSWORD: masterPassword }),
 		},
+		stdio: ["ignore", "pipe", "pipe"],
 	});
 	return { child, launchToken };
 }
@@ -71,17 +86,17 @@ function launch(
 function waitForReadyOrExit(
 	backend: BackendLaunch,
 	waitUntilReady: BackendSupervisorOptions["waitUntilReady"],
-): Promise<void> {
+): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const onExit = (code: number | null) => reject(code);
 		const onError = () => reject(null);
 		backend.child.once("exit", onExit);
 		backend.child.once("error", onError);
 		void waitUntilReady(backend).then(
-			() => {
+			(port) => {
 				backend.child.off("exit", onExit);
 				backend.child.off("error", onError);
-				resolve();
+				resolve(port);
 			},
 			() => {
 				backend.child.off("exit", onExit);

@@ -39,8 +39,9 @@ describe("startBackend", () => {
 			spawnProcess,
 			waitUntilReady: async () => {
 				readinessAttempts += 1;
-				if (readinessAttempts === 2) return;
+				if (readinessAttempts === 2) return 51423;
 				await new Promise<void>(() => undefined);
+				return 0;
 			},
 		});
 		expect(requestMasterPassword).toHaveBeenCalledOnce();
@@ -48,6 +49,10 @@ describe("startBackend", () => {
 		expect(environments[1].MYLOMAIL_MASTER_PASSWORD).toBe("master password");
 		expect(backend.child).toBe(children[1]);
 		expect(backend.launchToken).not.toBe(environments[0].MYLOMAIL_LAUNCH_TOKEN);
+
+		// The restarted launch's port is what the renderer connects to; the first launch
+		// never had one.
+		expect(backend.port).toBe(51423);
 	});
 
 	it("does not prompt when the backend exits for another reason", async () => {
@@ -58,7 +63,7 @@ describe("startBackend", () => {
 			args: [],
 			requestMasterPassword,
 			spawnProcess: () => child as unknown as ChildProcess,
-			waitUntilReady: async () => await new Promise<void>(() => undefined),
+			waitUntilReady: async () => await new Promise<number>(() => undefined),
 		});
 		child.exit(1);
 

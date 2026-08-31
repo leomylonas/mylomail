@@ -11,11 +11,15 @@
 
 ## Next task
 
-Before Stage D, complete the remaining runnable-app wiring:
-
-1. Register provider-specific OAuth/client configuration so `MailProviderFactory` can construct real providers.
-2. Wire `startBackend` into the Electron runtime with its actual setup/unlock dialog and concrete authenticated `/health` waiter.
-3. Verify Electron polls `/health` with its per-launch bearer token in both native-store and fallback starts.
+1. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog. The supervisor,
+   the health probe and the backend contract all exist and are tested; nothing calls them
+   from the actual Electron entry point yet.
+2. **Register provider OAuth/client configuration** so `MailProviderFactory` can construct
+   real providers. Until then no account can sync, even though the engine is proven against
+   the IMAP matrix.
+3. Then the two remaining Stage C items: per-operation reconciliation of ambiguous mutations
+   (`SendReconciler` is the worked example), and periodic integrity reconciliation for the
+   weakest IMAP tier.
 
 ### Credential storage decision
 
