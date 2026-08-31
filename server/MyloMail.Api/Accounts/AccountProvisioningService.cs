@@ -22,7 +22,9 @@ public sealed record NewAccount(
 	ProviderType ProviderType,
 	string EmailAddress,
 	ProviderConfig? ProviderConfig,
-	CredentialPayload? Secret
+	CredentialPayload? Secret,
+	CredentialPayload? CalDavSecret = null,
+	CredentialPayload? SmtpSecret = null
 );
 
 /// <summary>
@@ -61,11 +63,6 @@ public sealed class AccountProvisioningService(
 	{
 		var accountId = Guid.NewGuid();
 
-		if (request.Secret is CredentialPayload secret)
-		{
-			await credentials.StoreAsync(accountId, secret, ct);
-		}
-
 		var account = new Account
 		{
 			Id = accountId,
@@ -79,44 +76,69 @@ public sealed class AccountProvisioningService(
 			SortOrder = await context.Accounts.CountAsync(ct),
 		};
 
+		var commitAttempted = false;
 		try
 		{
+			if (request.Secret is CredentialPayload secret)
+			{
+				await credentials.StoreAsync(accountId, secret, ct);
+			}
+			if (request.CalDavSecret is CredentialPayload calDavSecret)
+			{
+				await credentials.StoreSlotAsync(accountId, CredentialSlots.CalDav, calDavSecret, ct);
+			}
+			if (request.SmtpSecret is CredentialPayload smtpSecret)
+			{
+				await credentials.StoreSlotAsync(accountId, CredentialSlots.Smtp, smtpSecret, ct);
+			}
+
 			var result = await providers.For(account).AuthenticateAsync(account, ct);
 			if (!result.Succeeded)
 			{
 				throw new AccountAuthenticationFailedException(result.Problem?.Detail ?? "Authentication was rejected.");
 			}
+			var strategy = context.Database.CreateExecutionStrategy();
+			await strategy.ExecuteAsync(async () =>
+			{
+				await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+				context.Accounts.Add(account);
+
+				// The default identity's address is the authoritative address for the account —
+				// Account deliberately has no address column, to avoid two sources of truth (§1).
+				context.SendIdentities.Add(
+					new SendIdentity
+					{
+						Id = Guid.NewGuid(),
+						AccountId = accountId,
+						DisplayName = request.DisplayName,
+						EmailAddress = request.EmailAddress,
+						IsDefault = true,
+					}
+				);
+
+				await context.SaveChangesAsync(ct);
+				commitAttempted = true;
+				await transaction.CommitAsync(ct);
+			});
 		}
 		catch
 		{
-			// Nothing has been committed, so the only trace to undo is the credential.
-			await credentials.DeleteAsync(accountId, ct);
+			if (!commitAttempted)
+			{
+				// The account cannot exist yet, so the credential slots are orphaned.
+				await credentials.DeleteAsync(accountId, ct);
+				await credentials.DeleteSlotAsync(accountId, CredentialSlots.CalDav, ct);
+				await credentials.DeleteSlotAsync(accountId, CredentialSlots.Smtp, ct);
+			}
+			else
+			{
+				// A commit exception is ambiguous: it may have reached SQLite. Retaining the
+				// credentials is deliberate; a live account with no credential is worse than an
+				// unreferenced credential, and absence of a local success record proves nothing.
+			}
 			throw;
 		}
-
-		var strategy = context.Database.CreateExecutionStrategy();
-		await strategy.ExecuteAsync(async () =>
-		{
-			await using var transaction = await context.Database.BeginTransactionAsync(ct);
-
-			context.Accounts.Add(account);
-
-			// The default identity's address is the authoritative address for the account —
-			// Account deliberately has no address column, to avoid two sources of truth (§1).
-			context.SendIdentities.Add(
-				new SendIdentity
-				{
-					Id = Guid.NewGuid(),
-					AccountId = accountId,
-					DisplayName = request.DisplayName,
-					EmailAddress = request.EmailAddress,
-					IsDefault = true,
-				}
-			);
-
-			await context.SaveChangesAsync(ct);
-			await transaction.CommitAsync(ct);
-		});
 
 		logger.LogInformation("Account {AccountId} added for {Provider}.", accountId, request.ProviderType);
 
@@ -161,6 +183,8 @@ public sealed class AccountProvisioningService(
 		// Last, so a crash mid-removal leaves a disabled account with its credential rather
 		// than a live account with none.
 		await credentials.DeleteAsync(accountId, ct);
+		await credentials.DeleteSlotAsync(accountId, CredentialSlots.CalDav, ct);
+		await credentials.DeleteSlotAsync(accountId, CredentialSlots.Smtp, ct);
 
 		logger.LogInformation("Account {AccountId} removed at {At}.", accountId, clock.GetUtcNow());
 

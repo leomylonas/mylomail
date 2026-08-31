@@ -35,7 +35,8 @@ public record AddAccountRequest(
 	ProviderType ProviderType,
 	string EmailAddress,
 	string? Secret,
-	ImapAccountSettings? Imap
+	ImapAccountSettings? Imap,
+	CalDavAccountSettings? CalDav = null
 );
 
 /// <summary>
@@ -53,5 +54,10 @@ public record ImapAccountSettings(
 	bool UseSsl,
 	string UserName,
 	string SmtpHost,
-	int SmtpPort
+	int SmtpPort,
+	bool ReuseImapCredentialForSmtp = true,
+	string? SmtpSecret = null
 );
+
+[TranspilationSource]
+public record CalDavAccountSettings(string Endpoint, string UserName, bool ReuseImapCredential, string? Secret);

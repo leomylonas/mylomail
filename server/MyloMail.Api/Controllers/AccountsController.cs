@@ -71,6 +71,14 @@ public class AccountsController(
 				title: "Missing IMAP settings"
 			);
 		}
+		if (request.CalDav is { ReuseImapCredential: false, Secret: null or "" })
+		{
+			return Problem("Independent CalDAV credentials need a password.", statusCode: 400, title: "Missing CalDAV credential");
+		}
+		if (request.Imap is { ReuseImapCredentialForSmtp: false, SmtpSecret: null or "" })
+		{
+			return Problem("Independent SMTP credentials need a password.", statusCode: 400, title: "Missing SMTP credential");
+		}
 
 		try
 		{
@@ -80,7 +88,9 @@ public class AccountsController(
 					request.ProviderType,
 					request.EmailAddress,
 					ToProviderConfig(request),
-					ToSecret(request)
+					ToSecret(request),
+					ToCalDavSecret(request),
+					ToSmtpSecret(request)
 				),
 				ct
 			);
@@ -134,6 +144,13 @@ public class AccountsController(
 				UserName = request.Imap.UserName,
 				SmtpHost = request.Imap.SmtpHost,
 				SmtpPort = request.Imap.SmtpPort,
+				SmtpCredentialSource = request.Imap.ReuseImapCredentialForSmtp ? CredentialSource.ReuseImap : CredentialSource.Independent,
+				CalDav = request.CalDav is null ? null : new CalDavProviderConfig
+				{
+					Endpoint = request.CalDav.Endpoint,
+					UserName = request.CalDav.UserName,
+					CredentialSource = request.CalDav.ReuseImapCredential ? CredentialSource.ReuseImap : CredentialSource.Independent,
+				},
 			};
 
 	/// <summary>
@@ -147,4 +164,14 @@ public class AccountsController(
 				MailProviderFactory.ImapPasswordFormat,
 				System.Text.Encoding.UTF8.GetBytes(request.Secret)
 			);
+
+	private static CredentialPayload? ToCalDavSecret(AddAccountRequest request) =>
+		string.IsNullOrEmpty(request.CalDav?.Secret)
+			? null
+			: new CredentialPayload("caldav-basic-password", System.Text.Encoding.UTF8.GetBytes(request.CalDav.Secret));
+
+	private static CredentialPayload? ToSmtpSecret(AddAccountRequest request) =>
+		string.IsNullOrEmpty(request.Imap?.SmtpSecret)
+			? null
+			: new CredentialPayload("smtp-basic-password", System.Text.Encoding.UTF8.GetBytes(request.Imap.SmtpSecret));
 }

@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { ProviderType } from '../Domain/ProviderType';
 import { ImapAccountSettings, ImapAccountSettingsSchema } from './ImapAccountSettings';
+import { CalDavAccountSettings, CalDavAccountSettingsSchema } from './CalDavAccountSettings';
 
 export interface AddAccountRequest {
   displayName: string;
@@ -13,6 +14,7 @@ export interface AddAccountRequest {
   emailAddress: string;
   secret?: string;
   imap?: ImapAccountSettings;
+  calDav?: CalDavAccountSettings;
 }
 
 export const AddAccountRequestSchema = z.object({
@@ -21,4 +23,5 @@ export const AddAccountRequestSchema = z.object({
   emailAddress: z.string(),
   secret: z.string().nullable(),
   imap: ImapAccountSettingsSchema.nullable(),
+  calDav: CalDavAccountSettingsSchema.nullable(),
 });

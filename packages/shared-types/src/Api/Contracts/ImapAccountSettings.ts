@@ -12,6 +12,8 @@ export interface ImapAccountSettings {
   userName: string;
   smtpHost: string;
   smtpPort: number;
+  reuseImapCredentialForSmtp: boolean;
+  smtpSecret?: string;
 }
 
 export const ImapAccountSettingsSchema = z.object({
@@ -21,4 +23,6 @@ export const ImapAccountSettingsSchema = z.object({
   userName: z.string(),
   smtpHost: z.string(),
   smtpPort: z.number(),
+  reuseImapCredentialForSmtp: z.boolean(),
+  smtpSecret: z.string().nullable(),
 });

@@ -38,6 +38,8 @@ export type AddAccountRequest = {
     secret?: string;
     /** Transpiled from MyloMail.Api.Contracts.ImapAccountSettings? */
     imap?: ImapAccountSettings;
+    /** Transpiled from MyloMail.Api.Contracts.CalDavAccountSettings? */
+    calDav?: CalDavAccountSettings;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ImapAccountSettings */
@@ -54,6 +56,22 @@ export type ImapAccountSettings = {
     smtpHost: string;
     /** Transpiled from int */
     smtpPort: number;
+    /** Transpiled from bool */
+    reuseImapCredentialForSmtp: boolean;
+    /** Transpiled from string? */
+    smtpSecret?: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.CalDavAccountSettings */
+export type CalDavAccountSettings = {
+    /** Transpiled from string */
+    endpoint: string;
+    /** Transpiled from string */
+    userName: string;
+    /** Transpiled from bool */
+    reuseImapCredential: boolean;
+    /** Transpiled from string? */
+    secret?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.HealthDto */

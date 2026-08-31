@@ -86,6 +86,27 @@ public sealed class ImapProviderConfig : ProviderConfig
 	/// of the send, and appending there would duplicate it.
 	/// </remarks>
 	public bool AppendToSentOnSend { get; set; } = true;
+
+	/// <summary>SMTP may reuse IMAP's credential or select its own secure-store slot.</summary>
+	public CredentialSource SmtpCredentialSource { get; set; } = CredentialSource.ReuseImap;
+
+	/// <summary>
+	/// Optional independently configured CalDAV endpoint. IMAP alone never implies a calendar.
+	/// </summary>
+	public CalDavProviderConfig? CalDav { get; set; }
+}
+
+public sealed class CalDavProviderConfig
+{
+	public string Endpoint { get; set; } = string.Empty;
+	public string UserName { get; set; } = string.Empty;
+	public CredentialSource CredentialSource { get; set; } = CredentialSource.ReuseImap;
+}
+
+public enum CredentialSource
+{
+	ReuseImap,
+	Independent,
 }
 
 public sealed class GmailProviderConfig : ProviderConfig;
