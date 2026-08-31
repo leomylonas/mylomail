@@ -15,9 +15,17 @@ export default defineConfig({
 		ssr: true,
 		target: "node20",
 		rollupOptions: {
-			input: fileURLToPath(new URL("./src/Preload.ts", import.meta.url)),
+			input: {
+				Preload: fileURLToPath(new URL("./src/Preload.ts", import.meta.url)),
+				MasterPasswordPreload: fileURLToPath(
+					new URL(
+						"./src/MasterPassword/MasterPasswordPreload.ts",
+						import.meta.url,
+					),
+				),
+			},
 			external: ["electron"],
-			output: { entryFileNames: "Preload.cjs", format: "cjs" },
+			output: { entryFileNames: "[name].cjs", format: "cjs" },
 		},
 	},
 });

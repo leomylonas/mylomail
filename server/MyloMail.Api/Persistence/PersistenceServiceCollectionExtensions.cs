@@ -57,6 +57,22 @@ public static class PersistenceServiceCollectionExtensions
 	)
 	{
 		services.Configure<ProviderClientOptions>(configuration.GetSection(ProviderClientOptions.SectionName));
+
+		// The conformance suite already defines these names, and a developer with them
+		// exported should not have to set a second set to run the app. Configuration wins
+		// where both are present.
+		services.PostConfigure<ProviderClientOptions>(options =>
+		{
+			options.Gmail.ClientId ??= Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
+			options.Gmail.ClientSecret ??= Environment.GetEnvironmentVariable("GMAIL_CLIENT_SECRET");
+			options.Graph.ClientId ??= Environment.GetEnvironmentVariable("GRAPH_CLIENT_ID");
+
+			if (Environment.GetEnvironmentVariable("GRAPH_TENANT_ID") is string tenant && tenant.Length > 0)
+			{
+				options.Graph.Authority = $"https://login.microsoftonline.com/{tenant}";
+			}
+		});
+
 		return services;
 	}
 

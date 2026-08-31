@@ -7,6 +7,7 @@ import {
 	backendConnectionChannel,
 	type BackendConnection,
 } from "@mylomail/electron-shell/BackendConnection";
+import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -90,14 +91,3 @@ app
 	});
 
 app.on("window-all-closed", () => app.quit());
-
-/**
- * Placeholder for the master-password dialog.
- *
- * Returning undefined makes `startBackend` fail rather than hang, which is the honest
- * behaviour until the dialog exists: on a machine with no OS credential store the app cannot
- * start, and saying so is better than a window that never appears.
- */
-async function promptForMasterPassword(): Promise<string | undefined> {
-	return process.env.MYLOMAIL_MASTER_PASSWORD;
-}

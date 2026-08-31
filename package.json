@@ -18,7 +18,7 @@
     "imap:down": "docker compose -f tests/imap-matrix/compose.yaml down -v",
     "generate:types": "tsx scripts/generate-types.ts",
     "build:renderer": "vite build --config apps/renderer/Vite.config.ts",
-    "build:shell": "vite build --config apps/electron-shell/ViteMain.config.ts && vite build --config apps/electron-shell/VitePreload.config.ts",
+    "build:shell": "vite build --config apps/electron-shell/ViteMain.config.ts && vite build --config apps/electron-shell/VitePreload.config.ts && node -e \"require('node:fs').copyFileSync('apps/electron-shell/src/MasterPassword/MasterPasswordPrompt.html','apps/electron-shell/dist/MasterPasswordPrompt.html')\"",
     "app": "pnpm build:renderer && electron apps/electron-shell/dist/Main.js"
   },
   "devDependencies": {

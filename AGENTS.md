@@ -92,6 +92,11 @@ Without them `MailProviderFactory` raises `ProviderNotConfiguredException`, whic
 reports as `501`, distinct from a rejected credential's `400`. A user can fix the second and
 not the first.
 
+The conformance suite's own names (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
+`GRAPH_CLIENT_ID`, `GRAPH_TENANT_ID`) are accepted as a fallback, so
+`source .dev/provider-test.env` is enough to run the app locally. Configuration wins where
+both are set.
+
 IMAP needs no registration: an account carries its own `ImapProviderConfig` and its password
 lives in the credential store.
 
