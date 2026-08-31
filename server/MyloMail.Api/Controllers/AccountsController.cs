@@ -75,6 +75,12 @@ public class AccountsController(
 		{
 			return Problem("Independent CalDAV credentials need a password.", statusCode: 400, title: "Missing CalDAV credential");
 		}
+		if (request.CalDav is not null
+			&& (!Uri.TryCreate(request.CalDav.Endpoint, UriKind.Absolute, out var endpoint)
+				|| endpoint.Scheme != Uri.UriSchemeHttps))
+		{
+			return Problem("CalDAV Basic authentication requires an absolute HTTPS endpoint.", statusCode: 400, title: "Invalid CalDAV endpoint");
+		}
 		if (request.Imap is { ReuseImapCredentialForSmtp: false, SmtpSecret: null or "" })
 		{
 			return Problem("Independent SMTP credentials need a password.", statusCode: 400, title: "Missing SMTP credential");
