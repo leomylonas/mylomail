@@ -127,7 +127,7 @@ internal sealed class SyncHarness : IAsyncDisposable
 
 	private sealed class StubCalendarFactory(ICalendarProvider provider) : ICalendarProviderFactory
 	{
-		public ICalendarProvider For(ProviderType type) => provider;
+		public ICalendarProvider For(Account account) => provider;
 	}
 }
 

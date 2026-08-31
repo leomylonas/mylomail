@@ -25,7 +25,7 @@ public sealed class CalendarSyncService(
 {
 	public async Task SynchronizeAsync(Account account, CancellationToken ct = default)
 	{
-		var provider = providers.For(account.ProviderType);
+		var provider = providers.For(account);
 		var observed = await provider.ListCalendarsAsync(account, ct);
 		var removedEventIds = await ReconcileCalendarsAsync(account.Id, observed, ct);
 		foreach (var eventId in removedEventIds)

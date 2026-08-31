@@ -60,5 +60,9 @@ public interface ICalendarProvider
 
 public interface ICalendarProviderFactory
 {
-	ICalendarProvider For(ProviderType type);
+	/// <summary>
+	/// Resolves per account: CalDAV is configured on an IMAP account and its endpoint and
+	/// credential slot are account-local, not properties of the IMAP provider type.
+	/// </summary>
+	ICalendarProvider For(Account account);
 }
