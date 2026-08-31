@@ -34,6 +34,8 @@ public interface IMailHub
 
 	Task<IReadOnlyList<PendingChangeDto>> GetPendingSyncState(Guid accountId);
 
+	Task<MessageBodyDto> GetMessageBody(Guid messageId);
+
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
 
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
@@ -119,6 +121,27 @@ public class MailHub(MyloMailDbContext context, MutationQueue mutations) : Hub<I
 				(p, _) => new PendingChangeDto(p.MessageId, p.Field, p.DesiredValue)
 			)
 			.ToListAsync();
+
+	/// <summary>
+	/// A message's body, if it has been fetched.
+	/// </summary>
+	/// <remarks>
+	/// Never fetches on demand: content acquisition is background work with its own ordering
+	/// and its own failure handling, and a hub method that fetched would block the UI on a
+	/// provider round trip while duplicating that logic.
+	/// </remarks>
+	public async Task<MessageBodyDto> GetMessageBody(Guid messageId)
+	{
+		var body = await context.MessageBodies.FirstOrDefaultAsync(b => b.MessageId == messageId);
+		var state = await context.MessageContentStates.FirstOrDefaultAsync(c => c.MessageId == messageId);
+
+		return new MessageBodyDto(
+			messageId,
+			body?.TextBody,
+			body?.HtmlBody,
+			state?.Status == ContentStatus.Indexed
+		);
+	}
 
 	public async Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged)
 	{

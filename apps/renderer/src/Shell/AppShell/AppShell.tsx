@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
+import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
@@ -25,6 +26,7 @@ export function AppShell() {
 	const store = useWindowStore();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
+	const selectedMessageId = useStoreValue(store, "selectedMessageId");
 	const sidebarWidth = useStoreValue(store, "sidebarWidth");
 
 	const accounts = useQuery({
@@ -66,11 +68,17 @@ export function AppShell() {
 							hub={hub}
 							accountId={selectedAccountId}
 							mailboxId={selectedMailboxId}
+							onSelect={(messageId) =>
+								store.setState("selectedMessageId", messageId)
+							}
 						/>
 					) : (
 						<p style={{ padding: "1rem" }}>Select a mailbox.</p>
 					)}
 				</div>
+				{hub && selectedMessageId ? (
+					<ReadingPane hub={hub} messageId={selectedMessageId} subject="" />
+				) : null}
 			</div>
 		</div>
 	);

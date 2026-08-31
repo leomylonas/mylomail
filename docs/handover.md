@@ -23,16 +23,15 @@
    stored under `MailProviderFactory.ImapPasswordFormat`.
 3. **Continue Stage D** (§12, §13). The foundation is in: per-window store and query client,
    the hub wired to cache invalidation, a Carbon sidebar and message list. Still to build —
-   the reading pane (needs content acquisition), TanStack Router/Virtual/Table, compose with
+   HTML body rendering, TanStack Router/Virtual/Table, compose with
    Lexical, and the toast/context-menu/shortcut/error registries.
 4. **Raise the remaining §7 events.** `AccountStatusChanged`, `MailboxTreeChanged` and
    `SyncProgress` now have producers — the first two were found missing by the e2e test, since
    without them a new account and its mailboxes never appeared. The rest still need wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **Content acquisition.** `MessageContentState` is enumerated by the startup sweep as
-   `Queued`/`Fetching`, but nothing fetches raw messages, so those states are unreachable and
-   §8's search has nothing to index.
+5. **Search over the FTS index.** The index is populated and column-scoped queries work, but
+   nothing queries it — §7's `Search` hub method does not exist, and neither does any UI.
 
 ### Credential storage decision
 

@@ -117,6 +117,18 @@ export type SyncProgressDto = {
     estimatedTotal?: number;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.MessageBodyDto */
+export type MessageBodyDto = {
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from string? */
+    text?: string;
+    /** Transpiled from string? */
+    html?: string;
+    /** Transpiled from bool */
+    isFetched: boolean;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.OutboxItemDto */
 export type OutboxItemDto = {
     /** Transpiled from System.Guid */

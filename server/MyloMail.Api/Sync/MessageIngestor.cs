@@ -48,6 +48,12 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 				// messages is not (§1).
 				message = new Message { Id = Guid.NewGuid(), AccountId = account.Id };
 				context.Messages.Add(message);
+
+				// Queued as part of the same write that creates the message, so a message can
+				// never exist without a content state for the sweep to find (§6).
+				context.MessageContentStates.Add(
+					new MessageContentState { MessageId = message.Id, Status = ContentStatus.Queued }
+				);
 			}
 
 			Apply(dto, message);

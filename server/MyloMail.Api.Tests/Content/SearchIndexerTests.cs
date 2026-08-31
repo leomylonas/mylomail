@@ -1,0 +1,164 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using MimeKit;
+using MyloMail.Api.Content;
+using MyloMail.Api.Domain;
+using MyloMail.Api.Persistence;
+using MyloMail.Api.Tests.Persistence;
+using Xunit;
+
+namespace MyloMail.Api.Tests.Content;
+
+/// <summary>The FTS5 external-content index (§8).</summary>
+public sealed class SearchIndexerTests
+{
+	[Fact]
+	public async Task An_indexed_message_is_findable_by_body_and_by_column()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Quarterly report", "the numbers are attached", "alice@example.org");
+
+		Assert.Equal(1, await harness.MatchCountAsync("numbers"));
+
+		// Separate columns rather than one blob, so field-scoped search works at all.
+		Assert.Equal(1, await harness.MatchCountAsync("Subject:Quarterly"));
+		Assert.Equal(1, await harness.MatchCountAsync("FromAddresses:alice"));
+		Assert.Equal(0, await harness.MatchCountAsync("Subject:numbers"));
+	}
+
+	/// <summary>
+	/// Re-indexing a message replaces its terms rather than corrupting the index.
+	/// </summary>
+	/// <remarks>
+	/// An external-content index is updated by handing FTS5 the <b>old</b> column values so it
+	/// can remove the terms it holds. An earlier version passed the new values, which deletes
+	/// terms that were never indexed — SQLite then reports the mismatch as "database disk
+	/// image is malformed" on the next write, nowhere near the cause.
+	/// </remarks>
+	[Fact]
+	public async Task Re_indexing_replaces_the_old_terms()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Original subject", "first body", "alice@example.org");
+		await harness.IndexAsync("Replaced subject", "second body", "alice@example.org");
+
+		Assert.Equal(0, await harness.MatchCountAsync("first"));
+		Assert.Equal(1, await harness.MatchCountAsync("second"));
+		Assert.Equal(0, await harness.MatchCountAsync("Subject:Original"));
+		Assert.Equal(1, await harness.MatchCountAsync("Subject:Replaced"));
+
+		// One content row, not two: this is an update, not an append.
+		Assert.Equal(1, await harness.ContentRowCountAsync());
+	}
+
+	/// <summary>Removing a message removes its terms, or search returns hits pointing at nothing.</summary>
+	[Fact]
+	public async Task Removing_a_message_removes_it_from_the_index()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Doomed", "about to vanish", "alice@example.org");
+		await harness.RemoveAsync();
+
+		Assert.Equal(0, await harness.MatchCountAsync("vanish"));
+		Assert.Equal(0, await harness.ContentRowCountAsync());
+	}
+
+	private sealed class IndexHarness : IAsyncDisposable
+	{
+		private readonly TestDatabase database = new();
+		private readonly ServiceProvider services;
+
+		public IndexHarness()
+		{
+			services = new ServiceCollection()
+				.AddLogging()
+				.AddPersistence(database.Directory)
+				.AddScoped<SearchIndexer>()
+				.BuildServiceProvider();
+			database.MigrateAsync().GetAwaiter().GetResult();
+			SeedAsync().GetAwaiter().GetResult();
+		}
+
+		public Guid MessageId { get; } = Guid.NewGuid();
+
+		private async Task SeedAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var accountId = Guid.NewGuid();
+
+			context.Accounts.Add(new Account { Id = accountId, DisplayName = "Test" });
+			context.Messages.Add(
+				new Message
+				{
+					Id = MessageId,
+					AccountId = accountId,
+					ReceivedAt = DateTimeOffset.UnixEpoch,
+				}
+			);
+			await context.SaveChangesAsync();
+		}
+
+		public async Task IndexAsync(string subject, string body, string from)
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+
+			var message = await context.Messages.SingleAsync(m => m.Id == MessageId);
+			message.Subject = subject;
+			await context.SaveChangesAsync();
+
+			var mime = new MimeMessage();
+			mime.From.Add(MailboxAddress.Parse(from));
+			mime.To.Add(MailboxAddress.Parse("test@example.org"));
+
+			await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.IndexAsync(
+					MessageId,
+					mime,
+					new MessageBody { MessageId = MessageId, TextBody = body },
+					CancellationToken.None
+				);
+		}
+
+		public async Task RemoveAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.RemoveAsync(MessageId, CancellationToken.None);
+		}
+
+		public async Task<int> MatchCountAsync(string query)
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context.Database.OpenConnectionAsync();
+
+			await using var command = context.Database.GetDbConnection().CreateCommand();
+			command.CommandText =
+				"SELECT COUNT(*) FROM \"MessageSearchIndex\" WHERE \"MessageSearchIndex\" MATCH $query;";
+			var parameter = command.CreateParameter();
+			parameter.ParameterName = "$query";
+			parameter.Value = query;
+			command.Parameters.Add(parameter);
+
+			return Convert.ToInt32(await command.ExecuteScalarAsync());
+		}
+
+		public async Task<int> ContentRowCountAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			return await scope.ServiceProvider
+				.GetRequiredService<MyloMailDbContext>()
+				.MessageSearchContents.CountAsync();
+		}
+
+		public async ValueTask DisposeAsync()
+		{
+			await services.DisposeAsync();
+			await database.DisposeAsync();
+		}
+	}
+}

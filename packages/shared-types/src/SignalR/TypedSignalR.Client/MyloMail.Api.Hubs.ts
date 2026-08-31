@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -26,6 +26,11 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Hubs.PendingChangeDto>>
     */
     getPendingSyncState(accountId: string): Promise<PendingChangeDto[]>;
+    /**
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageBodyDto>
+    */
+    getMessageBody(messageId: string): Promise<MessageBodyDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>

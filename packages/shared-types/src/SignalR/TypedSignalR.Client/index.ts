@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AccountDto, SyncProgressDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -91,6 +91,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getPendingSyncState = async (accountId: string): Promise<PendingChangeDto[]> => {
         return await this.connection.invoke("GetPendingSyncState", accountId);
+    }
+
+    public readonly getMessageBody = async (messageId: string): Promise<MessageBodyDto> => {
+        return await this.connection.invoke("GetMessageBody", messageId);
     }
 
     public readonly setFlags = async (accountId: string, messageIds: string[], isRead: (boolean | undefined), isFlagged: (boolean | undefined)): Promise<void> => {

@@ -1,0 +1,20 @@
+.pane {
+	overflow-y: auto;
+	height: 100%;
+	padding: var(--cds-spacing-05);
+	border-left: 1px solid var(--cds-border-subtle);
+}
+
+.subject {
+	margin: 0 0 var(--cds-spacing-03);
+	font-size: 1.125rem;
+}
+
+.body {
+	white-space: pre-wrap;
+	line-height: 1.5;
+}
+
+.waiting {
+	color: var(--cds-text-secondary);
+}

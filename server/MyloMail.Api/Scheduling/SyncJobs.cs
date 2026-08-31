@@ -168,6 +168,10 @@ public sealed class SyncJobs(
 
 		// Coverage for this mailbox is done; Gmail's staged history may now be replayable.
 		jobs.Enqueue<SyncJobs>(j => j.ReplayStagedAsync(accountId, default));
+
+		// Content last, deliberately: an account becomes usable when its metadata lands, and
+		// bodies are what make it searchable afterwards (§1).
+		jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
 	}
 
 	/// <summary>One change-stream run for one mailbox, rescheduling itself at the account's poll interval.</summary>

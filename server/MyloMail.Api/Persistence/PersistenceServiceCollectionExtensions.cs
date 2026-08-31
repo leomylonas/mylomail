@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.Accounts;
+using MyloMail.Api.Content;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
@@ -106,6 +107,8 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.AddScoped<MessageIngestor>();
+		services.AddScoped<ContentAcquisition>();
+		services.AddScoped<SearchIndexer>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();
@@ -132,6 +135,7 @@ public static class PersistenceServiceCollectionExtensions
 		// instead of waiting for the next startup sweep.
 		services.AddSingleton<IMutationDispatcher, MutationDispatcher>();
 		services.AddScoped<OutboxJobs>();
+		services.AddScoped<ContentJobs>();
 		services.AddScoped<StartupScheduler>();
 		services.AddScoped<AccountProvisioningService>();
 

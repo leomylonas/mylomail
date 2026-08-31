@@ -25,10 +25,12 @@ export function MessageList({
 	hub,
 	accountId,
 	mailboxId,
+	onSelect,
 }: {
 	hub: HubConnection;
 	accountId: string;
 	mailboxId: string;
+	onSelect: (messageId: string) => void;
 }) {
 	const queryClient = useQueryClient();
 
@@ -74,7 +76,13 @@ export function MessageList({
 						<button
 							type="button"
 							className={`${styles.row} ${read ? "" : styles.unread}`}
-							onClick={() => setRead.mutate(message)}
+							onClick={() => {
+								onSelect(message.id);
+								// Opening a message marks it read, as every mail client does.
+								// Already-read messages enqueue nothing: a redundant mutation
+								// would still be a real provider call.
+								if (!read) setRead.mutate(message);
+							}}
 						>
 							<span>
 								{message.subject || "(no subject)"}

@@ -27,7 +27,10 @@
 
 .panels {
 	display: grid;
-	grid-template-columns: var(--mylomail-sidebar-width) 1fr;
+	grid-template-columns: var(--mylomail-sidebar-width) minmax(0, 1fr) minmax(
+			0,
+			1.2fr
+		);
 	min-height: 0;
 }
 

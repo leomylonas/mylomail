@@ -54,6 +54,18 @@ public record SyncProgressDto(
 	int? EstimatedTotal
 );
 
+/// <summary>
+/// A message's readable content (§1).
+/// </summary>
+/// <remarks>
+/// <paramref name="Html"/> is the original markup, kept unchanged for rendering — the
+/// stripped text that search indexes is a different thing for a different purpose (§8).
+/// <paramref name="IsFetched"/> is explicit because "no body yet" and "a message with no
+/// body" look identical otherwise, and only one of them is worth waiting for.
+/// </remarks>
+[TranspilationSource]
+public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched);
+
 [TranspilationSource]
 public record OutboxItemDto(
 	Guid Id,

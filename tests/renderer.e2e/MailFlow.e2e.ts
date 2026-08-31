@@ -71,6 +71,15 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 
 		await firstMessage.click();
 
+		// Selecting a message opens it. Content is background work, so the body arrives after
+		// the metadata does — this asserts the whole acquisition path, not just the click.
+		await expect(
+			window.getByRole("article", { name: "Message" }),
+		).toBeVisible();
+		await expect(window.getByText("Body of First message.")).toBeVisible({
+			timeout: 60_000,
+		});
+
 		// The mutation is enqueued locally, executed by a job, and applied by the provider.
 		// Asking the server is the point: the local database would look correct either way.
 		await expect
