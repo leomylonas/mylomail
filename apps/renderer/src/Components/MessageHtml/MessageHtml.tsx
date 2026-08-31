@@ -38,6 +38,9 @@ export function MessageHtml({
 }) {
 	const [allowRemote, setAllowRemote] = useState(false);
 	const [resolved, setResolved] = useState<string | null>(null);
+	const [inlineStatus, setInlineStatus] = useState<
+		"idle" | "resolving" | "resolved" | "failed"
+	>("idle");
 
 	const prepared = useMemo(
 		() => prepare(html, allowRemote),
@@ -47,6 +50,7 @@ export function MessageHtml({
 	useEffect(() => {
 		let revoke = () => undefined as void;
 		let cancelled = false;
+		setInlineStatus("resolving");
 
 		void resolveInlineImages(prepared.html, messageId, fetchPart).then(
 			(result) => {
@@ -57,6 +61,10 @@ export function MessageHtml({
 
 				revoke = result.revoke;
 				setResolved(result.html);
+				setInlineStatus("resolved");
+			},
+			() => {
+				if (!cancelled) setInlineStatus("failed");
 			},
 		);
 
@@ -73,7 +81,7 @@ export function MessageHtml({
 	)}"></head><body>${resolved ?? prepared.html}</body></html>`;
 
 	return (
-		<div>
+		<div data-inline-status={inlineStatus}>
 			{prepared.blockedRemoteCount > 0 && !allowRemote ? (
 				<div className={styles.notice}>
 					<span>
@@ -90,6 +98,7 @@ export function MessageHtml({
 				</div>
 			) : null}
 			<iframe
+				key={document}
 				className={styles.frame}
 				title="Message body"
 				// An opaque origin with no scripts and no same-origin access: even if

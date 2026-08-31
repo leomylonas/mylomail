@@ -80,12 +80,13 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 		);
 		await expect(window.getByText(/Remote content is blocked/)).toBeVisible();
 
-		// The inline image still carries its cid: reference rather than a blob URL. The
-		// rewrite is unit-tested and the part endpoint verified by hand, but the two do not
-		// meet in the running app and the cause is not yet found — see the handoff. Asserted
-		// as it behaves rather than as it should, so this test keeps guarding the security
-		// properties above instead of being disabled wholesale.
-		await expect(body.locator("#inline")).toHaveAttribute("src", /^cid:/);
+		// The renderer fetches the authenticated MIME part before passing the isolated frame a
+		// blob URL; an img request cannot carry the launch credential itself.
+		await expect(window.locator("[data-inline-status]")).toHaveAttribute(
+			"data-inline-status",
+			"resolved",
+		);
+		await expect(body.locator("#inline")).toHaveAttribute("src", /^blob:/);
 	} finally {
 		await app.close();
 	}
