@@ -89,6 +89,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
 		services.TryAddSingleton<IOutboxDispatcher, NoOutboxDispatcher>();
+		services.TryAddSingleton<IDraftDispatcher, NoDraftDispatcher>();
 		services.AddScoped<MutationQueue>();
 		services.AddScoped<MutationClaimService>();
 		services.AddScoped<MutationChainEvaluator>();
@@ -113,6 +114,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<SearchIndexer>();
 		services.AddScoped<MessageSearch>();
 		services.AddScoped<DraftService>();
+		services.AddScoped<DraftSyncService>();
 		services.AddScoped<MailboxManagement>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();
@@ -140,6 +142,8 @@ public static class PersistenceServiceCollectionExtensions
 		// instead of waiting for the next startup sweep.
 		services.AddSingleton<IMutationDispatcher, MutationDispatcher>();
 		services.AddSingleton<IOutboxDispatcher, OutboxDispatcher>();
+		services.AddSingleton<IDraftDispatcher, DraftDispatcher>();
+		services.AddScoped<DraftJobs>();
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<ContentJobs>();
 		services.AddScoped<StartupScheduler>();

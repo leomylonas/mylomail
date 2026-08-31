@@ -87,6 +87,14 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 					continue;
 				}
 
+				// A remote draft becomes a Draft, never a Message — and never both, which is
+				// what materialising the Drafts folder normally would produce: the same draft
+				// appearing twice, once as mail and once as something the user can edit (§1).
+				if (mailbox.SpecialUse == SpecialUse.Drafts)
+				{
+					continue;
+				}
+
 				membershipChanged |= await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
 			}
 

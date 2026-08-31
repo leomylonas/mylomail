@@ -24,6 +24,8 @@ public sealed record DraftInput(
 public sealed class DraftService(
 	MyloMailDbContext context,
 	OutboxService outbox,
+	DraftSyncService remote,
+	IDraftDispatcher dispatcher,
 	TimeProvider clock,
 	IHubEvents events
 )
@@ -59,6 +61,10 @@ public sealed class DraftService(
 		draft.SavedAt = clock.GetUtcNow();
 
 		await context.SaveChangesAsync(ct);
+
+		// After the commit, so the push sends what was stored rather than racing it.
+		dispatcher.RequestPush(draft.AccountId);
+
 		await events.DraftUpdatedAsync(draft.Id);
 		return draft;
 	}
@@ -73,6 +79,14 @@ public sealed class DraftService(
 
 		context.Drafts.Remove(draft);
 		await context.SaveChangesAsync(ct);
+
+		// After the local delete: the user asked for it, and a server that refuses must not
+		// leave the draft sitting in front of them.
+		if (draft.ProviderDraftId is string remoteId)
+		{
+			await remote.RemoveRemoteAsync(draft.AccountId, remoteId, ct);
+		}
+
 		await events.DraftUpdatedAsync(draftId);
 	}
 

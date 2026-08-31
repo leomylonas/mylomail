@@ -1,5 +1,6 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
@@ -11,6 +12,21 @@ namespace MyloMail.Api.Scheduling;
 /// Dispatches due outbox items and reconciles the ones whose outcome is unknown (§15).
 /// </summary>
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
+/// <summary>Pushes an account's dirty drafts to the server.</summary>
+[AutomaticRetry(Attempts = 0)]
+public sealed class DraftJobs(DraftSyncService drafts)
+{
+	public Task PushAsync(Guid accountId, CancellationToken ct = default) =>
+		drafts.PushAsync(accountId, ct);
+}
+
+/// <summary>Requests a draft push, so a save reaches the server without waiting for a restart.</summary>
+public sealed class DraftDispatcher(IBackgroundJobClient jobs) : IDraftDispatcher
+{
+	public void RequestPush(Guid accountId) =>
+		jobs.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default));
+}
+
 /// <summary>Schedules an outbox run for when its next item is due.</summary>
 public sealed class OutboxDispatcher(IBackgroundJobClient jobs) : IOutboxDispatcher
 {

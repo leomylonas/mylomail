@@ -100,6 +100,46 @@ export async function clearInbox(port: number): Promise<void> {
 	});
 }
 
+/** The full text of every message in a named folder, as the server sees them. */
+export async function bodiesIn(port: number, folder: string): Promise<string> {
+	const lines: string[] = [];
+	await session(port, async (send) => {
+		await send("e1 LOGIN test@mylomail.local password");
+		await send(`e2 SELECT "${folder}"`);
+		lines.push(await send("e3 FETCH 1:* (BODY.PEEK[])"));
+		await send("e4 LOGOUT");
+	});
+
+	return lines.join("\n");
+}
+
+/**
+ * How many messages in a folder have this exact subject.
+ *
+ * Uses SEARCH rather than parsing a FETCH: a FETCH response spans many lines per message and
+ * scraping it under-reported silently, which made a duplicate-detection assertion pass while
+ * the server actually held two copies. SEARCH answers on one line.
+ */
+export async function countWithSubject(
+	port: number,
+	folder: string,
+	subject: string,
+): Promise<number> {
+	let response = "";
+	await session(port, async (send) => {
+		await send("d1 LOGIN test@mylomail.local password");
+		await send(`d2 SELECT "${folder}"`);
+		response = await send(`d3 SEARCH HEADER SUBJECT "${subject}"`);
+		await send("d4 LOGOUT");
+	});
+
+	const line = response
+		.split(/\r?\n/)
+		.find((candidate) => candidate.toUpperCase().startsWith("* SEARCH"));
+
+	return line ? line.trim().split(/\s+/).slice(2).filter(Boolean).length : 0;
+}
+
 /** Reads the flags of every message in INBOX, as the server sees them. */
 export async function inboxFlags(port: number): Promise<string[]> {
 	const lines: string[] = [];

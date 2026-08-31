@@ -23,6 +23,25 @@ public class Draft
 	public IReadOnlyList<DraftAttachment> Attachments { get; set; } = [];
 	public DateTimeOffset SavedAt { get; set; }
 
+	/// <summary>
+	/// When this version was last stored on the server, if it has been.
+	/// </summary>
+	/// <remarks>
+	/// Compared against <see cref="SavedAt"/> to decide what still needs pushing. A boolean
+	/// flag would be wrong: a save that lands while a push is in flight must leave the draft
+	/// dirty, and only a timestamp can express that.
+	/// </remarks>
+	public DateTimeOffset? PushedAt { get; set; }
+
+	/// <summary>
+	/// Set when the server's copy changed since this one was read.
+	/// </summary>
+	/// <remarks>
+	/// Both versions are kept and the user chooses. Merging two edits of a message nobody has
+	/// sent yet would silently produce a third thing neither person wrote (§15).
+	/// </remarks>
+	public bool SyncConflict { get; set; }
+
 	/// <summary>The server-side id, once the draft has been created remotely.</summary>
 	public string? ProviderDraftId { get; set; }
 

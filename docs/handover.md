@@ -45,9 +45,10 @@
 6. **Rich composition.** The compose body is a plain textarea escaped into HTML. §12
    specifies Lexical; a hand-rolled editor would have to be unbuilt, so the textarea is
    deliberately temporary while the send path underneath it is complete and tested.
-7. **Server-side drafts.** Drafts are local only. `CreateOrUpdateDraftAsync` and
-   `DeleteDraftAsync` still throw on IMAP, so a draft started here never appears on another
-   device.
+7. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
+   here reaches the server — but a draft started on another device does not become a local
+   `Draft`. The Drafts mailbox is correctly excluded from message materialisation, so it does
+   not appear as mail either; it simply is not shown.
 
 ### Credential storage decision
 

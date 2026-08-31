@@ -30,12 +30,38 @@ export function Compose({
 	const [body, setBody] = useState("");
 	const [sent, setSent] = useState<Sent | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [draftId, setDraftId] = useState<string | null>(null);
+	const [savedAt, setSavedAt] = useState<string | null>(null);
+
+	/**
+	 * Saves without sending.
+	 *
+	 * The draft id is kept so a second save updates the same draft rather than creating
+	 * another — on IMAP an update is an append plus an expunge of the old copy, and a new id
+	 * each time would leave the server accumulating half-written messages.
+	 */
+	const save = async (): Promise<string> => {
+		const draft = await hub.invoke<{ id: string }>("SaveDraft", {
+			draftId,
+			accountId,
+			inReplyToMessageId: null,
+			to: parseAddresses(to),
+			cc: [],
+			bcc: [],
+			subject,
+			bodyHtml: toHtml(body),
+		});
+
+		setDraftId(draft.id);
+		setSavedAt(new Date().toLocaleTimeString());
+		return draft.id;
+	};
 
 	const send = async () => {
 		setBusy(true);
 		try {
 			const draft = await hub.invoke<{ id: string }>("SaveDraft", {
-				draftId: null,
+				draftId,
 				accountId,
 				inReplyToMessageId: null,
 				to: parseAddresses(to),
@@ -110,6 +136,17 @@ export function Compose({
 				<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
 					Send
 				</Button>
+				<Button
+					size="sm"
+					kind="tertiary"
+					disabled={busy}
+					onClick={() => void save()}
+				>
+					Save draft
+				</Button>
+				{savedAt ? (
+					<span className={styles.sent}>Saved at {savedAt}</span>
+				) : null}
 				<Button size="sm" kind="ghost" onClick={onClose}>
 					Discard
 				</Button>
