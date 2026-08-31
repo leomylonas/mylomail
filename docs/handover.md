@@ -30,9 +30,11 @@
    on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **The remaining registries** — context menus and keyboard shortcuts. §13 specifies both as
-   standing conventions wired up per feature: message context menus (reply, flag, move,
-   delete, save-as-eml) and Outlook/Gmail key bindings.
+5. **HTML body rendering**, once §13's sanitising and remote-content policy is settled. The
+   reading pane deliberately says "HTML only" rather than displaying unsanitised markup.
+6. **Compose and send from the UI.** The outbox, undo-send and ambiguous-outcome
+   reconciliation are all built and tested; nothing can write a draft. Needs Lexical and
+   TanStack Form.
 
 ### Credential storage decision
 

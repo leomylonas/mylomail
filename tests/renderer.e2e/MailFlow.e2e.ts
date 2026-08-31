@@ -118,6 +118,34 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 			window.getByRole("button", { name: /Second message/ }),
 		).toBeVisible();
 
+		// The conventional message menu (§13). Entries whose feature does not exist yet are
+		// present and disabled rather than missing.
+		await window
+			.getByRole("button", { name: /First message/ })
+			.click({ button: "right" });
+		const menu = window.getByRole("menu", { name: "Message actions" });
+		await expect(menu).toBeVisible();
+		await expect(
+			menu.getByRole("menuitem", { name: "Reply", exact: true }),
+		).toBeDisabled();
+		await expect(menu.getByRole("menuitem", { name: "Flag" })).toBeEnabled();
+
+		// Acting through the menu reaches the server, exactly as clicking does. Flagging
+		// rather than toggling read, because the label for read depends on what earlier steps
+		// left behind and an assertion that reads differently on a re-run is not one.
+		await menu.getByRole("menuitem", { name: "Flag" }).click();
+		await expect
+			.poll(
+				async () =>
+					(await inboxFlags(imapPort)).filter((f) => f.includes("\\Flagged"))
+						.length,
+				{
+					timeout: 60_000,
+					message: "flagging from the menu never reached the server",
+				},
+			)
+			.toBe(1);
+
 		// A change the server refuses is shown, not swallowed. The message is deleted from the
 		// server behind the app's back, so the mutation fails on its own terms.
 		await clearInbox(imapPort);
