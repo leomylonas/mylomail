@@ -414,6 +414,7 @@ public sealed class FakeMailProvider : IMailProvider
 		new()
 		{
 			ProviderStableId = Type == ProviderType.Imap ? null : $"message-{message.MessageId}",
+			ProviderRevision = occurrenceId,
 			Occurrences = [new MessageOccurrenceDto(providerMailboxId, occurrenceId)],
 			MessageIdHeader = message.MessageIdHeader,
 			ReceivedAt = message.ReceivedAt,

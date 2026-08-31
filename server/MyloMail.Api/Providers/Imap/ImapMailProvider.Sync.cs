@@ -232,6 +232,9 @@ public sealed partial class ImapMailProvider
 		{
 			// IMAP has no account-wide stable message identifier at all (§1).
 			ProviderStableId = null,
+			// A draft update replaces the UID, so the observed UID is also the revision the
+			// next append-and-expunge operation must still find.
+			ProviderRevision = summary.UniqueId.Id.ToString(),
 			Occurrences =
 			[
 				new MessageOccurrenceDto(

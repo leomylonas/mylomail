@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -21,6 +23,54 @@ namespace MyloMail.Api.Tests.Sync;
 [Trait("Category", "Deep")]
 public sealed class SyncCrashWindowTests
 {
+	/// <summary>
+	/// A staged Gmail page has already advanced the account cursor. Its raw draft bytes must
+	/// therefore survive until replay: fetching them from the server later would silently lose
+	/// a draft deleted after the history page was read.
+	/// </summary>
+	[Fact]
+	public async Task A_staged_remote_draft_survives_server_deletion_and_crash_before_replay()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var drafts = harness.Provider.AddMailbox("DRAFT", SpecialUse.Drafts);
+		var occurrence = harness.Provider.SeedMessage("DRAFT", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		drafts.Messages[occurrence].RawBytes = DraftMimeBytes();
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.SendIdentities.Add(
+				new SendIdentity
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.Account.Id,
+					EmailAddress = "author@example.test",
+					IsDefault = true,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		Assert.True((await SyncTests.SyncAsync(harness, "DRAFT")).Staged);
+		harness.Provider.RemoveMessage(occurrence);
+		await SyncTests.CoverAsync(harness, "INBOX");
+		await SyncTests.CoverAsync(harness, "DRAFT");
+
+		harness.Faults.ArmAt(FaultPoints.SyncBeforeStagedReplay);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ReplayAsync(harness));
+		await harness.RestartAsync();
+
+		await ReplayAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var draft = await scope.GetRequiredService<MyloMailDbContext>().Drafts.SingleAsync();
+			Assert.Equal("Staged remote draft", draft.Subject);
+			Assert.Equal("<p>Captured before deletion</p>", draft.BodyHtml.Trim());
+		});
+	}
+
 	/// <summary>Kill point: mid page, before the page and its cursor commit.</summary>
 	/// <remarks>
 	/// <para>
@@ -265,4 +315,15 @@ public sealed class SyncCrashWindowTests
 				.GetRequiredService<ChangeStreamService>()
 				.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
 		);
+
+	private static byte[] DraftMimeBytes()
+	{
+		var message = new MimeMessage();
+		message.From.Add(MailboxAddress.Parse("author@example.test"));
+		message.Subject = "Staged remote draft";
+		message.Body = new TextPart("html") { Text = "<p>Captured before deletion</p>" };
+		using var stream = new MemoryStream();
+		message.WriteTo(stream);
+		return stream.ToArray();
+	}
 }

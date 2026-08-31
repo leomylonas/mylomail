@@ -50,7 +50,6 @@ export function MessageHtml({
 	useEffect(() => {
 		let revoke = () => undefined as void;
 		let cancelled = false;
-		setInlineStatus("resolving");
 
 		void resolveInlineImages(prepared.html, messageId, fetchPart).then(
 			(result) => {

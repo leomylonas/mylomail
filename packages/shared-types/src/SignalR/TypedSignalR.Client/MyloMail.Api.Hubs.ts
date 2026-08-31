@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, SaveDraftRequest, DraftDto, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -43,6 +43,12 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
     */
     search(accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]>;
+    /**
+    * Structured drafts, including drafts discovered from the server's Drafts mailbox.
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.DraftDto>>
+    */
+    getDrafts(accountId: string): Promise<DraftDto[]>;
     /**
     * @param request Transpiled from MyloMail.Api.Contracts.SaveDraftRequest
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.DraftDto>

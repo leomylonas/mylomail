@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
@@ -22,6 +23,7 @@ public sealed class CoverageService(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	MessageIngestor ingestor,
+	RemoteDraftMaterializer drafts,
 	TimeProvider clock,
 	IFaultInjector faults,
 	IHubEvents events,
@@ -62,6 +64,8 @@ public sealed class CoverageService(
 		faults.Reached(FaultPoints.SyncPageBeforeCommit);
 
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
+		var remoteDrafts = await drafts.PrepareAsync(account, page.Messages, mailboxes, ct);
+		IReadOnlyList<Guid> changedDraftIds = [];
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -69,6 +73,7 @@ public sealed class CoverageService(
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
+			changedDraftIds = await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct);
 
 			// Backfill raises no per-message events: this is a backlog the user already has,
 			// and announcing it would be the notification flood §13 Epic 9 rules out.
@@ -93,6 +98,10 @@ public sealed class CoverageService(
 		await events.SyncProgressAsync(
 			new SyncProgressDto(mailbox.Id, coverage.Status, coverage.MessagesFetched, coverage.EstimatedTotal)
 		);
+		foreach (var draftId in changedDraftIds)
+		{
+			await events.DraftUpdatedAsync(draftId);
+		}
 
 		logger.LogInformation(
 			"Coverage page for mailbox {MailboxId}: {Count} messages, more={HasMore}.",

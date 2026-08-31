@@ -44,6 +44,9 @@ public interface IMailHub
 
 	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
 
+	/// <summary>Structured drafts, including drafts discovered from the server's Drafts mailbox.</summary>
+	Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId);
+
 	Task<DraftDto> SaveDraft(SaveDraftRequest request);
 
 	Task DeleteDraft(Guid draftId);
@@ -193,6 +196,12 @@ public class MailHub(
 	public Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId) =>
 		search.SearchAsync(accountId, query, mailboxId);
 
+	public async Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId) =>
+		[
+			.. (await context.Drafts.Where(d => d.AccountId == accountId).OrderByDescending(d => d.SavedAt).ToListAsync())
+				.Select(ToDto),
+		];
+
 	public async Task<DraftDto> SaveDraft(SaveDraftRequest request)
 	{
 		var draft = await drafts.SaveAsync(
@@ -208,7 +217,11 @@ public class MailHub(
 			)
 		);
 
-		return new DraftDto(
+		return ToDto(draft);
+	}
+
+	private static DraftDto ToDto(Draft draft) =>
+		new(
 			draft.Id,
 			draft.AccountId,
 			draft.To,
@@ -218,7 +231,6 @@ public class MailHub(
 			draft.BodyHtml,
 			[.. draft.Attachments.Select(a => new DraftAttachmentDto(a.Id, a.Filename, a.MimeType, a.Size, a.IsInline))]
 		);
-	}
 
 	public Task DeleteDraft(Guid draftId) => drafts.DeleteAsync(draftId);
 

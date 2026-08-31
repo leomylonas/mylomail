@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
@@ -12,6 +14,49 @@ namespace MyloMail.Api.Tests.Sync;
 /// <summary>Topology, coverage and the change stream — §3's separate concerns.</summary>
 public sealed class SyncTests
 {
+	/// <summary>
+	/// A Drafts observation is captured as raw MIME before the coverage page commits and
+	/// materialised as one structured draft, never as a normal message (§1, §3).
+	/// </summary>
+	[Fact]
+	public async Task Coverage_materialises_a_remote_draft_without_creating_a_message()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		var drafts = harness.Provider.AddMailbox("Drafts", SpecialUse.Drafts);
+		var occurrence = harness.Provider.SeedMessage("Drafts", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		drafts.Messages[occurrence].RawBytes = MimeBytes();
+		await ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.SendIdentities.Add(
+				new SendIdentity
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.Account.Id,
+					EmailAddress = "author@example.test",
+					IsDefault = true,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await CoverAsync(harness, "Drafts");
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			Assert.Equal("Remote draft", draft.Subject);
+			Assert.Equal("<p>Body</p>", draft.BodyHtml.Trim());
+			Assert.Equal(occurrence, draft.ProviderDraftId);
+			Assert.Equal(occurrence, draft.ProviderRevision);
+			Assert.Empty(await context.Messages.ToListAsync());
+			Assert.Equal([draft.Id], harness.Events.Drafts);
+		});
+	}
+
 	[Fact]
 	public async Task Topology_reconciliation_creates_mailboxes_and_refreshes_provider_counts()
 	{
@@ -348,4 +393,16 @@ public sealed class SyncTests
 					await harness.MailboxAsync(scope, providerMailboxId)
 				)
 		);
+
+	private static byte[] MimeBytes()
+	{
+		var message = new MimeMessage();
+		message.From.Add(MailboxAddress.Parse("author@example.test"));
+		message.To.Add(MailboxAddress.Parse("recipient@example.test"));
+		message.Subject = "Remote draft";
+		message.Body = new TextPart("html") { Text = "<p>Body</p>" };
+		using var stream = new MemoryStream();
+		message.WriteTo(stream);
+		return stream.ToArray();
+	}
 }

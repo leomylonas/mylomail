@@ -222,6 +222,9 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		return new MessageDto
 		{
 			ProviderStableId = message.Id,
+			ProviderRevision = message.AdditionalData?.TryGetValue("@odata.etag", out var etag) == true
+				? etag as string
+				: null,
 			Occurrences =
 			[
 				new MessageOccurrenceDto(message.ParentFolderId ?? string.Empty, message.Id!),

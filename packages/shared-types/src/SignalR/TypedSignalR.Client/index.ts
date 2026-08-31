@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, SaveDraftRequest, DraftDto, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -103,6 +103,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {
         return await this.connection.invoke("Search", accountId, query, mailboxId);
+    }
+
+    public readonly getDrafts = async (accountId: string): Promise<DraftDto[]> => {
+        return await this.connection.invoke("GetDrafts", accountId);
     }
 
     public readonly saveDraft = async (request: SaveDraftRequest): Promise<DraftDto> => {

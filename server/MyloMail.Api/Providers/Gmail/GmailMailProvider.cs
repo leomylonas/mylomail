@@ -253,6 +253,10 @@ public sealed partial class GmailMailProvider(
 		return new MessageDto
 		{
 			ProviderStableId = message.Id,
+			// Gmail's history id is monotonic for a message observation. The draft adapter uses
+			// it to re-check the copy it read before replacing it, because Gmail exposes no
+			// HTTP ETag precondition on draft updates.
+			ProviderRevision = message.HistoryId?.ToString(),
 			Occurrences =
 			[
 				.. labels.Select(label => new MessageOccurrenceDto(label, message.Id!)),

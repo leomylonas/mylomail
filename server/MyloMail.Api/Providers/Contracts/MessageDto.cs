@@ -15,6 +15,12 @@ public record MessageDto
 	public string? ProviderStableId { get; init; }
 
 	/// <summary>
+	/// The provider's revision of this observation. Normal mail does not persist it, but a
+	/// Draft needs it as the expected revision for its next detect-don't-merge update (§1).
+	/// </summary>
+	public string? ProviderRevision { get; init; }
+
+	/// <summary>
 	/// Where this message appears. A message belongs to zero or more mailboxes — Gmail's
 	/// label model means several at once — so this is a list for all three providers rather
 	/// than being correct for one and bent for the others (§1).

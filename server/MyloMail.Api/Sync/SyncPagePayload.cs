@@ -1,3 +1,4 @@
+using MyloMail.Api.Compose;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.Contracts;
 
@@ -12,12 +13,16 @@ namespace MyloMail.Api.Sync;
 /// </remarks>
 internal static class SyncPagePayload
 {
-	public static string Serialize(SyncResult result, GenerationSnapshot generations) =>
+	public static string Serialize(
+		SyncResult result,
+		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
+		GenerationSnapshot generations
+	) =>
 		SqliteJson.Serialize(
-			new StagedPage(result.Upserted, result.FlagChanges, result.Removed, generations.Values)
+			new StagedPage(result.Upserted, result.FlagChanges, result.Removed, remoteDrafts, generations.Values)
 		);
 
-	public static (SyncResult Result, GenerationSnapshot Generations) Deserialize(string payload)
+	public static (SyncResult Result, IReadOnlyList<RemoteDraftPayload> RemoteDrafts, GenerationSnapshot Generations) Deserialize(string payload)
 	{
 		var page =
 			SqliteJson.Deserialize<StagedPage>(payload)
@@ -25,6 +30,7 @@ internal static class SyncPagePayload
 
 		return (
 			new SyncResult(null, null, page.Upserted, page.FlagChanges, page.Removed),
+			page.RemoteDrafts,
 			GenerationSnapshot.From(page.Generations)
 		);
 	}
@@ -38,6 +44,7 @@ internal static class SyncPagePayload
 		IReadOnlyList<MessageDto> Upserted,
 		IReadOnlyList<OccurrenceFlagChange> FlagChanges,
 		IReadOnlyList<OccurrenceRemoval> Removed,
+		IReadOnlyList<RemoteDraftPayload> RemoteDrafts,
 		IReadOnlyDictionary<string, int> Generations
 	);
 }

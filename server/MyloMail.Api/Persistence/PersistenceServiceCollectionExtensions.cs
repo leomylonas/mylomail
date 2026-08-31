@@ -117,6 +117,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MessageSearch>();
 		services.AddScoped<DraftService>();
 		services.AddScoped<DraftSyncService>();
+		services.AddScoped<RemoteDraftMaterializer>();
 		services.AddScoped<MailboxManagement>();
 		services.AddScoped<TopologySyncService>();
 		services.AddScoped<CoverageService>();

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
@@ -23,6 +24,7 @@ public sealed class ChangeStreamService(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	MessageIngestor ingestor,
+	RemoteDraftMaterializer drafts,
 	TimeProvider clock,
 	IFaultInjector faults,
 	IHubEvents events,
@@ -65,13 +67,15 @@ public sealed class ChangeStreamService(
 
 				faults.Reached(FaultPoints.SyncPageBeforeCommit);
 
+				var remoteDrafts = await drafts.PrepareAsync(account, result.Upserted, await MailboxesByProviderIdAsync(account, ct), ct);
+
 				if (stage)
 				{
-					await StagePageAsync(account, state, result, generations, ct);
+					await StagePageAsync(account, state, result, remoteDrafts, generations, ct);
 				}
 				else
 				{
-					await ApplyPageAsync(account, state, result, generations, ct);
+					await ApplyPageAsync(account, state, result, remoteDrafts, generations, ct);
 				}
 
 				faults.Reached(FaultPoints.SyncPageAfterCommit);
@@ -146,19 +150,20 @@ public sealed class ChangeStreamService(
 		Account account,
 		ChangeStreamState state,
 		SyncResult result,
+		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
 		GenerationSnapshot generations,
 		CancellationToken ct
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
-		IngestResult ingested = new([], []);
+		ContentApplyResult applied = new(new IngestResult([], []), []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-			ingested = await ApplyContentAsync(account, result, mailboxes, generations, ct);
+			applied = await ApplyContentAsync(account, result, remoteDrafts, mailboxes, generations, ct);
 
 			if (result.NewCursor is not null)
 			{
@@ -179,26 +184,35 @@ public sealed class ChangeStreamService(
 		//
 		// These are steady-state changes by construction — this is the change stream, not
 		// backfill — so a new message here is genuinely new mail (§7).
-		foreach (var message in ingested.Created)
+		foreach (var message in applied.Messages.Created)
 		{
 			await events.MessageReceivedAsync(MessageEventMapper.ToSummary(message));
 		}
 
-		foreach (var message in ingested.Updated)
+		foreach (var message in applied.Messages.Updated)
 		{
 			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(message));
 		}
+
+		foreach (var draftId in applied.DraftIds)
+		{
+			await events.DraftUpdatedAsync(draftId);
+		}
 	}
 
-	private async Task<IngestResult> ApplyContentAsync(
+	private async Task<ContentApplyResult> ApplyContentAsync(
 		Account account,
 		SyncResult result,
+		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
 		Dictionary<string, Mailbox> mailboxes,
 		GenerationSnapshot generations,
 		CancellationToken ct
 	)
 	{
 		var ingested = await ingestor.IngestAsync(account, result.Upserted, mailboxes, generations, ct);
+		var draftIds = new List<Guid>(
+			await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct)
+		);
 		var changed = new List<Domain.Message>(ingested.Updated);
 
 		foreach (var change in result.FlagChanges)
@@ -223,7 +237,11 @@ public sealed class ChangeStreamService(
 			}
 		}
 
-		return new IngestResult(ingested.Created, changed);
+		draftIds.AddRange(
+			await drafts.ApplyRemovalsAsync(account, result.Removed, mailboxes, generations, ct)
+		);
+
+		return new ContentApplyResult(new IngestResult(ingested.Created, changed), draftIds.Distinct().ToArray());
 	}
 
 	/// <summary>
@@ -235,6 +253,7 @@ public sealed class ChangeStreamService(
 		Account account,
 		ChangeStreamState state,
 		SyncResult result,
+		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
 		GenerationSnapshot generations,
 		CancellationToken ct
 	)
@@ -257,7 +276,7 @@ public sealed class ChangeStreamService(
 					// The generations are staged with the page. Replay may be hours later, and
 					// the check has to be against the topology the page was observed under,
 					// not the topology that exists when it is finally applied.
-					Payload = SyncPagePayload.Serialize(result, generations),
+					Payload = SyncPagePayload.Serialize(result, remoteDrafts, generations),
 					StagedAt = clock.GetUtcNow(),
 				}
 			);
@@ -304,19 +323,27 @@ public sealed class ChangeStreamService(
 				break;
 			}
 
-			var (result, generations) = SyncPagePayload.Deserialize(staged.Payload);
+			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
+			IReadOnlyList<Guid> changedDraftIds = [];
 
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
 			{
 				await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-				await ApplyContentAsync(account, result, mailboxes, generations, ct);
+				var applied = await ApplyContentAsync(account, result, remoteDrafts, mailboxes, generations, ct);
+				changedDraftIds = applied.DraftIds;
 				context.StagedChangeEvents.Remove(staged);
 
 				await context.SaveChangesAsync(ct);
 				await transaction.CommitAsync(ct);
+
 			});
+
+			foreach (var draftId in changedDraftIds)
+			{
+				await events.DraftUpdatedAsync(draftId);
+			}
 
 			replayed++;
 		}
@@ -453,3 +480,5 @@ public sealed class ChangeStreamService(
 
 /// <summary>What one change-stream run did, for the caller's scheduling decision.</summary>
 public sealed record ChangeStreamOutcome(int Pages, bool Staged, bool ResyncTriggered);
+
+internal sealed record ContentApplyResult(IngestResult Messages, IReadOnlyList<Guid> DraftIds);
