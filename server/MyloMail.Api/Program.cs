@@ -15,6 +15,7 @@ builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddSingleton<CredentialStoreSelector>(_ => new CredentialStoreSelector(dataDirectory));
 builder.Services.AddScoped<ICredentialStore>(provider =>
 	provider.GetRequiredService<CredentialStoreSelector>().Create(provider.GetRequiredService<MyloMailDbContext>()));
+builder.Services.AddProviderClients(builder.Configuration);
 builder.Services.AddMutations();
 builder.Services.AddSync();
 builder.Services.AddScheduling();

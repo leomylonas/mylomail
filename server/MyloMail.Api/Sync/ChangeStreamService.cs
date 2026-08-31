@@ -36,7 +36,7 @@ public sealed class ChangeStreamService(
 	/// </exception>
 	public async Task<ChangeStreamOutcome> SyncAsync(Account account, Mailbox mailbox, CancellationToken ct = default)
 	{
-		var provider = providers.For(account.ProviderType);
+		var provider = providers.For(account);
 		var state = await GetOrCreateStateAsync(account, mailbox, provider.Capabilities, ct);
 
 		// While coverage is incomplete, Gmail's account-wide history is drained durably but

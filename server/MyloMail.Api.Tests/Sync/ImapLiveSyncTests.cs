@@ -125,6 +125,6 @@ public sealed class ImapLiveSyncTests
 
 	private sealed class SingleProviderFactory(IMailProvider provider) : IMailProviderFactory
 	{
-		public IMailProvider For(ProviderType type) => provider;
+		public IMailProvider For(Account account) => provider;
 	}
 }

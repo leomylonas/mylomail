@@ -111,6 +111,6 @@ internal sealed class SyncHarness : IAsyncDisposable
 
 	private sealed class StubFactory(IMailProvider provider) : IMailProviderFactory
 	{
-		public IMailProvider For(ProviderType type) => provider;
+		public IMailProvider For(Account account) => provider;
 	}
 }

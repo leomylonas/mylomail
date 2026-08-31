@@ -187,5 +187,14 @@ public interface IMailProvider
 /// </summary>
 public interface IMailProviderFactory
 {
-	IMailProvider For(ProviderType type);
+	/// <summary>
+	/// The provider for one account.
+	/// </summary>
+	/// <remarks>
+	/// Keyed on the account rather than the provider type because IMAP has no
+	/// account-independent implementation: host, port, user name and password all differ per
+	/// account, and the password is resolved from the credential store at the moment of use
+	/// (§4). Gmail and Graph disregard everything but the type.
+	/// </remarks>
+	IMailProvider For(Account account);
 }

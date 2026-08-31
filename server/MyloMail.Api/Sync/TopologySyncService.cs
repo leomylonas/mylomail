@@ -23,7 +23,7 @@ public sealed class TopologySyncService(
 {
 	public async Task<TopologyChange> ReconcileAsync(Account account, CancellationToken ct = default)
 	{
-		var reported = await providers.For(account.ProviderType).ListMailboxesAsync(account, ct);
+		var reported = await providers.For(account).ListMailboxesAsync(account, ct);
 		var existing = await context.Mailboxes.Where(m => m.AccountId == account.Id).ToListAsync(ct);
 
 		var byProviderId = existing

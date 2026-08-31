@@ -45,6 +45,20 @@ public static class PersistenceServiceCollectionExtensions
 	/// Registers the mutation core (§6). The fault injector is registered with
 	/// <c>TryAdd</c> so a test host can substitute one; production always gets the no-op.
 	/// </summary>
+	/// <summary>
+	/// Binds the application's provider client registration (§5). Supplied per deployment —
+	/// via configuration or <c>Providers__Gmail__ClientId</c>-style environment variables —
+	/// never committed.
+	/// </summary>
+	public static IServiceCollection AddProviderClients(
+		this IServiceCollection services,
+		IConfiguration configuration
+	)
+	{
+		services.Configure<ProviderClientOptions>(configuration.GetSection(ProviderClientOptions.SectionName));
+		return services;
+	}
+
 	public static IServiceCollection AddMutations(this IServiceCollection services)
 	{
 		services.TryAddSingleton(TimeProvider.System);

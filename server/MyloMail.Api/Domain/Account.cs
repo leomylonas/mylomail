@@ -62,6 +62,15 @@ public sealed class ImapProviderConfig : ProviderConfig
 	public string Host { get; set; } = string.Empty;
 	public int Port { get; set; }
 	public bool UseSsl { get; set; } = true;
+
+	/// <summary>
+	/// The login name. Deliberately separate from the account's address (the default
+	/// <see cref="SendIdentity"/>): plenty of servers authenticate on a bare user name, or on
+	/// an address that differs from the one mail is sent as, so deriving it would break those
+	/// accounts and give a confusing failure when it did.
+	/// </summary>
+	public string UserName { get; set; } = string.Empty;
+
 	public string AuthMethod { get; set; } = string.Empty;
 	public string SmtpHost { get; set; } = string.Empty;
 	public int SmtpPort { get; set; }

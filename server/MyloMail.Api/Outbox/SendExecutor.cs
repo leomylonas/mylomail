@@ -74,7 +74,7 @@ public sealed class SendExecutor(
 
 		try
 		{
-			await providers.For(account.ProviderType).SendAsync(account, draft, item.StableMessageId, ct);
+			await providers.For(account).SendAsync(account, draft, item.StableMessageId, ct);
 		}
 		catch (Exception ex) when (ex is ProviderThrottledException or ProviderAuthenticationException)
 		{

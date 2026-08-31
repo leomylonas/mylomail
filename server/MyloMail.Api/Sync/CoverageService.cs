@@ -53,7 +53,7 @@ public sealed class CoverageService(
 		var generations = GenerationSnapshot.Capture([mailbox]);
 
 		var page = await providers
-			.For(account.ProviderType)
+			.For(account)
 			.InitialSyncMailboxAsync(account, mailbox, coverage.ResumeToken, mode, bound, pageSize, ct);
 
 		faults.Reached(FaultPoints.SyncPageBeforeCommit);

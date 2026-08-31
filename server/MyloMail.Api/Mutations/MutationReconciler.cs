@@ -41,7 +41,7 @@ public sealed class MutationReconciler(
 		var settled = 0;
 		foreach (var attempt in attempts)
 		{
-			var policy = MutationRecoveryPolicyResolver.For(attempt.OperationKind, providers.For(account.ProviderType).Capabilities);
+			var policy = MutationRecoveryPolicyResolver.For(attempt.OperationKind, providers.For(account).Capabilities);
 			if (policy == MutationRecoveryPolicy.RetrySafe)
 			{
 				await RequeueAsync(attempt, ct);
@@ -142,7 +142,7 @@ public sealed class MutationReconciler(
 		var known = await context.MessageMailboxes.Where(o => o.MessageId == messageId).Select(o => o.ProviderOccurrenceId).ToListAsync(ct);
 		var mailboxes = await context.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null).ToListAsync(ct);
 		var locations = new Dictionary<Guid, string>();
-		var provider = providers.For(account.ProviderType);
+		var provider = providers.For(account);
 
 		foreach (var mailbox in mailboxes)
 		{

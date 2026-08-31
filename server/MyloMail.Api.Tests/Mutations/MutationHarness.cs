@@ -155,7 +155,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 
 	private sealed class StubProviderFactory(IMailProvider provider) : IMailProviderFactory
 	{
-		public IMailProvider For(ProviderType type) => provider;
+		public IMailProvider For(Account account) => provider;
 	}
 }
 

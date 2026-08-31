@@ -99,7 +99,7 @@ public sealed class SyncJobs(
 	public async Task StartChangeStreamsAsync(Account account, CancellationToken ct = default)
 	{
 		var accountScoped =
-			providers.For(account.ProviderType).Capabilities.ChangeStreamScope == ChangeStreamScope.Account;
+			providers.For(account).Capabilities.ChangeStreamScope == ChangeStreamScope.Account;
 
 		var mailboxes = await context
 			.Mailboxes.Where(m => m.AccountId == account.Id)

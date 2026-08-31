@@ -25,7 +25,7 @@ public sealed class IntegrityReconciliationService(
 )
 {
 	public async Task<bool> RequiredAsync(Account account, CancellationToken ct = default) =>
-		await Task.FromResult(Required(providers.For(account.ProviderType).Capabilities));
+		await Task.FromResult(Required(providers.For(account).Capabilities));
 
 	public static bool Required(ProviderCapabilities capabilities) =>
 		capabilities.Type == ProviderType.Imap
@@ -33,7 +33,7 @@ public sealed class IntegrityReconciliationService(
 
 	public async Task ReconcileAsync(Account account, Mailbox mailbox, CancellationToken ct = default)
 	{
-		var provider = providers.For(account.ProviderType);
+		var provider = providers.For(account);
 		if (!Required(provider.Capabilities))
 		{
 			return;

@@ -14,12 +14,13 @@
 1. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog. The supervisor,
    the health probe and the backend contract all exist and are tested; nothing calls them
    from the actual Electron entry point yet.
-2. **Register provider OAuth/client configuration** so `MailProviderFactory` can construct
-   real providers. Until then no account can sync, even though the engine is proven against
-   the IMAP matrix.
-3. Then the two remaining Stage C items: per-operation reconciliation of ambiguous mutations
-   (`SendReconciler` is the worked example), and periodic integrity reconciliation for the
-   weakest IMAP tier.
+2. **Supply provider client configuration per deployment.** `MailProviderFactory` now builds
+   real providers, but nothing supplies `Providers:Gmail:ClientId`/`ClientSecret` or
+   `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
+   binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
+   stored under `MailProviderFactory.ImapPasswordFormat`.
+3. **Account creation.** Nothing writes an `Account`, its `SendIdentity`, or its credential —
+   so there is no way to get an account into the database except by hand.
 
 ### Credential storage decision
 

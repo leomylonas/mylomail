@@ -37,7 +37,7 @@ public sealed class MutationExecutor(
 			return;
 		}
 
-		var provider = providers.For(account.ProviderType);
+		var provider = providers.For(account);
 		var operation = items[0].OperationKind;
 
 		// Execution identity is resolved here, after preceding mutations have settled —
