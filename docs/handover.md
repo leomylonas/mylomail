@@ -1,128 +1,107 @@
 # Current handoff
 
-## Completed
+This is a snapshot of what's true now, not a log — see git history for how it got here.
 
-- Ambiguous mutation reconciliation and periodic degraded-IMAP integrity reconciliation are implemented and verified.
-- The backend production credential store probes Windows DPAPI, macOS Keychain Services, or Linux Secret Service using a temporary native credential. It selects a usable native store rather than inferring availability from the OS.
-- If no native store is usable, `MYLOMAIL_MASTER_PASSWORD` enables the encrypted SQLite fallback. It uses PBKDF2-SHA256 (600,000 iterations), a random salt, an AES-GCM verifier, and per-credential AES-GCM ciphertext. Passwords and provider credentials are never stored in plaintext.
-- If neither native storage nor a master password is available (or the password is wrong), startup exits with code `78` before scheduling work. Electron can use that code to prompt, then restart the backend with the per-launch password.
-- Independent invariant review of the credential fallback and persistence changes found no architectural violations.
-- Compose is a Lexical rich-text editor. **HTML is the stored form, never Lexical's own JSON
-  state**: a draft's body is HTML and a sent message is MIME, so persisting editor state would
-  tie the mail format to an editor version. The e2e asserts the formatting survives to the SMTP
-  server, not merely to the editor.
-- Server-side drafts are implemented for IMAP, which removed the last provider stub. An update
-  is an append followed by an expunge of the old copy, in that order — the reverse loses the
-  draft if the append fails.
-- **Folder management works from the sidebar** — create, rename, delete, with the tree nested
-  by parent. Three bugs were behind it, none visible to the unit suite:
-  - `window.prompt` **throws** in Electron ("prompt() is not supported"), so create and rename
-    did nothing at all in the packaged app while working in a browser. Both now use a Carbon
-    modal. The folder mutations also had no error path, so a failure was indistinguishable
-    from a click being ignored; failures now surface as notifications.
-  - `TopologySyncService` loaded existing mailboxes **without** their `ImapMetadata`, so every
-    reconciliation after the first attached a second metadata row and failed on the unique
-    key. That is every folder operation on an IMAP account, and every topology poll after the
-    first.
-  - A rename **destroyed local mailbox identity**: an IMAP folder's provider id is its full
-    path, so reconciliation saw the old id vanish and created a new row. §6 requires a rename
-    to leave queued work valid, and only deletion to invalidate it. `RenameMailboxAsync` and
-    `MoveMailboxAsync` now return the folder as the server names it, and `MailboxManagement`
-    carries that onto the existing row — and onto descendants, whose paths begin with their
-    ancestor's.
-- The delete confirmation states what the provider actually does, read from
-  `GetAccountCapabilities` rather than assumed: IMAP and Graph destroy the messages, Gmail
-  leaves them in All Mail.
-- **Message identity is now scoped to a mailbox.** `MessageIngestor` matched occurrences on
-  `ProviderOccurrenceId` alone; an IMAP UID is unique only within a folder, so a draft holding
-  UID 2 merged with the unrelated inbox message holding UID 2 — the unrecoverable direction of
-  §1. The Drafts exclusion also ran after matching, letting a draft overwrite a real message,
-  and skipping only drafts occurrences would double-materialise a Gmail draft that carries
-  DRAFT alongside another label (found by invariant review). `MessageIdentityTests` covers all
-  three, each checked to fail with its half of the fix removed.
-- `startBackend` in the Electron shell implements the restart protocol and is unit-tested: it strips any inherited master password on the initial launch, issues a fresh launch token for each process, prompts only after code `78`, and passes the password only to the restarted process.
+## State
+
+**Backend core (Stage C) is complete and verified**: persistence, mutation chains, sync state
+machines, jobs, send/outbox, credential storage. IMAP has no remaining stubs — folder
+lifecycle, server-side drafts, and send are all implemented.
+
+**Credential storage**: the .NET backend owns `ICredentialStore` and accesses Windows DPAPI,
+macOS Keychain Services, or Linux Secret Service/libsecret directly, probed with a temporary
+native credential rather than inferred from the OS. If no native store is usable,
+`MYLOMAIL_MASTER_PASSWORD` enables an encrypted SQLite fallback (PBKDF2-SHA256 600k
+iterations, AES-GCM verifier and per-credential ciphertext; nothing is ever stored in
+plaintext). If neither is available, or the password is wrong, startup exits with code `78`
+before scheduling work — this is what Electron watches for. Electron never accesses provider
+credentials; it only presents setup/unlock UI and passes the password to the restart.
+`startBackend` implements this restart protocol and is unit-tested, but **is not yet wired
+into `Main.ts`** — the real entry point still needs the setup/unlock dialog calling it.
+
+**Stage D (renderer) is mostly built**: per-window store and query client, the hub wired to
+cache invalidation, sidebar with nested folder management, message list, HTML rendering,
+compose and send via a Lexical editor (HTML is the stored form — never Lexical's own JSON
+state, since a sent message is MIME and persisting editor state would tie the mail format to
+an editor version), server-side drafts, toast/context-menu/shortcut/error registries. Not
+built: TanStack Router/Virtual/Table, attachments (see below), remote-draft materialisation,
+inline image rendering.
+
+**No provider client ids are configured.** The mechanism exists (`AGENTS.md`, "Provider
+client registration"); nothing supplies `Providers:Gmail:ClientId`/`ClientSecret` or
+`Providers:Graph:ClientId`. §5 records that distributing Gmail's secret in a desktop binary
+is unresolved. IMAP additionally needs an `ImapProviderConfig` on the account plus a password
+stored under `MailProviderFactory.ImapPasswordFormat`.
+
+**Recent invariant fix worth knowing about**: `MessageIngestor` used to match provider
+occurrences on `ProviderOccurrenceId` alone. An IMAP UID is unique only within its folder, so
+two unrelated messages sharing a UID in different folders could merge into one local row —
+the unrecoverable direction of §1. Matching is now scoped to the mailbox, the Drafts exclusion
+runs before matching (not after), and it excludes on any drafts occurrence rather than all
+occurrences (a Gmail draft carries `DRAFT` alongside other labels). `MessageIdentityTests`
+covers all three; each was checked to fail with its half of the fix reverted. If you touch
+`MessageIngestor` again, re-run that discrimination check rather than trusting the test alone.
 
 ## Next task
 
-1. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog. The supervisor,
-   the health probe and the backend contract all exist and are tested; nothing calls them
-   from the actual Electron entry point yet.
-2. **Supply the actual client ids.** The mechanism and its documentation exist (`AGENTS.md`,
-   Provider client registration); no values are configured anywhere.
-   Previously: `MailProviderFactory` now builds
-   real providers, but nothing supplies `Providers:Gmail:ClientId`/`ClientSecret` or
-   `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
-   binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
-   stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Continue Stage D** (§12, §13). The foundation is in: per-window store and query client,
-   the hub wired to cache invalidation, a Carbon sidebar and message list. Still to build —
-   TanStack Router/Virtual/Table. HTML body rendering, compose and send, server-side drafts,
-   the Lexical editor and the toast/context-menu/shortcut/error registries are done.
-4. **The last §7 events without producers**: `ExportProgress`, `DraftUpdated`,
-   `CalendarEventUpdated`, `CalendarConflictDetected` and `ConnectivityChanged` — each waiting
-   on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
-   but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
-   it, not on SignalR, so they stay testable.
-5. **Attachments are not implemented — the next task, and untouched.** `Attachment` rows are
-   parsed at ingest and `HasNonInlineAttachments` reaches the message list, and that is the
-   whole of it: no way to see, open or save one, and no way to add one to a message being
-   composed. §9 specifies the receiving half in detail — extraction to
-   `<DataDirectory>/tmp/attachments/<guid>/<filename>`, `0700`/`0600` set at creation, the
-   executable bit never set, MIME filenames sanitised as untrusted input before any
-   filesystem use, an explicit confirmation before opening anything that can run code, and a
-   sweep of that directory at startup. The sending half needs somewhere to hold a draft's
-   attachment bytes before send: `DraftAttachment` carries metadata only, and §1's
-   no-`AttachmentBlob` rule is about received mail, where raw MIME already holds the bytes.
-6. **Inline images do not render — unresolved.** `cid:` references survive sanitisation and
-   should be rewritten to blob URLs by `resolveInlineImages`, but in the running app the
-   rewrite never completes. What is ruled out: the rewrite logic (unit-tested with a stub
-   fetch), the part endpoint (verified by hand — 200, correct content type and length, under
-   both bearer and cookie auth), routing (a valid-but-unknown id returns the controller's own
-   404), and the sanitiser stripping `cid:` (fixed, with a test). What is left: the fetch
-   inside the component appears never to settle, and the failure is invisible because the
-   shell forwards backend stderr but Playwright does not surface Electron output. Instrument
-   the component to write its outcome into the DOM rather than the console — every probe
-   through the console or a compound `page.evaluate` cost a full run and produced ambiguity.
-   The e2e asserts the current behaviour (`src` stays `cid:`) so it keeps guarding the
-   security properties instead of being disabled.
-7. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
-   here reaches the server — but a draft started on another device does not become a local
-   `Draft`. The Drafts mailbox is correctly excluded from message materialisation, so it does
-   not appear as mail either; it simply is not shown.
-
-### Credential storage decision
-
-The .NET backend owns `ICredentialStore` and accesses Windows DPAPI, macOS Keychain Services,
-or Linux Secret Service/libsecret directly. Electron never accesses provider credentials; it
-only presents master-password setup/unlock UI and supplies the password only to the restarted
-backend launch when the encrypted SQLite fallback is active.
-
-If no native store is usable, a backend launch without a master password exits with a dedicated
-recoverable code. Electron catches it, prompts for setup/unlock, and restarts the backend with
-the per-launch password. The backend derives an in-memory key, validates a persisted verifier,
-and encrypts fallback credentials in SQLite; it never persists the password.
+1. **Attachments — untouched, and the recommended next slice.** `Attachment` rows are parsed
+   at ingest and `HasNonInlineAttachments` reaches the message list; nothing else exists — no
+   way to view, open, or save one, and no way to attach one while composing. §9 specifies the
+   receiving half: extraction to `<DataDirectory>/tmp/attachments/<guid>/<filename>`,
+   `0700`/`0600` permissions set at creation, executable bit never set, MIME filenames treated
+   as untrusted input, a confirmation before opening anything that can run code, and a sweep
+   of that directory at startup. The sending half needs somewhere to hold a draft's attachment
+   bytes before send — `DraftAttachment` is metadata-only today, and §1's no-`AttachmentBlob`
+   rule is about received mail, where raw MIME already holds the bytes, so it doesn't apply
+   here without adaptation.
+2. **Wire `startBackend` into `Main.ts`** with the real setup/unlock dialog.
+3. **Supply real provider client ids** (see above).
+4. **`cid:` inline images don't render.** Rewrite logic, the part endpoint, routing, and the
+   sanitiser are all individually verified correct; what's left is that the fetch inside the
+   rendering component never settles, and the failure is invisible because Playwright doesn't
+   surface Electron's renderer console. Instrument the component to write its outcome into the
+   DOM rather than console.log before debugging further — every console-based probe so far
+   cost a full run and produced ambiguity. The e2e currently asserts the safe fallback
+   behaviour (`src` stays `cid:`), so it isn't regressing anything while this is open.
+5. **Remote drafts aren't materialised locally.** Outbound works (a draft saved here reaches
+   the server); a draft started elsewhere doesn't become a local `Draft`. It's correctly
+   excluded from message materialisation, so it also doesn't wrongly appear as mail — it's
+   just invisible.
+6. **§7 events without producers**: `ExportProgress`, `DraftUpdated`, `CalendarEventUpdated`,
+   `CalendarConflictDetected`, `ConnectivityChanged`. `IMailClient` declares all of them so
+   none is orphaned; only `SyncProgress` currently fires. Each is blocked on the feature that
+   would produce it, not on wiring — `DraftUpdated` and `ConnectivityChanged` are probably
+   closest now that drafts and folder management exist.
+7. **Calendar is unstarted.** `ICalendarProvider` is an interface with no implementation, no
+   domain model, no sync, no UI — effectively a second Stage C.
 
 ## Read first
 
 - `AGENTS.md`
-- `docs/architecture.md` §§3, 6, 9 and 16
-- `docs/skills/fault-injection.md`
+- `docs/architecture.md` §§1, 2, 3, 6, 9, 16
+- `docs/skills/fault-injection.md` — and specifically the discrimination-check discipline:
+  three tests in this repo have passed against the exact bug they existed to catch. Never
+  trust a fault-injection or identity test without reverting the fix and watching it fail.
 - `docs/reviews/invariant-review.md`
 
 ## Verification
 
-- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(125), vitest(35).
-- Playwright e2e: all five specs, including the new `Mailboxes` spec, pass together in one
-  run against the local Dovecot matrix and the Mailpit sink.
-- `ImapLiveMailboxTests` drives folder lifecycle against Dovecot. Both fixes above were
-  checked to fail with that fix reverted. It is `Category=Conformance,Deep`, so it needs
-  `pnpm imap:up` and `TEST_IMAP_QRESYNC_HOST`/`PORT`.
-  The identity bug above was found by that suite and by nothing else: it appeared only when
-  specs ran in order, because it needed a leftover draft on the server to collide with.
-- `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation testing.
-- Mutation scope expanded with the new reconciliation services and integrity loop. The measured baseline is 47.23% (306 killed / 134 survived / 9 timeout), so `stryker-config.json` resets the ratchet to 47, just below that baseline. Raise it as survivors are killed.
+- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(126),
+  vitest(35).
+- All five Playwright e2e specs pass together in one run against the local Dovecot matrix and
+  Mailpit sink (`pnpm imap:up` first).
+- `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation
+  testing. Mutation ratchet is 47 (measured baseline 47.23%, 306 killed / 134 survived / 9
+  timeout) — raise it as survivors are killed, don't lower it to make a run pass.
+- `ImapLiveMailboxTests` and `ImapLiveSyncTests` need `pnpm imap:up` plus
+  `TEST_IMAP_QRESYNC_HOST`/`PORT` env vars; they're `Category=Conformance,Deep` and skipped by
+  default. The message-identity bug above was found only by the full e2e suite running specs
+  in order against a real server — nothing in the unit suite could see it.
 
 ## Live risks / decisions
 
-- `MutationReconciler` observes full mailbox pages and uses provider stable id, prior occurrence id, then `(Message-ID, ReceivedAt)` matching. If desired state cannot be established, it requeues rather than guessing.
-- Node 22 is required: `source "$HOME/.nvm/nvm.sh" && nvm use` before wrappers.
+- `MutationReconciler` observes full mailbox pages and matches on provider stable id, then
+  prior occurrence id, then `(Message-ID, ReceivedAt)`. If desired state can't be established
+  it requeues rather than guessing.
+- Node 22 is required: `source "$HOME/.nvm/nvm.sh" && nvm use` before any wrapper script.
+- Never invoke `dotnet`, `tsc`, `eslint`, or `vitest` directly — use `pnpm status`/`pnpm check`.
