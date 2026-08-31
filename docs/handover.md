@@ -25,6 +25,10 @@ individual changes.
   primary IMAP credential without copying it. Provisioning cleans all slots before an attempted
   database commit, while retaining them after an ambiguous commit failure so it never creates a
   committed account with no credential. Account removal deletes every slot after durable removal.
+- Calendar provider pages now materialise through one transactional `CalendarSyncService`
+  (`11577a6`). A collection token advances only with the final page it covers; invalid tokens
+  and baseline continuations reset the local baseline before one fresh retry. Recurrence master
+  links are repaired across pages and all affected events are announced only after commit.
 
 ## Next task
 
@@ -38,8 +42,9 @@ individual changes.
    implement a genuine thin slice; do not add a no-op provider or a second source of truth.
 
    The agreed first path is CalDAV with HTTP Basic username/password. Its account configuration
-   and credential storage are ready; implement the actual `CalDavCalendarProvider` and vertical
-   slice next. CalDAV and SMTP reuse references the primary IMAP credential rather than copying it.
+   and credential storage plus crash-safe local materialisation are ready; implement the actual
+   `CalDavCalendarProvider`, factory/registration, job wiring and hub read surface next. CalDAV
+   and SMTP reuse references the primary IMAP credential rather than copying it.
 3. **Finish event producers with their features.** Current producers exist for account status,
    mailbox tree/update, message received/updated, sync progress, outbox status and drafts.
    `ExportProgress`, `CalendarEventUpdated`, `CalendarConflictDetected`, and
@@ -78,6 +83,10 @@ individual changes.
 - An independent invariant review of the credential-slot slice found and fixed the pre-commit
   cleanup and ambiguous-commit handling; its final review found no architectural invariant
   violations.
+- Calendar materialisation has deep-tagged crash tests for before-commit, after-commit and an
+  invalidated baseline continuation. They have not been run because `pnpm check:deep` remains
+  explicit-only. Two independent invariant reviews found and corrected cursor invalidation,
+  recurrence ordering/deletion, stale-calendar topology and post-commit notification gaps.
 
 ## Live risks / decisions
 
