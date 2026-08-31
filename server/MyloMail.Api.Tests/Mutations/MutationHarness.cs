@@ -41,6 +41,9 @@ internal sealed class MutationHarness : IAsyncDisposable
 
 	public ScriptedFaultInjector Faults { get; }
 
+	/// <summary>Records drain requests instead of running jobs.</summary>
+	public RecordingMutationDispatcher Dispatcher { get; } = new();
+
 	public FakeTimeProvider Clock { get; }
 
 	public Account Account { get; private set; } = null!;
@@ -67,6 +70,8 @@ internal sealed class MutationHarness : IAsyncDisposable
 			// Registered last so it wins: see RecordingJobClient for why a real Hangfire
 			// client must not be constructed in tests.
 			.AddSingleton<Hangfire.IBackgroundJobClient>(new Fakes.RecordingJobClient())
+			// Also after AddScheduling, which registers the real dispatcher unconditionally.
+			.AddSingleton<IMutationDispatcher>(Dispatcher)
 			.BuildServiceProvider();
 
 	/// <summary>Simulates a hard kill and restart: new process, same database file.</summary>
@@ -165,6 +170,14 @@ internal sealed class MutationHarness : IAsyncDisposable
 	{
 		public IMailProvider For(Account account) => provider;
 	}
+}
+
+/// <summary>Records which accounts were asked to drain.</summary>
+internal sealed class RecordingMutationDispatcher : IMutationDispatcher
+{
+	public List<Guid> Requested { get; } = [];
+
+	public void RequestDrain(Guid accountId) => Requested.Add(accountId);
 }
 
 /// <summary>

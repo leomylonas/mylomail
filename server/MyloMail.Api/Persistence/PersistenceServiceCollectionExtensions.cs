@@ -85,6 +85,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddScoped<IProviderMailboxResolver, DbProviderMailboxResolver>();
 		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
+		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
 		services.AddScoped<MutationQueue>();
 		services.AddScoped<MutationClaimService>();
 		services.AddScoped<MutationChainEvaluator>();
@@ -126,6 +127,10 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddSingleton<IntegrityRegistry>();
 		services.AddScoped<SyncJobs>();
 		services.AddScoped<MutationJobs>();
+
+		// Replaces the no-op default, so intent enqueued by the hub is executed promptly
+		// instead of waiting for the next startup sweep.
+		services.AddSingleton<IMutationDispatcher, MutationDispatcher>();
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<StartupScheduler>();
 		services.AddScoped<AccountProvisioningService>();

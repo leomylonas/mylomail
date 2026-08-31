@@ -11,6 +11,13 @@ namespace MyloMail.Api.Scheduling;
 /// Drains an account's eligible mutation chains (§6).
 /// </summary>
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
+/// <summary>Enqueues a drain when new intent arrives.</summary>
+public sealed class MutationDispatcher(IBackgroundJobClient jobs) : IMutationDispatcher
+{
+	public void RequestDrain(Guid accountId) =>
+		jobs.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default));
+}
+
 [AutomaticRetry(Attempts = 0)]
 public sealed class MutationJobs(
 	MyloMailDbContext context,

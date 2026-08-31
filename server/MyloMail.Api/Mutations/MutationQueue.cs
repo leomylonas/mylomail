@@ -9,7 +9,12 @@ namespace MyloMail.Api.Mutations;
 /// <summary>
 /// Enqueues user intentions and the optimistic local state that goes with them (§6).
 /// </summary>
-public sealed class MutationQueue(MyloMailDbContext context, TimeProvider clock, IFaultInjector faults)
+public sealed class MutationQueue(
+	MyloMailDbContext context,
+	TimeProvider clock,
+	IFaultInjector faults,
+	IMutationDispatcher dispatcher
+)
 {
 	public Task<MutationItem> SetFlagsAsync(
 		Guid accountId,
@@ -126,6 +131,12 @@ public sealed class MutationQueue(MyloMailDbContext context, TimeProvider clock,
 			faults.Reached(FaultPoints.AfterOptimisticCommit);
 
 			await transaction.CommitAsync(ct);
+
+			// Only once the intent is durable. Asking for execution before the commit would
+			// race a worker against a transaction that might still roll back, and the user's
+			// change would appear to happen and then un-happen.
+			dispatcher.RequestDrain(item.AccountId);
+
 			return item;
 		});
 	}

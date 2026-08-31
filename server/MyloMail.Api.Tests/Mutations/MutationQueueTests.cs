@@ -135,6 +135,23 @@ public sealed class MutationQueueTests
 		});
 	}
 
+	/// <summary>
+	/// Enqueuing asks for execution, after the commit.
+	/// </summary>
+	/// <remarks>
+	/// Without this the only thing that drains a chain is the startup sweep, so a flag the user
+	/// toggled would sit unexecuted until the app was restarted — locally applied, never sent.
+	/// </remarks>
+	[Fact]
+	public async Task Enqueuing_requests_execution_for_the_account()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var item = await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		Assert.Equal([item.AccountId], harness.Dispatcher.Requested);
+	}
+
 	/// <summary>An id supplied by the caller is kept, so a caller can correlate what it enqueued.</summary>
 	[Fact]
 	public async Task A_supplied_id_is_preserved()
