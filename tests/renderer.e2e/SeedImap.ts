@@ -111,6 +111,29 @@ export async function clearFolder(port: number, folder: string): Promise<void> {
 	});
 }
 
+/**
+ * The folders the server holds, as it lists them.
+ *
+ * Asking the server rather than the app is the point: the app's sidebar is drawn from its own
+ * database, so it would show a folder it merely believes it created.
+ */
+export async function foldersOn(port: number): Promise<string[]> {
+	const names: string[] = [];
+
+	await session(port, async (send) => {
+		await send("f1 LOGIN test@mylomail.local password");
+		const listing = await send('f2 LIST "" "*"');
+		await send("f3 LOGOUT");
+
+		for (const line of listing.split("\r\n")) {
+			const match = /^\* LIST \([^)]*\) "[^"]*" "?([^"]+)"?$/.exec(line.trim());
+			if (match) names.push(match[1]);
+		}
+	});
+
+	return names;
+}
+
 /** The full text of every message in a named folder, as the server sees them. */
 export async function bodiesIn(port: number, folder: string): Promise<string> {
 	const lines: string[] = [];

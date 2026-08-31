@@ -167,9 +167,29 @@ public interface IMailProvider
 		CancellationToken ct
 	);
 
-	Task RenameMailboxAsync(Account account, Mailbox mailbox, string newName, CancellationToken ct);
+	/// <summary>
+	/// Renames a folder and reports it as the server now names it.
+	/// </summary>
+	/// <remarks>
+	/// The result is not decoration. On IMAP a folder's provider identity <i>is</i> its full
+	/// path, so a rename changes it — and a caller that only reconciled afterwards would see
+	/// the old id vanish and a new folder appear, discarding the local identity that queued
+	/// work refers to (§2, §6).
+	/// </remarks>
+	Task<MailboxDto> RenameMailboxAsync(
+		Account account,
+		Mailbox mailbox,
+		string newName,
+		CancellationToken ct
+	);
 
-	Task MoveMailboxAsync(Account account, Mailbox mailbox, Mailbox? newParent, CancellationToken ct);
+	/// <summary>Moves a folder, reporting its new identity for the same reason.</summary>
+	Task<MailboxDto> MoveMailboxAsync(
+		Account account,
+		Mailbox mailbox,
+		Mailbox? newParent,
+		CancellationToken ct
+	);
 
 	/// <summary>
 	/// Deletion is provider-divergent and the divergence must be surfaced, not hidden:

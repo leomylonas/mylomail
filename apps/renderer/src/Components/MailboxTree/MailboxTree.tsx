@@ -1,20 +1,33 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
-import { SkeletonText } from "@carbon/react";
+import { Modal, SkeletonText } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
+import { FolderNameModal } from "@mylomail/renderer/Components/MailboxTree/FolderNameModal/FolderNameModal";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
 interface Mailbox {
 	id: string;
+	parentId: string | null;
 	name: string;
 	providerTotalCount: number | null;
 	providerUnreadCount: number | null;
 	localCount: number;
 }
+
+interface Capabilities {
+	deletingMailboxDeletesMessages: boolean;
+}
+
+type Dialog =
+	| { kind: "create"; parent: Mailbox | null }
+	| { kind: "rename"; mailbox: Mailbox }
+	| { kind: "delete"; mailbox: Mailbox };
 
 export function MailboxTree({
 	hub,
@@ -25,47 +38,74 @@ export function MailboxTree({
 }) {
 	const store = useWindowStore();
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const [menu, setMenu] = useState<{
 		x: number;
 		y: number;
 		mailbox: Mailbox;
 	} | null>(null);
+	const [dialog, setDialog] = useState<Dialog | null>(null);
 
-	const refresh = () =>
-		queryClient.invalidateQueries({ queryKey: queryKeys.mailboxes(accountId) });
+	const close = () => setDialog(null);
+	const refresh = () => {
+		close();
+		return queryClient.invalidateQueries({
+			queryKey: queryKeys.mailboxes(accountId),
+		});
+	};
+
+	// Folder operations are the one part of the sidebar that can fail visibly to the user:
+	// the provider rejects a duplicate name, a namespace it will not accept, or a delete of a
+	// special folder. Without this the dialog simply stayed open and said nothing, which is
+	// indistinguishable from the app having ignored the click.
+	const reportFailure = (title: string) => (error: unknown) =>
+		notify(notifications, {
+			kind: "error",
+			title,
+			detail: error instanceof Error ? error.message : String(error),
+		});
 
 	const create = useMutation({
-		mutationFn: (parentId: string | null) => {
-			const name = window.prompt("Name for the new folder");
-			return name
-				? hub.invoke("CreateMailbox", accountId, name, parentId)
-				: Promise.resolve();
-		},
+		mutationFn: ({
+			name,
+			parentId,
+		}: {
+			name: string;
+			parentId: string | null;
+		}) => hub.invoke("CreateMailbox", accountId, name, parentId),
 		onSuccess: refresh,
+		onError: reportFailure("The folder could not be created"),
 	});
 
 	const rename = useMutation({
-		mutationFn: (mailbox: Mailbox) => {
-			const name = window.prompt("Rename folder to", mailbox.name);
-			return name
-				? hub.invoke("RenameMailbox", mailbox.id, name)
-				: Promise.resolve();
-		},
+		mutationFn: ({ id, name }: { id: string; name: string }) =>
+			hub.invoke("RenameMailbox", id, name),
 		onSuccess: refresh,
+		onError: reportFailure("The folder could not be renamed"),
 	});
 
 	const remove = useMutation({
-		// The provider decides whether the messages go too, and the answer differs: deleting
-		// an IMAP folder destroys its mail, deleting a Gmail label does not. The confirmation
-		// has to say which, so it is asked before the call and the result reported after (§2).
 		mutationFn: (mailbox: Mailbox) =>
-			window.confirm(
-				`Delete "${mailbox.name}"? On this account that deletes the messages in it.`,
-			)
-				? hub.invoke<boolean>("DeleteMailbox", mailbox.id)
-				: Promise.resolve(false),
-		onSuccess: refresh,
+			hub.invoke<boolean>("DeleteMailbox", mailbox.id),
+		onSuccess: async (messagesWentToo, mailbox) => {
+			// Reported after the fact as well as warned about before it, because the provider
+			// is the one that decides and the answer is not the same on every account.
+			notify(notifications, {
+				kind: "success",
+				title: `Deleted "${mailbox.name}"`,
+				detail: messagesWentToo
+					? "Its messages were deleted with it."
+					: "Its messages are still in All Mail.",
+			});
+
+			if (mailbox.id === selectedMailboxId) {
+				store.setState("selectedMailboxId", null);
+			}
+
+			await refresh();
+		},
+		onError: reportFailure("The folder could not be deleted"),
 	});
 
 	const mailboxes = useQuery({
@@ -73,31 +113,51 @@ export function MailboxTree({
 		queryFn: () => hub.invoke<Mailbox[]>("GetMailboxes", accountId),
 	});
 
+	// Fetched alongside the tree rather than when the confirmation opens: a dialog that has to
+	// wait for a round trip before it can say what deleting does would either flash the wrong
+	// wording or block on the network at the moment the user is deciding.
+	const capabilities = useQuery({
+		queryKey: queryKeys.accountCapabilities(accountId),
+		queryFn: () =>
+			hub.invoke<Capabilities>("GetAccountCapabilities", accountId),
+	});
+
 	if (mailboxes.isPending) return <SkeletonText paragraph lineCount={5} />;
 	if (mailboxes.isError) return <p>Could not load mailboxes.</p>;
+
+	const children = (parentId: string | null) =>
+		mailboxes.data.filter((mailbox) => (mailbox.parentId ?? null) === parentId);
+
+	const renderLevel = (parentId: string | null, depth: number) => (
+		<ul>
+			{children(parentId).map((mailbox) => (
+				<li key={mailbox.id}>
+					<button
+						type="button"
+						className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
+						style={{
+							paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
+						}}
+						aria-current={mailbox.id === selectedMailboxId}
+						onClick={() => store.setState("selectedMailboxId", mailbox.id)}
+						onContextMenu={(event) => {
+							event.preventDefault();
+							setMenu({ x: event.clientX, y: event.clientY, mailbox });
+						}}
+					>
+						<span>{mailbox.name}</span>
+						<span className={styles.count}>{describeCount(mailbox)}</span>
+					</button>
+					{renderLevel(mailbox.id, depth + 1)}
+				</li>
+			))}
+		</ul>
+	);
 
 	return (
 		<>
 			<nav className={styles.tree} aria-label="Mailboxes">
-				<ul>
-					{mailboxes.data.map((mailbox) => (
-						<li key={mailbox.id}>
-							<button
-								type="button"
-								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
-								aria-current={mailbox.id === selectedMailboxId}
-								onClick={() => store.setState("selectedMailboxId", mailbox.id)}
-								onContextMenu={(event) => {
-									event.preventDefault();
-									setMenu({ x: event.clientX, y: event.clientY, mailbox });
-								}}
-							>
-								<span>{mailbox.name}</span>
-								<span className={styles.count}>{describeCount(mailbox)}</span>
-							</button>
-						</li>
-					))}
-				</ul>
+				{renderLevel(null, 0)}
 			</nav>
 			{menu ? (
 				<MessageContextMenu
@@ -108,21 +168,82 @@ export function MailboxTree({
 					actions={[
 						{
 							label: "New subfolder",
-							run: () => create.mutate(menu.mailbox.id),
+							run: () => setDialog({ kind: "create", parent: menu.mailbox }),
 						},
-						{ label: "New folder", run: () => create.mutate(null) },
+						{
+							label: "New folder",
+							run: () => setDialog({ kind: "create", parent: null }),
+						},
 						{ label: "-", run: () => undefined },
-						{ label: "Rename", run: () => rename.mutate(menu.mailbox) },
+						{
+							label: "Rename",
+							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
+						},
 						{
 							label: "Delete",
-							run: () => remove.mutate(menu.mailbox),
+							run: () => setDialog({ kind: "delete", mailbox: menu.mailbox }),
 							danger: true,
 						},
 					]}
 				/>
 			) : null}
+			{dialog?.kind === "create" ? (
+				<FolderNameModal
+					heading={
+						dialog.parent ? `New folder in ${dialog.parent.name}` : "New folder"
+					}
+					label="Folder name"
+					primaryLabel="Create"
+					onSubmit={(name) =>
+						create.mutate({ name, parentId: dialog.parent?.id ?? null })
+					}
+					onClose={close}
+				/>
+			) : null}
+			{dialog?.kind === "rename" ? (
+				<FolderNameModal
+					key={dialog.mailbox.id}
+					heading={`Rename ${dialog.mailbox.name}`}
+					label="Folder name"
+					initialName={dialog.mailbox.name}
+					primaryLabel="Rename"
+					onSubmit={(name) => rename.mutate({ id: dialog.mailbox.id, name })}
+					onClose={close}
+				/>
+			) : null}
+			{dialog?.kind === "delete" ? (
+				<Modal
+					open
+					danger
+					modalHeading={`Delete "${dialog.mailbox.name}"?`}
+					primaryButtonText="Delete"
+					secondaryButtonText="Cancel"
+					onRequestSubmit={() => remove.mutate(dialog.mailbox)}
+					onRequestClose={close}
+					onSecondarySubmit={close}
+				>
+					<p>{describeDeletion(capabilities.data)}</p>
+				</Modal>
+			) : null}
 		</>
 	);
+}
+
+/**
+ * What deleting this folder will do, according to the provider.
+ *
+ * Deleting an IMAP or Graph folder destroys the mail inside it; deleting a Gmail label does
+ * not. Until the answer is known the wording commits to neither — a confirmation that
+ * guesses is worse than one that waits, because the user acts on it (§2).
+ */
+function describeDeletion(capabilities: Capabilities | undefined): string {
+	if (capabilities === undefined) {
+		return "Checking what this will do to the messages in it…";
+	}
+
+	return capabilities.deletingMailboxDeletesMessages
+		? "The messages in this folder will be deleted with it. This cannot be undone."
+		: "This removes the label. Its messages stay in All Mail.";
 }
 
 /**

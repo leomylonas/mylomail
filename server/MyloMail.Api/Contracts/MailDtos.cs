@@ -100,6 +100,17 @@ public record SaveDraftRequest(
 	string BodyHtml
 );
 
+/// <summary>
+/// What this account's provider actually does, where the UI has to say so before acting.
+/// </summary>
+/// <remarks>
+/// Capabilities, not settings: nothing here is the user's to change. It is separate from
+/// <see cref="AccountSettingsDto"/> for that reason — a settings screen that could write
+/// these would be claiming to change what the provider does (§1, §2).
+/// </remarks>
+[TranspilationSource]
+public record AccountCapabilitiesDto(Guid AccountId, bool DeletingMailboxDeletesMessages);
+
 /// <summary>The per-account settings a user can change (§1).</summary>
 [TranspilationSource]
 public record AccountSettingsDto(

@@ -15,6 +15,8 @@ import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.
 /** Query keys, in one place so an event and the query it invalidates cannot drift apart. */
 export const queryKeys = {
 	mailboxes: (accountId: string) => ["mailboxes", accountId] as const,
+	accountCapabilities: (accountId: string) =>
+		["account-capabilities", accountId] as const,
 	messages: (mailboxId: string) => ["messages", mailboxId] as const,
 	pending: (accountId: string) => ["pending", accountId] as const,
 	search: (accountId: string, query: string, mailboxId: string | null) =>

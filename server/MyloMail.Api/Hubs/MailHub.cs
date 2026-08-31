@@ -6,6 +6,7 @@ using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using TypedSignalR.Client;
@@ -55,6 +56,8 @@ public interface IMailHub
 
 	Task<bool> DeleteMailbox(Guid mailboxId);
 
+	Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId);
+
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
 
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
@@ -69,7 +72,8 @@ public class MailHub(
 	MutationQueue mutations,
 	MessageSearch search,
 	DraftService drafts,
-	MailboxManagement mailboxes
+	MailboxManagement mailboxes,
+	IMailProviderFactory providers
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -228,6 +232,23 @@ public class MailHub(
 
 	/// <summary>Returns whether the messages went with the folder, which differs by provider (§2).</summary>
 	public Task<bool> DeleteMailbox(Guid mailboxId) => mailboxes.DeleteAsync(mailboxId);
+
+	/// <summary>
+	/// What the provider does, for the questions the UI has to ask before acting.
+	/// </summary>
+	/// <remarks>
+	/// Deleting an IMAP or Graph folder destroys the mail in it; deleting a Gmail label
+	/// leaves the messages in All Mail. A confirmation worded for one is wrong for the other,
+	/// so the UI asks rather than assuming (§2).
+	/// </remarks>
+	public async Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId)
+	{
+		var account = await context.Accounts.FirstAsync(a => a.Id == accountId);
+		return new AccountCapabilitiesDto(
+			accountId,
+			providers.For(account).Capabilities.DeletingMailboxDeletesMessages
+		);
+	}
 
 	/// <summary>
 	/// Updates the settings a user can change.

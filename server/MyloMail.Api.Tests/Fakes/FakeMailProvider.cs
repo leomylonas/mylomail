@@ -126,22 +126,22 @@ public sealed class FakeMailProvider : IMailProvider
 
 	public Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct)
 	{
-		IReadOnlyList<MailboxDto> result =
-		[
-			.. mailboxes.Values.Select(m => new MailboxDto
-			{
-				ProviderMailboxId = m.ProviderMailboxId,
-				Name = m.ProviderMailboxId,
-				SpecialUse = m.SpecialUse,
-				IsSubscribed = true,
-				TotalCount = Capabilities.ReportsMailboxCounts ? m.Messages.Count : null,
-				UnreadCount = Capabilities.ReportsMailboxCounts
-					? m.Messages.Values.Count(x => !x.IsRead)
-					: null,
-			}),
-		];
+		IReadOnlyList<MailboxDto> result = [.. mailboxes.Values.Select(Describe)];
 		return Task.FromResult(result);
 	}
+
+	private MailboxDto Describe(FakeMailbox mailbox) =>
+		new()
+		{
+			ProviderMailboxId = mailbox.ProviderMailboxId,
+			Name = mailbox.ProviderMailboxId,
+			SpecialUse = mailbox.SpecialUse,
+			IsSubscribed = true,
+			TotalCount = Capabilities.ReportsMailboxCounts ? mailbox.Messages.Count : null,
+			UnreadCount = Capabilities.ReportsMailboxCounts
+				? mailbox.Messages.Values.Count(x => !x.IsRead)
+				: null,
+		};
 
 	public Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct) =>
 		Task.FromResult(Require(ProviderIdOf(mailbox)).Messages.Count);
@@ -462,7 +462,7 @@ public sealed class FakeMailProvider : IMailProvider
 		);
 	}
 
-	public Task RenameMailboxAsync(
+	public Task<MailboxDto> RenameMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		string newName,
@@ -471,16 +471,17 @@ public sealed class FakeMailProvider : IMailProvider
 	{
 		var existing = Require(ProviderIdOf(mailbox));
 		mailboxes.Remove(existing.ProviderMailboxId);
-		mailboxes[newName] = existing with { ProviderMailboxId = newName };
-		return Task.CompletedTask;
+		var renamed = existing with { ProviderMailboxId = newName };
+		mailboxes[newName] = renamed;
+		return Task.FromResult(Describe(renamed));
 	}
 
-	public Task MoveMailboxAsync(
+	public Task<MailboxDto> MoveMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		Mailbox? newParent,
 		CancellationToken ct
-	) => Task.CompletedTask;
+	) => Task.FromResult(Describe(Require(ProviderIdOf(mailbox))));
 
 	public Task DeleteMailboxAsync(Account account, Mailbox mailbox, CancellationToken ct)
 	{

@@ -35,10 +35,14 @@ public sealed partial class GraphMailProvider
 		CancellationToken ct
 	) => throw new NotSupportedException(NotThinStage);
 
-	public Task RenameMailboxAsync(Account account, Mailbox mailbox, string newName, CancellationToken ct) =>
-		throw new NotSupportedException(NotThinStage);
+	public Task<MailboxDto> RenameMailboxAsync(
+		Account account,
+		Mailbox mailbox,
+		string newName,
+		CancellationToken ct
+	) => throw new NotSupportedException(NotThinStage);
 
-	public Task MoveMailboxAsync(
+	public Task<MailboxDto> MoveMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		Mailbox? newParent,

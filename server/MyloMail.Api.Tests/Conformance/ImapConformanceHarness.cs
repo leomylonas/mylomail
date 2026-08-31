@@ -78,6 +78,9 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 
 	public IMailProvider Provider => provider;
 
+	/// <summary>How to reach the same server, for a test that builds its own provider.</summary>
+	public ImapConnectionSettings Settings => settings;
+
 	public Account Account { get; }
 
 	public Mailbox Source { get; }

@@ -3,6 +3,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 
 namespace MyloMail.Api.Sync;
 
@@ -49,12 +50,9 @@ public sealed class MailboxManagement(
 	public async Task RenameAsync(Guid mailboxId, string newName, CancellationToken ct = default)
 	{
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
+		var renamed = await providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct);
 
-		await providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct);
-
-		// A rename changes the folder's provider identity on IMAP, where the id is its full
-		// path. Reconciliation is what re-establishes the mapping; the local Guid is unchanged
-		// throughout, which is why queued work referring to this mailbox survives (§6).
+		await AdoptAsync(mailbox, renamed, ct);
 		await ReconcileAsync(account, ct);
 	}
 
@@ -65,7 +63,9 @@ public sealed class MailboxManagement(
 			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
 			: null;
 
-		await providers.For(account).MoveMailboxAsync(account, mailbox, parent, ct);
+		var moved = await providers.For(account).MoveMailboxAsync(account, mailbox, parent, ct);
+
+		await AdoptAsync(mailbox, moved, ct);
 		await ReconcileAsync(account, ct);
 	}
 
@@ -93,12 +93,62 @@ public sealed class MailboxManagement(
 		return provider.Capabilities.DeletingMailboxDeletesMessages;
 	}
 
+	/// <summary>
+	/// Carries the provider's new identity onto the existing local row, and onto everything
+	/// beneath it.
+	/// </summary>
+	/// <remarks>
+	/// Without this the following reconciliation sees the old provider id gone and a new
+	/// folder in its place: it deletes the local mailbox and creates another, and the Guid
+	/// that mutations, coverage state and cursors refer to is destroyed by a rename — the one
+	/// operation §6 says must not invalidate queued work. Descendants are remapped too,
+	/// because renaming an IMAP folder renames its whole subtree: their ids are paths that
+	/// begin with their ancestor's.
+	/// </remarks>
+	private async Task AdoptAsync(Mailbox mailbox, MailboxDto renamed, CancellationToken ct)
+	{
+		var oldId = mailbox.ProviderMailboxId;
+		mailbox.ProviderMailboxId = renamed.ProviderMailboxId;
+		mailbox.Name = renamed.Name;
+
+		if (mailbox.ImapMetadata is not null)
+		{
+			mailbox.ImapMetadata.FullName = renamed.ProviderMailboxId;
+		}
+
+		if (oldId is not null && renamed.ImapMetadata is { } metadata)
+		{
+			var delimiter = metadata.HierarchyDelimiter;
+			var prefix = oldId + delimiter;
+
+			var descendants = await context
+				.Mailboxes.Include(m => m.ImapMetadata)
+				.Where(m => m.AccountId == mailbox.AccountId && m.ProviderMailboxId!.StartsWith(prefix))
+				.ToListAsync(ct);
+
+			foreach (var descendant in descendants)
+			{
+				descendant.ProviderMailboxId =
+					renamed.ProviderMailboxId + descendant.ProviderMailboxId![oldId.Length..];
+
+				if (descendant.ImapMetadata is not null)
+				{
+					descendant.ImapMetadata.FullName = descendant.ProviderMailboxId;
+				}
+			}
+		}
+
+		await context.SaveChangesAsync(ct);
+	}
+
 	private async Task<(Account Account, Mailbox Mailbox)> ResolveAsync(
 		Guid mailboxId,
 		CancellationToken ct
 	)
 	{
-		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId, ct);
+		var mailbox = await context
+			.Mailboxes.Include(m => m.ImapMetadata)
+			.FirstAsync(m => m.Id == mailboxId, ct);
 		var account = await context.Accounts.FirstAsync(a => a.Id == mailbox.AccountId, ct);
 		return (account, mailbox);
 	}

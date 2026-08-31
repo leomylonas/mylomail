@@ -26,7 +26,14 @@ public sealed class TopologySyncService(
 	public async Task<TopologyChange> ReconcileAsync(Account account, CancellationToken ct = default)
 	{
 		var reported = await providers.For(account).ListMailboxesAsync(account, ct);
-		var existing = await context.Mailboxes.Where(m => m.AccountId == account.Id).ToListAsync(ct);
+		// The metadata comes with them. Without it every existing mailbox looks as though it
+		// has none, so reconciliation attaches a second row and the save fails on the unique
+		// key — which is every reconciliation after the first on an IMAP account, and so is
+		// every folder created, renamed or deleted from the sidebar.
+		var existing = await context
+			.Mailboxes.Include(m => m.ImapMetadata)
+			.Where(m => m.AccountId == account.Id)
+			.ToListAsync(ct);
 
 		var byProviderId = existing
 			.Where(m => m.ProviderMailboxId is not null)

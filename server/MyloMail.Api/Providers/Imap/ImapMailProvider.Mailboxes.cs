@@ -1,4 +1,5 @@
 using MailKit;
+using MailKit.Net.Imap;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
 
@@ -52,7 +53,7 @@ public sealed partial class ImapMailProvider
 		};
 	}
 
-	public async Task RenameMailboxAsync(
+	public async Task<MailboxDto> RenameMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		string newName,
@@ -67,9 +68,12 @@ public sealed partial class ImapMailProvider
 		// top-level folder has no parent folder object, so the namespace root stands in.
 		var parent = folder.ParentFolder ?? client.GetFolder(client.PersonalNamespaces[0]);
 		await folder.RenameAsync(parent, newName, ct);
+
+		// MailKit updates the folder object in place, so this is the server's new full name.
+		return Describe(client, folder);
 	}
 
-	public async Task MoveMailboxAsync(
+	public async Task<MailboxDto> MoveMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		Mailbox? newParent,
@@ -89,7 +93,24 @@ public sealed partial class ImapMailProvider
 		// IMAP has no move: a rename to a different parent is the move, and the folder's
 		// full name changes as a result — which is why local identity is a Guid and not a path.
 		await folder.RenameAsync(destination, folder.Name, ct);
+		return Describe(client, folder);
 	}
+
+	/// <summary>The folder as the server now names it.</summary>
+	private static MailboxDto Describe(ImapClient client, IMailFolder folder) =>
+		new()
+		{
+			ProviderMailboxId = folder.FullName,
+			Name = folder.Name,
+			ParentProviderMailboxId =
+				folder.ParentFolder is { FullName: { Length: > 0 } parentName } ? parentName : null,
+			IsSubscribed = folder.IsSubscribed,
+			ImapMetadata = new ImapMailboxMetadataDto(
+				folder.FullName,
+				folder.DirectorySeparator.ToString(),
+				client.PersonalNamespaces[0].Path is { Length: > 0 } prefix ? prefix : null
+			),
+		};
 
 	/// <summary>
 	/// Deletes a folder, and with it every message in it.

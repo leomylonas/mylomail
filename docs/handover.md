@@ -14,6 +14,25 @@
 - Server-side drafts are implemented for IMAP, which removed the last provider stub. An update
   is an append followed by an expunge of the old copy, in that order — the reverse loses the
   draft if the append fails.
+- **Folder management works from the sidebar** — create, rename, delete, with the tree nested
+  by parent. Three bugs were behind it, none visible to the unit suite:
+  - `window.prompt` **throws** in Electron ("prompt() is not supported"), so create and rename
+    did nothing at all in the packaged app while working in a browser. Both now use a Carbon
+    modal. The folder mutations also had no error path, so a failure was indistinguishable
+    from a click being ignored; failures now surface as notifications.
+  - `TopologySyncService` loaded existing mailboxes **without** their `ImapMetadata`, so every
+    reconciliation after the first attached a second metadata row and failed on the unique
+    key. That is every folder operation on an IMAP account, and every topology poll after the
+    first.
+  - A rename **destroyed local mailbox identity**: an IMAP folder's provider id is its full
+    path, so reconciliation saw the old id vanish and created a new row. §6 requires a rename
+    to leave queued work valid, and only deletion to invalidate it. `RenameMailboxAsync` and
+    `MoveMailboxAsync` now return the folder as the server names it, and `MailboxManagement`
+    carries that onto the existing row — and onto descendants, whose paths begin with their
+    ancestor's.
+- The delete confirmation states what the provider actually does, read from
+  `GetAccountCapabilities` rather than assumed: IMAP and Graph destroy the messages, Gmail
+  leaves them in All Mail.
 - **Message identity is now scoped to a mailbox.** `MessageIngestor` matched occurrences on
   `ProviderOccurrenceId` alone; an IMAP UID is unique only within a folder, so a draft holding
   UID 2 merged with the unrelated inbox message holding UID 2 — the unrecoverable direction of
@@ -44,7 +63,17 @@
    on a feature that does not exist yet, rather than on wiring. `IMailClient` declares all of them so none is orphaned,
    but only `SyncProgress` has a producer wired. `IHubEvents` is the seam — services depend on
    it, not on SignalR, so they stay testable.
-5. **Inline images do not render — unresolved.** `cid:` references survive sanitisation and
+5. **Attachments are not implemented — the next task, and untouched.** `Attachment` rows are
+   parsed at ingest and `HasNonInlineAttachments` reaches the message list, and that is the
+   whole of it: no way to see, open or save one, and no way to add one to a message being
+   composed. §9 specifies the receiving half in detail — extraction to
+   `<DataDirectory>/tmp/attachments/<guid>/<filename>`, `0700`/`0600` set at creation, the
+   executable bit never set, MIME filenames sanitised as untrusted input before any
+   filesystem use, an explicit confirmation before opening anything that can run code, and a
+   sweep of that directory at startup. The sending half needs somewhere to hold a draft's
+   attachment bytes before send: `DraftAttachment` carries metadata only, and §1's
+   no-`AttachmentBlob` rule is about received mail, where raw MIME already holds the bytes.
+6. **Inline images do not render — unresolved.** `cid:` references survive sanitisation and
    should be rewritten to blob URLs by `resolveInlineImages`, but in the running app the
    rewrite never completes. What is ruled out: the rewrite logic (unit-tested with a stub
    fetch), the part endpoint (verified by hand — 200, correct content type and length, under
@@ -56,7 +85,7 @@
    through the console or a compound `page.evaluate` cost a full run and produced ambiguity.
    The e2e asserts the current behaviour (`src` stays `cid:`) so it keeps guarding the
    security properties instead of being disabled.
-6. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
+7. **Remote drafts are not materialised locally.** The outbound half works — a draft saved
    here reaches the server — but a draft started on another device does not become a local
    `Draft`. The Drafts mailbox is correctly excluded from message materialisation, so it does
    not appear as mail either; it simply is not shown.
@@ -83,7 +112,11 @@ and encrypts fallback credentials in SQLite; it never persists the password.
 ## Verification
 
 - `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(125), vitest(35).
-- All four Playwright e2e specs pass against the local Dovecot matrix and the Mailpit sink.
+- Playwright e2e: the four earlier specs and the new `Mailboxes` spec pass individually; the
+  full suite in one run has not been re-run since the mailbox work landed.
+- `ImapLiveMailboxTests` drives folder lifecycle against Dovecot. Both fixes above were
+  checked to fail with that fix reverted. It is `Category=Conformance,Deep`, so it needs
+  `pnpm imap:up` and `TEST_IMAP_QRESYNC_HOST`/`PORT`.
   The identity bug above was found by that suite and by nothing else: it appeared only when
   specs ran in order, because it needed a leftover draft on the server to collide with.
 - `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation testing.
