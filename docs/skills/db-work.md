@@ -37,5 +37,17 @@ variable-length fractional seconds, so it does not sort lexicographically. Where
 comparison has to happen inside a statement, compare-and-swap on a value already read
 instead — see `MutationClaimService`.
 
+**An FTS5 external-content index is updated by handing SQLite the OLD column values.** They
+are how it finds the terms to remove. Passing the new ones deletes terms that were never
+indexed, and the mismatch surfaces as `database disk image is malformed` on some later,
+unrelated write — nowhere near the cause, and looking nothing like a logic error. Snapshot
+the row before changing it. `INSERT INTO "MessageSearchIndex"("MessageSearchIndex") VALUES
+('integrity-check')` asks FTS5 to verify itself, and `TestDatabase` runs it on disposal so a
+mismatch fails the test that caused it.
+
+**Deleting a `Message` is restricted while its search content exists.** Cascading would
+remove the row the index mirrors and leave the terms behind — searchable, pointing at
+nothing. Tombstone collection removes it from the index first (§6, §8).
+
 **Pass a `Guid` as a `Guid`, never as a string.** The driver writes it upper-case, and
 `Guid.ToString()` is lower-case, so a hand-built string parameter silently matches nothing.

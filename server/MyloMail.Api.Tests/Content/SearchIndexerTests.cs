@@ -24,6 +24,7 @@ public sealed class SearchIndexerTests
 		Assert.Equal(1, await harness.MatchCountAsync("Subject:Quarterly"));
 		Assert.Equal(1, await harness.MatchCountAsync("FromAddresses:alice"));
 		Assert.Equal(0, await harness.MatchCountAsync("Subject:numbers"));
+		await harness.AssertIndexIsIntactAsync();
 	}
 
 	/// <summary>
@@ -49,6 +50,10 @@ public sealed class SearchIndexerTests
 
 		// One content row, not two: this is an update, not an append.
 		Assert.Equal(1, await harness.ContentRowCountAsync());
+
+		// The authoritative check: FTS5 comparing its index against its content table. It
+		// catches a mismatch where it is created, rather than on some later write.
+		await harness.AssertIndexIsIntactAsync();
 	}
 
 	/// <summary>Removing a message removes its terms, or search returns hits pointing at nothing.</summary>
@@ -61,6 +66,39 @@ public sealed class SearchIndexerTests
 
 		Assert.Equal(0, await harness.MatchCountAsync("vanish"));
 		Assert.Equal(0, await harness.ContentRowCountAsync());
+	}
+
+	/// <summary>
+	/// A message cannot be deleted while it is still indexed.
+	/// </summary>
+	/// <remarks>
+	/// The database refuses it. Deleting the content row without first removing the terms it
+	/// mirrors leaves the index describing a row that no longer exists — searchable, and
+	/// pointing at nothing — and FTS5 reports the mismatch as corruption on some later,
+	/// unrelated write. Making it a foreign-key rule means tombstone collection cannot
+	/// forget the ordering rather than merely being told not to (§6, §8).
+	/// </remarks>
+	[Fact]
+	public async Task A_message_cannot_be_deleted_while_it_is_still_indexed()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Doomed", "about to vanish", "alice@example.org");
+
+		await Assert.ThrowsAsync<DbUpdateException>(harness.DeleteMessageRowAsync);
+	}
+
+	/// <summary>Removing it from the index first is what makes deletion possible.</summary>
+	[Fact]
+	public async Task Removing_from_the_index_first_allows_the_message_to_be_deleted()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Doomed", "about to vanish", "alice@example.org");
+
+		await harness.RemoveAsync();
+		await harness.DeleteMessageRowAsync();
+
+		Assert.Equal(0, await harness.MatchCountAsync("vanish"));
+		await harness.AssertIndexIsIntactAsync();
 	}
 
 	private sealed class IndexHarness : IAsyncDisposable
@@ -145,6 +183,32 @@ public sealed class SearchIndexerTests
 			command.Parameters.Add(parameter);
 
 			return Convert.ToInt32(await command.ExecuteScalarAsync());
+		}
+
+		/// <summary>Deletes the message the way any other code would, without touching the index.</summary>
+		public async Task DeleteMessageRowAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync(m => m.Id == MessageId);
+			context.Messages.Remove(message);
+			await context.SaveChangesAsync();
+		}
+
+		/// <summary>
+		/// Asks FTS5 whether its index still matches its content table.
+		/// </summary>
+		/// <remarks>
+		/// The authoritative check, and the only one that catches a mismatch at the moment it
+		/// is created rather than on some unrelated write much later.
+		/// </remarks>
+		public async Task AssertIndexIsIntactAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context.Database.ExecuteSqlRawAsync(
+				"INSERT INTO \"MessageSearchIndex\"(\"MessageSearchIndex\") VALUES ('integrity-check');"
+			);
 		}
 
 		public async Task<int> ContentRowCountAsync()

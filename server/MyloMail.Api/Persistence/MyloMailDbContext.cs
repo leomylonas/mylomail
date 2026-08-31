@@ -226,10 +226,15 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 			// require a stable integer rowid (§8).
 			e.HasKey(x => x.RowId);
 			e.Property(x => x.RowId).ValueGeneratedOnAdd();
+			// Restrict, not Cascade. The FTS5 index is external-content: deleting this row
+			// without first removing the terms it mirrors leaves the index describing a row
+			// that no longer exists, and SQLite reports that as corruption on some later,
+			// unrelated write. Restricting makes the ordering a database rule rather than
+			// something tombstone collection has to remember (§6, §8).
 			e.HasOne<Message>()
 				.WithMany()
 				.HasForeignKey(x => x.MessageId)
-				.OnDelete(DeleteBehavior.Cascade);
+				.OnDelete(DeleteBehavior.Restrict);
 			e.HasIndex(x => x.MessageId).IsUnique();
 		});
 	}
