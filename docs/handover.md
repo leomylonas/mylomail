@@ -112,8 +112,8 @@ and encrypts fallback credentials in SQLite; it never persists the password.
 ## Verification
 
 - `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(125), vitest(35).
-- Playwright e2e: the four earlier specs and the new `Mailboxes` spec pass individually; the
-  full suite in one run has not been re-run since the mailbox work landed.
+- Playwright e2e: all five specs, including the new `Mailboxes` spec, pass together in one
+  run against the local Dovecot matrix and the Mailpit sink.
 - `ImapLiveMailboxTests` drives folder lifecycle against Dovecot. Both fixes above were
   checked to fail with that fix reverted. It is `Category=Conformance,Deep`, so it needs
   `pnpm imap:up` and `TEST_IMAP_QRESYNC_HOST`/`PORT`.
