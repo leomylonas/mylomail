@@ -40,6 +40,12 @@ public interface IHubEvents
 
 	Task DraftUpdatedAsync(Guid draftId);
 
+	/// <summary>Raised only after a calendar event is durably created, updated or removed.</summary>
+	Task CalendarEventUpdatedAsync(Guid eventId);
+
+	/// <summary>Raised when the provider rejects an event update's revision precondition.</summary>
+	Task CalendarConflictDetectedAsync(Guid eventId);
+
 	Task AccountStatusChangedAsync(AccountDto account);
 }
 
@@ -70,6 +76,10 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task DraftUpdatedAsync(Guid draftId) => hub.Clients.All.DraftUpdated(draftId);
 
+	public Task CalendarEventUpdatedAsync(Guid eventId) => hub.Clients.All.CalendarEventUpdated(eventId);
+
+	public Task CalendarConflictDetectedAsync(Guid eventId) => hub.Clients.All.CalendarConflictDetected(eventId);
+
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
 }
 
@@ -95,6 +105,10 @@ public sealed class NoHubEvents : IHubEvents
 	public Task MessageDeletedAsync(Guid messageId) => Task.CompletedTask;
 
 	public Task DraftUpdatedAsync(Guid draftId) => Task.CompletedTask;
+
+	public Task CalendarEventUpdatedAsync(Guid eventId) => Task.CompletedTask;
+
+	public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 }

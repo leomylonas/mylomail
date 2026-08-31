@@ -136,6 +136,10 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public List<Guid> Drafts { get; } = [];
 
+	public List<Guid> CalendarEvents { get; } = [];
+
+	public List<Guid> CalendarConflicts { get; } = [];
+
 	public void Clear()
 	{
 		Received.Clear();
@@ -144,6 +148,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Mailboxes.Clear();
 		TreeChanges.Clear();
 		Drafts.Clear();
+		CalendarEvents.Clear();
+		CalendarConflicts.Clear();
 	}
 
 	public Task MessageReceivedAsync(MessageSummaryDto message)
@@ -161,6 +167,18 @@ internal sealed class RecordingHubEvents : IHubEvents
 	public Task DraftUpdatedAsync(Guid draftId)
 	{
 		Drafts.Add(draftId);
+		return Task.CompletedTask;
+	}
+
+	public Task CalendarEventUpdatedAsync(Guid eventId)
+	{
+		CalendarEvents.Add(eventId);
+		return Task.CompletedTask;
+	}
+
+	public Task CalendarConflictDetectedAsync(Guid eventId)
+	{
+		CalendarConflicts.Add(eventId);
 		return Task.CompletedTask;
 	}
 
