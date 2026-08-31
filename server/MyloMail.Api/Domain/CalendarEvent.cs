@@ -8,6 +8,12 @@ public class Calendar
 	public string Name { get; set; } = string.Empty;
 	public string? Colour { get; set; }
 	public bool IsDefault { get; set; }
+
+	/// <summary>
+	/// Opaque CalDAV sync token for this collection. It advances only in the same transaction
+	/// as the event page it covers; replaying a page is safe, skipping one is not.
+	/// </summary>
+	public string? SyncCursor { get; set; }
 }
 
 public class CalendarEvent
