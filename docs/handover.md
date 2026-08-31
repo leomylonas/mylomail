@@ -30,6 +30,10 @@ individual changes.
    contracts and `ICalendarProvider` exist, but there is no provider factory/implementation,
    sync state machine/job, hub CRUD/read surface, or renderer. Pick one provider path and
    implement a genuine thin slice; do not add a no-op provider or a second source of truth.
+
+   The agreed first path is CalDAV with HTTP Basic username/password. CalDAV and SMTP each
+   need an explicit choice between the account's primary IMAP credential and an independently
+   stored credential; reuse is a reference, never a copied password.
 3. **Finish event producers with their features.** Current producers exist for account status,
    mailbox tree/update, message received/updated, sync progress, outbox status and drafts.
    `ExportProgress`, `CalendarEventUpdated`, `CalendarConflictDetected`, and
