@@ -64,6 +64,9 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddMutations()
 			.AddSync()
 			.AddScheduling()
+			// Registered last so it wins: see RecordingJobClient for why a real Hangfire
+			// client must not be constructed in tests.
+			.AddSingleton<Hangfire.IBackgroundJobClient>(new Fakes.RecordingJobClient())
 			.BuildServiceProvider();
 
 	/// <summary>Simulates a hard kill and restart: new process, same database file.</summary>

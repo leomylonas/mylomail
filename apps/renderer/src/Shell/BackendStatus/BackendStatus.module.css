@@ -1,0 +1,11 @@
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 2rem;
+	font-family: system-ui, sans-serif;
+}
+
+.state {
+	font-weight: 600;
+}

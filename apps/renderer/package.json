@@ -1,5 +1,9 @@
 {
   "name": "@mylomail/renderer",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
 }

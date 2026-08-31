@@ -181,7 +181,9 @@ export default tseslint.config(
 	// names, so the same component ends up with several names across the codebase.
 	{
 		files: ["apps/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
-		ignores: ["**/*.config.{ts,js}", "**/index.ts"],
+		// Ambient module declarations are exempt: a CSS Module's default export is the
+		// bundler's contract, not ours to rename.
+		ignores: ["**/*.config.{ts,js}", "**/index.ts", "**/*.d.ts"],
 		rules: {
 			"no-restricted-syntax": [
 				"error",

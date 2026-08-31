@@ -8,6 +8,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
       "@mylomail/shared-types/*": ["./packages/shared-types/src/*"],
       "@mylomail/ui/*": ["./packages/ui/src/*"],

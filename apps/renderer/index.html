@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!--
+			Default-deny. This renderer will eventually display remote-authored message HTML,
+			so the policy is set now rather than retrofitted around whatever the app happens to
+			load by then. connect-src is loopback only: the backend is the sole thing the
+			renderer talks to, and a message must never be able to phone home.
+		-->
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src http://127.0.0.1:*"
+		/>
+		<title>MyloMail</title>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="/src/Main.tsx"></script>
+	</body>
+</html>

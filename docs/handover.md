@@ -21,9 +21,8 @@
    `Providers:Graph:ClientId`, and §5 records that distributing Gmail's secret in a desktop
    binary is unresolved. IMAP needs an `ImapProviderConfig` on the account plus a password
    stored under `MailProviderFactory.ImapPasswordFormat`.
-3. **Stage D.** Electron is not installed and the renderer is a stub. `startBackend`, the
-   health probe and the backend contract are all built and tested but nothing calls them from
-   an entry point.
+3. **Stage D proper** (§12, §13): panels, per-window state, Carbon, the registries. The shell
+   now launches and reaches the backend, so this builds on something that runs.
 
 ### Credential storage decision
 
