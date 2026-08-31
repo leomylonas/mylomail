@@ -341,6 +341,35 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.ToTable("ChangeStreamStates");
                 });
 
+            modelBuilder.Entity("MyloMail.Api.Domain.CredentialFallbackSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("Salt")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("VerifierCiphertext")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("VerifierNonce")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("VerifierTag")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CredentialFallbackSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_CredentialFallbackSettings_SingleRow", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("MyloMail.Api.Domain.Draft", b =>
                 {
                     b.Property<Guid>("Id")
@@ -396,6 +425,28 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.HasIndex("SendIdentityId");
 
                     b.ToTable("Drafts");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.EncryptedCredential", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("Ciphertext")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("Nonce")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("Tag")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("EncryptedCredentials");
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.ImapMailboxMetadata", b =>

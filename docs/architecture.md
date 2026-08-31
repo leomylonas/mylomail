@@ -530,8 +530,8 @@ public interface ICredentialStore
 - `CredentialStoreResolver` probes platform availability at startup and selects accordingly.
 - **Implementation boundary:** the .NET backend owns `ICredentialStore` and accesses native
   OS secret stores directly. Electron never receives or retains provider credentials; it
-  only presents master-password setup/unlock UI and sends that password over the already
-  authenticated loopback connection when the fallback store is active.
+  only presents master-password setup/unlock UI and supplies that password to a restarted
+  backend launch when the fallback store is active.
 - **Fallback: master-password store.** Where no OS keychain is available (a Linux system with no Secret Service provider running, most commonly), credentials are encrypted in SQLite under a key the user controls:
   - The user sets a master password; the encryption key is **derived** from it via Argon2id (or PBKDF2 with a high iteration count) using a stored random salt — the password is never the key directly, so a weak password isn't directly a weak key.
   - A verifier blob (a known value encrypted under the derived key) is stored so correctness can be checked at unlock without decrypting everything.
@@ -539,7 +539,10 @@ public interface ICredentialStore
   - Without a usable native store and without a supplied master password, startup exits with a
     dedicated recoverable code. Electron prompts, then restarts the backend with the
     per-launch password; the password is never persisted.
-  - **Behavioural consequence worth stating plainly**: with this store active, the app starts _locked_ and **no background sync, notification, or scheduled send can run until the user unlocks it**. This is a real, visible difference from keychain-backed operation and must be communicated in the UI, not discovered.
+  - **Behavioural consequence worth stating plainly**: with this store active, the backend
+    cannot start until the user has unlocked it, so no background sync, notification, or
+    scheduled send can run first. This is a real, visible difference from keychain-backed
+    operation and must be communicated in the UI, not discovered.
   - The user is told at setup that this path is weaker and less convenient than an OS keychain, with guidance on enabling one.
 - Retrieved only at point of use (auth/token refresh), never eagerly loaded with `Account`.
 - **`ImapProviderConfig` must carry SMTP settings.** An IMAP account cannot send over IMAP, and this was missing entirely: `ImapHost`, `ImapPort`, `ImapSecurity`, `SmtpHost`, `SmtpPort`, `SmtpSecurity`, `SmtpUsername` (which may differ from the IMAP username), and `SmtpAuthMethod`. SMTP credentials may be separate from IMAP credentials and are stored as such.

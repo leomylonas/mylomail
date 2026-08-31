@@ -2,27 +2,26 @@
 
 ## Completed
 
-- Ambiguous mutation reconciliation is implemented. Dispatched attempts reconcile provider-observed location/existence before moves, membership removals, trashing, and permanent deletes are completed or requeued; idempotent flag updates requeue safely.
-- Periodic degraded-IMAP integrity reconciliation is implemented as a distinct self-scheduling job. It compares UID membership despite a valid cursor; Basic IMAP also scans flags. It never resets a change cursor.
-- IMAP implements `GetMailboxIntegritySnapshotAsync`; fakes cover it; Gmail and Graph explicitly reject it because their streams express the required facts.
-- Added crash-window recovery and IMAP integrity tests. Independent invariant review found no violations.
+- Ambiguous mutation reconciliation and periodic degraded-IMAP integrity reconciliation are implemented and verified.
+- The backend production credential store probes Windows DPAPI, macOS Keychain Services, or Linux Secret Service using a temporary native credential. It selects a usable native store rather than inferring availability from the OS.
+- If no native store is usable, `MYLOMAIL_MASTER_PASSWORD` enables the encrypted SQLite fallback. It uses PBKDF2-SHA256 (600,000 iterations), a random salt, an AES-GCM verifier, and per-credential AES-GCM ciphertext. Passwords and provider credentials are never stored in plaintext.
+- If neither native storage nor a master password is available (or the password is wrong), startup exits with code `78` before scheduling work. Electron can use that code to prompt, then restart the backend with the per-launch password.
+- Independent invariant review of the credential fallback and persistence changes found no architectural violations.
 
 ## Next task
 
-Before Stage D, make the app runnable:
+Before Stage D, complete the remaining runnable-app wiring:
 
-1. Add a production `ICredentialStore`; do not register the in-memory test store.
-2. Register it with `MailProviderFactory` so real provider construction is possible.
-3. Map API controllers in `Program.cs`.
-4. Apply the per-launch token middleware from architecture §9.
-5. Verify the backend starts and Electron can poll `/health` using the launch token.
+1. Register provider-specific OAuth/client configuration so `MailProviderFactory` can construct real providers.
+2. Implement Electron child-process startup: initial normal launch, code-78 handling, password prompt, and restarted launch with `MYLOMAIL_MASTER_PASSWORD`.
+3. Verify Electron polls `/health` with its per-launch bearer token in both native-store and fallback starts.
 
 ### Credential storage decision
 
 The .NET backend owns `ICredentialStore` and accesses Windows DPAPI, macOS Keychain Services,
 or Linux Secret Service/libsecret directly. Electron never accesses provider credentials; it
-only presents master-password setup/unlock UI and sends the password over the authenticated
-loopback connection when the encrypted SQLite fallback is active.
+only presents master-password setup/unlock UI and supplies the password only to the restarted
+backend launch when the encrypted SQLite fallback is active.
 
 If no native store is usable, a backend launch without a master password exits with a dedicated
 recoverable code. Electron catches it, prompts for setup/unlock, and restarts the backend with
@@ -38,7 +37,7 @@ and encrypts fallback credentials in SQLite; it never persists the password.
 
 ## Verification
 
-- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(74), vitest.
+- `pnpm check` under Node 22: green — format, tsc, eslint, stylelint, build, tests(76), vitest.
 - `pnpm check:deep` under Node 22: green — conformance(60), fault-injection(21), mutation testing.
 - Mutation scope expanded with the new reconciliation services and integrity loop. The measured baseline is 47.23% (306 killed / 134 survived / 9 timeout), so `stryker-config.json` resets the ratchet to 47, just below that baseline. Raise it as survivors are killed.
 

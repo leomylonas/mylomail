@@ -11,6 +11,27 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 	private const string Service = "MyloMail";
 	private readonly string windowsDirectory = Path.Combine(dataDirectory, "credentials");
 
+	public static async Task<bool> IsAvailableAsync(string dataDirectory, CancellationToken ct)
+	{
+		var store = new NativeCredentialStore(dataDirectory);
+		var probeId = Guid.NewGuid();
+		try
+		{
+			await store.StoreAsync(probeId, new CredentialPayload("availability-probe", [1]), ct);
+			var result = await store.RetrieveAsync(probeId, ct);
+			return result is { Format: "availability-probe" };
+		}
+		catch (Exception) when (!ct.IsCancellationRequested)
+		{
+			return false;
+		}
+		finally
+		{
+			try { await store.DeleteAsync(probeId, CancellationToken.None); }
+			catch (Exception) { /* A failed probe must not make startup fail while cleaning up. */ }
+		}
+	}
+
 	public async Task StoreAsync(Guid accountId, CredentialPayload payload, CancellationToken ct)
 	{
 		var encoded = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(payload));

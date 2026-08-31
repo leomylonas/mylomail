@@ -5,5 +5,8 @@ public sealed class CredentialStoreUnavailableException : Exception
 {
 	public const int ExitCode = 78;
 	public CredentialStoreUnavailableException()
-		: base("No native credential store is available and no master password was supplied.") { }
+		: this("No native credential store is available and no master password was supplied.") { }
+
+	public CredentialStoreUnavailableException(string message, Exception? innerException = null)
+		: base(message, innerException) { }
 }

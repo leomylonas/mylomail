@@ -9,7 +9,9 @@ var builder = WebApplication.CreateBuilder(args);
 // can be read (§15).
 var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOverride);
 builder.Services.AddPersistence(dataDirectory);
-builder.Services.AddSingleton<ICredentialStore>(_ => new NativeCredentialStore(dataDirectory));
+builder.Services.AddSingleton<CredentialStoreSelector>(_ => new CredentialStoreSelector(dataDirectory));
+builder.Services.AddScoped<ICredentialStore>(provider =>
+	provider.GetRequiredService<CredentialStoreSelector>().Create(provider.GetRequiredService<MyloMailDbContext>()));
 builder.Services.AddMutations();
 builder.Services.AddSync();
 builder.Services.AddScheduling();
@@ -19,21 +21,21 @@ var app = builder.Build();
 app.UseLaunchToken();
 app.MapControllers();
 
-try
-{
-	_ = app.Services.GetRequiredService<ICredentialStore>();
-}
-catch (CredentialStoreUnavailableException)
-{
-	Environment.ExitCode = CredentialStoreUnavailableException.ExitCode;
-	return;
-}
-
 // Migration runs at startup, behind a VACUUM INTO backup, and surfaces failure rather than
 // retrying (§9).
 await using (var scope = app.Services.CreateAsyncScope())
 {
 	await scope.ServiceProvider.GetRequiredService<DatabaseBootstrapper>().MigrateAsync();
+	try
+	{
+		await scope.ServiceProvider.GetRequiredService<CredentialStoreSelector>()
+			.InitializeAsync(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(), CancellationToken.None);
+	}
+	catch (CredentialStoreUnavailableException)
+	{
+		Environment.ExitCode = CredentialStoreUnavailableException.ExitCode;
+		return;
+	}
 
 	// With in-memory job storage this is the sole recovery mechanism, not a safety net
 	// behind a durable queue (§6). It runs after migration and before any job can be

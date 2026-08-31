@@ -43,6 +43,8 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Calendar> Calendars => Set<Calendar>();
 	public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 	public DbSet<Domain.AppSettings> AppSettings => Set<Domain.AppSettings>();
+	public DbSet<CredentialFallbackSettings> CredentialFallbackSettings => Set<CredentialFallbackSettings>();
+	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -54,12 +56,28 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureMutations(model);
 		ConfigureComposition(model);
 		ConfigureCalendar(model);
+		ConfigureCredentialFallback(model);
 
 		model.Entity<Domain.AppSettings>(e =>
 		{
 			e.HasKey(x => x.Id);
 			e.Property(x => x.Id).ValueGeneratedNever();
 			e.ToTable(t => t.HasCheckConstraint("CK_AppSettings_SingleRow", "\"Id\" = 1"));
+		});
+	}
+
+	private static void ConfigureCredentialFallback(ModelBuilder model)
+	{
+		model.Entity<CredentialFallbackSettings>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.Property(x => x.Id).ValueGeneratedNever();
+			e.ToTable(t => t.HasCheckConstraint("CK_CredentialFallbackSettings_SingleRow", "\"Id\" = 1"));
+		});
+
+		model.Entity<EncryptedCredential>(e =>
+		{
+			e.HasKey(x => x.AccountId);
 		});
 	}
 
