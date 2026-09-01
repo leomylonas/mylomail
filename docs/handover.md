@@ -87,33 +87,53 @@ This is a snapshot of the current state, not a history; use Git for history.
   timing bug that would have silently dropped notifications for mail arriving during a resync's
   own catch-up window, and a coverage/replay race that could double-notify the same message —
   both fixed and covered by discrimination-checked regression tests, not just made to pass.
+- **Calendar renderer UI (Epic 7) is built** (`f9c8cf1`), hand-rolled rather than a library
+  (`react-big-calendar`/`FullCalendar` considered and rejected — explicit user decision). Month
+  grid (six full weeks, always) and a `@tanstack/react-virtual` agenda view share one
+  navigation/range state; `ContentSwitcher` toggles between them. Event create/edit go through a
+  Carbon `Modal` (`EventModal`) against `SaveCalendarEvent`/`DeleteCalendarEvent`, invalidating
+  broadly on `CalendarEventUpdated`/`CalendarConflictDetected` since neither event names its
+  calendar. Events with `SyncConflict` set get a visible outline plus an explanatory line in the
+  edit modal, per §15 (a rejected edit stays applied locally rather than being lost). Deliberate
+  empty state when no calendar exists yet, matching the collection-view convention. Accessibility:
+  the day cell is a plain `<div>`, not a button — the day-number and each event chip are their
+  own `<button>`s, since `jsx-a11y` forbids both a clickable div with no keyboard handler and
+  nested interactive elements. New deps `dayjs` and `@tanstack/react-virtual` were named in
+  `docs/skills/frontend-shell.md`'s stack list already but not actually installed until now.
+  Verified: `Calendar.e2e.ts` covers the empty state and view-switching against a real IMAP
+  account with no CalDAV configured; there is no HTTPS-capable CalDAV server in the local test
+  matrix (backend requires HTTPS for CalDAV Basic auth, `904908f`; Radicale is HTTP-only by
+  default and building a self-signed-cert trust path for it was judged disproportionate for this
+  pass), so full round-trip event CRUD against a real CalDAV server has not been visually
+  verified — only the API-level CalDAV tests exercise that path. This is a testing-infrastructure
+  gap, not a known UI bug.
 
 ## Next task
 
-1. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
-   colour-distinguished; event create/edit dialog against `SaveCalendarEvent`; a visible
-   conflict indicator wired to `CalendarConflictDetected` for events with `SyncConflict` set.
-   Agenda view must be virtualised per the epic's explicit requirement.
-2. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
+1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
    unsupplied per user request. They are deployment environment values and must never be
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
    `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`. The add-account form's
    disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
-3. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
+2. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
    (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); Epic 10
    multi-window (only one `BrowserWindow` exists today — the notification-click handler already
    broadcasts to every open window, which is the right shape once a second one can exist) and
    Epic 11 resizable layout (no `react-resizable-panels` dependency yet); print
    (`webContents.print`/`printToPDF`); the `mailto:` default-handler prompt
    (`app.setAsDefaultProtocolClient`).
-4. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
+3. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
    export/connectivity state before adding broadcasts.
-5. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
+4. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
    in place are both deferred in the CalDAV provider — see its class remarks for why.
-6. OS notification dispatch has not been verified against a real notification daemon — this
+5. OS notification dispatch has not been verified against a real notification daemon — this
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
+6. No HTTPS-capable CalDAV server exists in the local test matrix, so calendar-UI event CRUD has
+   only been verified at the API level, not visually end-to-end. Needs either a self-signed-cert
+   trust path for CalDAV (IMAP already has `CertificateTrustMode`; CalDAV doesn't) or a
+   real HTTPS CalDAV fixture.
 
 ## Read first
 
