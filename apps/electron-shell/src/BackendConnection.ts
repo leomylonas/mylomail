@@ -12,12 +12,18 @@ export const openAttachmentChannel = "attachment:open";
 export const showNotificationChannel = "notification:show";
 export const notificationClickedChannel = "notification:clicked";
 
-/** What the renderer hands the shell to show a native OS notification (§13 Epic 9). */
+/**
+ * What the renderer hands the shell to show a native OS notification (§13 Epic 9).
+ *
+ * `messageId` is null for one recorded from a still-staged, not-yet-replayed change-stream
+ * page — there is no local message to navigate to yet. The notification still shows; a click
+ * on it just cannot navigate anywhere until replay catches up (§3).
+ */
 export interface NotificationRequest {
 	id: string;
 	title: string;
 	body: string;
-	messageId: string;
+	messageId: string | null;
 }
 
 /**

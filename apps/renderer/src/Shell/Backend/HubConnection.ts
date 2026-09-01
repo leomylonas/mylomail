@@ -114,7 +114,7 @@ export function connectHub(
 		(notification: {
 			id: string;
 			accountId: string;
-			messageId: string;
+			messageId: string | null;
 			title: string;
 			body: string;
 		}) => {

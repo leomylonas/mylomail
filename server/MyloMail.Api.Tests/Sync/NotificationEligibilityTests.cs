@@ -149,12 +149,12 @@ public sealed class NotificationEligibilityTests
 	}
 
 	/// <summary>
-	/// Gmail's staged-and-replayed history is exactly the scenario the epoch/baseline split
-	/// exists for (§13 Epic 9): a message can be genuinely new mail even though its row is
-	/// materialised well after it arrived, by a replay rather than the original live page.
+	/// §3 states this outright: "otherwise live mail would go unnotified for the entire
+	/// backfill — potentially hours on a large account". A notification for genuinely new
+	/// mail must not wait for replay to catch up on a Gmail account still backfilling.
 	/// </summary>
 	[Fact]
-	public async Task A_message_replayed_from_staged_gmail_history_can_still_notify()
+	public async Task A_staged_arrival_notifies_immediately_without_waiting_for_replay()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
@@ -165,14 +165,66 @@ public sealed class NotificationEligibilityTests
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		await SyncTests.SyncAsync(harness);
 
+		// Notified from the staged page itself — replay has not run at all yet.
+		var notification = Assert.Single(harness.Events.Notifications);
+		Assert.Null(notification.MessageId);
+		await harness.UsingAsync(async scope =>
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().Messages.ToListAsync())
+		);
+
 		await SyncTests.CoverAsync(harness);
 		var replayed = await harness.UsingAsync(async scope =>
 			await scope
 				.GetRequiredService<ChangeStreamService>()
 				.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
 		);
-
 		Assert.True(replayed > 0);
-		Assert.NotEmpty(harness.Events.Notifications);
+
+		// Replay does not announce it a second time, and links the record to the row it just
+		// materialised so a later click can navigate straight to it.
+		Assert.Single(harness.Events.Notifications);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync();
+
+			var record = await context.NotificationRecords.SingleAsync(n => n.Id == notification.Id);
+			Assert.Equal(message.Id, record.MessageId);
+		});
+	}
+
+	/// <summary>
+	/// Coverage/backfill can materialise a message's canonical row independently of replay,
+	/// racing a still-unlinked staged notification for the same message — and once coverage
+	/// finishes, the very next sync page for it runs the ordinary (non-staged) path, which
+	/// must recognise that pending record rather than inserting a second one.
+	/// </summary>
+	[Fact]
+	public async Task A_message_backfilled_by_coverage_before_replay_still_notifies_once()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await SyncTests.SyncAsync(harness);
+		Assert.Single(harness.Events.Notifications);
+
+		// Coverage materialises the same message directly — replay has not run, so the
+		// pending notification recorded above is still keyed only by provider stable id.
+		await SyncTests.CoverAsync(harness);
+
+		// Coverage is now complete, so this page takes the ordinary path, not staging, and
+		// reports the same message again.
+		await SyncTests.SyncAsync(harness);
+
+		Assert.Single(harness.Events.Notifications);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync();
+			var record = await context.NotificationRecords.SingleAsync();
+			Assert.Equal(message.Id, record.MessageId);
+		});
 	}
 }

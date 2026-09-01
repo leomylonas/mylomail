@@ -192,10 +192,7 @@ public sealed class ChangeStreamService(
 		// would leave the UI showing something the database does not have.
 		//
 		// These are steady-state changes by construction — this is the change stream, not
-		// backfill — so a new message here is genuinely new mail (§7). Summaries are built
-		// from every message this page observed, not just what changed: an eligible
-		// notification can name a message this page found unchanged (§13 Epic 9), and
-		// AnnounceAsync needs its summary too.
+		// backfill — so a new message here is genuinely new mail (§7).
 		var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
 		foreach (var message in applied.Messages.Created)
@@ -208,7 +205,7 @@ public sealed class ChangeStreamService(
 			await events.MessageUpdatedAsync(summaries[message.Id]);
 		}
 
-		await notifications.AnnounceAsync(applied.EligibleNotifications, summaries);
+		await notifications.AnnounceAsync(applied.EligibleNotifications);
 
 		foreach (var draftId in applied.DraftIds)
 		{
@@ -222,23 +219,34 @@ public sealed class ChangeStreamService(
 		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
 		Dictionary<string, Mailbox> mailboxes,
 		GenerationSnapshot generations,
-		DateTimeOffset notificationBaseline,
+		DateTimeOffset? notificationBaseline,
 		CancellationToken ct
 	)
 	{
 		var ingested = await ingestor.IngestAsync(account, result.Upserted, mailboxes, generations, ct);
 
-		// Eligibility comes from this page reporting the message via the change stream, not
-		// from whether the ingestor happened to find an existing row: a message backfill
-		// already materialised is exactly the case §13 Epic 9 requires this to still catch.
-		// The durable per-(account, message, kind) record makes re-evaluating a message the
-		// stream reports again on some later page harmless rather than merely rare.
-		var eligibleNotifications = await notifications.RecordEligibleAsync(
-			account,
-			ingested.Observed,
-			notificationBaseline,
-			ct
-		);
+		// Links a staged-path notification (recorded before this row existed) to it now that
+		// canonical ingest has resolved it, regardless of which path resolved it first (§3).
+		var resolvedByProviderStableId = ingested
+			.Observed.Where(m => m.ProviderStableId is not null)
+			.ToDictionary(m => m.ProviderStableId!, m => m.Id);
+		await notifications.BackfillMessageIdsAsync(account.Id, resolvedByProviderStableId, ct);
+
+		// Null specifically means "this page was already evaluated while staged" (§3) —
+		// replay only links the notification recorded then to the row just resolved above,
+		// via the backfill; evaluating again here from row creation would double-notify,
+		// once under the provider's stable id and once under the now-known message id, since
+		// the two dedup on different keys.
+		//
+		// Otherwise, eligibility comes from this page reporting the message via the change
+		// stream, not from whether the ingestor happened to find an existing row: a message
+		// backfill already materialised is exactly the case §13 Epic 9 requires this to still
+		// catch. The durable per-(account, message, kind) record makes re-evaluating a
+		// message the stream reports again on some later page harmless rather than merely
+		// rare.
+		var eligibleNotifications = notificationBaseline is { } baseline
+			? await notifications.RecordEligibleAsync(account, ingested.Observed, baseline, ct)
+			: [];
 
 		var draftIds = new List<Guid>(
 			await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct)
@@ -292,6 +300,8 @@ public sealed class ChangeStreamService(
 		CancellationToken ct
 	)
 	{
+		IReadOnlyList<NotificationDto> eligibleNotifications = [];
+
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -324,9 +334,23 @@ public sealed class ChangeStreamService(
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
 
+			// Evaluated now, from the provider's own DTOs, rather than deferred behind
+			// canonical replay — otherwise live mail goes unnotified for the length of the
+			// backfill this page is staged behind, worst on a resync of an established
+			// mailbox (§3). There is no local message row yet, so this is keyed by the
+			// provider's own stable id and linked up once replay resolves it.
+			eligibleNotifications = await notifications.RecordEligibleFromStagedAsync(
+				account,
+				result.Upserted,
+				state.NotificationBaselineAt,
+				ct
+			);
+
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		await notifications.AnnounceAsync(eligibleNotifications);
 	}
 
 	/// <summary>
@@ -365,23 +389,16 @@ public sealed class ChangeStreamService(
 			{
 				await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-				// A fixed instant captured when this account-scoped stream was first created
-				// (or last resynchronised), not a transition this replay could ever observe
-				// happening — so it correctly excludes this account's pre-existing backlog
-				// regardless of how much later replay catches up (§13 Epic 9).
-				var state = await context.ChangeStreamStates.FirstOrDefaultAsync(
-					s => s.AccountId == account.Id && s.MailboxId == null,
-					ct
-				);
-				var notificationBaseline = state?.NotificationBaselineAt ?? DateTimeOffset.MaxValue;
-
+				// Eligibility for this page was already evaluated and announced while it was
+				// staged (§3); replay's own notification work is only the backfill inside
+				// ApplyContentAsync that links those records to the row it resolves here.
 				applied = await ApplyContentAsync(
 					account,
 					result,
 					remoteDrafts,
 					mailboxes,
 					generations,
-					notificationBaseline,
+					notificationBaseline: null,
 					ct
 				);
 				context.StagedChangeEvents.Remove(staged);
@@ -393,8 +410,7 @@ public sealed class ChangeStreamService(
 
 			// These are steady-state changes too — replayed live-stream history, not
 			// backfill — so a message reported here is genuinely new mail just as it is on
-			// the non-staged path (§7, §13 Epic 9). Summaries come from everything this page
-			// observed, since an eligible notification can name a message found unchanged.
+			// the non-staged path (§7).
 			var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
 			foreach (var message in applied.Messages.Created)
@@ -406,8 +422,6 @@ public sealed class ChangeStreamService(
 			{
 				await events.MessageUpdatedAsync(summaries[message.Id]);
 			}
-
-			await notifications.AnnounceAsync(applied.EligibleNotifications, summaries);
 
 			foreach (var draftId in applied.DraftIds)
 			{
@@ -561,5 +575,5 @@ public sealed record ChangeStreamOutcome(int Pages, bool Staged, bool ResyncTrig
 internal sealed record ContentApplyResult(
 	IngestResult Messages,
 	IReadOnlyList<Guid> DraftIds,
-	IReadOnlyList<NotificationRecord> EligibleNotifications
+	IReadOnlyList<NotificationDto> EligibleNotifications
 );

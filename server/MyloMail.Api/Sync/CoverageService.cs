@@ -27,6 +27,7 @@ public sealed class CoverageService(
 	TimeProvider clock,
 	IFaultInjector faults,
 	IHubEvents events,
+	Notifications.NotificationService notifications,
 	ILogger<CoverageService> logger
 )
 {
@@ -74,6 +75,17 @@ public sealed class CoverageService(
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
 			changedDraftIds = await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct);
+
+			// A message this page materialises may already have a pending, staged-path
+			// notification recorded under its provider stable id (§3) — backfill's own
+			// ingestion never raises one itself, but it can race a still-unreplayed staged
+			// arrival for the same message, and leaving that record unlinked here is exactly
+			// the gap that let a later ordinary sync page insert a duplicate for it.
+			var resolvedByProviderStableId = ingested
+				.Created.Concat(ingested.Updated)
+				.Where(m => m.ProviderStableId is not null)
+				.ToDictionary(m => m.ProviderStableId!, m => m.Id);
+			await notifications.BackfillMessageIdsAsync(account.Id, resolvedByProviderStableId, ct);
 
 			// Backfill raises no per-message events: this is a backlog the user already has,
 			// and announcing it would be the notification flood §13 Epic 9 rules out.

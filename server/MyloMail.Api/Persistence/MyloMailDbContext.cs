@@ -483,8 +483,19 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 			// One notification per message per kind, no matter how many times eligibility is
 			// evaluated for it — the unique constraint is what makes "insert, ignore a
-			// conflict" safe rather than merely usually-safe.
-			e.HasIndex(x => new { x.AccountId, x.MessageId, x.Kind }).IsUnique();
+			// conflict" safe rather than merely usually-safe. Filtered because a row recorded
+			// from staging has no message id yet, and SQLite's own NULL-is-distinct behaviour
+			// would otherwise let a filtered-out NULL slip past anyway — stated explicitly so
+			// it reads as a decision, not an oversight.
+			e.HasIndex(x => new { x.AccountId, x.MessageId, x.Kind })
+				.IsUnique()
+				.HasFilter("\"MessageId\" IS NOT NULL");
+
+			// The equivalent guard while a notification is still identified only by the
+			// provider's own stable id, before replay resolves it to a local message (§3).
+			e.HasIndex(x => new { x.AccountId, x.ProviderStableId, x.Kind })
+				.IsUnique()
+				.HasFilter("\"ProviderStableId\" IS NOT NULL");
 
 			// Redispatch-pending-at-startup scans this; ordering by DateTimeOffset in SQL
 			// does not work; SQLite Id ordering is bar the point here regardless (§8, §9).

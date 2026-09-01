@@ -317,7 +317,7 @@ export type NotificationDto = {
     /** Transpiled from System.Guid */
     accountId: string;
     /** Transpiled from System.Guid */
-    messageId: string;
+    messageId?: string;
     /** Transpiled from string */
     title: string;
     /** Transpiled from string */

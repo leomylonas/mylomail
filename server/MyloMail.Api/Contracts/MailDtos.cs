@@ -178,8 +178,13 @@ public record CalendarEventSummaryDto(
 /// One OS notification the shell owes the user (§13 Epic 9). Carries enough to render it
 /// without a round trip: the renderer relays this straight to the preload bridge.
 /// </summary>
+/// <remarks>
+/// <paramref name="MessageId"/> is null when this was recorded from a staged, not-yet-replayed
+/// change-stream page — the canonical row does not exist yet. Activating such a notification
+/// still works; per §3 it fetches the message on demand rather than the navigation failing.
+/// </remarks>
 [TranspilationSource]
-public record NotificationDto(Guid Id, Guid AccountId, Guid MessageId, string Title, string Body);
+public record NotificationDto(Guid Id, Guid AccountId, Guid? MessageId, string Title, string Body);
 
 /// <summary>What the calendar UI sends when it creates or edits an event.</summary>
 [TranspilationSource]

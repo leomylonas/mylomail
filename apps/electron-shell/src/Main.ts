@@ -121,7 +121,14 @@ export async function startShell(): Promise<void> {
 				if (window.isMinimized()) window.restore();
 				window.show();
 				window.focus();
-				window.webContents.send(notificationClickedChannel, request.messageId);
+				// Null when the message hasn't been replayed locally yet (§3): the window
+				// still comes to the front, there is just nothing to navigate to yet.
+				if (request.messageId !== null) {
+					window.webContents.send(
+						notificationClickedChannel,
+						request.messageId,
+					);
+				}
 			}
 		});
 		notification.show();
@@ -227,7 +234,7 @@ function isNotificationRequest(value: unknown): value is NotificationRequest {
 	const candidate = value as Record<string, unknown>;
 	return (
 		isGuid(candidate.id) &&
-		isGuid(candidate.messageId) &&
+		(candidate.messageId === null || isGuid(candidate.messageId)) &&
 		typeof candidate.title === "string" &&
 		typeof candidate.body === "string"
 	);

@@ -10,7 +10,7 @@ declare global {
 				id: string;
 				title: string;
 				body: string;
-				messageId: string;
+				messageId: string | null;
 			}): Promise<void>;
 			onClicked(callback: (messageId: string) => void): () => void;
 		};
