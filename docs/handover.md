@@ -65,18 +65,45 @@ This is a snapshot of the current state, not a history; use Git for history.
   the friendly "authentication failed" response `AccountsController` already renders for every
   other auth failure. This was reachable by any user before today, from the very first account
   they ever configured — it just had no UI path to trigger it until now (`ecb501f`).
+- **OS notifications (Epic 9) are built end to end**, backend and shell (`2bd1ab9`, `943c139`).
+  `Account.NotificationEpoch` (set once at creation) and
+  `ChangeStreamState.NotificationBaselineAt` (a fixed instant, captured at stream creation and
+  again immediately on a triggered resync — before that resync's own catch-up runs) gate
+  eligibility without depending on row creation: `MessageIngestor.IngestAsync` now also returns
+  every message a page's occurrences resolved to (`Observed`), not just what it created or
+  changed, so a message backfill already materialised is still eligible the moment the live
+  stream reports it again. `NotificationRecord` is the durable at-least-once dispatch record,
+  created in the same transaction as the messages it names, redispatched for anything
+  undelivered at startup. `electron-shell` owns the native `Notification` call; the renderer
+  only relays the hub's `NotificationReady` event to the preload bridge and confirms delivery
+  after the shell has actually shown it. An independent invariant review caught a real
+  resync-baseline-timing bug before this landed (fixed, and covered by a discrimination-checked
+  regression test using a clock that actually advances — a frozen one cannot tell "captured
+  before resync" apart from "captured after").
+  **Known remaining gap, called out explicitly rather than left implicit**: §3 states
+  notifications should be created by scanning the _staging queue_ directly, before canonical
+  replay runs — "otherwise live mail would go unnotified for the entire backfill... worst on a
+  triggered resync of an established mailbox." This implementation instead computes eligibility
+  at `ReplayStagedAsync` time, which _delays_ such a notification until replay catches up
+  rather than dropping it, but that can still be hours on a large account. Closing this
+  properly needs `NotificationRecord.MessageId` to become nullable (or gain a
+  provider-identity-keyed alternative), since the staged DTO has no canonical `Message` row
+  yet, plus the "fetch on demand" navigation the doc describes for a notification clicked
+  before its message is materialised. This is real, scoped work, not a quick follow-up — see
+  the next task list.
+  Also fixed a real pre-existing gap while wiring this: `ChangeStreamService.ReplayStagedAsync`
+  previously fired no `MessageReceived`/`MessageUpdated` events at all for Gmail's replayed
+  staged history, which this epic's eligibility model needed closed.
 
 ## Next task
 
-1. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
+1. **Close the staged-notification gap (§3, §13 Epic 9)**, described just above — the one
+   correctness gap knowingly shipped in this pass. Scan `StagedChangeEvents` for arrivals and
+   create `NotificationRecord`s from the staged payload before replay, not at replay time.
+2. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
    colour-distinguished; event create/edit dialog against `SaveCalendarEvent`; a visible
    conflict indicator wired to `CalendarConflictDetected` for events with `SyncConflict` set.
    Agenda view must be virtualised per the epic's explicit requirement.
-2. **OS notifications (Epic 9).** Entirely unbuilt on both ends — no `NotificationEpoch`/stream
-   baseline tracking, no durable `(AccountId, MessageId, NotificationKind)` record, no OS
-   `Notification` dispatch from `electron-shell`. The design is fully worked out in §13 Epic 9
-   (notification epoch vs. stream baseline is the subtle part — read it before starting, the
-   epoch must be captured _before_ resynchronisation begins on cursor invalidation, never after).
 3. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
    unsupplied per user request. They are deployment environment values and must never be
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
@@ -84,13 +111,19 @@ This is a snapshot of the current state, not a history; use Git for history.
    disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
 4. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
    (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); Epic 10
-   multi-window (only one `BrowserWindow` exists today) and Epic 11 resizable layout (no
-   `react-resizable-panels` dependency yet); print (`webContents.print`/`printToPDF`); the
-   `mailto:` default-handler prompt (`app.setAsDefaultProtocolClient`).
+   multi-window (only one `BrowserWindow` exists today — the notification-click handler already
+   broadcasts to every open window, which is the right shape once a second one can exist) and
+   Epic 11 resizable layout (no `react-resizable-panels` dependency yet); print
+   (`webContents.print`/`printToPDF`); the `mailto:` default-handler prompt
+   (`app.setAsDefaultProtocolClient`).
 5. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
    export/connectivity state before adding broadcasts.
 6. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
    in place are both deferred in the CalDAV provider — see its class remarks for why.
+7. OS notification dispatch has not been verified against a real notification daemon — this
+   container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
+   The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
+   clean, but a manual check on a real desktop is still worth doing before calling this done.
 
 ## Read first
 
