@@ -11,6 +11,10 @@
 		<PackageReference Include="Microsoft.Graph" Version="6.5.0" />
 		<PackageReference Include="Microsoft.Identity.Client" Version="4.88.0" />
 		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
+		<PackageReference Include="Tmds.DBus.Generator" Version="0.95.0">
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+		<PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
 		<PackageReference Include="TypedSignalR.Client.TypeScript.Attributes" Version="1.17.0" />
 		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
 		<PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
@@ -19,5 +23,8 @@
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="MyloMail.Api.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<AdditionalFiles Include="Credentials/SecretService.DBus.xml" Namespace="MyloMail.Api.Credentials.SecretService" DBusGeneratorMode="Proxy" />
 	</ItemGroup>
 </Project>

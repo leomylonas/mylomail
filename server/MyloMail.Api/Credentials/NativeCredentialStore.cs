@@ -49,7 +49,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 			return;
 		}
 
-		await RunAsync("secret-tool", $"store --label={Service} service {Service} account {accountId:N}", ct, encoded);
+		await LinuxSecretServiceCredentialStore.StoreAsync(Service, accountId, encoded, ct);
 	}
 
 	public async Task<CredentialPayload?> RetrieveAsync(Guid accountId, CancellationToken ct)
@@ -67,7 +67,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 		}
 		else
 		{
-			encoded = await RunAsync("secret-tool", $"lookup service {Service} account {accountId:N}", ct, allowMissing: true);
+			encoded = await LinuxSecretServiceCredentialStore.RetrieveAsync(Service, accountId, ct);
 		}
 
 		return string.IsNullOrWhiteSpace(encoded)
@@ -87,7 +87,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 			MacKeychainCredentialStore.Delete(Service, accountId, ct);
 			return;
 		}
-		await RunAsync("secret-tool", $"clear service {Service} account {accountId:N}", ct, allowMissing: true);
+		await LinuxSecretServiceCredentialStore.DeleteAsync(Service, accountId, ct);
 	}
 
 	private static async Task<string?> RunAsync(string file, string arguments, CancellationToken ct, string? input = null, bool allowMissing = false)
