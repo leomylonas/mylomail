@@ -101,6 +101,7 @@ public enum EventStatus
 	Cancelled,
 }
 
+[TranspilationSource]
 public enum InviteResponse
 {
 	Accept,

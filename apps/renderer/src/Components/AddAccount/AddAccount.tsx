@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
+	ActionableNotification,
 	Button,
 	InlineNotification,
 	NumberInput,
@@ -10,9 +11,32 @@ import {
 	TextInput,
 	Toggle,
 } from "@carbon/react";
-import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	CertificateTrustMode,
+	ProviderType,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import type { AddAccountRequest } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
+import {
+	present,
+	type ErrorPresentation,
+} from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
 import styles from "@mylomail/renderer/Components/AddAccount/AddAccount.module.css";
+
+/** The subset of RFC 7807 this endpoint's failures actually carry (§15). */
+interface ProblemResponse {
+	title?: string;
+	detail?: string;
+	category?: ErrorCategory;
+	extensions?: Record<string, unknown>;
+}
+
+/** Thrown with the full presentation attached, so the UI can offer more than retry-and-hope. */
+class AddAccountError extends Error {
+	constructor(public presentation: ErrorPresentation) {
+		super(presentation.detail);
+	}
+}
 
 interface FormState {
 	displayName: string;
@@ -28,6 +52,13 @@ interface FormState {
 	reuseImapCredentialForSmtp: boolean;
 	smtpUserName: string;
 	smtpSecret: string;
+	/**
+	 * Set only by the "Trust this certificate and retry" action (§15) — the sole certificate
+	 * trust decision available before the account exists, since pinning a specific fingerprint
+	 * needs an account id to pin it against. A later, tighter pin can replace this from
+	 * `AccountSettings` once the account is there to pin one for.
+	 */
+	trustCertificateOnRetry: boolean;
 }
 
 const initial: FormState = {
@@ -44,6 +75,7 @@ const initial: FormState = {
 	reuseImapCredentialForSmtp: true,
 	smtpUserName: "",
 	smtpSecret: "",
+	trustCertificateOnRetry: false,
 };
 
 /**
@@ -56,7 +88,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		setForm({ ...form, [key]: value });
 
 	const add = useMutation({
-		mutationFn: async () => {
+		mutationFn: async (trustCertificate: boolean) => {
 			const request: AddAccountRequest = {
 				displayName: form.displayName,
 				providerType: form.providerType,
@@ -77,6 +109,9 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 						? undefined
 						: form.smtpSecret,
 				},
+				certificateTrustMode: trustCertificate
+					? CertificateTrustMode.TrustAll
+					: CertificateTrustMode.Default,
 			};
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
@@ -87,15 +122,20 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				body: JSON.stringify(request),
 			});
 			if (!response.ok) {
-				const problem = (await response.json().catch(() => null)) as {
-					detail?: string;
-					title?: string;
-				} | null;
-				throw new Error(
-					problem?.detail ??
-						problem?.title ??
-						`Adding the account failed (${response.status}).`,
-				);
+				const problem = (await response
+					.json()
+					.catch(() => null)) as ProblemResponse | null;
+				const presentation =
+					problem?.category !== undefined
+						? present(problem.category, problem.detail, problem.extensions)
+						: {
+								title: problem?.title ?? "Could not add the account",
+								detail:
+									problem?.detail ??
+									`Adding the account failed (${response.status}).`,
+								transient: false as const,
+							};
+				throw new AddAccountError(presentation);
 			}
 		},
 		onSuccess: () => {
@@ -234,7 +274,32 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				</p>
 			)}
 
-			{add.isError ? (
+			{add.isError && add.error instanceof AddAccountError ? (
+				add.error.presentation.action === "trust-certificate" &&
+				add.error.presentation.certificate ? (
+					<ActionableNotification
+						kind="warning"
+						title={add.error.presentation.title}
+						subtitle={`${add.error.presentation.detail} Only continue if you recognise and trust ${add.error.presentation.certificate.hostname}.`}
+						actionButtonLabel="Trust this certificate and retry"
+						onActionButtonClick={() => {
+							set("trustCertificateOnRetry", true);
+							add.mutate(true);
+						}}
+						lowContrast
+						hideCloseButton
+						inline
+					/>
+				) : (
+					<InlineNotification
+						kind="error"
+						title={add.error.presentation.title}
+						subtitle={add.error.presentation.detail}
+						lowContrast
+						hideCloseButton
+					/>
+				)
+			) : add.isError ? (
 				<InlineNotification
 					kind="error"
 					title="Could not add the account"
@@ -250,7 +315,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				disabled={
 					form.providerType !== ProviderType.Imap || !imapReady || add.isPending
 				}
-				onClick={() => void add.mutate()}
+				onClick={() => void add.mutate(form.trustCertificateOnRetry)}
 			>
 				Create account
 			</Button>

@@ -17,6 +17,13 @@ export enum EventStatus {
     Cancelled = 2,
 }
 
+/** Transpiled from MyloMail.Api.Domain.InviteResponse */
+export enum InviteResponse {
+    Accept = 0,
+    Decline = 1,
+    Tentative = 2,
+}
+
 /** Transpiled from MyloMail.Api.Domain.ProviderType */
 export enum ProviderType {
     Imap = 0,

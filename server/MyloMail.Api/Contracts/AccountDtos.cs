@@ -36,7 +36,15 @@ public record AddAccountRequest(
 	string EmailAddress,
 	string? Secret,
 	ImapAccountSettings? Imap,
-	CalDavAccountSettings? CalDav = null
+	CalDavAccountSettings? CalDav = null,
+	/// <summary>
+	/// Opt into <see cref="CertificateTrustMode.TrustAll"/> for this account from the moment
+	/// it's created (§15) — the only certificate-trust choice available before the account
+	/// exists, since pinning a specific fingerprint needs an account id to pin it against.
+	/// A retry after a rejected certificate is the only place this is set to anything but
+	/// <see cref="CertificateTrustMode.Default"/>.
+	/// </summary>
+	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default
 );
 
 /// <summary>

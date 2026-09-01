@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { Button, NumberInput, TextInput, Toggle } from "@carbon/react";
+import {
+	Button,
+	InlineNotification,
+	NumberInput,
+	TextInput,
+	Toggle,
+} from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
+import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -11,6 +18,7 @@ export interface AccountSettingsValues {
 	pollingEnabled: boolean;
 	undoSendDelaySeconds: number;
 	notificationsEnabled: boolean;
+	certificateTrustMode: CertificateTrustMode;
 }
 
 /**
@@ -88,6 +96,31 @@ export function AccountSettings({
 					setValues({ ...values, notificationsEnabled: checked })
 				}
 			/>
+			<Toggle
+				id="settings-trust-all-certificates"
+				labelText="Trust any server certificate for this account"
+				toggled={values.certificateTrustMode === CertificateTrustMode.TrustAll}
+				onToggle={(checked) =>
+					setValues({
+						...values,
+						certificateTrustMode: checked
+							? CertificateTrustMode.TrustAll
+							: CertificateTrustMode.Default,
+					})
+				}
+			/>
+			{values.certificateTrustMode === CertificateTrustMode.TrustAll ? (
+				<InlineNotification
+					kind="warning"
+					title="This is a genuine security downgrade"
+					subtitle="MyloMail will accept any certificate this server presents, including one an
+						attacker controls. Only leave this on for a self-hosted server whose certificate
+						you can't otherwise get trusted, and prefer pinning a specific certificate instead
+						once you can."
+					lowContrast
+					hideCloseButton
+				/>
+			) : null}
 			<div>
 				<Button size="sm" onClick={() => void save()}>
 					Save

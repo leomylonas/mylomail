@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { ProviderType } from '../Domain/ProviderType';
 import { ImapAccountSettings, ImapAccountSettingsSchema } from './ImapAccountSettings';
 import { CalDavAccountSettings, CalDavAccountSettingsSchema } from './CalDavAccountSettings';
+import { CertificateTrustMode } from '../Domain/CertificateTrustMode';
 
 export interface AddAccountRequest {
   displayName: string;
@@ -15,6 +16,7 @@ export interface AddAccountRequest {
   secret?: string;
   imap?: ImapAccountSettings;
   calDav?: CalDavAccountSettings;
+  certificateTrustMode: CertificateTrustMode;
 }
 
 export const AddAccountRequestSchema = z.object({
@@ -24,4 +26,5 @@ export const AddAccountRequestSchema = z.object({
   secret: z.string().nullable(),
   imap: ImapAccountSettingsSchema.nullable(),
   calDav: CalDavAccountSettingsSchema.nullable(),
+  certificateTrustMode: z.nativeEnum(CertificateTrustMode),
 });

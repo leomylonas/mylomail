@@ -12,10 +12,13 @@ export interface ErrorPresentation {
 	 * because it dismisses itself while the action is still reachable by keyboard. Anything
 	 * actionable becomes an ActionableNotification instead (§13).
 	 */
-	action?: "reauthenticate" | "retry" | "resolve";
+	action?: "reauthenticate" | "retry" | "resolve" | "trust-certificate";
 
 	/** Whether it disappears on its own. A failure the user must act on does not.  */
 	transient: boolean;
+
+	/** Present only when {@link action} is `"trust-certificate"` (§15). */
+	certificate?: { hostname: string; sha256Fingerprint: string };
 }
 
 /**
@@ -29,7 +32,29 @@ export interface ErrorPresentation {
 export function present(
 	category: ErrorCategory,
 	detail: string | null | undefined,
+	extensions?: Record<string, unknown> | null,
 ): ErrorPresentation {
+	// A certificate rejection is a Validation failure like any other, but one the user can act
+	// on with more than "try again" — only when the extensions actually carry what
+	// TrustCertificate needs, since the generic Validation case shares this category.
+	if (
+		category === ErrorCategory.Validation &&
+		typeof extensions?.hostname === "string" &&
+		typeof extensions?.sha256Fingerprint === "string"
+	) {
+		return {
+			title: "Certificate untrusted",
+			detail:
+				detail ?? "The server presented a certificate MyloMail does not trust.",
+			action: "trust-certificate",
+			transient: false,
+			certificate: {
+				hostname: extensions.hostname,
+				sha256Fingerprint: extensions.sha256Fingerprint,
+			},
+		};
+	}
+
 	switch (category) {
 		case ErrorCategory.Network:
 			// Not the user's problem to solve, and not worth a persistent alarm: connectivity

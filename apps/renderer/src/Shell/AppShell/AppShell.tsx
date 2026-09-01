@@ -28,6 +28,7 @@ import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValu
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
+import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 interface Account {
@@ -356,6 +357,7 @@ function toSettings(
 		pollingEnabled: account?.pollingEnabled ?? true,
 		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
 		notificationsEnabled: account?.notificationsEnabled ?? true,
+		certificateTrustMode: CertificateTrustMode.Default,
 	};
 }
 

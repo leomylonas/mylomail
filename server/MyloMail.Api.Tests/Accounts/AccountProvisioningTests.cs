@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MyloMail.Api.Accounts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
@@ -85,6 +86,32 @@ public sealed class AccountProvisioningTests
 			// Only the harness's own account; the rejected one was never committed.
 			Assert.Single(await services.GetRequiredService<MyloMailDbContext>().Accounts.ToListAsync())
 		);
+	}
+
+	/// <summary>
+	/// A certificate-untrusted rejection's fingerprint/hostname reach the controller, not just
+	/// its message text — <c>AddAccount</c>'s "Trust this certificate" prompt needs the
+	/// structured data, not prose to parse (§15).
+	/// </summary>
+	[Fact]
+	public async Task A_certificate_rejection_carries_its_fingerprint_and_hostname_through()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var problem = MyloMail.Api.Security.CertificateTrust.Problem(
+			"mail.example.test",
+			"deadbeef",
+			"CN=Self-Signed"
+		);
+		harness.Provider.FailAuthentication(problem);
+
+		var failure = await Assert.ThrowsAsync<AccountAuthenticationFailedException>(() =>
+			AddAsync(harness, "someone@example.org", Secret())
+		);
+
+		Assert.NotNull(failure.Problem);
+		Assert.Equal(ErrorCategory.Validation, failure.Problem!.Category);
+		Assert.Equal("mail.example.test", failure.Problem.Extensions["hostname"]);
+		Assert.Equal("deadbeef", failure.Problem.Extensions["sha256Fingerprint"]);
 	}
 
 	private sealed class RecordingCredentialStore : ICredentialStore

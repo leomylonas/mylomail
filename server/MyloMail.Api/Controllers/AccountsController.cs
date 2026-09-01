@@ -100,7 +100,8 @@ public class AccountsController(
 					ToProviderConfig(request),
 					ToSecret(request),
 					ToCalDavSecret(request),
-					ToSmtpSecret(request)
+					ToSmtpSecret(request),
+					request.CertificateTrustMode
 				),
 				ct
 			);
@@ -109,7 +110,15 @@ public class AccountsController(
 		}
 		catch (AccountAuthenticationFailedException ex)
 		{
-			// The user can fix this by correcting what they typed.
+			// The user can fix this by correcting what they typed — or, when the rejection was
+			// a certificate MyloMail doesn't trust, by retrying with CertificateTrustMode set.
+			// The fingerprint/hostname a certificate rejection carries live in the problem's own
+			// Extensions rather than being lost to ex.Message's plain text.
+			if (ex.Problem is { } problem)
+			{
+				problem.Status = StatusCodes.Status400BadRequest;
+				return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
+			}
 			return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed");
 		}
 		catch (ProviderNotConfiguredException ex)

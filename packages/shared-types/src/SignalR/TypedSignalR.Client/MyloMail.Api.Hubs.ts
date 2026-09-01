@@ -5,6 +5,7 @@
 import type { IStreamResult, Subject } from '@microsoft/signalr';
 import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
+import type { InviteResponse } from '../MyloMail.Api.Domain';
 
 /**
 * The renderer's connection to the backend (§7).
@@ -88,6 +89,22 @@ export type IMailHub = {
     */
     deleteMailbox(mailboxId: string): Promise<boolean>;
     /**
+    * Drag-a-folder-onto-a-folder reparenting (§13 Epic 2). Null moves it to the root.
+    * @param mailboxId Transpiled from System.Guid
+    * @param newParentId Transpiled from System.Guid?
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    moveMailbox(mailboxId: string, newParentId: (string | undefined)): Promise<void>;
+    /**
+    * Sidebar drag-reorder among siblings of one parent (§13 Epic 2) — purely local, since no
+    * provider supports arbitrary folder ordering.
+    * @param accountId Transpiled from System.Guid
+    * @param parentId Transpiled from System.Guid?
+    * @param orderedMailboxIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    reorderMailboxes(accountId: string, parentId: (string | undefined), orderedMailboxIds: string[]): Promise<void>;
+    /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountCapabilitiesDto>
     */
@@ -97,6 +114,16 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountSettingsDto>
     */
     updateAccount(settings: AccountSettingsDto): Promise<AccountSettingsDto>;
+    /**
+    * Pins a certificate for this account and hostname (§15) — offered only after normal TLS
+    * validation has already failed and the user has seen the fingerprint/issuer this rejected
+    * certificate presents; never called speculatively.
+    * @param accountId Transpiled from System.Guid
+    * @param hostname Transpiled from string
+    * @param sha256Fingerprint Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    trustCertificate(accountId: string, hostname: string, sha256Fingerprint: string): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
@@ -141,6 +168,14 @@ export type IMailHub = {
     */
     deleteCalendarEvent(eventId: string): Promise<void>;
     /**
+    * Accept/Decline/Tentative on an invite (§13 Epic 7).
+    * @param eventId Transpiled from System.Guid
+    * @param response Transpiled from MyloMail.Api.Domain.InviteResponse
+    * @param comment Transpiled from string?
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    respondToInvite(eventId: string, response: InviteResponse, comment: string): Promise<void>;
+    /**
     * Confirms the shell showed a notification at least once (§13 Epic 9).
     * @param notificationId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task
@@ -155,6 +190,23 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Guid?>
     */
     resolveStagedMessage(notificationId: string): Promise<(string | undefined)>;
+    /**
+    * The raw MIME bytes for one message, base64-encoded, fetched on demand if needed.
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<string>
+    */
+    saveMessageAsEml(messageId: string): Promise<string>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @param destinationPath Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Guid>
+    */
+    startBulkExport(accountId: string, destinationPath: string): Promise<string>;
+    /**
+    * @param exportId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    cancelBulkExport(exportId: string): Promise<void>;
 }
 
 /**

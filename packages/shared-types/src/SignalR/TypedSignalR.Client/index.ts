@@ -6,6 +6,7 @@ import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
 import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
+import type { InviteResponse } from '../MyloMail.Api.Domain';
 
 
 // components
@@ -137,12 +138,24 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("DeleteMailbox", mailboxId);
     }
 
+    public readonly moveMailbox = async (mailboxId: string, newParentId: (string | undefined)): Promise<void> => {
+        return await this.connection.invoke("MoveMailbox", mailboxId, newParentId);
+    }
+
+    public readonly reorderMailboxes = async (accountId: string, parentId: (string | undefined), orderedMailboxIds: string[]): Promise<void> => {
+        return await this.connection.invoke("ReorderMailboxes", accountId, parentId, orderedMailboxIds);
+    }
+
     public readonly getAccountCapabilities = async (accountId: string): Promise<AccountCapabilitiesDto> => {
         return await this.connection.invoke("GetAccountCapabilities", accountId);
     }
 
     public readonly updateAccount = async (settings: AccountSettingsDto): Promise<AccountSettingsDto> => {
         return await this.connection.invoke("UpdateAccount", settings);
+    }
+
+    public readonly trustCertificate = async (accountId: string, hostname: string, sha256Fingerprint: string): Promise<void> => {
+        return await this.connection.invoke("TrustCertificate", accountId, hostname, sha256Fingerprint);
     }
 
     public readonly setFlags = async (accountId: string, messageIds: string[], isRead: (boolean | undefined), isFlagged: (boolean | undefined)): Promise<void> => {
@@ -173,12 +186,28 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("DeleteCalendarEvent", eventId);
     }
 
+    public readonly respondToInvite = async (eventId: string, response: InviteResponse, comment: string): Promise<void> => {
+        return await this.connection.invoke("RespondToInvite", eventId, response, comment);
+    }
+
     public readonly markNotificationDelivered = async (notificationId: string): Promise<void> => {
         return await this.connection.invoke("MarkNotificationDelivered", notificationId);
     }
 
     public readonly resolveStagedMessage = async (notificationId: string): Promise<(string | undefined)> => {
         return await this.connection.invoke("ResolveStagedMessage", notificationId);
+    }
+
+    public readonly saveMessageAsEml = async (messageId: string): Promise<string> => {
+        return await this.connection.invoke("SaveMessageAsEml", messageId);
+    }
+
+    public readonly startBulkExport = async (accountId: string, destinationPath: string): Promise<string> => {
+        return await this.connection.invoke("StartBulkExport", accountId, destinationPath);
+    }
+
+    public readonly cancelBulkExport = async (exportId: string): Promise<void> => {
+        return await this.connection.invoke("CancelBulkExport", exportId);
     }
 }
 

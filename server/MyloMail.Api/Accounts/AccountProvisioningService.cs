@@ -24,7 +24,8 @@ public sealed record NewAccount(
 	ProviderConfig? ProviderConfig,
 	CredentialPayload? Secret,
 	CredentialPayload? CalDavSecret = null,
-	CredentialPayload? SmtpSecret = null
+	CredentialPayload? SmtpSecret = null,
+	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default
 );
 
 /// <summary>
@@ -77,6 +78,7 @@ public sealed class AccountProvisioningService(
 			// Never notify for anything dated before this instant (§13 Epic 9) — set once,
 			// here, and never moved afterwards.
 			NotificationEpoch = clock.GetUtcNow(),
+			CertificateTrustMode = request.CertificateTrustMode,
 		};
 
 		var commitAttempted = false;
@@ -98,7 +100,7 @@ public sealed class AccountProvisioningService(
 			var result = await providers.For(account).AuthenticateAsync(account, ct);
 			if (!result.Succeeded)
 			{
-				throw new AccountAuthenticationFailedException(result.Problem?.Detail ?? "Authentication was rejected.");
+				throw new AccountAuthenticationFailedException(result.Problem);
 			}
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
@@ -218,5 +220,15 @@ internal static class AccountDtoFactory
 /// <remarks>
 /// Distinct from <see cref="ProviderNotConfiguredException"/>: here the attempt was made and
 /// refused, which is something the user can fix by correcting what they typed.
+/// <para>
+/// Carries the full <see cref="Errors.MutationProblemDetails"/>, not just its text — a
+/// certificate-untrusted rejection's fingerprint and hostname live in
+/// <see cref="Errors.MutationProblemDetails.Extensions"/>, and the controller needs those to
+/// answer with more than prose, so <c>TrustCertificate</c> has something to call with.
+/// </para>
 /// </remarks>
-public sealed class AccountAuthenticationFailedException(string message) : Exception(message);
+public sealed class AccountAuthenticationFailedException(Errors.MutationProblemDetails? problem)
+	: Exception(problem?.Detail ?? "Authentication was rejected.")
+{
+	public Errors.MutationProblemDetails? Problem { get; } = problem;
+}

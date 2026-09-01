@@ -30,6 +30,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private readonly HashSet<string> omitted = [];
 	private Exception? sendFailure;
 	private string? authFailure;
+	private MutationProblemDetails? authFailureProblem;
 	private long occurrenceSequence;
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
@@ -113,15 +114,20 @@ public sealed class FakeMailProvider : IMailProvider
 	/// <summary>Makes authentication report a rejection, as a wrong password would.</summary>
 	public void FailAuthentication(string reason) => authFailure = reason;
 
+	/// <summary>Makes authentication report a specific problem — e.g. a certificate rejection with fingerprint/hostname Extensions.</summary>
+	public void FailAuthentication(MutationProblemDetails problem) => authFailureProblem = problem;
+
 	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
 		Task.FromResult(
-			authFailure is string reason
-				? new AuthResult(
-					false,
-					AuthState.NeedsReauth,
-					new MutationProblemDetails { Title = "Authentication failed", Detail = reason, Category = ErrorCategory.Auth }
-				)
-				: new AuthResult(true, AuthState.Connected, null)
+			authFailureProblem is { } problem
+				? new AuthResult(false, AuthState.Error, problem)
+				: authFailure is string reason
+					? new AuthResult(
+						false,
+						AuthState.NeedsReauth,
+						new MutationProblemDetails { Title = "Authentication failed", Detail = reason, Category = ErrorCategory.Auth }
+					)
+					: new AuthResult(true, AuthState.Connected, null)
 		);
 
 	public Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct)
