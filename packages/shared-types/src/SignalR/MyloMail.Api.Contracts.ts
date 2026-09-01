@@ -44,6 +44,12 @@ export type AddAccountRequest = {
     certificateTrustMode: CertificateTrustMode;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.ReauthenticateAccountRequest */
+export type ReauthenticateAccountRequest = {
+    /** Transpiled from string? */
+    secret?: string;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ImapAccountSettings */
 export type ImapAccountSettings = {
     /** Transpiled from string */

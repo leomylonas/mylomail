@@ -19,8 +19,9 @@ import {
 	type AccountSettingsValues,
 } from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
+import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
-import { Button } from "@carbon/react";
+import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
@@ -28,7 +29,10 @@ import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValu
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
-import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	AuthState,
+	CertificateTrustMode,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 interface Account {
@@ -40,6 +44,8 @@ interface Account {
 	pollingEnabled?: boolean;
 	undoSendDelaySeconds?: number;
 	notificationsEnabled?: boolean;
+	authState?: AuthState;
+	lastAuthError?: string | null;
 }
 
 /**
@@ -56,6 +62,7 @@ export function AppShell() {
 		"reading" | "compose" | "settings" | "drafts" | "add-account" | "calendar"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
+	const [reauthenticating, setReauthenticating] = useState(false);
 	const store = useWindowStore();
 	const { store: notifications } = useWindowNotifications();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
@@ -88,6 +95,13 @@ export function AppShell() {
 	// empty reading pane with no way to get past it. Derived rather than synced via an effect,
 	// so there is no first-render flash of the reading pane before the accounts query settles.
 	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
+	const selectedAccount = accounts.data?.find(
+		(a) => a.id === selectedAccountId,
+	);
+	const needsAttention =
+		selectedAccount &&
+		selectedAccount.authState !== undefined &&
+		selectedAccount.authState !== AuthState.Connected;
 
 	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
 	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
@@ -200,6 +214,22 @@ export function AppShell() {
 					</>
 				) : null}
 			</header>
+
+			{needsAttention ? (
+				<ActionableNotification
+					kind="warning"
+					title="This account needs attention"
+					subtitle={
+						selectedAccount!.lastAuthError ??
+						"MyloMail could not sign in to this account."
+					}
+					lowContrast
+					hideCloseButton
+					inline
+					actionButtonLabel="Reauthenticate"
+					onActionButtonClick={() => setReauthenticating(true)}
+				/>
+			) : null}
 
 			{effectivePane === "calendar" && hub && accounts.data?.length ? (
 				<div className={styles.calendarPanel}>
@@ -338,6 +368,15 @@ export function AppShell() {
 					</Panel>
 				</Group>
 			)}
+
+			{reauthenticating && hub && selectedAccountId ? (
+				<ReauthenticateAccount
+					hub={hub}
+					accountId={selectedAccountId}
+					onReauthenticated={() => setReauthenticating(false)}
+					onClose={() => setReauthenticating(false)}
+				/>
+			) : null}
 		</div>
 	);
 }

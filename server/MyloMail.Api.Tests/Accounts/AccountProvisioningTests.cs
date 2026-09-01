@@ -114,6 +114,121 @@ public sealed class AccountProvisioningTests
 		Assert.Equal("deadbeef", failure.Problem.Extensions["sha256Fingerprint"]);
 	}
 
+	[Fact]
+	public async Task Reauthenticating_with_a_new_secret_succeeds_and_resumes_the_account()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Test", ProviderType.Imap, "someone@example.org", null, Secret()))
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var stuck = await context.Accounts.SingleAsync(a => a.Id == account.Id);
+			stuck.AuthState = AuthState.NeedsReauth;
+			stuck.LastAuthError = "wrong password";
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<AccountProvisioningService>().ReauthenticateAsync(account.Id, "new-password")
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var resumed = await context.Accounts.SingleAsync(a => a.Id == account.Id);
+			Assert.Equal(AuthState.Connected, resumed.AuthState);
+			Assert.Null(resumed.LastAuthError);
+
+			var stored = await services.GetRequiredService<ICredentialStore>().RetrieveAsync(account.Id, CancellationToken.None);
+			Assert.Equal("new-password"u8.ToArray(), stored!.Data);
+		});
+	}
+
+	/// <summary>
+	/// A certificate-only rejection (rotated server certificate, now pinned) needs no new
+	/// secret at all — the stored credential was never wrong.
+	/// </summary>
+	[Fact]
+	public async Task Reauthenticating_with_no_secret_re_verifies_the_existing_credential()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Test", ProviderType.Imap, "someone@example.org", null, Secret()))
+		);
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<AccountProvisioningService>().ReauthenticateAsync(account.Id, secret: null)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var stored = await services.GetRequiredService<ICredentialStore>().RetrieveAsync(account.Id, CancellationToken.None);
+			// Untouched — reauthenticating never re-stored a secret it was never given.
+			Assert.Equal("hunter2"u8.ToArray(), stored!.Data);
+		});
+	}
+
+	[Fact]
+	public async Task A_still_rejected_reauthentication_records_the_new_error_and_stays_paused()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Test", ProviderType.Imap, "someone@example.org", null, Secret()))
+		);
+		harness.Provider.FailAuthentication("still wrong");
+
+		await Assert.ThrowsAsync<AccountAuthenticationFailedException>(() =>
+			harness.UsingAsync(services =>
+				services.GetRequiredService<AccountProvisioningService>().ReauthenticateAsync(account.Id, "guess-again")
+			)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var stillStuck = await context.Accounts.SingleAsync(a => a.Id == account.Id);
+			Assert.Equal("still wrong", stillStuck.LastAuthError);
+		});
+	}
+
+	/// <summary>
+	/// A rejection unrelated to the new password (a transient failure, or an unpinned
+	/// certificate) must not cost the account its last known-working credential — only the
+	/// still-untested guess should be gone, not the password that used to work.
+	/// </summary>
+	[Fact]
+	public async Task A_failed_reauthentication_restores_the_previously_working_credential()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Test", ProviderType.Imap, "someone@example.org", null, Secret()))
+		);
+		harness.Provider.FailAuthentication("still wrong");
+
+		await Assert.ThrowsAsync<AccountAuthenticationFailedException>(() =>
+			harness.UsingAsync(services =>
+				services.GetRequiredService<AccountProvisioningService>().ReauthenticateAsync(account.Id, "a-bad-guess")
+			)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var stored = await services.GetRequiredService<ICredentialStore>().RetrieveAsync(account.Id, CancellationToken.None);
+			// The original "hunter2" from Secret(), not the failed "a-bad-guess" attempt.
+			Assert.Equal("hunter2"u8.ToArray(), stored!.Data);
+		});
+	}
+
 	private sealed class RecordingCredentialStore : ICredentialStore
 	{
 		public List<Guid> Stored { get; } = [];

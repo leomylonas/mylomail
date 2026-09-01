@@ -157,6 +157,71 @@ public sealed class AccountProvisioningService(
 	}
 
 	/// <summary>
+	/// Re-verifies an account that fell into <see cref="AuthState.NeedsReauth"/> or
+	/// <see cref="AuthState.Error"/> — a changed password, or a server whose certificate
+	/// rotated and whose new fingerprint the user has since pinned via <c>TrustCertificate</c>.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// Unlike <see cref="AddAsync"/>, the account already exists, so there is nothing to roll
+	/// back on failure — a rejected attempt just leaves the account exactly as paused as it
+	/// already was, with an up-to-date <see cref="MutationProblemDetails"/> for the caller to
+	/// show (the same certificate-untrusted prompt <c>AddAccount</c> uses, since pinning a
+	/// specific fingerprint is finally possible here — the account id it needs now exists).
+	/// </para>
+	/// <para>
+	/// Except the credential: a rejection for a reason unrelated to the password — a transient
+	/// network failure, or a certificate the user has not pinned yet — must not cost the
+	/// account its last known-working one. The prior payload is read back before a new secret
+	/// overwrites it and restored if this attempt fails, so a still-correct password survives
+	/// an unrelated rejection rather than being silently destroyed by it.
+	/// </para>
+	/// </remarks>
+	public async Task ReauthenticateAsync(Guid accountId, string? secret, CancellationToken ct = default)
+	{
+		var account =
+			await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct)
+			?? throw new KeyNotFoundException($"No account {accountId}.");
+
+		CredentialPayload? priorSecret = null;
+		if (secret is { Length: > 0 })
+		{
+			if (account.ProviderType != ProviderType.Imap)
+			{
+				throw new AccountAuthenticationFailedException(
+					new Errors.MutationProblemDetails
+					{
+						Title = "Unexpected credential",
+						Detail = $"{account.ProviderType} accounts authenticate interactively and take no password.",
+						Category = Errors.ErrorCategory.Validation,
+					}
+				);
+			}
+			priorSecret = await credentials.RetrieveAsync(accountId, ct);
+			await credentials.StoreAsync(
+				accountId,
+				new CredentialPayload(MailProviderFactory.ImapPasswordFormat, System.Text.Encoding.UTF8.GetBytes(secret)),
+				ct
+			);
+		}
+
+		var result = await providers.For(account).AuthenticateAsync(account, ct);
+		if (!result.Succeeded)
+		{
+			if (priorSecret is not null)
+			{
+				await credentials.StoreAsync(accountId, priorSecret, ct);
+			}
+
+			account.LastAuthError = result.Problem?.Detail;
+			await context.SaveChangesAsync(ct);
+			throw new AccountAuthenticationFailedException(result.Problem);
+		}
+
+		await scheduler.ResumeAccountAsync(accountId, ct);
+	}
+
+	/// <summary>
 	/// Soft-disables an account so its jobs stop cleanly, then removes it.
 	/// </summary>
 	/// <remarks>

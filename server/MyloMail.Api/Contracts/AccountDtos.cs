@@ -48,6 +48,17 @@ public record AddAccountRequest(
 );
 
 /// <summary>
+/// A request to re-verify an account stuck in <c>NeedsReauth</c> or <c>Error</c> (§3).
+/// </summary>
+/// <remarks>
+/// <paramref name="Secret"/> is optional: a certificate-only rejection (the server's cert
+/// rotated, since pinned via <c>TrustCertificate</c>) needs nothing supplied at all — the
+/// existing stored credential is still correct, only the server's identity changed.
+/// </remarks>
+[TranspilationSource]
+public record ReauthenticateAccountRequest(string? Secret);
+
+/// <summary>
 /// The non-secret configuration an IMAP account needs.
 /// </summary>
 /// <remarks>

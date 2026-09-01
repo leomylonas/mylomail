@@ -139,6 +139,40 @@ public class AccountsController(
 		return NoContent();
 	}
 
+	/// <summary>
+	/// Re-verifies an account stuck in <see cref="AuthState.NeedsReauth"/> or
+	/// <see cref="AuthState.Error"/> and, on success, immediately requeues its blocked work
+	/// (§3). A password-changed rejection and a certificate-untrusted rejection surface
+	/// identically to <see cref="Add"/>'s own failure response, extensions included, so the
+	/// renderer can offer the same "trust this certificate" prompt either place.
+	/// </summary>
+	[HttpPost("{accountId:guid}/reauthenticate")]
+	public async Task<IActionResult> Reauthenticate(
+		Guid accountId,
+		ReauthenticateAccountRequest request,
+		CancellationToken ct
+	)
+	{
+		try
+		{
+			await provisioning.ReauthenticateAsync(accountId, request.Secret, ct);
+			return NoContent();
+		}
+		catch (KeyNotFoundException)
+		{
+			return NotFound();
+		}
+		catch (AccountAuthenticationFailedException ex)
+		{
+			if (ex.Problem is { } problem)
+			{
+				problem.Status = StatusCodes.Status400BadRequest;
+				return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
+			}
+			return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed");
+		}
+	}
+
 	private static AccountDto ToDto(Account account, string? address) =>
 		new(
 			account.Id,
