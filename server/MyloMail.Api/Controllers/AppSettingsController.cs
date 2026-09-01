@@ -24,7 +24,8 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 				settings?.PanelLayout,
 				settings?.WindowBoundsJson,
 				settings?.MailtoPromptDismissed ?? false,
-				settings?.CloseBehavior ?? Domain.CloseBehavior.QuitApp
+				settings?.CloseBehavior ?? Domain.CloseBehavior.QuitApp,
+				settings?.Theme ?? Domain.ThemePreference.System
 			)
 		);
 	}
@@ -37,6 +38,15 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 	{
 		var settings = await GetOrCreateAsync(ct);
 		settings.CloseBehavior = request.CloseBehavior;
+		await context.SaveChangesAsync(ct);
+		return NoContent();
+	}
+
+	[HttpPut("theme")]
+	public async Task<IActionResult> PutTheme(UpdateThemeRequest request, CancellationToken ct)
+	{
+		var settings = await GetOrCreateAsync(ct);
+		settings.Theme = request.Theme;
 		await context.SaveChangesAsync(ct);
 		return NoContent();
 	}

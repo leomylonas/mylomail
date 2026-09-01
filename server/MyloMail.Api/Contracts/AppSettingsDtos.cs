@@ -11,7 +11,8 @@ public record ShellSettingsDto(
 	string? PanelLayout,
 	string? WindowBoundsJson,
 	bool MailtoPromptDismissed,
-	CloseBehavior CloseBehavior
+	CloseBehavior CloseBehavior,
+	ThemePreference Theme
 );
 
 public record UpdatePanelLayoutRequest(string PanelLayout);
@@ -21,3 +22,9 @@ public record UpdateWindowBoundsRequest(string WindowBoundsJson);
 public record UpdateMailtoPromptDismissedRequest(bool Dismissed);
 
 public record UpdateCloseBehaviorRequest(CloseBehavior CloseBehavior);
+
+public record UpdateThemeRequest(ThemePreference Theme);
+
+/// <summary>Whether this OS has a working native credential store, or the app fell back to
+/// the weaker master-password-protected SQLite store (§4, §8).</summary>
+public record CredentialStoreStatusDto(bool UsingNativeStore);

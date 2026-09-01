@@ -10,6 +10,12 @@ public sealed class CredentialStoreSelector(string dataDirectory) : IDisposable
 	private bool useNativeStore;
 	private byte[]? fallbackKey;
 
+	/// <summary>
+	/// Whether this OS has a working native credential store, or the app fell back to the
+	/// weaker master-password-protected SQLite store (§4, §8 settings visibility).
+	/// </summary>
+	public bool UsingNativeStore => useNativeStore;
+
 	public async Task InitializeAsync(MyloMailDbContext database, CancellationToken ct)
 	{
 		useNativeStore = await NativeCredentialStore.IsAvailableAsync(dataDirectory, ct);

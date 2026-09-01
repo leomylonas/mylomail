@@ -4,6 +4,7 @@ import { AppShell } from "@mylomail/renderer/Shell/AppShell/AppShell";
 import { MessageWindow } from "@mylomail/renderer/Shell/Windows/MessageWindow/MessageWindow";
 import { ComposeWindow } from "@mylomail/renderer/Shell/Windows/ComposeWindow/ComposeWindow";
 import { WindowScope } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
+import { ThemeProvider } from "@mylomail/renderer/Shell/ThemeProvider/ThemeProvider";
 import "@carbon/react/index.scss";
 
 export const applicationName = "MyloMail";
@@ -39,6 +40,8 @@ function chooseRoot() {
 
 createRoot(container).render(
 	<StrictMode>
-		<WindowScope>{chooseRoot()}</WindowScope>
+		<WindowScope>
+			<ThemeProvider>{chooseRoot()}</ThemeProvider>
+		</WindowScope>
 	</StrictMode>,
 );

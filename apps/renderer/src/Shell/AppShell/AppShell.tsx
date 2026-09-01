@@ -18,6 +18,7 @@ import {
 	AccountSettings,
 	type AccountSettingsValues,
 } from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
+import { ShellSettings } from "@mylomail/renderer/Components/ShellSettings/ShellSettings";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
@@ -59,7 +60,13 @@ export function AppShell() {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
 	const [pane, setPane] = useState<
-		"reading" | "compose" | "settings" | "drafts" | "add-account" | "calendar"
+		| "reading"
+		| "compose"
+		| "settings"
+		| "app-settings"
+		| "drafts"
+		| "add-account"
+		| "calendar"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	const [reauthenticating, setReauthenticating] = useState(false);
@@ -69,6 +76,10 @@ export function AppShell() {
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const selectedMessageId = useStoreValue(store, "selectedMessageId");
 	const selectedMessageSubject = useStoreValue(store, "selectedMessageSubject");
+	const selectedMessageSenderAddress = useStoreValue(
+		store,
+		"selectedMessageSenderAddress",
+	);
 	const layout = useShellLayout();
 	const sidebarRef = useRef<PanelImperativeHandle>(null);
 	const detailRef = useRef<PanelImperativeHandle>(null);
@@ -165,6 +176,9 @@ export function AppShell() {
 					disabled={!selectedAccountId}
 					onClick={() => setPane("settings")}
 				>
+					Account settings
+				</Button>
+				<Button size="sm" kind="ghost" onClick={() => setPane("app-settings")}>
 					Settings
 				</Button>
 				<Button size="sm" kind="ghost" onClick={() => setPane("add-account")}>
@@ -280,10 +294,18 @@ export function AppShell() {
 									onSelect={(message) => {
 										store.setState("selectedMessageId", message.id);
 										store.setState("selectedMessageSubject", message.subject);
+										store.setState(
+											"selectedMessageSenderAddress",
+											message.from,
+										);
 									}}
 									onPrint={(message) => {
 										store.setState("selectedMessageId", message.id);
 										store.setState("selectedMessageSubject", message.subject);
+										store.setState(
+											"selectedMessageSenderAddress",
+											message.from,
+										);
 										setPane("reading");
 									}}
 								/>
@@ -338,11 +360,15 @@ export function AppShell() {
 								onClose={() => setPane("reading")}
 							/>
 						) : null}
+						{effectivePane === "app-settings" ? (
+							<ShellSettings onClose={() => setPane("reading")} />
+						) : null}
 						{hub && selectedMessageId && effectivePane === "reading" ? (
 							<ReadingPane
 								hub={hub}
 								messageId={selectedMessageId}
 								subject={selectedMessageSubject}
+								senderAddress={selectedMessageSenderAddress}
 								onOpenInNewWindow={
 									window.windows
 										? () =>
