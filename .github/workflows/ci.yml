@@ -6,11 +6,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  # A matrix on every push, not just tags/manual runs: electron-builder's per-OS behaviour and
-  # the credential store's per-OS fallback (§4) are exactly the kind of divergence that only
-  # shows up on the platform in question, and a broken type-generation pipeline caught late is
-  # painful to unpick (§16).
   check:
+    if: github.ref_type != 'tag' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: dotnet tool restore
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:types
+      - run: pnpm check
+
+  cross-platform-check:
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
