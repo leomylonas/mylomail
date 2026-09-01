@@ -45,7 +45,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 
 		if (OperatingSystem.IsMacOS())
 		{
-			await RunAsync("security", $"add-generic-password -U -s {Service} -a {accountId:N} -w {encoded}", ct);
+			MacKeychainCredentialStore.Store(Service, accountId, encoded, ct);
 			return;
 		}
 
@@ -63,7 +63,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 		}
 		else if (OperatingSystem.IsMacOS())
 		{
-			encoded = await RunAsync("security", $"find-generic-password -s {Service} -a {accountId:N} -w", ct, allowMissing: true);
+			encoded = MacKeychainCredentialStore.Retrieve(Service, accountId, ct);
 		}
 		else
 		{
@@ -84,7 +84,7 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 		}
 		if (OperatingSystem.IsMacOS())
 		{
-			await RunAsync("security", $"delete-generic-password -s {Service} -a {accountId:N}", ct, allowMissing: true);
+			MacKeychainCredentialStore.Delete(Service, accountId, ct);
 			return;
 		}
 		await RunAsync("secret-tool", $"clear service {Service} account {accountId:N}", ct, allowMissing: true);
