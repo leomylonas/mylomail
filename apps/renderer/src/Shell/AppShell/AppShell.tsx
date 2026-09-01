@@ -6,7 +6,7 @@ import {
 	type PanelImperativeHandle,
 } from "react-resizable-panels";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
+import { Sidebar } from "@mylomail/renderer/Components/Sidebar/Sidebar";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
 import {
@@ -19,7 +19,6 @@ import {
 	type AccountSettingsValues,
 } from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
 import { ShellSettings } from "@mylomail/renderer/Components/ShellSettings/ShellSettings";
-import { AccountSwitcher } from "@mylomail/renderer/Components/AccountSwitcher/AccountSwitcher";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
@@ -230,17 +229,6 @@ export function AppShell() {
 				) : null}
 			</header>
 
-			{hub && accounts.data && accounts.data.length > 1 ? (
-				<AccountSwitcher
-					hub={hub}
-					accounts={accounts.data}
-					selectedAccountId={selectedAccountId}
-					onSelect={(accountId) =>
-						store.setState("selectedAccountId", accountId)
-					}
-				/>
-			) : null}
-
 			{needsAttention ? (
 				<ActionableNotification
 					kind="warning"
@@ -287,8 +275,8 @@ export function AppShell() {
 						collapsedSize="0"
 						panelRef={sidebarRef}
 					>
-						{hub && selectedAccountId ? (
-							<MailboxTree hub={hub} accountId={selectedAccountId} />
+						{hub && accounts.data?.length ? (
+							<Sidebar hub={hub} accounts={accounts.data} />
 						) : (
 							<div />
 						)}

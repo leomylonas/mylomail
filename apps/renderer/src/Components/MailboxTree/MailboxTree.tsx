@@ -225,7 +225,14 @@ export function MailboxTree({
 							paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
 						}}
 						aria-current={mailbox.id === selectedMailboxId}
-						onClick={() => store.setState("selectedMailboxId", mailbox.id)}
+						onClick={() => {
+							// Every account's tree is visible at once now (§13 Epic 2), so
+							// selecting a mailbox has to say which account it belongs to too —
+							// there is no longer a separately-chosen "current account" this
+							// tree can assume it already is.
+							store.setState("selectedAccountId", accountId);
+							store.setState("selectedMailboxId", mailbox.id);
+						}}
 						onContextMenu={(event) => {
 							event.preventDefault();
 							setMenu({ x: event.clientX, y: event.clientY, mailbox });

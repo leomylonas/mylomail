@@ -1,9 +1,7 @@
+/* No height/overflow/background/border here: this is always nested inside a
+   Sidebar section now, which owns the scrollable outer container (§13 Epic 2). */
 .tree {
-	overflow-y: auto;
-	height: 100%;
-	padding: var(--cds-spacing-03);
-	border-right: 1px solid var(--cds-border-subtle);
-	background: var(--cds-layer);
+	padding: 0 var(--cds-spacing-03);
 }
 
 .item {
