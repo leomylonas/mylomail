@@ -23,11 +23,22 @@ import {
 	type OpenWindowRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
+import { destroyTray, ensureTray } from "@mylomail/electron-shell/Tray";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Read once at startup, same as window bounds and the mailto-prompt flag (§13): there is no
+ * settings surface yet that could change it mid-session.
+ */
+let closeBehavior: "QuitApp" | "MinimizeToTray" = "QuitApp";
+
+/** Set once an actual quit is underway, so a window's `close` handler lets it through instead
+ * of hiding it to the tray a second time. */
+let quitting = false;
 
 /**
  * Launches the backend, then the window.
@@ -164,6 +175,8 @@ export async function startShell(): Promise<void> {
 	// window's last-known size and position, offset slightly — not a fully independent bounds
 	// history per window identity. Persisted globally, read once at startup for the first
 	// window; every later window in this run instead offsets from whichever window opened it.
+	closeBehavior = await loadCloseBehavior(origin);
+
 	const savedBounds = await loadWindowBounds(origin);
 	const first = await createWindow(origin, { bounds: savedBounds });
 	trackBoundsPersistence(first, origin);
@@ -173,7 +186,33 @@ export async function startShell(): Promise<void> {
 	void promptForMailtoDefaultAsync(origin, first);
 
 	// The backend is a child of this process, so it must not outlive it.
-	app.on("before-quit", () => backend.child.kill("SIGTERM"));
+	app.on("before-quit", () => {
+		quitting = true;
+		destroyTray();
+		backend.child.kill("SIGTERM");
+	});
+}
+
+async function loadCloseBehavior(
+	origin: string,
+): Promise<"QuitApp" | "MinimizeToTray"> {
+	try {
+		const response = await session.defaultSession.fetch(
+			`${origin}/shell-settings`,
+		);
+		if (!response.ok) return "QuitApp";
+		const settings = (await response.json()) as {
+			closeBehavior?: unknown;
+		};
+		// CloseBehavior.MinimizeToTray = 1 (server/MyloMail.Api/Domain/AppSettings.cs) —
+		// System.Text.Json serialises enums as their numeric ordinal by default here, since
+		// AppSettingsController has no JsonStringEnumConverter registered.
+		return settings.closeBehavior === 1 ? "MinimizeToTray" : "QuitApp";
+	} catch {
+		// The backend isn't answering this early, or the row doesn't exist yet — quitting on
+		// close is the least surprising default.
+		return "QuitApp";
+	}
 }
 
 /**
@@ -326,6 +365,17 @@ async function createWindow(
 		if (url !== origin && !url.startsWith(`${origin}/`)) {
 			event.preventDefault();
 			void openExternally(url);
+		}
+	});
+
+	// Minimise-to-tray intercepts the window's own close, not window-all-closed: by the time
+	// window-all-closed fires the window is already destroyed, too late to hide it instead
+	// (§8, §13 Epic 10).
+	window.on("close", (event) => {
+		if (closeBehavior === "MinimizeToTray" && !quitting) {
+			event.preventDefault();
+			window.hide();
+			ensureTray();
 		}
 	});
 

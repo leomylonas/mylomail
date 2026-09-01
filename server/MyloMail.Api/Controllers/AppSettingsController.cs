@@ -23,9 +23,22 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 			new ShellSettingsDto(
 				settings?.PanelLayout,
 				settings?.WindowBoundsJson,
-				settings?.MailtoPromptDismissed ?? false
+				settings?.MailtoPromptDismissed ?? false,
+				settings?.CloseBehavior ?? Domain.CloseBehavior.QuitApp
 			)
 		);
+	}
+
+	[HttpPut("close-behavior")]
+	public async Task<IActionResult> PutCloseBehavior(
+		UpdateCloseBehaviorRequest request,
+		CancellationToken ct
+	)
+	{
+		var settings = await GetOrCreateAsync(ct);
+		settings.CloseBehavior = request.CloseBehavior;
+		await context.SaveChangesAsync(ct);
+		return NoContent();
 	}
 
 	[HttpPut("panel-layout")]
