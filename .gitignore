@@ -28,3 +28,6 @@ artifacts/
 # Logs / OS
 *.log
 .DS_Store
+
+# Generated test fixtures
+tests/caldav-matrix/certs/

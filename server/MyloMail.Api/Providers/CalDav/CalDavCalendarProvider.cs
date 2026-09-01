@@ -127,7 +127,7 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 
 	public async Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 	{
-		var target = new Uri(ResourceHref(ev.ProviderEventId));
+		var target = ResourceHref(account, ev.ProviderEventId);
 		var request = await requests.CreateAsync(account, HttpMethod.Put, target, ct);
 		CalDavWebDavRequest.SetIfMatch(request, expectedETag);
 		request.Content = new StringContent(CalDavIcs.ToIcs(ev.ICalUid, ToDto(ev)), System.Text.Encoding.UTF8, "text/calendar");
@@ -142,7 +142,7 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
 	{
-		var target = new Uri(ResourceHref(ev.ProviderEventId));
+		var target = ResourceHref(account, ev.ProviderEventId);
 		var request = await requests.CreateAsync(account, HttpMethod.Delete, target, ct);
 		CalDavWebDavRequest.SetIfMatch(request, ev.ProviderRevision);
 
@@ -170,8 +170,24 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 			? new Uri(config.Endpoint)
 			: throw new ProviderNotConfiguredException(ProviderType.Imap, "CalDAV endpoint configuration");
 
-	/// <summary>Strips a recurrence-override suffix: master and override share one resource.</summary>
-	private static string ResourceHref(string providerEventId) => providerEventId.Split('#')[0];
+	/// <summary>
+	/// Resolves a stored <c>ProviderEventId</c> to the URI a request is actually sent to,
+	/// stripping a recurrence-override suffix first (master and override share one resource).
+	/// </summary>
+	/// <remarks>
+	/// A sync page's href is exactly what the multi-status response said — a server-relative
+	/// path, not an absolute URI (see <see cref="CalDavMultiStatusParser"/> and the unit tests
+	/// against it) — and <see cref="Sync.CalendarSyncService"/> persists it verbatim. Passing
+	/// that straight to <c>new Uri(string)</c> with no base does not throw on Unix: a string
+	/// starting with <c>/</c> is happily parsed as a <c>file://</c> URI, and the request then
+	/// fails with "The 'file' scheme is not supported" instead of reaching the server at all.
+	/// Resolving against the account's own endpoint handles both a relative href from a sync
+	/// page and an already-absolute one from <see cref="CreateEventAsync"/>'s return value
+	/// identically — <see cref="Uri(Uri, string)"/> ignores the base when the second argument
+	/// is already absolute.
+	/// </remarks>
+	private static Uri ResourceHref(Account account, string providerEventId) =>
+		new(Endpoint(account), providerEventId.Split('#')[0]);
 
 	private static CalendarEventDto ToDto(CalendarEvent ev) => new()
 	{

@@ -1,0 +1,41 @@
+# A real HTTPS CalDAV server (§13 Calendar), closing the testing-infrastructure gap noted in
+# docs/handover.md: the backend requires HTTPS for CalDAV Basic auth (904908f), so an HTTP-only
+# CalDAV fixture cannot exercise the real client at all — only the API-level unit tests could,
+# until this existed.
+#
+#   pnpm caldav:up      generate a cert (once) and start Radicale
+#   pnpm caldav:down    stop and discard its data
+#
+# Test-only: a self-signed certificate never presented to anything but 127.0.0.1, one static
+# user, and calendar data lives in a volume `caldav:down` removes.
+
+name: mylomail-caldav-matrix
+
+services:
+  caldav:
+    image: tomsquest/docker-radicale:latest
+    container_name: mylomail-caldav
+    ports:
+      - "127.0.0.1:15232:5232"
+    volumes:
+      - ./config:/config
+      - ./certs:/certs
+      - caldav-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-check-certificate",
+          "-q",
+          "-O",
+          "/dev/null",
+          "https://127.0.0.1:5232/",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+
+volumes:
+  caldav-data:

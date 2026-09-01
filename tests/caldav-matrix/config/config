@@ -1,0 +1,13 @@
+[server]
+hosts = 0.0.0.0:5232
+ssl = True
+certificate = /certs/cert.pem
+key = /certs/key.pem
+
+[auth]
+type = htpasswd
+htpasswd_filename = /config/htpasswd
+htpasswd_encryption = plain
+
+[storage]
+filesystem_folder = /data
