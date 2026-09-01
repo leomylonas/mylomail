@@ -14,7 +14,19 @@ namespace MyloMail.Api.Sync;
 /// the same message arriving from the change stream is new mail. §7 draws that line, and
 /// nothing inside the ingestor can see it.
 /// </remarks>
-public sealed record IngestResult(IReadOnlyList<Message> Created, IReadOnlyList<Message> Updated);
+/// <param name="Observed">
+/// Every message this page's occurrences resolved to, created or not, including a message
+/// that already existed with identical content. Notification eligibility uses this rather
+/// than <paramref name="Created"/>/<paramref name="Updated"/>: a message backfill already
+/// materialised, then reported again by the live stream (or Gmail's replayed staged
+/// history), is genuinely new mail even though nothing about its row changed on this pass —
+/// exactly the case a row-creation or row-change rule gets wrong (§13 Epic 9).
+/// </param>
+public sealed record IngestResult(
+	IReadOnlyList<Message> Created,
+	IReadOnlyList<Message> Updated,
+	IReadOnlyList<Message> Observed
+);
 
 /// <summary>
 /// Turns provider observations into local rows. Every write here is an upsert, which is what
@@ -48,6 +60,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	{
 		var created = new List<Message>();
 		var updated = new List<Message>();
+		var observed = new List<Message>();
 
 		foreach (var dto in messages)
 		{
@@ -108,6 +121,8 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 				membershipChanged |= await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
 			}
 
+			observed.Add(message);
+
 			if (isNew)
 			{
 				created.Add(message);
@@ -122,7 +137,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 			}
 		}
 
-		return new IngestResult(created, updated);
+		return new IngestResult(created, updated, observed);
 	}
 
 	/// <summary>

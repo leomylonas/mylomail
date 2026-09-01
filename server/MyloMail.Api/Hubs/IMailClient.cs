@@ -58,4 +58,10 @@ public interface IMailClient
 	/// show one calm offline state rather than per-mailbox errors multiplying every poll (§15).
 	/// </summary>
 	Task ConnectivityChanged(bool online);
+
+	/// <summary>
+	/// Relayed straight to the preload bridge, which asks <c>electron-shell</c> to show the
+	/// native OS notification. Dispatch is the shell's job, not the renderer's (§13 Epic 9).
+	/// </summary>
+	Task NotificationReady(NotificationDto notification);
 }

@@ -45,6 +45,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Domain.AppSettings> AppSettings => Set<Domain.AppSettings>();
 	public DbSet<CredentialFallbackSettings> CredentialFallbackSettings => Set<CredentialFallbackSettings>();
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
+	public DbSet<NotificationRecord> NotificationRecords => Set<NotificationRecord>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -56,6 +57,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureMutations(model);
 		ConfigureComposition(model);
 		ConfigureCalendar(model);
+		ConfigureNotifications(model);
 		ConfigureCredentialFallback(model);
 
 		model.Entity<Domain.AppSettings>(e =>
@@ -462,6 +464,31 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 			// Invites are matched against events by iCalendar UID.
 			e.HasIndex(x => x.ICalUid);
+		});
+	}
+
+	private static void ConfigureNotifications(ModelBuilder model)
+	{
+		model.Entity<NotificationRecord>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<Message>()
+				.WithMany()
+				.HasForeignKey(x => x.MessageId)
+				.OnDelete(DeleteBehavior.Cascade);
+
+			// One notification per message per kind, no matter how many times eligibility is
+			// evaluated for it — the unique constraint is what makes "insert, ignore a
+			// conflict" safe rather than merely usually-safe.
+			e.HasIndex(x => new { x.AccountId, x.MessageId, x.Kind }).IsUnique();
+
+			// Redispatch-pending-at-startup scans this; ordering by DateTimeOffset in SQL
+			// does not work; SQLite Id ordering is bar the point here regardless (§8, §9).
+			e.HasIndex(x => x.DeliveredAt);
 		});
 	}
 }

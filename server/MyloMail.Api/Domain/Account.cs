@@ -39,6 +39,14 @@ public class Account
 
 	public bool NotificationsEnabled { get; set; } = true;
 
+	/// <summary>
+	/// Account-level notification policy: never notify for a message dated before this
+	/// instant (§13 Epic 9). Set once at account creation and purely local — it never
+	/// changes, unlike the per-stream baseline token each change stream keeps for the same
+	/// purpose at its own scope.
+	/// </summary>
+	public DateTimeOffset NotificationEpoch { get; set; }
+
 	/// <summary>Fallback used when the provider cannot report a limit (§15).</summary>
 	public int? AttachmentSizeLimitOverride { get; set; }
 

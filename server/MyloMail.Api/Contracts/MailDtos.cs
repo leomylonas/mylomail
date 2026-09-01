@@ -174,6 +174,13 @@ public record CalendarEventSummaryDto(
 	bool SyncConflict
 );
 
+/// <summary>
+/// One OS notification the shell owes the user (§13 Epic 9). Carries enough to render it
+/// without a round trip: the renderer relays this straight to the preload bridge.
+/// </summary>
+[TranspilationSource]
+public record NotificationDto(Guid Id, Guid AccountId, Guid MessageId, string Title, string Body);
+
 /// <summary>What the calendar UI sends when it creates or edits an event.</summary>
 [TranspilationSource]
 public record SaveCalendarEventRequest(

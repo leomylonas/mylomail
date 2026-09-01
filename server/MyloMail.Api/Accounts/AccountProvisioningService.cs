@@ -74,6 +74,9 @@ public sealed class AccountProvisioningService(
 			PollIntervalSeconds = 60,
 			InitialSyncMode = InitialSyncMode.Full,
 			SortOrder = await context.Accounts.CountAsync(ct),
+			// Never notify for anything dated before this instant (§13 Epic 9) — set once,
+			// here, and never moved afterwards.
+			NotificationEpoch = clock.GetUtcNow(),
 		};
 
 		var commitAttempted = false;

@@ -47,6 +47,13 @@ public interface IHubEvents
 	Task CalendarConflictDetectedAsync(Guid eventId);
 
 	Task AccountStatusChangedAsync(AccountDto account);
+
+	/// <summary>
+	/// A durable notification record exists and is not yet delivered. Dispatch is owned by
+	/// <c>electron-shell</c>; the renderer relays this straight to the preload bridge (§13
+	/// Epic 9).
+	/// </summary>
+	Task NotificationReadyAsync(NotificationDto notification);
 }
 
 /// <summary>Broadcasts to every connected renderer.</summary>
@@ -81,6 +88,9 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 	public Task CalendarConflictDetectedAsync(Guid eventId) => hub.Clients.All.CalendarConflictDetected(eventId);
 
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
+
+	public Task NotificationReadyAsync(NotificationDto notification) =>
+		hub.Clients.All.NotificationReady(notification);
 }
 
 /// <summary>
@@ -111,4 +121,6 @@ public sealed class NoHubEvents : IHubEvents
 	public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
+
+	public Task NotificationReadyAsync(NotificationDto notification) => Task.CompletedTask;
 }

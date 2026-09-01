@@ -28,6 +28,7 @@ public sealed class ChangeStreamService(
 	TimeProvider clock,
 	IFaultInjector faults,
 	IHubEvents events,
+	Notifications.NotificationService notifications,
 	ILogger<ChangeStreamService> logger
 )
 {
@@ -156,14 +157,22 @@ public sealed class ChangeStreamService(
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
-		ContentApplyResult applied = new(new IngestResult([], []), []);
+		ContentApplyResult applied = new(new IngestResult([], [], []), [], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-			applied = await ApplyContentAsync(account, result, remoteDrafts, mailboxes, generations, ct);
+			applied = await ApplyContentAsync(
+				account,
+				result,
+				remoteDrafts,
+				mailboxes,
+				generations,
+				state.NotificationBaselineAt,
+				ct
+			);
 
 			if (result.NewCursor is not null)
 			{
@@ -183,16 +192,23 @@ public sealed class ChangeStreamService(
 		// would leave the UI showing something the database does not have.
 		//
 		// These are steady-state changes by construction — this is the change stream, not
-		// backfill — so a new message here is genuinely new mail (§7).
+		// backfill — so a new message here is genuinely new mail (§7). Summaries are built
+		// from every message this page observed, not just what changed: an eligible
+		// notification can name a message this page found unchanged (§13 Epic 9), and
+		// AnnounceAsync needs its summary too.
+		var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
+
 		foreach (var message in applied.Messages.Created)
 		{
-			await events.MessageReceivedAsync(MessageEventMapper.ToSummary(message));
+			await events.MessageReceivedAsync(summaries[message.Id]);
 		}
 
 		foreach (var message in applied.Messages.Updated)
 		{
-			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(message));
+			await events.MessageUpdatedAsync(summaries[message.Id]);
 		}
+
+		await notifications.AnnounceAsync(applied.EligibleNotifications, summaries);
 
 		foreach (var draftId in applied.DraftIds)
 		{
@@ -206,10 +222,24 @@ public sealed class ChangeStreamService(
 		IReadOnlyList<RemoteDraftPayload> remoteDrafts,
 		Dictionary<string, Mailbox> mailboxes,
 		GenerationSnapshot generations,
+		DateTimeOffset notificationBaseline,
 		CancellationToken ct
 	)
 	{
 		var ingested = await ingestor.IngestAsync(account, result.Upserted, mailboxes, generations, ct);
+
+		// Eligibility comes from this page reporting the message via the change stream, not
+		// from whether the ingestor happened to find an existing row: a message backfill
+		// already materialised is exactly the case §13 Epic 9 requires this to still catch.
+		// The durable per-(account, message, kind) record makes re-evaluating a message the
+		// stream reports again on some later page harmless rather than merely rare.
+		var eligibleNotifications = await notifications.RecordEligibleAsync(
+			account,
+			ingested.Observed,
+			notificationBaseline,
+			ct
+		);
+
 		var draftIds = new List<Guid>(
 			await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct)
 		);
@@ -241,7 +271,11 @@ public sealed class ChangeStreamService(
 			await drafts.ApplyRemovalsAsync(account, result.Removed, mailboxes, generations, ct)
 		);
 
-		return new ContentApplyResult(new IngestResult(ingested.Created, changed), draftIds.Distinct().ToArray());
+		return new ContentApplyResult(
+			new IngestResult(ingested.Created, changed, ingested.Observed),
+			draftIds.Distinct().ToArray(),
+			eligibleNotifications
+		);
 	}
 
 	/// <summary>
@@ -324,15 +358,32 @@ public sealed class ChangeStreamService(
 			}
 
 			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
-			IReadOnlyList<Guid> changedDraftIds = [];
+			ContentApplyResult applied = new(new IngestResult([], [], []), [], []);
 
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
 			{
 				await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-				var applied = await ApplyContentAsync(account, result, remoteDrafts, mailboxes, generations, ct);
-				changedDraftIds = applied.DraftIds;
+				// A fixed instant captured when this account-scoped stream was first created
+				// (or last resynchronised), not a transition this replay could ever observe
+				// happening — so it correctly excludes this account's pre-existing backlog
+				// regardless of how much later replay catches up (§13 Epic 9).
+				var state = await context.ChangeStreamStates.FirstOrDefaultAsync(
+					s => s.AccountId == account.Id && s.MailboxId == null,
+					ct
+				);
+				var notificationBaseline = state?.NotificationBaselineAt ?? DateTimeOffset.MaxValue;
+
+				applied = await ApplyContentAsync(
+					account,
+					result,
+					remoteDrafts,
+					mailboxes,
+					generations,
+					notificationBaseline,
+					ct
+				);
 				context.StagedChangeEvents.Remove(staged);
 
 				await context.SaveChangesAsync(ct);
@@ -340,7 +391,25 @@ public sealed class ChangeStreamService(
 
 			});
 
-			foreach (var draftId in changedDraftIds)
+			// These are steady-state changes too — replayed live-stream history, not
+			// backfill — so a message reported here is genuinely new mail just as it is on
+			// the non-staged path (§7, §13 Epic 9). Summaries come from everything this page
+			// observed, since an eligible notification can name a message found unchanged.
+			var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
+
+			foreach (var message in applied.Messages.Created)
+			{
+				await events.MessageReceivedAsync(summaries[message.Id]);
+			}
+
+			foreach (var message in applied.Messages.Updated)
+			{
+				await events.MessageUpdatedAsync(summaries[message.Id]);
+			}
+
+			await notifications.AnnounceAsync(applied.EligibleNotifications, summaries);
+
+			foreach (var draftId in applied.DraftIds)
 			{
 				await events.DraftUpdatedAsync(draftId);
 			}
@@ -374,6 +443,11 @@ public sealed class ChangeStreamService(
 		state.CursorState = null;
 		state.BaselineEstablishedAt = null;
 		state.LastError = ex.Message;
+
+		// Captured here, before resynchronisation begins, never advanced after it completes —
+		// advancing it afterwards would classify mail that arrived during the resync window
+		// as predating it and silently drop those notifications (§13 Epic 9).
+		state.NotificationBaselineAt = clock.GetUtcNow();
 
 		var coverage = await context.MailboxCoverageStates.FirstOrDefaultAsync(c => c.MailboxId == mailbox.Id, ct);
 		if (coverage is not null)
@@ -440,6 +514,9 @@ public sealed class ChangeStreamService(
 				ProviderType.Microsoft365 => CursorKind.GraphDelta,
 				_ => CursorKind.ImapUid,
 			},
+			// Captured now, before this stream's first page ever runs — not after it, which
+			// would let that first page's catch-up notify for whatever it happens to find.
+			NotificationBaselineAt = clock.GetUtcNow(),
 		};
 
 		context.ChangeStreamStates.Add(state);
@@ -481,4 +558,8 @@ public sealed class ChangeStreamService(
 /// <summary>What one change-stream run did, for the caller's scheduling decision.</summary>
 public sealed record ChangeStreamOutcome(int Pages, bool Staged, bool ResyncTriggered);
 
-internal sealed record ContentApplyResult(IngestResult Messages, IReadOnlyList<Guid> DraftIds);
+internal sealed record ContentApplyResult(
+	IngestResult Messages,
+	IReadOnlyList<Guid> DraftIds,
+	IReadOnlyList<NotificationRecord> EligibleNotifications
+);

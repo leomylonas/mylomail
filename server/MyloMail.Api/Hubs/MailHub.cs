@@ -78,6 +78,9 @@ public interface IMailHub
 	Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request);
 
 	Task DeleteCalendarEvent(Guid eventId);
+
+	/// <summary>Confirms the shell showed a notification at least once (§13 Epic 9).</summary>
+	Task MarkNotificationDelivered(Guid notificationId);
 }
 
 public class MailHub(
@@ -87,6 +90,7 @@ public class MailHub(
 	DraftService drafts,
 	MailboxManagement mailboxes,
 	CalendarEventService calendarEvents,
+	Notifications.NotificationService notifications,
 	IMailProviderFactory providers
 ) : Hub<IMailClient>, IMailHub
 {
@@ -392,6 +396,9 @@ public class MailHub(
 	}
 
 	public Task DeleteCalendarEvent(Guid eventId) => calendarEvents.DeleteAsync(eventId);
+
+	public Task MarkNotificationDelivered(Guid notificationId) =>
+		notifications.MarkDeliveredAsync(notificationId);
 }
 
 /// <summary>One locally desired change the server has not yet confirmed (§6).</summary>

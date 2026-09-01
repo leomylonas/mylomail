@@ -21,6 +21,7 @@ public sealed class StartupScheduler(
 	StartupReconciliation reconciliation,
 	SearchIndexer search,
 	PollRegistry polls,
+	Notifications.NotificationService notifications,
 	IBackgroundJobClient jobs,
 	ILogger<StartupScheduler> logger
 )
@@ -60,6 +61,12 @@ public sealed class StartupScheduler(
 			// before it dispatches, so a send left mid-flight by the crash is settled before
 			// anything new goes out.
 			jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
+
+			// A notification recorded but not yet confirmed delivered may never have reached
+			// the OS — the crash could have landed on either side of that gap. Re-announcing
+			// it is the recovery path §13 Epic 9 calls for: a possible duplicate, never a
+			// silently dropped notification.
+			await notifications.RedispatchPendingAsync(accountId, ct);
 		}
 
 		foreach (var mailboxId in work.BackfillingMailboxes)

@@ -128,6 +128,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<CoverageService>();
 		services.AddScoped<ChangeStreamService>();
 		services.AddScoped<IntegrityReconciliationService>();
+		services.AddScoped<Notifications.NotificationService>();
 
 		return services;
 	}

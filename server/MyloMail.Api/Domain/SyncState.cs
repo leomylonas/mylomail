@@ -75,6 +75,17 @@ public class ChangeStreamState
 	public DateTimeOffset? BaselineEstablishedAt { get; set; }
 	public DateTimeOffset? LastSyncedAt { get; set; }
 	public string? LastError { get; set; }
+
+	/// <summary>
+	/// This stream's notification cutoff (§13 Epic 9) — a fixed instant, captured once when
+	/// the stream is first created and again immediately on a triggered resync, before
+	/// resynchronisation begins. Deliberately not derived from
+	/// <see cref="BaselineEstablishedAt"/>, which instead means "this stream has completed a
+	/// confirmed page" and transitions null→set only after catch-up work runs: gating
+	/// notifications on that would classify mail arriving during a resync's own catch-up
+	/// window as predating it, which is exactly the silent drop §13 forbids.
+	/// </summary>
+	public DateTimeOffset NotificationBaselineAt { get; set; }
 }
 
 /// <summary>
