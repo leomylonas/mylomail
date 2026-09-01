@@ -18,6 +18,8 @@ import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPa
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 interface Account {
@@ -46,6 +48,7 @@ export function AppShell() {
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	const store = useWindowStore();
+	const { store: notifications } = useWindowNotifications();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const selectedMessageId = useStoreValue(store, "selectedMessageId");
@@ -78,14 +81,34 @@ export function AppShell() {
 	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
 	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
 	// update happens inside the callback, in response to that external event, not during
-	// render.
+	// render. A null messageId means the notification was recorded from a still-staged,
+	// not-yet-replayed change-stream page — fetched on demand here rather than the
+	// navigation simply failing.
 	useEffect(
 		() =>
-			window.notifications?.onClicked((messageId) => {
-				store.setState("selectedMessageId", messageId);
-				setPane("reading");
+			window.notifications?.onClicked(({ notificationId, messageId }) => {
+				if (messageId) {
+					store.setState("selectedMessageId", messageId);
+					setPane("reading");
+					return;
+				}
+
+				void hub
+					?.invoke<string | null>("ResolveStagedMessage", notificationId)
+					.then((resolved) => {
+						if (resolved) {
+							store.setState("selectedMessageId", resolved);
+							setPane("reading");
+						} else {
+							notify(notifications, {
+								kind: "info",
+								title: "Still syncing",
+								detail: "This message hasn't finished downloading yet.",
+							});
+						}
+					});
 			}),
-		[store],
+		[hub, store, notifications],
 	);
 
 	return (

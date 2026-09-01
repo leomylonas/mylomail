@@ -146,6 +146,15 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     markNotificationDelivered(notificationId: string): Promise<void>;
+    /**
+    * Fetches the message a still-staged notification points at, on demand, rather than the
+    * navigation simply failing (§3). Null if the account's staged history still doesn't
+    * resolve it — the caller only knows this notification was recorded, not why it might be
+    * slow.
+    * @param notificationId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Guid?>
+    */
+    resolveStagedMessage(notificationId: string): Promise<(string | undefined)>;
 }
 
 /**

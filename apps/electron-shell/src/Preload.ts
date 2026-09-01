@@ -5,6 +5,7 @@ import {
 	openAttachmentChannel,
 	showNotificationChannel,
 	type BackendConnection,
+	type NotificationClicked,
 	type NotificationRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 
@@ -33,9 +34,13 @@ contextBridge.exposeInMainWorld("backend", {
 contextBridge.exposeInMainWorld("notifications", {
 	show: (request: NotificationRequest): Promise<void> =>
 		ipcRenderer.invoke(showNotificationChannel, request) as Promise<void>,
-	onClicked: (callback: (messageId: string) => void): (() => void) => {
-		const handler = (_event: Electron.IpcRendererEvent, messageId: string) =>
-			callback(messageId);
+	onClicked: (
+		callback: (clicked: NotificationClicked) => void,
+	): (() => void) => {
+		const handler = (
+			_event: Electron.IpcRendererEvent,
+			clicked: NotificationClicked,
+		) => callback(clicked);
 		ipcRenderer.on(notificationClickedChannel, handler);
 		return () => ipcRenderer.off(notificationClickedChannel, handler);
 	},

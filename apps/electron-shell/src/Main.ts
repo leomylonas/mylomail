@@ -17,6 +17,7 @@ import {
 	openAttachmentChannel,
 	showNotificationChannel,
 	type BackendConnection,
+	type NotificationClicked,
 	type NotificationRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
@@ -117,18 +118,18 @@ export async function startShell(): Promise<void> {
 			body: request.body,
 		});
 		notification.on("click", () => {
+			const clicked: NotificationClicked = {
+				notificationId: request.id,
+				messageId: request.messageId,
+			};
 			for (const window of BrowserWindow.getAllWindows()) {
 				if (window.isMinimized()) window.restore();
 				window.show();
 				window.focus();
-				// Null when the message hasn't been replayed locally yet (§3): the window
-				// still comes to the front, there is just nothing to navigate to yet.
-				if (request.messageId !== null) {
-					window.webContents.send(
-						notificationClickedChannel,
-						request.messageId,
-					);
-				}
+				// Always sent, even with messageId null (the message hasn't replayed
+				// locally yet, §3): the renderer is what resolves that case on demand,
+				// not the shell, which keeps no notification state of its own.
+				window.webContents.send(notificationClickedChannel, clicked);
 			}
 		});
 		notification.show();

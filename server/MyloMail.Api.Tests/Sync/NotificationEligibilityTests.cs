@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Sync;
@@ -226,5 +227,52 @@ public sealed class NotificationEligibilityTests
 			var record = await context.NotificationRecords.SingleAsync();
 			Assert.Equal(message.Id, record.MessageId);
 		});
+	}
+
+	/// <summary>
+	/// Clicking a notification whose message hasn't replayed yet fetches it on demand rather
+	/// than the navigation failing (§3) — <c>MailHub.ResolveStagedMessage</c> is what the
+	/// renderer calls for exactly that case.
+	/// </summary>
+	[Fact]
+	public async Task Resolving_a_staged_notification_drains_replay_and_returns_its_message()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await SyncTests.SyncAsync(harness);
+		var notification = Assert.Single(harness.Events.Notifications);
+		Assert.Null(notification.MessageId);
+
+		// Deliberately no coverage run first: replay does not depend on it, and resolving
+		// this notification must drain the staged queue itself rather than relying on some
+		// other path having already materialised the message.
+		await harness.UsingAsync(async scope =>
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().Messages.ToListAsync())
+		);
+
+		var resolved = await harness.UsingAsync(async scope =>
+		{
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			return await hub.ResolveStagedMessage(notification.Id);
+		});
+
+		Assert.NotNull(resolved);
+		await harness.UsingAsync(async scope =>
+		{
+			var message = await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync();
+			Assert.Equal(message.Id, resolved);
+		});
+
+		// A second call, once already resolved, returns it straight from the record without
+		// draining anything further.
+		var resolvedAgain = await harness.UsingAsync(async scope =>
+		{
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			return await hub.ResolveStagedMessage(notification.Id);
+		});
+		Assert.Equal(resolved, resolvedAgain);
 	}
 }

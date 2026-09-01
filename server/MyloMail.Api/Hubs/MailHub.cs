@@ -81,6 +81,14 @@ public interface IMailHub
 
 	/// <summary>Confirms the shell showed a notification at least once (§13 Epic 9).</summary>
 	Task MarkNotificationDelivered(Guid notificationId);
+
+	/// <summary>
+	/// Fetches the message a still-staged notification points at, on demand, rather than the
+	/// navigation simply failing (§3). Null if the account's staged history still doesn't
+	/// resolve it — the caller only knows this notification was recorded, not why it might be
+	/// slow.
+	/// </summary>
+	Task<Guid?> ResolveStagedMessage(Guid notificationId);
 }
 
 public class MailHub(
@@ -91,6 +99,7 @@ public class MailHub(
 	MailboxManagement mailboxes,
 	CalendarEventService calendarEvents,
 	Notifications.NotificationService notifications,
+	ChangeStreamService changeStream,
 	IMailProviderFactory providers
 ) : Hub<IMailClient>, IMailHub
 {
@@ -399,6 +408,35 @@ public class MailHub(
 
 	public Task MarkNotificationDelivered(Guid notificationId) =>
 		notifications.MarkDeliveredAsync(notificationId);
+
+	public async Task<Guid?> ResolveStagedMessage(Guid notificationId)
+	{
+		var record = await context.NotificationRecords.FirstOrDefaultAsync(n => n.Id == notificationId);
+		if (record is null)
+		{
+			return null;
+		}
+		if (record.MessageId is Guid resolved)
+		{
+			return resolved;
+		}
+
+		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == record.AccountId);
+		if (account is null)
+		{
+			return null;
+		}
+
+		// Draining the whole staged queue, not just this one notification's event: replay
+		// only ever proceeds in order (§3), and the record this click is asking about is
+		// already known to have been staged, so its event is somewhere in that queue.
+		await changeStream.ReplayStagedAsync(account);
+
+		return await context.NotificationRecords.AsNoTracking()
+			.Where(n => n.Id == notificationId)
+			.Select(n => n.MessageId)
+			.FirstOrDefaultAsync();
+	}
 }
 
 /// <summary>One locally desired change the server has not yet confirmed (§6).</summary>

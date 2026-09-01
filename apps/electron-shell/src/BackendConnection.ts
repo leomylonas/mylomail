@@ -27,6 +27,17 @@ export interface NotificationRequest {
 }
 
 /**
+ * What a notification click hands back to the renderer. `messageId` repeats the
+ * `NotificationRequest` at the moment it was shown — the shell keeps no state of its own — so
+ * when it is null the renderer is the one that asks the backend to resolve
+ * `notificationId` on demand rather than the click doing nothing (§3).
+ */
+export interface NotificationClicked {
+	notificationId: string;
+	messageId: string | null;
+}
+
+/**
  * Where the backend is listening.
  *
  * <b>The launch token is deliberately absent.</b> The renderer is served from the backend's

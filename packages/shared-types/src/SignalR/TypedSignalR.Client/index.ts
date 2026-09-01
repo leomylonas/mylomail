@@ -176,6 +176,10 @@ class IMailHub_HubProxy implements IMailHub {
     public readonly markNotificationDelivered = async (notificationId: string): Promise<void> => {
         return await this.connection.invoke("MarkNotificationDelivered", notificationId);
     }
+
+    public readonly resolveStagedMessage = async (notificationId: string): Promise<(string | undefined)> => {
+        return await this.connection.invoke("ResolveStagedMessage", notificationId);
+    }
 }
 
 

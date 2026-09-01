@@ -12,7 +12,12 @@ declare global {
 				body: string;
 				messageId: string | null;
 			}): Promise<void>;
-			onClicked(callback: (messageId: string) => void): () => void;
+			onClicked(
+				callback: (clicked: {
+					notificationId: string;
+					messageId: string | null;
+				}) => void,
+			): () => void;
 		};
 	}
 }
