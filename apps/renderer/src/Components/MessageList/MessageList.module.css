@@ -26,6 +26,14 @@
 	font-weight: 600;
 }
 
+.selected {
+	background: var(--cds-layer-selected);
+}
+
+.selected:hover {
+	background: var(--cds-layer-selected-hover);
+}
+
 .sender {
 	color: var(--cds-text-secondary);
 	font-size: 0.75rem;

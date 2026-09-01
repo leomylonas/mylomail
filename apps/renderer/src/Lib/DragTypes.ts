@@ -4,3 +4,4 @@
  */
 export const messageDragType = "application/x-mylomail-message-id";
 export const mailboxDragType = "application/x-mylomail-mailbox-id";
+export const accountDragType = "application/x-mylomail-account-id";

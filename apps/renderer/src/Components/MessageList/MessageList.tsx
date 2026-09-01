@@ -58,8 +58,16 @@ export function MessageList({
 	const [menu, setMenu] = useState<{
 		x: number;
 		y: number;
-		message: MessageSummary;
+		targets: MessageSummary[];
 	} | null>(null);
+
+	// Multi-select (§13 Epic 6): shift/ctrl/cmd-click extend it, a plain click collapses it to
+	// one row. Ids rather than objects, so the set survives a refetch that returns new message
+	// object identities for the same messages.
+	const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
+		new Set(),
+	);
+	const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
 
 	// One list, two sources. Searching scopes to the selected mailbox, because a search from
 	// inside a folder that silently returned results from everywhere would be a different
@@ -83,55 +91,87 @@ export function MessageList({
 			hub.invoke<PendingChange[]>("GetPendingSyncState", accountId),
 	});
 
+	// Bulk by construction: every caller passes the whole target set, one message included,
+	// rather than this component looping — a single hub call per action either way, since
+	// SetFlags/MoveToTrash already take an id list (§13 Epic 6).
 	const setFlags = useMutation({
 		mutationFn: ({
-			message,
+			messages,
 			isRead,
 			isFlagged,
 		}: {
-			message: MessageSummary;
+			messages: MessageSummary[];
 			isRead: boolean | null;
 			isFlagged: boolean | null;
-		}) => hub.invoke("SetFlags", accountId, [message.id], isRead, isFlagged),
+		}) =>
+			hub.invoke(
+				"SetFlags",
+				accountId,
+				messages.map((message) => message.id),
+				isRead,
+				isFlagged,
+			),
 		onSettled: () =>
 			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) }),
 	});
 
 	const trash = useMutation({
-		mutationFn: (message: MessageSummary) =>
-			hub.invoke("MoveToTrash", accountId, [message.id]),
+		mutationFn: (messages: MessageSummary[]) =>
+			hub.invoke(
+				"MoveToTrash",
+				accountId,
+				messages.map((message) => message.id),
+			),
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
 	});
 
-	// Bound to the message under the cursor, following Gmail and Outlook conventions. Every
-	// action goes through the mutation queue, so a shortcut and its menu entry cannot diverge
-	// in what they actually do (§13).
-	const selected = menu?.message;
+	const selectedMessages = (messages.data ?? []).filter((message) =>
+		selectedIds.has(message.id),
+	);
+
+	// Follows the current selection, not just the context-menu target, so a shortcut and a
+	// multi-select bulk action cannot diverge in what "the selection" means (§13 Epic 6).
+	// Every action goes through the mutation queue, so a shortcut and its menu entry cannot
+	// diverge in what they actually do either (§13).
 	useShortcuts([
 		{
 			key: "u",
 			description: "Mark unread",
 			run: () =>
-				selected &&
-				setFlags.mutate({ message: selected, isRead: false, isFlagged: null }),
+				selectedMessages.length > 0 &&
+				setFlags.mutate({
+					messages: selectedMessages,
+					isRead: false,
+					isFlagged: null,
+				}),
 		},
 		{
 			key: "i",
 			description: "Mark read",
 			run: () =>
-				selected &&
-				setFlags.mutate({ message: selected, isRead: true, isFlagged: null }),
+				selectedMessages.length > 0 &&
+				setFlags.mutate({
+					messages: selectedMessages,
+					isRead: true,
+					isFlagged: null,
+				}),
 		},
 		{
 			key: "s",
 			description: "Flag",
-			run: () =>
-				selected &&
+			run: () => {
+				if (selectedMessages.length === 0) return;
+				// Mixed selection: flagging wins over unflagging, the same "act, don't ask"
+				// default a mixed-read selection's context-menu label uses below.
+				const allFlagged = selectedMessages.every(
+					(message) => message.isFlagged,
+				);
 				setFlags.mutate({
-					message: selected,
+					messages: selectedMessages,
 					isRead: null,
-					isFlagged: !selected.isFlagged,
-				}),
+					isFlagged: !allFlagged,
+				});
+			},
 		},
 	]);
 
@@ -148,29 +188,83 @@ export function MessageList({
 	return (
 		<>
 			<ul className={styles.list}>
-				{messages.data.map((message) => {
+				{messages.data.map((message, index) => {
 					const read = isRead(message, pending.data);
+					const isSelected = selectedIds.has(message.id);
 					return (
 						<li key={message.id}>
 							<button
 								type="button"
-								className={`${styles.row} ${read ? "" : styles.unread}`}
+								aria-pressed={isSelected}
+								className={`${styles.row} ${read ? "" : styles.unread} ${isSelected ? styles.selected : ""}`}
 								draggable
 								onDragStart={(event) => {
-									event.dataTransfer.setData(messageDragType, message.id);
+									// Dragging a row that's part of a multi-selection carries the
+									// whole selection; dragging any other row carries just itself
+									// (§13 Epic 6), matching the same "acts on the whole
+									// selection, or resets to one" convention right-click uses.
+									const ids =
+										isSelected && selectedIds.size > 1
+											? [...selectedIds]
+											: [message.id];
+									event.dataTransfer.setData(messageDragType, ids.join(","));
 									event.dataTransfer.effectAllowed = "move";
 								}}
 								onContextMenu={(event) => {
 									event.preventDefault();
-									setMenu({ x: event.clientX, y: event.clientY, message });
+									// Right-clicking a message already part of a multi-selection
+									// acts on the whole selection, following the same convention
+									// as ctrl/shift-click; right-clicking outside it starts a new
+									// one-message selection instead of leaving a stale one active.
+									const targets =
+										isSelected && selectedIds.size > 1
+											? selectedMessages
+											: [message];
+									if (!isSelected || selectedIds.size === 1) {
+										setSelectedIds(new Set([message.id]));
+										setAnchorIndex(index);
+									}
+									setMenu({ x: event.clientX, y: event.clientY, targets });
 								}}
-								onClick={() => {
+								onClick={(event) => {
+									if (event.shiftKey && anchorIndex !== null) {
+										const [start, end] = [
+											Math.min(anchorIndex, index),
+											Math.max(anchorIndex, index),
+										];
+										setSelectedIds(
+											new Set(
+												messages.data
+													.slice(start, end + 1)
+													.map((row) => row.id),
+											),
+										);
+										return;
+									}
+
+									if (event.ctrlKey || event.metaKey) {
+										setSelectedIds((current) => {
+											const next = new Set(current);
+											if (next.has(message.id)) next.delete(message.id);
+											else next.add(message.id);
+											return next;
+										});
+										setAnchorIndex(index);
+										return;
+									}
+
+									setSelectedIds(new Set([message.id]));
+									setAnchorIndex(index);
 									onSelect({ ...message, from: senderAddress(message) });
 									// Opening a message marks it read, as every mail client does.
 									// Already-read messages enqueue nothing: a redundant mutation
 									// would still be a real provider call.
 									if (!read)
-										setFlags.mutate({ message, isRead: true, isFlagged: null });
+										setFlags.mutate({
+											messages: [message],
+											isRead: true,
+											isFlagged: null,
+										});
 								}}
 							>
 								<span>
@@ -195,7 +289,7 @@ export function MessageList({
 					y={menu.y}
 					onClose={() => setMenu(null)}
 					actions={messageActions(
-						menu.message,
+						menu.targets,
 						setFlags.mutate,
 						trash.mutate,
 						hub,
@@ -216,17 +310,29 @@ export function MessageList({
  * reads as an app that keeps changing shape.
  */
 function messageActions(
-	message: MessageSummary,
+	targets: MessageSummary[],
 	setFlags: (input: {
-		message: MessageSummary;
+		messages: MessageSummary[];
 		isRead: boolean | null;
 		isFlagged: boolean | null;
 	}) => void,
-	trash: (message: MessageSummary) => void,
+	trash: (messages: MessageSummary[]) => void,
 	hub: HubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
 ): MenuAction[] {
+	const single = targets.length === 1 ? targets[0] : undefined;
+	const suffix = targets.length > 1 ? ` (${targets.length})` : "";
+	// A mixed selection acts rather than asks: marking everything read/flagged is the
+	// least-surprising outcome for "some of these already are," the same convention email
+	// clients use for a mixed toolbar state.
+	const allRead = targets.every((message) => message.isRead);
+	const allFlagged = targets.every((message) => message.isFlagged);
+	const singleUnavailable =
+		targets.length > 1
+			? "Only available for one message at a time."
+			: undefined;
+
 	return [
 		{
 			label: "Reply",
@@ -245,24 +351,30 @@ function messageActions(
 		},
 		{ label: "-", run: () => undefined },
 		{
-			label: message.isRead ? "Mark unread" : "Mark read",
+			label: `${allRead ? "Mark unread" : "Mark read"}${suffix}`,
 			run: () =>
-				setFlags({ message, isRead: !message.isRead, isFlagged: null }),
+				setFlags({ messages: targets, isRead: !allRead, isFlagged: null }),
 		},
 		{
-			label: message.isFlagged ? "Remove flag" : "Flag",
+			label: `${allFlagged ? "Remove flag" : "Flag"}${suffix}`,
 			run: () =>
-				setFlags({ message, isRead: null, isFlagged: !message.isFlagged }),
+				setFlags({ messages: targets, isRead: null, isFlagged: !allFlagged }),
 		},
 		{ label: "-", run: () => undefined },
-		{ label: "Move to trash", run: () => trash(message), danger: true },
+		{
+			label: `Move to trash${suffix}`,
+			run: () => trash(targets),
+			danger: true,
+		},
 		{
 			label: "Save as .eml",
-			run: () => void saveAsEml(hub, message),
+			run: () => single && void saveAsEml(hub, single),
+			unavailable: singleUnavailable,
 		},
 		{
 			label: "Print",
-			run: () => void printMessage(hub, queryClient, message, onPrint),
+			run: () => single && void printMessage(hub, queryClient, single, onPrint),
+			unavailable: singleUnavailable,
 		},
 	];
 }

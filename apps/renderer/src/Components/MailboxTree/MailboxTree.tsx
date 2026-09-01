@@ -94,11 +94,11 @@ export function MailboxTree({
 	// library pulls its own weight for two drop targets, and Carbon's buttons already forward
 	// arbitrary DOM props like `draggable`/`onDragStart`/`onDrop`.
 	const moveMessages = useMutation({
-		mutationFn: (input: { messageId: string; targetMailboxId: string }) =>
+		mutationFn: (input: { messageIds: string[]; targetMailboxId: string }) =>
 			hub.invoke(
 				"MoveMessages",
 				accountId,
-				[input.messageId],
+				input.messageIds,
 				input.targetMailboxId,
 			),
 		onSuccess: () => {
@@ -179,9 +179,12 @@ export function MailboxTree({
 		event.preventDefault();
 		setDropTarget(null);
 
-		const messageId = event.dataTransfer.getData(messageDragType);
-		if (messageId) {
-			moveMessages.mutate({ messageId, targetMailboxId: target.id });
+		const messageIds = event.dataTransfer.getData(messageDragType);
+		if (messageIds) {
+			moveMessages.mutate({
+				messageIds: messageIds.split(","),
+				targetMailboxId: target.id,
+			});
 			return;
 		}
 
