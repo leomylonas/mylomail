@@ -390,11 +390,28 @@ This is a snapshot of the current state, not a history; use Git for history.
 - **Message-list multi-select and bulk actions (Epic 6)**, and **account reordering + a colour
   picker (Epic 1)** — see their own commits for detail. The account-reorder work also surfaced
   that there was no UI at all to switch between multiple accounts before now (`AccountSwitcher.tsx`
-  fixes that), but Epic 2's stronger requirement — every account's mailboxes visible
-  simultaneously in one sidebar tree, "no switching that hides other accounts" — is still
-  unaddressed; the sidebar shows one selected account's tree at a time. Worth its own pass.
-  All four items verified with `pnpm check`, full `dotnet test` (267 passed), full Playwright
-  e2e suite (7/7), and an `invariant-review` covering all three diffs together — no findings.
+  fixed that at the time, since superseded — see below). All four items verified with
+  `pnpm check`, full `dotnet test` (267 passed), full Playwright e2e suite (7/7), and an
+  `invariant-review` covering all three diffs together — no findings.
+- **Outlook-style sidebar (Epic 2), on explicit request:** architecture.md states this flatly —
+  every account's mailboxes visible in one persistent sidebar tree, "no switching that hides
+  other accounts." The sidebar previously showed one selected account's tree at a time, with
+  `AccountSwitcher.tsx`'s chip row for switching between them. `Sidebar.tsx` replaces both: one
+  collapsible top-level section per account, each with its own nested `MailboxTree` — clicking
+  any mailbox under any account sets both `selectedAccountId` and `selectedMailboxId` (both
+  writes land inside one React event handler, so React's batching covers them). Account reorder
+  is now a drag on the section header instead of a separate chip; `AccountSwitcher.tsx` is
+  deleted, fully superseded.
+  **Surfaced and fixed a real process gap while verifying this:** `pnpm e2e` never rebuilt
+  `apps/renderer/dist`/`apps/electron-shell/dist` — Electron loads whatever was last built by
+  hand, so every renderer-side feature earlier this session (multi-select, the settings screen,
+  the remote-content allow list, export UI, the original account switcher) had only ever been
+  "verified" against a stale bundle, not the code actually being reviewed. Added a
+  `pretest:e2e` step (`build:renderer && build:shell`) so this can't happen silently again.
+  Re-ran the full e2e suite against a freshly rebuilt bundle for real this time (7/7), plus a
+  temporary two-account smoke test (written, run, deleted) confirming both accounts render
+  simultaneously with independent trees. `invariant-review`: no findings, presentational/
+  selection-state only.
 
 ## Next task
 
@@ -407,13 +424,7 @@ This is a snapshot of the current state, not a history; use Git for history.
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-3. **Sidebar shows one account at a time, not all accounts simultaneously.** architecture.md
-   Epic 2 calls for every account's mailboxes visible in one persistent sidebar tree, with "no
-   switching that hides other accounts." `MailboxTree` currently takes a single `accountId` and
-   `AppShell` only ever renders one at a time (surfaced while adding account
-   reordering/switching this session). A real fix touches the selection model, not just the
-   sidebar component.
-4. **Gmail/Graph conformance and correctness against real accounts is unverified.** The new
+3. **Gmail/Graph conformance and correctness against real accounts is unverified.** The new
    send/draft/mailbox-CRUD implementations match their SDKs' documented shapes but have not run
    against live Gmail/Microsoft 365 accounts — in particular, whether Graph honors a
    caller-supplied `internetMessageId` on send (needed for Message-ID-based reconciliation) is
