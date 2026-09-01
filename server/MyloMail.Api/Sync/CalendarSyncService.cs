@@ -168,12 +168,13 @@ public sealed class CalendarSyncService(
 			);
 			if (existing is not null)
 			{
+				// A provider reports one resource deleted, not one event: CalDAV's master and
+				// its overrides share an href, so a deleted master takes its overrides with it
+				// rather than leaving them as orphaned standalone events (§1 — recurrence is a
+				// set, and deleting the set deletes all of it).
 				var children = await context.CalendarEvents.Where(e => e.RecurrenceMasterId == existing.Id).ToListAsync(ct);
-				foreach (var child in children)
-				{
-					child.RecurrenceMasterId = null;
-					changed.Add(child.Id);
-				}
+				context.CalendarEvents.RemoveRange(children);
+				changed.AddRange(children.Select(c => c.Id));
 				changed.Add(existing.Id);
 				context.CalendarEvents.Remove(existing);
 			}
@@ -198,6 +199,11 @@ public sealed class CalendarSyncService(
 			}
 			changed.Add(ev.Id);
 		}
+
+		// Flushed before the recurrence-resolution queries below: those run as ordinary
+		// SingleAsync lookups against the database, which cannot see an Add()ed entity that
+		// has not been saved yet — including one added earlier in this same page.
+		await context.SaveChangesAsync(ct);
 
 		// A recurrence relation refers to the local canonical event id, while providers carry
 		// the master's volatile id. Resolve it inside this transaction after all page upserts,
