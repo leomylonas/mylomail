@@ -92,12 +92,21 @@ interface WatchOptions {
 	parse: Parser;
 	/** Matches the line a tool prints when it begins a fresh compile cycle. */
 	cycleStart: RegExp;
+	/** Defaults to ROOT. */
+	cwd?: string;
 }
 
-function watch({ name, command, args, parse, cycleStart }: WatchOptions): void {
+function watch({
+	name,
+	command,
+	args,
+	parse,
+	cycleStart,
+	cwd,
+}: WatchOptions): void {
 	const start = (): void => {
 		const child: ChildProcess = spawn(command, args, {
-			cwd: ROOT,
+			cwd: cwd ?? ROOT,
 			shell: isWindows,
 		});
 		let buffer = "";
@@ -177,15 +186,15 @@ watch({
 watch({
 	name: "dotnet",
 	command: "dotnet",
-	args: [
-		"watch",
-		"build",
-		"--project",
-		"server/MyloMail.Api",
-		"--nologo",
-		"-tl:off",
-	],
-	cycleStart: /Started|Building|File changed/,
+	// No --project: dotnet watch (SDK 10) no longer consumes it as its own option — it's
+	// forwarded straight through to MSBuild verbatim, which rejects it with MSB1001 on every
+	// restart cycle. Running from inside the project directory is the form that still works.
+	args: ["watch", "build", "--nologo", "-tl:off"],
+	cwd: `${ROOT}/server/MyloMail.Api`,
+	// SDK 10's dotnet watch dropped the "Started"/"Building" lines the initial cycle used to
+	// print — that cycle now starts silently at "Determining projects to restore..." instead,
+	// with "File changed: ..." still printed on every later restart.
+	cycleStart: /Started|Building|File changed|Determining projects to restore/,
 	parse: (line) => {
 		const m = PATTERNS.dotnet.exec(line);
 		if (!m) return null;
