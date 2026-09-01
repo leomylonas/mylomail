@@ -1,10 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@carbon/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, Checkbox } from "@carbon/react";
 import {
 	prepare,
 	resolveInlineImages,
 } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
 import styles from "@mylomail/renderer/Components/MessageHtml/MessageHtml.module.css";
+
+interface TrustedSender {
+	address: string;
+}
+
+const trustedSendersKey = ["remote-content-trusted-senders"];
+
+/**
+ * Whether remote content should load without asking, because this sender is on the
+ * persisted allow list (§13 Epic 5) — checked fresh per message rather than cached forever,
+ * since trusting/untrusting a sender should show up the next time any of their mail opens.
+ */
+function useIsTrustedSender(senderAddress: string | undefined): boolean {
+	const query = useQuery({
+		queryKey: trustedSendersKey,
+		queryFn: async (): Promise<TrustedSender[]> => {
+			const response = await fetch("/remote-content/trusted-senders");
+			if (!response.ok) return [];
+			return (await response.json()) as TrustedSender[];
+		},
+		staleTime: 30_000,
+	});
+
+	if (!senderAddress) return false;
+	const lowered = senderAddress.toLowerCase();
+	return query.data?.some((sender) => sender.address === lowered) ?? false;
+}
+
+function useTrustSender() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (address: string) => {
+			await fetch("/remote-content/trusted-senders", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ address }),
+			});
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: trustedSendersKey });
+		},
+	});
+}
 
 /**
  * The document policy applied inside the isolated frame.
@@ -32,11 +76,22 @@ const framePolicy = (allowRemote: boolean) =>
 export function MessageHtml({
 	html,
 	messageId,
+	senderAddress,
 }: {
 	html: string;
 	messageId: string;
+	/** For the persisted remote-content allow list (§13 Epic 5), passed down from ReadingPane. */
+	senderAddress?: string;
 }) {
-	const [allowRemote, setAllowRemote] = useState(false);
+	const isTrustedSender = useIsTrustedSender(senderAddress);
+	const trustSender = useTrustSender();
+	// A one-shot manual override ("Load content" clicked this session) OR'd with the
+	// allow-list check, rather than seeded via an effect: the allow-list query resolving after
+	// mount just changes what this expression evaluates to on the next render, with no extra
+	// state or cascading setState needed.
+	const [allowRemoteOverride, setAllowRemoteOverride] = useState(false);
+	const allowRemote = allowRemoteOverride || isTrustedSender;
+	const [alwaysAllow, setAlwaysAllow] = useState(false);
 	const [resolved, setResolved] = useState<string | null>(null);
 	const [inlineStatus, setInlineStatus] = useState<
 		"idle" | "resolving" | "resolved" | "failed"
@@ -87,10 +142,23 @@ export function MessageHtml({
 						Remote content is blocked. Loading it tells the sender you opened
 						this message.
 					</span>
+					{senderAddress ? (
+						<Checkbox
+							id="message-html-always-allow"
+							labelText={`Always allow images from ${senderAddress}`}
+							checked={alwaysAllow}
+							onChange={(_, { checked }) => setAlwaysAllow(checked)}
+						/>
+					) : null}
 					<Button
 						size="sm"
 						kind="tertiary"
-						onClick={() => setAllowRemote(true)}
+						onClick={() => {
+							setAllowRemoteOverride(true);
+							if (alwaysAllow && senderAddress) {
+								trustSender.mutate(senderAddress);
+							}
+						}}
 					>
 						Load content
 					</Button>

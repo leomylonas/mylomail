@@ -44,14 +44,14 @@ export function MessageList({
 	accountId: string;
 	mailboxId: string;
 	query: string;
-	onSelect: (message: { id: string; subject: string }) => void;
+	onSelect: (message: { id: string; subject: string; from: string }) => void;
 	/**
 	 * Opens the message in the reading pane, the same as {@link onSelect}, but the caller
 	 * additionally switches to it: printing has to go through the reading pane's own sandboxed
 	 * `MessageHtml` rendering rather than a second, ad-hoc render path for remote-authored
 	 * content (§13).
 	 */
-	onPrint: (message: { id: string; subject: string }) => void;
+	onPrint: (message: { id: string; subject: string; from: string }) => void;
 }) {
 	const queryClient = useQueryClient();
 	const searching = query.trim().length > 0;
@@ -165,7 +165,7 @@ export function MessageList({
 									setMenu({ x: event.clientX, y: event.clientY, message });
 								}}
 								onClick={() => {
-									onSelect(message);
+									onSelect({ ...message, from: senderAddress(message) });
 									// Opening a message marks it read, as every mail client does.
 									// Already-read messages enqueue nothing: a redundant mutation
 									// would still be a real provider call.
@@ -225,7 +225,7 @@ function messageActions(
 	trash: (message: MessageSummary) => void,
 	hub: HubConnection,
 	queryClient: QueryClient,
-	onPrint: (message: { id: string; subject: string }) => void,
+	onPrint: (message: { id: string; subject: string; from: string }) => void,
 ): MenuAction[] {
 	return [
 		{
@@ -276,13 +276,13 @@ async function printMessage(
 	hub: HubConnection,
 	queryClient: QueryClient,
 	message: MessageSummary,
-	onPrint: (message: { id: string; subject: string }) => void,
+	onPrint: (message: { id: string; subject: string; from: string }) => void,
 ): Promise<void> {
 	await queryClient.fetchQuery({
 		queryKey: ["body", message.id],
 		queryFn: () => hub.invoke("GetMessageBody", message.id),
 	});
-	onPrint(message);
+	onPrint({ ...message, from: senderAddress(message) });
 	// One frame so the reading pane has actually mounted the now-cached body before printing.
 	requestAnimationFrame(() => window.print());
 }
@@ -325,4 +325,9 @@ function describeSender(message: MessageSummary): string {
 	const [first] = message.from;
 	if (!first) return "(unknown sender)";
 	return first.name ?? first.email;
+}
+
+/** The address the remote-content allow list keys on — never the display name. */
+function senderAddress(message: MessageSummary): string {
+	return message.from[0]?.email ?? "";
 }

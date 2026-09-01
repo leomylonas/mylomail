@@ -23,11 +23,18 @@ export function ReadingPane({
 	hub,
 	messageId,
 	subject,
+	senderAddress,
 	onOpenInNewWindow,
 }: {
 	hub: HubConnection;
 	messageId: string;
 	subject: string;
+	/**
+	 * The message's first `From` address, for the remote-content allow list (§13 Epic 5).
+	 * Empty in a popped-out message window, which has no message-list selection to carry it
+	 * from — the pane still works there, just without the "always allow this sender" option.
+	 */
+	senderAddress?: string;
 	/** Absent inside a window that is already just this one message (§13 Epic 10). */
 	onOpenInNewWindow?: () => void;
 }) {
@@ -54,7 +61,12 @@ export function ReadingPane({
 			</div>
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
 			{body.data ? (
-				<Body body={body.data} messageId={messageId} hub={hub} />
+				<Body
+					body={body.data}
+					messageId={messageId}
+					hub={hub}
+					senderAddress={senderAddress}
+				/>
 			) : null}
 		</article>
 	);
@@ -64,10 +76,12 @@ function Body({
 	body,
 	messageId,
 	hub,
+	senderAddress,
 }: {
 	body: MessageBody;
 	messageId: string;
 	hub: HubConnection;
+	senderAddress?: string;
 }) {
 	if (!body.isFetched)
 		return <p className={styles.waiting}>Downloading this message…</p>;
@@ -77,7 +91,16 @@ function Body({
 	if (body.html)
 		return (
 			<>
-				<MessageHtml html={body.html} messageId={messageId} />
+				<MessageHtml
+					// Remounts per message: the "load remote content" override is local state
+					// that must never survive a message switch (§13 Epic 5) — a click on a
+					// safe sender's message must not silently unblock trackers on the very
+					// next, unrelated message this instance would otherwise carry over to.
+					key={messageId}
+					html={body.html}
+					messageId={messageId}
+					senderAddress={senderAddress}
+				/>
 				<AttachmentList hub={hub} messageId={messageId} />
 			</>
 		);

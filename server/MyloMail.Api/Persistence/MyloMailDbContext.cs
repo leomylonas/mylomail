@@ -47,6 +47,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
 	public DbSet<NotificationRecord> NotificationRecords => Set<NotificationRecord>();
 	public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
+	public DbSet<TrustedRemoteContentSender> TrustedRemoteContentSenders => Set<TrustedRemoteContentSender>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -61,6 +62,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureNotifications(model);
 		ConfigureExport(model);
 		ConfigureCredentialFallback(model);
+		ConfigureRemoteContent(model);
 
 		model.Entity<Domain.AppSettings>(e =>
 		{
@@ -502,6 +504,15 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 			// Redispatch-pending-at-startup scans this; ordering by DateTimeOffset in SQL
 			// does not work; SQLite Id ordering is bar the point here regardless (§8, §9).
 			e.HasIndex(x => x.DeliveredAt);
+		});
+	}
+
+	private static void ConfigureRemoteContent(ModelBuilder model)
+	{
+		model.Entity<TrustedRemoteContentSender>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasIndex(x => x.Address).IsUnique();
 		});
 	}
 

@@ -14,6 +14,13 @@ export interface WindowState {
 	 * rather than component state so it cannot drift from the selection it describes.
 	 */
 	selectedMessageSubject: string;
+
+	/**
+	 * The selected message's first `From` address, held for the same reason as
+	 * {@link selectedMessageSubject}: the reading pane needs it (to check/offer the
+	 * remote-content allow list) but has no way to ask for one message on its own.
+	 */
+	selectedMessageSenderAddress: string;
 }
 
 /**
@@ -30,5 +37,6 @@ export function createWindowStore(): Store<WindowState> {
 		selectedMailboxId: null,
 		selectedMessageId: null,
 		selectedMessageSubject: "",
+		selectedMessageSenderAddress: "",
 	});
 }
