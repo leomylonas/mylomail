@@ -16,6 +16,7 @@ import {
 	notificationClickedChannel,
 	openAttachmentChannel,
 	openWindowChannel,
+	pickExportFolderChannel,
 	showNotificationChannel,
 	type BackendConnection,
 	type NotificationClicked,
@@ -117,6 +118,20 @@ export async function startShell(): Promise<void> {
 		},
 	);
 
+	// The renderer picks a destination for a bulk export, but has no filesystem access of its
+	// own (§13 Export) — the native folder picker is a main-process capability, the same as
+	// the attachment open-path handler above.
+	ipcMain.handle(
+		pickExportFolderChannel,
+		async (event): Promise<string | null> => {
+			const window = BrowserWindow.fromWebContents(event.sender);
+			const result = await dialog.showOpenDialog(window!, {
+				properties: ["openDirectory", "createDirectory"],
+			});
+			return result.canceled ? null : (result.filePaths[0] ?? null);
+		},
+	);
+
 	// Dispatch is the shell's job, not the renderer's (§13 Epic 9): only main process code
 	// calls the native Notification API. A click focuses every open window and hands it the
 	// message id, which is as far as this goes until Epic 10 gives windows independent
@@ -185,12 +200,90 @@ export async function startShell(): Promise<void> {
 	// not be asked again every time the app opens (§13, standing convention).
 	void promptForMailtoDefaultAsync(origin, first);
 
-	// The backend is a child of this process, so it must not outlive it.
-	app.on("before-quit", () => {
-		quitting = true;
-		destroyTray();
-		backend.child.kill("SIGTERM");
+	// The backend is a child of this process, so it must not outlive it. Quitting is
+	// intercepted once to ask about pending scheduled/undo-send messages (§15) — a message
+	// still inside its undo-send delay has no durable existence yet job storage would recover
+	// on the next launch (§9), so quitting past it loses it silently. Confirmed once, the
+	// second before-quit (from the app.quit() call inside confirmQuit's continuation) proceeds
+	// for real rather than asking again.
+	let confirmedQuit = false;
+	// Set while confirmQuit is in flight, so a second before-quit arriving before the first
+	// resolves (a rapid double Cmd+Q, say) does not stack a second dialog on top of the first.
+	let confirming = false;
+	app.on("before-quit", (event) => {
+		if (confirmedQuit) {
+			quitting = true;
+			destroyTray();
+			backend.child.kill("SIGTERM");
+			return;
+		}
+
+		event.preventDefault();
+		if (confirming) return;
+		confirming = true;
+		void confirmQuit(origin).then((proceed) => {
+			confirming = false;
+			if (proceed) {
+				confirmedQuit = true;
+				app.quit();
+			}
+		});
 	});
+}
+
+/**
+ * Asks before quitting if anything is still waiting to send. No dialog at all when nothing
+ * is pending — the common case must not gain a click just because the feature exists.
+ */
+async function confirmQuit(origin: string): Promise<boolean> {
+	let pending = 0;
+	try {
+		// A short deadline, not just error handling: a *hung* backend (still accepting the
+		// connection, never answering) would otherwise leave before-quit prevented forever
+		// with no failure to catch — unquittable through any normal path.
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 3000);
+		let response: Response;
+		try {
+			response = await session.defaultSession.fetch(
+				`${origin}/outbox/pending-count`,
+				{ signal: controller.signal },
+			);
+		} finally {
+			clearTimeout(timeout);
+		}
+		// A non-2xx response is exactly as uninformative as the request failing outright —
+		// both fall through to the same "can't tell, quitting is the least surprising
+		// default" outcome below, not a silent "nothing pending".
+		if (response.ok) pending = (await response.json()) as number;
+		else return true;
+	} catch {
+		// Can't tell — quitting is the least surprising default over blocking the user from
+		// ever closing the app because the backend stopped answering.
+		return true;
+	}
+
+	if (pending === 0) return true;
+
+	const [window] = BrowserWindow.getAllWindows();
+	const options: Electron.MessageBoxOptions = {
+		type: "warning",
+		buttons: ["Quit Anyway", "Cancel"],
+		defaultId: 1,
+		cancelId: 1,
+		message:
+			pending === 1
+				? "One message hasn't sent yet."
+				: `${pending} messages haven't sent yet.`,
+		detail:
+			"Quitting now will lose it — MyloMail keeps no record of a scheduled or undo-send " +
+			"message until it actually sends.",
+	};
+	const result = window
+		? await dialog.showMessageBox(window, options)
+		: await dialog.showMessageBox(options);
+
+	return result.response === 0;
 }
 
 async function loadCloseBehavior(
