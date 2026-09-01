@@ -35,6 +35,7 @@ public sealed class SyncJobs(
 	CoverageService coverage,
 	ChangeStreamService changes,
 	IntegrityReconciliationService integrity,
+	CalendarSyncService calendar,
 	AccountGate gate,
 	PollRegistry polls,
 	IntegrityRegistry integrityLoops,
@@ -43,6 +44,12 @@ public sealed class SyncJobs(
 	ILogger<SyncJobs> logger
 )
 {
+	/// <summary>
+	/// The calendar loop is account-scoped, not mailbox-scoped, so it borrows the mail poll
+	/// registry with this sentinel rather than a second registry for one extra scope.
+	/// </summary>
+	private static readonly Guid CalendarScope = Guid.Empty;
+
 	/// <summary>Reconciles an account's mailboxes, then schedules coverage for any that need it.</summary>
 	public async Task TopologyAsync(Guid accountId, CancellationToken ct = default)
 	{
@@ -67,6 +74,58 @@ public sealed class SyncJobs(
 
 		await StartChangeStreamsAsync(account, ct);
 		await StartIntegrityReconciliationAsync(account, ct);
+		StartCalendarLoop(account);
+	}
+
+	/// <summary>
+	/// Starts the calendar poll loop if this account has a calendar configured. IMAP alone
+	/// never implies one — CalDAV is opt-in, independent configuration (§1).
+	/// </summary>
+	private void StartCalendarLoop(Account account)
+	{
+		if (account.ProviderConfig is not ImapProviderConfig { CalDav: not null })
+		{
+			return;
+		}
+
+		if (polls.TryStart(account.Id, CalendarScope))
+		{
+			jobs.Enqueue<SyncJobs>(j => j.CalendarAsync(account.Id, default));
+		}
+	}
+
+	/// <summary>One calendar sync run, rescheduling itself at the account's poll interval.</summary>
+	public async Task CalendarAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var account = await RunnableAsync(accountId, ct);
+		if (account is null)
+		{
+			polls.Stop(accountId, CalendarScope);
+			return;
+		}
+
+		try
+		{
+			await GuardAsync(account, () => calendar.SynchronizeAsync(account, ct), ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception)
+		{
+			polls.Stop(accountId, CalendarScope);
+			throw;
+		}
+
+		if (!await StillRunnableAsync(accountId, ct))
+		{
+			polls.Stop(accountId, CalendarScope);
+			return;
+		}
+
+		jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), PollInterval(account) + gate.Delay(accountId));
 	}
 
 	/// <summary>Starts the slower degraded-IMAP maintenance loop, once per mailbox.</summary>

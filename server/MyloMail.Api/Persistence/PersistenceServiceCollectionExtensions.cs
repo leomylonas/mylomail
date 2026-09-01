@@ -10,6 +10,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 
@@ -88,6 +89,8 @@ public static class PersistenceServiceCollectionExtensions
 		// Resolved from the local database at the moment of use; never cached by a provider.
 		services.TryAddScoped<IProviderMailboxResolver, DbProviderMailboxResolver>();
 		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
+		services.AddHttpClient(nameof(CalDavCalendarProvider));
+		services.TryAddScoped<ICalendarProviderFactory, CalendarProviderFactory>();
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
 		services.TryAddSingleton<IOutboxDispatcher, NoOutboxDispatcher>();

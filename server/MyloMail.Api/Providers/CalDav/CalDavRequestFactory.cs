@@ -17,9 +17,15 @@ public sealed class CalDavRequestFactory(ICredentialStore credentials)
 {
 	public const string PasswordFormat = "caldav-basic-password";
 
+	/// <summary>
+	/// Builds a request against the account's configured collection, or against
+	/// <paramref name="target"/> when the operation addresses one resource inside it (an
+	/// event's own href, which the server assigns and is opaque to us).
+	/// </summary>
 	public async Task<HttpRequestMessage> CreateAsync(
 		Account account,
 		HttpMethod method,
+		Uri? target = null,
 		CancellationToken ct = default
 	)
 	{
@@ -40,7 +46,7 @@ public sealed class CalDavRequestFactory(ICredentialStore credentials)
 			throw new ProviderNotConfiguredException(ProviderType.Imap, $"a '{expectedFormat}' CalDAV credential");
 		}
 
-		var request = new HttpRequestMessage(method, config.Endpoint);
+		var request = new HttpRequestMessage(method, target ?? new Uri(config.Endpoint));
 		var raw = Encoding.UTF8.GetBytes($"{config.UserName}:{Encoding.UTF8.GetString(stored.Data)}");
 		request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(raw));
 		return request;

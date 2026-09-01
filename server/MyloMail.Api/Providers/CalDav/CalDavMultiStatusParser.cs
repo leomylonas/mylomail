@@ -8,6 +8,14 @@ internal static class CalDavMultiStatusParser
 	private static readonly XNamespace Dav = CalDavWebDavRequest.DavNamespace;
 	private static readonly XNamespace CalDav = CalDavWebDavRequest.CalDavNamespace;
 
+	/// <summary>
+	/// The collection-level <c>sync-token</c> a sync-collection REPORT returns alongside its
+	/// responses — the next cursor, valid only once every response in this multi-status has
+	/// been applied.
+	/// </summary>
+	public static string? SyncToken(string xml) =>
+		XDocument.Parse(xml, LoadOptions.None).Root?.Element(Dav + "sync-token")?.Value;
+
 	public static IReadOnlyList<CalDavResponse> Parse(string xml)
 	{
 		var document = XDocument.Parse(xml, LoadOptions.None);
