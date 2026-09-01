@@ -52,41 +52,44 @@ This is a snapshot of the current state, not a history; use Git for history.
   that queue exists for. Update keeps a rejected edit applied locally with `SyncConflict` set
   rather than losing it (§15); delete cascades to recurrence overrides (`0481451`). No renderer
   calendar UI yet — that is still open, see below.
-- A full pass against `docs/architecture.md` §13 found the renderer has no **add-account** flow
-  at all: every account anywhere in this codebase (every e2e test, every manual check this
-  session) was created via a raw `fetch("/accounts", ...)`, never through UI.
-  `AccountSettings.tsx` only edits an account that already exists. This blocks a real user from
-  using the app at all and is now the top priority — see below.
+- **Add-account flow (Epic 1) is built**: `AddAccount.tsx` collects IMAP host/port/TLS/login/
+  password/SMTP settings and posts to the existing `POST /accounts` endpoint; Gmail/Microsoft
+  365 show as visibly-disabled options rather than being hidden. `AppShell` shows it
+  automatically when the account list is empty (a derived value, not an effect-driven
+  `setState`, to avoid both a lint violation and a first-render flash) and keeps a header button
+  for adding further accounts. Verified against the real IMAP matrix (`AddAccount.e2e.ts`),
+  which is what surfaced the next item (`96ff23f`).
+- **Fixed a real crash in account creation**: `MailKit.Security.SslHandshakeException` derives
+  directly from `Exception`, not from `AuthenticationException`/`IOException`/`SocketException`,
+  so a mismatched "Use TLS" setting crashed `POST /accounts` with an unhandled 500 instead of
+  the friendly "authentication failed" response `AccountsController` already renders for every
+  other auth failure. This was reachable by any user before today, from the very first account
+  they ever configured — it just had no UI path to trigger it until now (`ecb501f`).
 
 ## Next task
 
-1. **Add-account flow (Epic 1).** No UI exists to create an account; `POST /accounts` has only
-   ever been driven by tests and manual `fetch` calls. Build the form (IMAP host/port/security/
-   username/password at minimum; Gmail/Microsoft 365 OAuth buttons can be visibly
-   present-but-disabled until their client registrations land, per item 4 below) and wire it to
-   the existing `POST /accounts` endpoint. This is the front door to every other feature already
-   built — prioritise it over further calendar work.
-2. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
+1. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
    colour-distinguished; event create/edit dialog against `SaveCalendarEvent`; a visible
    conflict indicator wired to `CalendarConflictDetected` for events with `SyncConflict` set.
    Agenda view must be virtualised per the epic's explicit requirement.
-3. **OS notifications (Epic 9).** Entirely unbuilt on both ends — no `NotificationEpoch`/stream
+2. **OS notifications (Epic 9).** Entirely unbuilt on both ends — no `NotificationEpoch`/stream
    baseline tracking, no durable `(AccountId, MessageId, NotificationKind)` record, no OS
    `Notification` dispatch from `electron-shell`. The design is fully worked out in §13 Epic 9
    (notification epoch vs. stream baseline is the subtle part — read it before starting, the
    epoch must be captured _before_ resynchronisation begins on cursor invalidation, never after).
-4. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
+3. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
    unsupplied per user request. They are deployment environment values and must never be
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
-   `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`.
-5. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
+   `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`. The add-account form's
+   disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
+4. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
    (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); Epic 10
    multi-window (only one `BrowserWindow` exists today) and Epic 11 resizable layout (no
    `react-resizable-panels` dependency yet); print (`webContents.print`/`printToPDF`); the
    `mailto:` default-handler prompt (`app.setAsDefaultProtocolClient`).
-6. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
+5. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
    export/connectivity state before adding broadcasts.
-7. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
+6. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
    in place are both deferred in the CalDAV provider — see its class remarks for why.
 
 ## Read first
