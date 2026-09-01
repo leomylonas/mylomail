@@ -259,6 +259,26 @@ This is a snapshot of the current state, not a history; use Git for history.
   discrimination-checked test proving the fingerprint/hostname survive the exception→controller
   round trip), and the full Playwright e2e suite (7/7).
 
+## Completed work (cont.)
+
+- **`ReauthenticateAccount` flow:** a new `POST /accounts/{id}/reauthenticate` endpoint
+  (`AccountProvisioningService.ReauthenticateAsync`) re-verifies an account stuck in
+  `NeedsReauth`/`Error`, and a renderer modal (`ReauthenticateAccount.tsx`) reachable from an
+  `ActionableNotification` banner in `AppShell` when the selected account's `authState` isn't
+  `Connected`. The secret is optional — a certificate-only rejection (server cert rotated, now
+  pinned via `TrustCertificate`) needs no new password, just a retry. On a certificate-untrusted
+  rejection the modal reuses `AddAccount`'s "trust this certificate" prompt, since the account id
+  needed to pin a fingerprint now exists — this closes the gap noted below (pinning a specific
+  fingerprint for an existing account had no UI trigger).
+  `invariant-review` caught a credential-loss bug in the first draft: the new secret was written
+  to the credential store before verification, and nothing restored the old one on failure, so an
+  unrelated rejection (transient network error, unpinned cert) silently destroyed a
+  still-working password. Fixed by reading the prior credential back before overwriting it and
+  restoring it in the failure branch. Discrimination-checked: reverting the restore made the new
+  regression test (`A_failed_reauthentication_restores_the_previously_working_credential`) fail
+  with exactly the expected byte mismatch, confirming the test guards a real bug.
+  Verified: `pnpm check` (Node 22), and the full `dotnet test` suite (267 passed).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
@@ -270,10 +290,6 @@ This is a snapshot of the current state, not a history; use Git for history.
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-3. Pinning a _specific_ certificate fingerprint for an account that already exists (rather than
-   `TrustAll` at creation time) has no UI trigger yet — it needs a `ReauthenticateAccount` flow,
-   which doesn't exist either. The `TrustCertificate` hub method and the "certificate untrusted"
-   presentation are both ready for it; only the reauthentication surface itself is missing.
 
 ## Read first
 
