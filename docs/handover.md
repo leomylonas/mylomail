@@ -365,6 +365,14 @@ This is a snapshot of the current state, not a history; use Git for history.
   e2e suite (7/7) against the real Electron app and .NET 10 backend, and `pnpm status` confirmed
   clean through both an initial watcher cycle and a real file-change restart.
 
+- **Remaining server-side dependency bumps:** a full review of both test projects' packages
+  post-.NET-10-upgrade found two more upgrades available: `Microsoft.NET.Test.Sdk` 17.14.1 →
+  18.9.0 (new major generation; no newer 17.x exists) and `xunit.runner.visualstudio` 3.1.4 →
+  4.0.0 (still supports xUnit v1/v2/v3 per its own manifest). Everything else server-side was
+  already at latest stable. `xunit` itself stays at 2.9.3 — the top of its v2 line; `xunit.v3`
+  is a separate package and a framework migration, not a version bump.
+  Verified: full `dotnet test` on `MyloMail.Api.Tests` (267 passed).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
