@@ -94,6 +94,34 @@ public sealed class MailboxManagement(
 	}
 
 	/// <summary>
+	/// Sidebar drag-reorder among siblings (§13 Epic 2). Purely local: no provider supports
+	/// arbitrary folder ordering, so this never calls a provider and never goes through
+	/// topology reconciliation — there is nothing remote to reconcile against.
+	/// </summary>
+	public async Task ReorderAsync(
+		Guid accountId,
+		Guid? parentId,
+		IReadOnlyList<Guid> orderedMailboxIds,
+		CancellationToken ct = default
+	)
+	{
+		var siblings = await context
+			.Mailboxes.Where(m => m.AccountId == accountId && m.ParentId == parentId)
+			.ToDictionaryAsync(m => m.Id, ct);
+
+		for (var index = 0; index < orderedMailboxIds.Count; index++)
+		{
+			if (siblings.TryGetValue(orderedMailboxIds[index], out var mailbox))
+			{
+				mailbox.LocalSortOrder = index;
+			}
+		}
+
+		await context.SaveChangesAsync(ct);
+		await events.MailboxTreeChangedAsync(accountId);
+	}
+
+	/// <summary>
 	/// Carries the provider's new identity onto the existing local row, and onto everything
 	/// beneath it.
 	/// </summary>

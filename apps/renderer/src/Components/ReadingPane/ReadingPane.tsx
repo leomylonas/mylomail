@@ -43,6 +43,9 @@ export function ReadingPane({
 		<article className={styles.pane} aria-label="Message">
 			<div className={styles.subjectRow}>
 				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
+				<Button size="sm" kind="ghost" onClick={() => window.print()}>
+					Print
+				</Button>
 				{onOpenInNewWindow ? (
 					<Button size="sm" kind="ghost" onClick={onOpenInNewWindow}>
 						Open in new window

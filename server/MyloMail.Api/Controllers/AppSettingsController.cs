@@ -19,7 +19,13 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 	public async Task<ActionResult<ShellSettingsDto>> Get(CancellationToken ct)
 	{
 		var settings = await context.AppSettings.SingleOrDefaultAsync(ct);
-		return Ok(new ShellSettingsDto(settings?.PanelLayout, settings?.WindowBoundsJson));
+		return Ok(
+			new ShellSettingsDto(
+				settings?.PanelLayout,
+				settings?.WindowBoundsJson,
+				settings?.MailtoPromptDismissed ?? false
+			)
+		);
 	}
 
 	[HttpPut("panel-layout")]
@@ -42,6 +48,18 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 	{
 		var settings = await GetOrCreateAsync(ct);
 		settings.WindowBoundsJson = request.WindowBoundsJson;
+		await context.SaveChangesAsync(ct);
+		return NoContent();
+	}
+
+	[HttpPut("mailto-prompt-dismissed")]
+	public async Task<IActionResult> PutMailtoPromptDismissed(
+		UpdateMailtoPromptDismissedRequest request,
+		CancellationToken ct
+	)
+	{
+		var settings = await GetOrCreateAsync(ct);
+		settings.MailtoPromptDismissed = request.Dismissed;
 		await context.SaveChangesAsync(ct);
 		return NoContent();
 	}

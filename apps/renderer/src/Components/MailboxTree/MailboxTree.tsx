@@ -9,6 +9,10 @@ import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextM
 import { FolderNameModal } from "@mylomail/renderer/Components/MailboxTree/FolderNameModal/FolderNameModal";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import {
+	mailboxDragType,
+	messageDragType,
+} from "@mylomail/renderer/Lib/DragTypes";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
 interface Mailbox {
@@ -46,6 +50,7 @@ export function MailboxTree({
 		mailbox: Mailbox;
 	} | null>(null);
 	const [dialog, setDialog] = useState<Dialog | null>(null);
+	const [dropTarget, setDropTarget] = useState<string | null>(null);
 
 	const close = () => setDialog(null);
 	const refresh = () => {
@@ -83,6 +88,48 @@ export function MailboxTree({
 			hub.invoke("RenameMailbox", id, name),
 		onSuccess: refresh,
 		onError: reportFailure("The folder could not be renamed"),
+	});
+
+	// Drag-a-message-onto-a-folder and folder drag-reorder (§13 Epic 2). Native HTML5 DnD: no
+	// library pulls its own weight for two drop targets, and Carbon's buttons already forward
+	// arbitrary DOM props like `draggable`/`onDragStart`/`onDrop`.
+	const moveMessages = useMutation({
+		mutationFn: (input: { messageId: string; targetMailboxId: string }) =>
+			hub.invoke(
+				"MoveMessages",
+				accountId,
+				[input.messageId],
+				input.targetMailboxId,
+			),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["messages"] });
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.pending(accountId),
+			});
+		},
+		onError: reportFailure("The message could not be moved"),
+	});
+
+	const moveMailbox = useMutation({
+		mutationFn: (input: { mailboxId: string; newParentId: string | null }) =>
+			hub.invoke("MoveMailbox", input.mailboxId, input.newParentId),
+		onSuccess: refresh,
+		onError: reportFailure("The folder could not be moved"),
+	});
+
+	const reorderMailboxes = useMutation({
+		mutationFn: (input: {
+			parentId: string | null;
+			orderedMailboxIds: string[];
+		}) =>
+			hub.invoke(
+				"ReorderMailboxes",
+				accountId,
+				input.parentId,
+				input.orderedMailboxIds,
+			),
+		onSuccess: refresh,
+		onError: reportFailure("The folders could not be reordered"),
 	});
 
 	const remove = useMutation({
@@ -128,13 +175,49 @@ export function MailboxTree({
 	const children = (parentId: string | null) =>
 		mailboxes.data.filter((mailbox) => (mailbox.parentId ?? null) === parentId);
 
+	const dropOnMailbox = (event: React.DragEvent, target: Mailbox) => {
+		event.preventDefault();
+		setDropTarget(null);
+
+		const messageId = event.dataTransfer.getData(messageDragType);
+		if (messageId) {
+			moveMessages.mutate({ messageId, targetMailboxId: target.id });
+			return;
+		}
+
+		const draggedMailboxId = event.dataTransfer.getData(mailboxDragType);
+		if (!draggedMailboxId || draggedMailboxId === target.id) return;
+
+		const dragged = mailboxes.data.find((m) => m.id === draggedMailboxId);
+		if (!dragged || isDescendantOf(mailboxes.data, target, draggedMailboxId))
+			return;
+
+		if ((dragged.parentId ?? null) === (target.parentId ?? null)) {
+			// Same parent: a reorder, dropped mailbox lands immediately before the target.
+			const siblingIds = children(target.parentId ?? null)
+				.map((m) => m.id)
+				.filter((id) => id !== draggedMailboxId);
+			siblingIds.splice(siblingIds.indexOf(target.id), 0, draggedMailboxId);
+			reorderMailboxes.mutate({
+				parentId: target.parentId ?? null,
+				orderedMailboxIds: siblingIds,
+			});
+		} else {
+			moveMailbox.mutate({
+				mailboxId: draggedMailboxId,
+				newParentId: target.id,
+			});
+		}
+	};
+
 	const renderLevel = (parentId: string | null, depth: number) => (
 		<ul>
 			{children(parentId).map((mailbox) => (
 				<li key={mailbox.id}>
 					<button
 						type="button"
-						className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
+						draggable
+						className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""} ${dropTarget === mailbox.id ? styles.dropTarget : ""}`}
 						style={{
 							paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
 						}}
@@ -144,6 +227,21 @@ export function MailboxTree({
 							event.preventDefault();
 							setMenu({ x: event.clientX, y: event.clientY, mailbox });
 						}}
+						onDragStart={(event) => {
+							event.dataTransfer.setData(mailboxDragType, mailbox.id);
+							event.dataTransfer.effectAllowed = "move";
+						}}
+						onDragOver={(event) => {
+							event.preventDefault();
+							event.dataTransfer.dropEffect = "move";
+						}}
+						onDragEnter={() => setDropTarget(mailbox.id)}
+						onDragLeave={() =>
+							setDropTarget((current) =>
+								current === mailbox.id ? null : current,
+							)
+						}
+						onDrop={(event) => dropOnMailbox(event, mailbox)}
 					>
 						<span>{mailbox.name}</span>
 						<span className={styles.count}>{describeCount(mailbox)}</span>
@@ -227,6 +325,26 @@ export function MailboxTree({
 			) : null}
 		</>
 	);
+}
+
+/**
+ * Whether `candidate` is `ancestorId` itself or sits anywhere beneath it.
+ *
+ * Guards the reparent drop: a folder dropped onto its own descendant would give that
+ * descendant's `ParentId` chain a cycle, which is what {@link renderLevel}'s recursion walks —
+ * an infinite tree with no way back out.
+ */
+function isDescendantOf(
+	mailboxes: Mailbox[],
+	candidate: Mailbox,
+	ancestorId: string,
+): boolean {
+	let current: Mailbox | undefined = candidate;
+	while (current) {
+		if (current.id === ancestorId) return true;
+		current = mailboxes.find((m) => m.id === current!.parentId);
+	}
+	return false;
 }
 
 /**

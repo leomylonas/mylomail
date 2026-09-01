@@ -168,8 +168,68 @@ export async function startShell(): Promise<void> {
 	const first = await createWindow(origin, { bounds: savedBounds });
 	trackBoundsPersistence(first, origin);
 
+	// On startup, not on every launch's happy path: a user who already declined once should
+	// not be asked again every time the app opens (§13, standing convention).
+	void promptForMailtoDefaultAsync(origin, first);
+
 	// The backend is a child of this process, so it must not outlive it.
 	app.on("before-quit", () => backend.child.kill("SIGTERM"));
+}
+
+/**
+ * Offers to register this app as the OS `mailto:` handler, unless it already is one or the
+ * user has asked not to be asked again.
+ *
+ * The "don't ask again" state is a shell-wide `AppSettings` flag rather than anything
+ * per-window, for the same reason panel layout and window bounds are: it is a fact about the
+ * installation, not about any one window.
+ */
+async function promptForMailtoDefaultAsync(
+	origin: string,
+	window: BrowserWindow,
+): Promise<void> {
+	if (app.isDefaultProtocolClient("mailto")) return;
+
+	try {
+		const response = await session.defaultSession.fetch(
+			`${origin}/shell-settings`,
+		);
+		if (response.ok) {
+			const settings = (await response.json()) as {
+				mailtoPromptDismissed?: boolean;
+			};
+			if (settings.mailtoPromptDismissed) return;
+		}
+	} catch {
+		// If the check itself fails, asking once more is the safer default over never asking.
+	}
+
+	const result = await dialog.showMessageBox(window, {
+		type: "question",
+		buttons: ["Make Default", "Not Now"],
+		defaultId: 0,
+		cancelId: 1,
+		checkboxLabel: "Don't ask again",
+		checkboxChecked: false,
+		message: "Make MyloMail your default mail application?",
+		detail: "This lets mailto: links in other apps open a new message here.",
+	});
+
+	if (result.response === 0) {
+		app.setAsDefaultProtocolClient("mailto");
+	}
+
+	if (result.checkboxChecked) {
+		await session.defaultSession
+			.fetch(`${origin}/shell-settings/mailto-prompt-dismissed`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ dismissed: true }),
+			})
+			.catch(() => {
+				// Best-effort: the worst outcome is being asked again next launch.
+			});
+	}
 }
 
 interface WindowBounds {

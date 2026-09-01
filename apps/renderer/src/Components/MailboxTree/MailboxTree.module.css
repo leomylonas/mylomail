@@ -30,6 +30,11 @@
 	font-weight: 600;
 }
 
+.dropTarget {
+	outline: 2px solid var(--cds-interactive, #0f62fe);
+	outline-offset: -2px;
+}
+
 .count {
 	color: var(--cds-text-secondary);
 	font-size: 0.75rem;

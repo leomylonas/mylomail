@@ -6,6 +6,7 @@ import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
+import { messageDragType } from "@mylomail/renderer/Lib/DragTypes";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -141,6 +142,11 @@ export function MessageList({
 							<button
 								type="button"
 								className={`${styles.row} ${read ? "" : styles.unread}`}
+								draggable
+								onDragStart={(event) => {
+									event.dataTransfer.setData(messageDragType, message.id);
+									event.dataTransfer.effectAllowed = "move";
+								}}
 								onContextMenu={(event) => {
 									event.preventDefault();
 									setMenu({ x: event.clientX, y: event.clientY, message });
@@ -175,7 +181,12 @@ export function MessageList({
 					x={menu.x}
 					y={menu.y}
 					onClose={() => setMenu(null)}
-					actions={messageActions(menu.message, setFlags.mutate, trash.mutate)}
+					actions={messageActions(
+						menu.message,
+						setFlags.mutate,
+						trash.mutate,
+						hub,
+					)}
 				/>
 			) : null}
 		</>
@@ -197,6 +208,7 @@ function messageActions(
 		isFlagged: boolean | null;
 	}) => void,
 	trash: (message: MessageSummary) => void,
+	hub: HubConnection,
 ): MenuAction[] {
 	return [
 		{
@@ -229,10 +241,32 @@ function messageActions(
 		{ label: "Move to trash", run: () => trash(message), danger: true },
 		{
 			label: "Save as .eml",
-			run: () => undefined,
-			unavailable: "Export is not built yet.",
+			run: () => void saveAsEml(hub, message),
 		},
 	];
+}
+
+/**
+ * Hands the raw MIME to the OS's own save flow rather than opening a bespoke dialog: an
+ * anchor with a `blob:` URL and `download` set is what a browser's download manager — which
+ * Electron's `BrowserWindow` already runs — is for (§13 Export).
+ */
+async function saveAsEml(
+	hub: HubConnection,
+	message: MessageSummary,
+): Promise<void> {
+	const base64 = await hub.invoke<string>("SaveMessageAsEml", message.id);
+	const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+	const blob = new Blob([bytes], { type: "message/rfc822" });
+	const url = URL.createObjectURL(blob);
+	try {
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = `${message.subject || "message"}.eml`;
+		link.click();
+	} finally {
+		URL.revokeObjectURL(url);
+	}
 }
 
 /** Desired state wins over server-known state while a mutation is outstanding (§6). */
