@@ -373,6 +373,29 @@ This is a snapshot of the current state, not a history; use Git for history.
   is a separate package and a framework migration, not a version bump.
   Verified: full `dotnet test` on `MyloMail.Api.Tests` (267 passed).
 
+- **Fixed `pnpm generate:types` after the .NET 10 upgrade:** it was silently broken since that
+  upgrade (nothing had re-run it until now) — `scripts/generate-types.ts` still pointed at
+  `bin/Debug/net8.0`, and separately the pinned `typecontractor` global tool targets `net9.0`
+  regardless of this project's TFM, which this machine (8.x/10.x only) can't satisfy without
+  `DOTNET_ROLL_FORWARD=LatestMajor` scoped to that one subprocess call.
+- **Gmail/Graph provider completion:** both providers threw `NotSupportedException` for
+  `SendAsync`, drafts, and all mailbox CRUD, plus `MoveToTrashAsync` for both (an earlier audit
+  this session wrongly reported this as already done) and `RemoveFromMailboxAsync` for Graph.
+  All now implemented, following each file's own established patterns — see
+  `feat(providers): implement Gmail/Graph send, drafts, and mailbox CRUD` for the details,
+  including a new `IProviderMailboxResolver.LocalPath()` Gmail's label-hierarchy reconstruction
+  needed. Per explicit instruction, verification was scoped to the build and this repo's
+  existing test suite — no interactive OAuth consent flow was attempted, and none of this was
+  verified against real Gmail/Graph accounts.
+- **Message-list multi-select and bulk actions (Epic 6)**, and **account reordering + a colour
+  picker (Epic 1)** — see their own commits for detail. The account-reorder work also surfaced
+  that there was no UI at all to switch between multiple accounts before now (`AccountSwitcher.tsx`
+  fixes that), but Epic 2's stronger requirement — every account's mailboxes visible
+  simultaneously in one sidebar tree, "no switching that hides other accounts" — is still
+  unaddressed; the sidebar shows one selected account's tree at a time. Worth its own pass.
+  All four items verified with `pnpm check`, full `dotnet test` (267 passed), full Playwright
+  e2e suite (7/7), and an `invariant-review` covering all three diffs together — no findings.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
@@ -384,6 +407,19 @@ This is a snapshot of the current state, not a history; use Git for history.
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
+3. **Sidebar shows one account at a time, not all accounts simultaneously.** architecture.md
+   Epic 2 calls for every account's mailboxes visible in one persistent sidebar tree, with "no
+   switching that hides other accounts." `MailboxTree` currently takes a single `accountId` and
+   `AppShell` only ever renders one at a time (surfaced while adding account
+   reordering/switching this session). A real fix touches the selection model, not just the
+   sidebar component.
+4. **Gmail/Graph conformance and correctness against real accounts is unverified.** The new
+   send/draft/mailbox-CRUD implementations match their SDKs' documented shapes but have not run
+   against live Gmail/Microsoft 365 accounts — in particular, whether Graph honors a
+   caller-supplied `internetMessageId` on send (needed for Message-ID-based reconciliation) is
+   explicitly flagged as unconfirmed in `GraphMailProvider.Send.cs`'s own comment. Running
+   `GmailConformanceTests`/`GraphConformanceTests` for real needs `.dev/provider-test.env`
+   sourced and, if no cached token still works, a fresh interactive OAuth consent click.
 
 ## Read first
 
