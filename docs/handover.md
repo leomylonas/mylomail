@@ -131,6 +131,40 @@ This is a snapshot of the current state, not a history; use Git for history.
   Verified: `pnpm check` and the full Playwright e2e suite (7/7), plus an invariant review with
   no architectural findings against the mutation/sync/persistence invariants — this is a pure
   §13 shell change.
+- **Bulk `.eml` export and a connectivity signal are built** (`4f9a6b1`), closing the
+  "underlying state" gap that blocked `ExportProgress`/`ConnectivityChanged` from being wired up
+  honestly. `ExportJob` walks an account's mailbox tree in self-scheduled batches (Hangfire,
+  bounded memory like every other job here), recreating the folder hierarchy on disk and writing
+  each occurrence as `.eml`, fetching raw MIME on demand via the existing content-acquisition
+  pipeline. The set of occurrences is frozen into a JSON manifest at start time rather than
+  re-derived live each batch — `MessageMailbox.Id` is a random v4 GUID, not sequential, so a
+  plain `Skip`/`OrderBy(Id)` against the live table would silently skip or duplicate rows if mail
+  arrived mid-export and shifted every later row's rank. An invariant review caught this before
+  it shipped; fixed and covered by a discrimination-checked regression test. Progress persists on
+  the job row (not just broadcast) and resumes via `StartupScheduler`, matching the coverage-state
+  pattern. New hub methods: `SaveMessageAsEml`, `StartBulkExport`, `CancelBulkExport`.
+  `ConnectivityMonitor` tracks one app-wide online/offline signal via the OS's `NetworkChange`
+  event plus a minutely TCP-reachability probe, broadcasting `ConnectivityChanged` only on an
+  actual flip. Deliberately not wired into the three per-account provider constructors — see its
+  class remarks for why threading it through three provider factories wasn't worth it for one
+  coarse signal the OS event and probe already deliver.
+- **Epic 2 drag-and-drop, print, and the `mailto:` prompt are built** (`05cfdcf`). Native HTML5
+  DnD, no library — two drop targets don't justify one. A message dropped on a folder moves it
+  (`MoveMessages`, pre-existing); a folder dropped on a sibling reorders to land just before it
+  (new `ReorderMailboxes`/`MailboxManagement.ReorderAsync`, purely local since `LocalSortOrder`
+  is never pushed upstream); a folder dropped on a folder with a different parent reparents it
+  (new `MoveMailbox` hub method over the pre-existing `MailboxManagement.MoveAsync`), guarded
+  client-side against dropping a folder onto its own descendant (would cycle `ParentId`, which
+  the tree's recursive render has no way back out of). "Save as .eml" (previously a disabled
+  placeholder) now decodes `SaveMessageAsEml`'s base64 payload to a `Blob` and hands it to the
+  OS's own download flow via a synthetic download anchor — no new IPC needed. Print is a button
+  on the reading pane calling `window.print()`, with `@media print` hiding the header and
+  sidebar/list panels by the DOM ids `react-resizable-panels` already gives them for layout
+  persistence. The `mailto:` prompt checks `app.isDefaultProtocolClient` and
+  `AppSettings.MailtoPromptDismissed` (new `PUT /shell-settings/mailto-prompt-dismissed`, same
+  singleton-row pattern as panel-layout/window-bounds) once the first window exists at startup.
+  Both batches verified: `pnpm check`, the full `dotnet test` suite, and the full Playwright e2e
+  suite, all green; each also passed an independent invariant review with no unresolved findings.
 
 ## Next task
 
@@ -139,22 +173,20 @@ This is a snapshot of the current state, not a history; use Git for history.
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
    `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`. The add-account form's
    disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
-2. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
-   (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); print
-   (`webContents.print`/`printToPDF`); the `mailto:` default-handler prompt
-   (`app.setAsDefaultProtocolClient`).
-3. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
-   export/connectivity state before adding broadcasts.
-4. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
+2. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
    in place are both deferred in the CalDAV provider — see its class remarks for why.
-5. OS notification dispatch has not been verified against a real notification daemon — this
+3. OS notification dispatch has not been verified against a real notification daemon — this
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-6. No HTTPS-capable CalDAV server exists in the local test matrix, so calendar-UI event CRUD has
+4. No HTTPS-capable CalDAV server exists in the local test matrix, so calendar-UI event CRUD has
    only been verified at the API level, not visually end-to-end. Needs either a self-signed-cert
    trust path for CalDAV (IMAP already has `CertificateTrustMode`; CalDAV doesn't) or a
    real HTTPS CalDAV fixture.
+5. `MailboxManagement.MoveAsync` (and the new drag-to-reparent UI that calls it) has no
+   server-side guard against reparenting a folder onto its own descendant — the renderer's
+   `isDescendantOf` check covers the UI path, but the hub method itself would still accept a
+   cyclic move from any other caller. Worth a small guard in `MoveAsync` itself.
 
 ## Read first
 
