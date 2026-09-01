@@ -15,12 +15,6 @@ public class AppSettings
 
 	public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.QuitApp;
 
-	/// <summary>Opt-in only.</summary>
-	public bool TelemetryEnabled { get; set; }
-
-	/// <summary>User-supplied collector endpoint.</summary>
-	public string? OtelEndpoint { get; set; }
-
 	/// <summary>"Don't ask again" for the default-handler prompt.</summary>
 	public bool MailtoPromptDismissed { get; set; }
 

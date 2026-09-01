@@ -765,8 +765,6 @@ Hangfire supplies the worker pool, delayed execution and the dashboard, backed b
 | Field                            | Type    | Default   | Notes                                                                               |
 | -------------------------------- | ------- | --------- | ----------------------------------------------------------------------------------- |
 | `CloseBehavior`                  | enum    | `QuitApp` | `QuitApp` \| `MinimizeToTray`                                                       |
-| `TelemetryEnabled`               | bool    | `false`   | Opt-in only                                                                         |
-| `OtelEndpoint`                   | string? | `null`    | User-supplied collector endpoint                                                    |
 | `MailtoPromptDismissed`          | bool    | `false`   | "Don't ask again" for the default-handler prompt                                    |
 | `PanelLayout`                    | string? | `null`    | Global default panel sizes; live per-window state is not stored here (§13, Epic 11) |
 | `WindowBoundsJson`               | string? | `null`    | Last-known size/position, inherited by newly opened windows                         |
@@ -1071,14 +1069,21 @@ Explicitly out of scope — no further design required:
 ### Telemetry
 
 - Standard OpenTelemetry (`OpenTelemetry.Extensions.Hosting`, ASP.NET Core/HttpClient auto-instrumentation).
-- `AppSettings.TelemetryEnabled` (bool), **default off** — opt-in, user-facing setting.
-- `AppSettings.OtelEndpoint` (string?) — user-defined exporter endpoint; no baked-in default destination.
+- `Telemetry:Enabled` (bool), **default off**, and `Telemetry:OtelEndpoint` (string?) are deployment
+  configuration, not a user-facing app setting — read from `appsettings.json` or
+  `Telemetry__Enabled` / `Telemetry__OtelEndpoint`-style environment variables, the same
+  convention as provider client registration (§9 Environment). This deliberately does **not**
+  live in `AppSettings`: exporter registration happens at `builder.Services` time, before the
+  host — and therefore the database — exists, so a DB-backed setting would need its own
+  bootstrap-before-the-DB-exists machinery for no benefit over configuration.
+- No exporter is registered at all when disabled or no endpoint is configured — a user who
+  never opts in pays nothing for it.
 - Same no-PII discipline as application logging (§10) applies to span/metric attributes — no addresses, subjects, or bodies.
 
 ### Configuration storage — bootstrap file vs AppSettings
 
 - **Bootstrap file**: always at the fixed, OS-conventional config location (e.g. `~/.config/mylomail/bootstrap.json` on Linux) — never itself overridable. Contains **only** `DataDirectoryOverride` (string?), since this is the one setting that must be resolved before the data directory (and therefore the DB) can be located.
-- **`AppSettings`**: everything else (`TelemetryEnabled`, `OtelEndpoint`, `CloseBehavior`, `PanelLayout`, etc.) lives as a table/row in the main SQLite DB at the resolved data directory. Sensible defaults, no separate init file required.
+- **`AppSettings`**: everything else (`CloseBehavior`, `PanelLayout`, etc.) lives as a table/row in the main SQLite DB at the resolved data directory. Sensible defaults, no separate init file required. Telemetry is deployment configuration instead (see above), not part of this table.
 
 ### Provider rate-limiting
 

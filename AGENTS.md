@@ -97,6 +97,18 @@ The conformance suite's own names (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
 `source .dev/provider-test.env` is enough to run the app locally. Configuration wins where
 both are set.
 
+### Telemetry (optional)
+
+Also deployment configuration, not a database setting — read at `builder.Services` time,
+before the database exists (see `docs/architecture.md` §15 Telemetry):
+
+```bash
+Telemetry__Enabled=true
+Telemetry__OtelEndpoint=http://localhost:4317
+```
+
+Default off; omitting either leaves OpenTelemetry entirely unwired, no exporter registered.
+
 IMAP needs no registration: an account carries its own `ImapProviderConfig` and its password
 lives in the credential store.
 

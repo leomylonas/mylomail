@@ -5,7 +5,6 @@ using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Hubs;
-using MyloMail.Api.Observability;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
@@ -33,12 +32,14 @@ builder.Services.AddSignalR();
 // The real publisher replaces the no-op default only where a hub actually exists.
 builder.Services.AddSingleton<IHubEvents, HubEvents>();
 
-// Opt-in, default off (§15). Read once at launch, the same as every other setting this early —
-// there is no live-reload story for AppSettings, and a change here only takes effect on
-// restart. No exporter is added at all when telemetry is off or no endpoint is configured, so
+// Opt-in, default off, and deployment configuration rather than a user-facing app setting
+// (§15) — like provider client registration above, it comes from appsettings.json or
+// Telemetry__Enabled / Telemetry__OtelEndpoint-style environment variables, never from the
+// database. No exporter is added at all when telemetry is off or no endpoint is configured, so
 // a user who never opts in pays nothing for it.
-var telemetry = TelemetryBootstrap.Read(dataDirectory);
-if (telemetry is { Enabled: true, OtelEndpoint: { Length: > 0 } otelEndpoint })
+var telemetryEnabled = builder.Configuration.GetValue<bool>("Telemetry:Enabled");
+var otelEndpoint = builder.Configuration["Telemetry:OtelEndpoint"];
+if (telemetryEnabled && !string.IsNullOrEmpty(otelEndpoint))
 {
 	builder.Services
 		.AddOpenTelemetry()
