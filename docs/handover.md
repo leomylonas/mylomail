@@ -107,6 +107,30 @@ This is a snapshot of the current state, not a history; use Git for history.
   pass), so full round-trip event CRUD against a real CalDAV server has not been visually
   verified — only the API-level CalDAV tests exercise that path. This is a testing-infrastructure
   gap, not a known UI bug.
+- **Multi-window (Epic 10) and resizable layout (Epic 11) are built** (`9e86af8`). A new
+  `window:open` IPC handler in `electron-shell` is the only thing that ever decides a window's
+  origin — the renderer requests a shape via a query string (`?message=<id>`,
+  `?compose=<draftId>&account=<id>`, or nothing for a plain independent main window), never a
+  URL. A new window inherits its opener's bounds offset by 24px; bounds also persist to
+  `AppSettings.WindowBoundsJson` (new `GET/PUT /shell-settings` controller, same singleton-row
+  pattern as `CredentialFallbackSettings`) so the next launch's first window remembers its
+  position. `MessageWindow`/`ComposeWindow` are standalone per-window roots dispatched from
+  `Main.tsx` by query string, each with its own `useHub()` connection per the per-window rule;
+  `ComposeWindow` reloads its draft fresh from `GetDrafts` rather than trusting anything passed
+  across the window boundary. Compose now autosaves on a 2s debounce so a popped-out window
+  survives being closed without discarding — closing a window isn't a moment this component
+  gets to intercept. All saves (autosave, manual "Save draft", send, detach) are serialised
+  through one promise chain reading state via a ref rather than a stale closure, after an
+  invariant review caught that two overlapping saves against a still-unsaved draft would each
+  create their own row instead of one updating the other.
+  The three-panel body is now `react-resizable-panels`' `Group`/`Panel`/`Separator` instead of a
+  static CSS grid, with collapse toggles for the sidebar and detail panel. Sizes read once from
+  a new global default (`AppSettings.PanelLayout`, same controller as bounds) and write back
+  only on a direct user drag (`meta.isUserInteraction`) — never live-synced to an already-open
+  window, since nothing invalidates the `["shell-settings"]` query after the PUT.
+  Verified: `pnpm check` and the full Playwright e2e suite (7/7), plus an invariant review with
+  no architectural findings against the mutation/sync/persistence invariants — this is a pure
+  §13 shell change.
 
 ## Next task
 
@@ -116,10 +140,7 @@ This is a snapshot of the current state, not a history; use Git for history.
    `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`. The add-account form's
    disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
 2. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
-   (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); Epic 10
-   multi-window (only one `BrowserWindow` exists today — the notification-click handler already
-   broadcasts to every open window, which is the right shape once a second one can exist) and
-   Epic 11 resizable layout (no `react-resizable-panels` dependency yet); print
+   (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); print
    (`webContents.print`/`printToPDF`); the `mailto:` default-handler prompt
    (`app.setAsDefaultProtocolClient`).
 3. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
