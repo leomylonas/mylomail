@@ -10,11 +10,15 @@ import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = process.cwd();
-const ASSEMBLY = "server/MyloMail.Api/bin/Debug/net8.0/MyloMail.Api.dll";
-const DOTNET_MAJOR = 8;
+const ASSEMBLY = "server/MyloMail.Api/bin/Debug/net10.0/MyloMail.Api.dll";
+const DOTNET_MAJOR = 10;
 
-const run = (args: string[]): void => {
-	execFileSync("dotnet", args, { cwd: root, stdio: "inherit" });
+const run = (args: string[], env?: NodeJS.ProcessEnv): void => {
+	execFileSync("dotnet", args, {
+		cwd: root,
+		stdio: "inherit",
+		env: env ? { ...process.env, ...env } : process.env,
+	});
 };
 
 const capture = (args: string[]): string =>
@@ -99,24 +103,30 @@ if (!existsSync(hubProxy)) {
 	);
 }
 
-run([
-	"typecontractor",
-	"--assembly",
-	ASSEMBLY,
-	"--output",
-	"packages/shared-types/src/Api",
-	"--packs-path",
-	packsPathFor(findPacksPath()),
-	"--dotnet-version",
-	String(DOTNET_MAJOR),
-	"--build-zod-schemas",
-	// PascalCase file names, matching the hand-written frontend convention. Pinned
-	// explicitly because the tool's default casing changed between 0.22.1 and 1.0.0, and a
-	// default that moves silently renames every generated file on a tool upgrade.
-	"--casing",
-	"Pascal",
-	// Without this every path carries a redundant `MyloMail/Api/` prefix, so an import
-	// reads `.../Api/MyloMail/Api/Contracts/HealthDto`.
-	"--strip",
-	"MyloMail.Api",
-]);
+run(
+	[
+		"typecontractor",
+		"--assembly",
+		ASSEMBLY,
+		"--output",
+		"packages/shared-types/src/Api",
+		"--packs-path",
+		packsPathFor(findPacksPath()),
+		"--dotnet-version",
+		String(DOTNET_MAJOR),
+		"--build-zod-schemas",
+		// PascalCase file names, matching the hand-written frontend convention. Pinned
+		// explicitly because the tool's default casing changed between 0.22.1 and 1.0.0, and a
+		// default that moves silently renames every generated file on a tool upgrade.
+		"--casing",
+		"Pascal",
+		// Without this every path carries a redundant `MyloMail/Api/` prefix, so an import
+		// reads `.../Api/MyloMail/Api/Contracts/HealthDto`.
+		"--strip",
+		"MyloMail.Api",
+	],
+	// The tool itself targets net9.0 regardless of this project's own TFM; only 9.0.0 is
+	// missing on a machine that otherwise has 8/10 installed, and LatestMajor is enough to
+	// let the 10.x runtime satisfy it rather than requiring a 9.x install just for this tool.
+	{ DOTNET_ROLL_FORWARD: "LatestMajor" },
+);
