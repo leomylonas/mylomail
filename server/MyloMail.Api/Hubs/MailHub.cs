@@ -8,6 +8,7 @@ using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
 using TypedSignalR.Client;
 
@@ -74,6 +75,13 @@ public interface IMailHub
 
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
 
+	/// <summary>
+	/// Pins a certificate for this account and hostname (§15) — offered only after normal TLS
+	/// validation has already failed and the user has seen the fingerprint/issuer this rejected
+	/// certificate presents; never called speculatively.
+	/// </summary>
+	Task TrustCertificate(Guid accountId, string hostname, string sha256Fingerprint);
+
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
 
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
@@ -120,7 +128,8 @@ public class MailHub(
 	Notifications.NotificationService notifications,
 	ChangeStreamService changeStream,
 	IMailProviderFactory providers,
-	Scheduling.ExportJobs export
+	Scheduling.ExportJobs export,
+	ITrustedCertificateStore certificates
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -337,6 +346,7 @@ public class MailHub(
 		account.PollingEnabled = settings.PollingEnabled;
 		account.UndoSendDelaySeconds = Math.Max(settings.UndoSendDelaySeconds, 0);
 		account.NotificationsEnabled = settings.NotificationsEnabled;
+		account.CertificateTrustMode = settings.CertificateTrustMode;
 
 		await context.SaveChangesAsync();
 		return settings with
@@ -345,6 +355,9 @@ public class MailHub(
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
 		};
 	}
+
+	public Task TrustCertificate(Guid accountId, string hostname, string sha256Fingerprint) =>
+		certificates.TrustAsync(accountId, hostname, sha256Fingerprint, default);
 
 	public async Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged)
 	{

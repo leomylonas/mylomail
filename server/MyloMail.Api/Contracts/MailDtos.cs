@@ -135,7 +135,8 @@ public record AccountSettingsDto(
 	int PollIntervalSeconds,
 	bool PollingEnabled,
 	int UndoSendDelaySeconds,
-	bool NotificationsEnabled
+	bool NotificationsEnabled,
+	CertificateTrustMode CertificateTrustMode
 );
 
 [TranspilationSource]

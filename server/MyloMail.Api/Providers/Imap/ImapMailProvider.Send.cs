@@ -1,8 +1,10 @@
+using System.Security.Cryptography.X509Certificates;
 using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Security;
 
 namespace MyloMail.Api.Providers.Imap;
 
@@ -40,12 +42,52 @@ public sealed partial class ImapMailProvider
 
 		using (var smtp = new SmtpClient())
 		{
-			await smtp.ConnectAsync(
-				settings.SmtpHost,
-				settings.SmtpPort,
-				settings.UseSsl ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
-				ct
-			);
+			(string Fingerprint, string Issuer)? rejected = null;
+			smtp.ServerCertificateValidationCallback = (_, certificate, _, sslPolicyErrors) =>
+			{
+				if (certificate is null)
+				{
+					return false;
+				}
+
+				var certificate2 = certificate as X509Certificate2 ?? new X509Certificate2(certificate);
+				var trusted = CertificateTrust.Validate(
+					settings.CertificateTrustMode,
+					settings.TrustedCertificates ?? [],
+					settings.SmtpHost,
+					certificate2,
+					sslPolicyErrors
+				);
+				if (!trusted)
+				{
+					rejected = (CertificateTrust.Fingerprint(certificate2), certificate2.Issuer);
+				}
+				return trusted;
+			};
+
+			try
+			{
+				await smtp.ConnectAsync(
+					settings.SmtpHost,
+					settings.SmtpPort,
+					settings.UseSsl ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+					ct
+				);
+			}
+			catch (SslHandshakeException) when (rejected is { } certificateRejection)
+			{
+				// A definite pre-authentication rejection, not an ambiguous outcome — nothing
+				// was sent, so this must not be allowed to fall into SendExecutor's generic
+				// catch, which treats a thrown send as "may have happened" and reconciles
+				// against the Sent mailbox rather than simply retrying (§6). The message text
+				// matches the connect-path's own CertificateTrust.Problem, so item.LastError
+				// reads the same way an AddAccount rejection would.
+				throw new ProviderAuthenticationException(
+					CertificateTrust
+						.Problem(settings.SmtpHost, certificateRejection.Fingerprint, certificateRejection.Issuer)
+						.Detail!
+				);
+			}
 
 			// Only authenticate where the server asks for it: the local test matrix and plenty
 			// of relays accept unauthenticated loopback submission, and offering credentials

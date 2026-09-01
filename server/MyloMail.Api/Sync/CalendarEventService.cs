@@ -43,6 +43,7 @@ public sealed class CalendarEventService(
 		var calendar = await context.Calendars.FirstAsync(c => c.Id == input.CalendarId, ct);
 		var account = await context.Accounts.FirstAsync(a => a.Id == calendar.AccountId, ct);
 		var provider = providers.For(account);
+		using var disposable = provider as IDisposable;
 
 		var existing = input.EventId is { } id
 			? await context.CalendarEvents.FirstOrDefaultAsync(e => e.Id == id, ct)
@@ -161,16 +162,16 @@ public sealed class CalendarEventService(
 			.SendIdentities.Where(i => i.AccountId == account.Id && i.IsDefault)
 			.FirstAsync(ct);
 
-		await providers
-			.For(account)
-			.RespondToInviteAsync(
-				account,
-				ev,
-				response,
-				comment,
-				new Address(identity.DisplayName, identity.EmailAddress),
-				ct
-			);
+		var provider = providers.For(account);
+		using var disposable = provider as IDisposable;
+		await provider.RespondToInviteAsync(
+			account,
+			ev,
+			response,
+			comment,
+			new Address(identity.DisplayName, identity.EmailAddress),
+			ct
+		);
 	}
 
 	public async Task DeleteAsync(Guid eventId, CancellationToken ct = default)
@@ -183,8 +184,10 @@ public sealed class CalendarEventService(
 
 		var calendar = await context.Calendars.FirstAsync(c => c.Id == ev.CalendarId, ct);
 		var account = await context.Accounts.FirstAsync(a => a.Id == calendar.AccountId, ct);
+		var provider = providers.For(account);
+		using var disposable = provider as IDisposable;
 
-		await providers.For(account).DeleteEventAsync(account, ev, ct);
+		await provider.DeleteEventAsync(account, ev, ct);
 
 		var children = await context.CalendarEvents.Where(e => e.RecurrenceMasterId == ev.Id).ToListAsync(ct);
 		context.CalendarEvents.RemoveRange(children);

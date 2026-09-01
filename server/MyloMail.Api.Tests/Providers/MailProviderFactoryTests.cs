@@ -3,6 +3,7 @@ using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Imap;
+using MyloMail.Api.Security;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Providers;
@@ -135,10 +136,18 @@ public sealed class MailProviderFactoryTests
 	}
 
 	private static MailProviderFactory Create(ProviderClientOptions options, ICredentialStore? store = null) =>
-		new(Options.Create(options), store ?? new InMemoryCredentialStore(), new StubResolver());
+		new(Options.Create(options), store ?? new InMemoryCredentialStore(), new StubResolver(), new NoTrustedCertificates());
 
 	private sealed class StubResolver : IProviderMailboxResolver
 	{
 		public string ProviderMailboxId(Guid mailboxId) => mailboxId.ToString();
+	}
+
+	private sealed class NoTrustedCertificates : ITrustedCertificateStore
+	{
+		public IReadOnlyList<AccountTrustedCertificate> GetForAccount(Guid accountId) => [];
+
+		public Task TrustAsync(Guid accountId, string expectedHostname, string sha256Fingerprint, CancellationToken ct) =>
+			Task.CompletedTask;
 	}
 }

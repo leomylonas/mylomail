@@ -7,6 +7,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Security;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Providers;
@@ -22,12 +23,12 @@ namespace MyloMail.Api.Tests.Providers;
 /// provider builds are ones a real CalDAV server actually accepts.
 /// </para>
 /// <para>
-/// The test's own <see cref="HttpClient"/> accepts any server certificate. That is specific to
-/// this one client, constructed directly here rather than through the app's DI-registered
-/// <c>AddHttpClient(nameof(CalDavCalendarProvider))</c> pipeline — nothing in the production
-/// trust path is touched. Certificate pinning (<c>AccountTrustedCertificate</c>,
-/// <c>Account.CertificateTrustMode</c>) is designed in §1/§9 but not yet wired to any transport
-/// for any provider; faithfully testing that is a separate, not-yet-built feature.
+/// Most tests here use a client that accepts any server certificate outright — specific to
+/// that one client, constructed directly rather than through
+/// <c>CalendarProviderFactory</c>/DI, never touching the production trust path.
+/// <see cref="Certificate_pinning_permits_a_connection_normal_validation_would_reject"/>
+/// instead drives the real <see cref="CertificateTrust"/> logic against this fixture's actual
+/// self-signed certificate, the same way <see cref="CalendarProviderFactory"/> wires it.
 /// </para>
 /// </remarks>
 [Trait("Category", "Conformance")]
@@ -242,6 +243,102 @@ public sealed class CalDavLiveTests
 		var finalSync = await provider.SyncCalendarAsync(account, calendar, cursor: null, continuation: null, default);
 		var masterAfterCancel = Assert.Single(finalSync.Upserted, e => e.RecurrenceId is null);
 		Assert.Equal("Standup", masterAfterCancel.Title);
+	}
+
+	[SkippableFact]
+	public async Task Certificate_pinning_permits_a_connection_normal_validation_would_reject()
+	{
+		Skip.If(
+			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
+			"TEST_CALDAV_HOST/PORT not set — start the matrix with `pnpm caldav:up`"
+		);
+
+		var baseUri = new Uri($"https://{Host}:{Port}/");
+		var endpoint = new Uri(baseUri, $"{Uri.EscapeDataString(User)}/{Guid.NewGuid():N}/");
+
+		// Set up the collection with a trusting client — the point of this test is what
+		// happens on the *next* connection, not this setup step.
+		using (var setup = new HttpClient(TrustingHandler()))
+		{
+			await MkCalendarAsync(setup, endpoint);
+		}
+
+		var credentials = new InMemoryCredentialStore();
+		var accountId = Guid.NewGuid();
+		await credentials.StoreAsync(
+			accountId,
+			new CredentialPayload(MailProviderFactory.ImapPasswordFormat, Encoding.UTF8.GetBytes(Password)),
+			default
+		);
+		var account = new Account
+		{
+			Id = accountId,
+			ProviderType = ProviderType.Imap,
+			ProviderConfig = new ImapProviderConfig
+			{
+				CalDav = new CalDavProviderConfig { Endpoint = endpoint.ToString(), UserName = User },
+			},
+		};
+		var calendar = new Calendar { Id = Guid.NewGuid(), ProviderCalendarId = endpoint.ToString() };
+
+		// The exact wiring CalendarProviderFactory does: real validation first, a pinned
+		// fingerprint only consulted once that has already failed (self-signed, so it always
+		// does here). Whatever the server actually presented is captured regardless of the
+		// verdict, standing in for what an AddAccount attempt would show the user to pin.
+		string? presentedFingerprint = null;
+		HttpClient ClientFor(CertificateTrustMode mode, IReadOnlyList<AccountTrustedCertificate> pinned) =>
+			new(
+				new HttpClientHandler
+				{
+					ServerCertificateCustomValidationCallback = (request, certificate, _, sslPolicyErrors) =>
+					{
+						if (certificate is null)
+						{
+							return false;
+						}
+						presentedFingerprint = CertificateTrust.Fingerprint(certificate);
+						return CertificateTrust.Validate(
+							mode,
+							pinned,
+							request.RequestUri!.Host,
+							certificate,
+							sslPolicyErrors
+						);
+					},
+				}
+			);
+
+		using (var rejecting = ClientFor(CertificateTrustMode.Default, []))
+		{
+			var provider = new CalDavCalendarProvider(new CalDavRequestFactory(credentials), rejecting, new UnusedMailProviderFactory());
+			await Assert.ThrowsAsync<HttpRequestException>(
+				() => provider.ListCalendarsAsync(account, default)
+			);
+		}
+
+		Assert.NotNull(presentedFingerprint);
+
+		var pinnedEntry = new AccountTrustedCertificate
+		{
+			Id = Guid.NewGuid(),
+			AccountId = accountId,
+			ExpectedHostname = Host!,
+			Sha256Fingerprint = presentedFingerprint!,
+		};
+
+		using (var pinned = ClientFor(CertificateTrustMode.Default, [pinnedEntry]))
+		{
+			var provider = new CalDavCalendarProvider(new CalDavRequestFactory(credentials), pinned, new UnusedMailProviderFactory());
+			// No exception: the pin is exactly what CertificateTrust.Problem's Extensions would
+			// have handed TrustCertificate to record.
+			await provider.ListCalendarsAsync(account, default);
+		}
+
+		using (var trustAll = ClientFor(CertificateTrustMode.TrustAll, []))
+		{
+			var provider = new CalDavCalendarProvider(new CalDavRequestFactory(credentials), trustAll, new UnusedMailProviderFactory());
+			await provider.ListCalendarsAsync(account, default);
+		}
 	}
 
 	private static async Task PutRawAsync(HttpClient http, Uri target, string ics)

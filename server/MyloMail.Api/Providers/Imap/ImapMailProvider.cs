@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
@@ -7,6 +8,7 @@ using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Security;
 
 namespace MyloMail.Api.Providers.Imap;
 
@@ -37,6 +39,14 @@ public sealed partial class ImapMailProvider : IMailProvider
 	private readonly IProviderMailboxResolver mailboxes;
 	private ProviderCapabilities capabilities = ImapCapabilityNegotiation.Unknown;
 
+	/// <summary>
+	/// What the certificate-validation callback last rejected, if it rejected anything — the
+	/// callback itself can only return a bool, so this is how <see cref="AuthenticateAsync"/>
+	/// tells "the certificate was untrusted" apart from every other reason a TLS handshake can
+	/// fail, to categorise the resulting <see cref="SslHandshakeException"/> correctly (§15).
+	/// </summary>
+	private (string Fingerprint, string Issuer)? rejectedCertificate;
+
 	public ImapMailProvider(ImapConnectionSettings settings, IProviderMailboxResolver mailboxes)
 	{
 		this.settings = settings;
@@ -54,6 +64,28 @@ public sealed partial class ImapMailProvider : IMailProvider
 	private async Task<ImapClient> ConnectAsync(CancellationToken ct)
 	{
 		var client = new ImapClient();
+		rejectedCertificate = null;
+		client.ServerCertificateValidationCallback = (_, certificate, _, sslPolicyErrors) =>
+		{
+			if (certificate is null)
+			{
+				return false;
+			}
+
+			var certificate2 = certificate as X509Certificate2 ?? new X509Certificate2(certificate);
+			var trusted = CertificateTrust.Validate(
+				settings.CertificateTrustMode,
+				settings.TrustedCertificates ?? [],
+				settings.Host,
+				certificate2,
+				sslPolicyErrors
+			);
+			if (!trusted)
+			{
+				rejectedCertificate = (CertificateTrust.Fingerprint(certificate2), certificate2.Issuer);
+			}
+			return trusted;
+		};
 		try
 		{
 			await client.ConnectAsync(
@@ -90,6 +122,14 @@ public sealed partial class ImapMailProvider : IMailProvider
 				false,
 				AuthState.NeedsReauth,
 				Problem(ErrorCategory.Auth, "Authentication failed", ex.Message)
+			);
+		}
+		catch (SslHandshakeException) when (rejectedCertificate is { } rejected)
+		{
+			return new AuthResult(
+				false,
+				AuthState.Error,
+				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer)
 			);
 		}
 		catch (Exception ex)

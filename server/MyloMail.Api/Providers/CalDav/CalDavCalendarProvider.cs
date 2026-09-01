@@ -39,10 +39,18 @@ public sealed class CalDavCalendarProvider(
 	CalDavRequestFactory requests,
 	HttpClient http,
 	IMailProviderFactory mail
-) : ICalendarProvider
+) : ICalendarProvider, IDisposable
 {
 	private static readonly HttpMethod PropFind = new("PROPFIND");
 	private static readonly HttpMethod Report = new("REPORT");
+
+	/// <summary>
+	/// <see cref="CalendarProviderFactory"/> hands out a fresh <see cref="HttpClient"/> per
+	/// account per resolution (§15 — certificate trust is a per-account decision, so its
+	/// handler can't be the app-wide pooled one), so this is what actually releases it rather
+	/// than leaving cleanup to the finalizer.
+	/// </summary>
+	public void Dispose() => http.Dispose();
 
 	public ProviderType Type => ProviderType.Imap;
 

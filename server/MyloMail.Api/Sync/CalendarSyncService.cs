@@ -26,6 +26,10 @@ public sealed class CalendarSyncService(
 	public async Task SynchronizeAsync(Account account, CancellationToken ct = default)
 	{
 		var provider = providers.For(account);
+		// CalDAV hands back a fresh HttpClient per resolution (§15 — certificate trust is a
+		// per-account decision), so it is this call's to release, not the app's to pool.
+		using var disposable = provider as IDisposable;
+
 		var observed = await provider.ListCalendarsAsync(account, ct);
 		var removedEventIds = await ReconcileCalendarsAsync(account.Id, observed, ct);
 		foreach (var eventId in removedEventIds)

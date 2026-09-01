@@ -24,9 +24,18 @@ public class SendIdentity
 /// A certificate the user has chosen to trust for this account. Multiple entries are
 /// supported, because certificates rotate (§1, §15).
 /// </summary>
+/// <remarks>
+/// Pinned by <see cref="ExpectedHostname"/> as well as fingerprint: a fingerprint alone would
+/// let a certificate trusted for one host silently vouch for an unrelated one presenting the
+/// same bytes, which defeats the point of pinning to begin with.
+/// </remarks>
 public class AccountTrustedCertificate
 {
 	public Guid Id { get; set; }
 	public Guid AccountId { get; set; }
-	public string Thumbprint { get; set; } = string.Empty;
+
+	/// <summary>Lowercase hex SHA-256 of the certificate's raw DER bytes — never an ambiguously-defined "thumbprint".</summary>
+	public string Sha256Fingerprint { get; set; } = string.Empty;
+
+	public string ExpectedHostname { get; set; } = string.Empty;
 }

@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Gmail;
 using MyloMail.Api.Providers.Graph;
 using MyloMail.Api.Providers.Imap;
+using MyloMail.Api.Security;
 
 namespace MyloMail.Api.Providers;
 
@@ -21,7 +22,8 @@ namespace MyloMail.Api.Providers;
 public sealed class MailProviderFactory(
 	IOptions<ProviderClientOptions> options,
 	ICredentialStore credentials,
-	IProviderMailboxResolver mailboxes
+	IProviderMailboxResolver mailboxes,
+	ITrustedCertificateStore certificates
 ) : IMailProviderFactory
 {
 	/// <summary>The credential-store format used for an IMAP account's password.</summary>
@@ -118,7 +120,9 @@ public sealed class MailProviderFactory(
 				config.SmtpPort,
 				config.SmtpUserName,
 				System.Text.Encoding.UTF8.GetString(smtpStored.Data),
-				config.AppendToSentOnSend
+				config.AppendToSentOnSend,
+				account.CertificateTrustMode,
+				certificates.GetForAccount(account.Id)
 			),
 			mailboxes
 		);

@@ -1,3 +1,5 @@
+using MyloMail.Api.Domain;
+
 namespace MyloMail.Api.Providers.Imap;
 
 /// <summary>
@@ -28,5 +30,8 @@ public sealed record ImapConnectionSettings(
 	/// some servers, notably Gmail over IMAP, do it themselves, and appending there would
 	/// duplicate it. There is no way to detect which, so it is configuration.
 	/// </remarks>
-	bool AppendToSent = true
+	bool AppendToSent = true,
+	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default,
+	/// <summary>Resolved once at construction (§15) — see <see cref="Security.ITrustedCertificateStore"/>.</summary>
+	IReadOnlyList<AccountTrustedCertificate>? TrustedCertificates = null
 );

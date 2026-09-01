@@ -119,7 +119,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.WithMany()
 				.HasForeignKey(x => x.AccountId)
 				.OnDelete(DeleteBehavior.Cascade);
-			e.HasIndex(x => new { x.AccountId, x.Thumbprint }).IsUnique();
+			e.HasIndex(x => new { x.AccountId, x.ExpectedHostname, x.Sha256Fingerprint }).IsUnique();
 		});
 	}
 
