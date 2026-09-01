@@ -14,7 +14,6 @@ export interface WindowState {
 	 * rather than component state so it cannot drift from the selection it describes.
 	 */
 	selectedMessageSubject: string;
-	sidebarWidth: number;
 }
 
 /**
@@ -31,6 +30,5 @@ export function createWindowStore(): Store<WindowState> {
 		selectedMailboxId: null,
 		selectedMessageId: null,
 		selectedMessageSubject: "",
-		sidebarWidth: 260,
 	});
 }

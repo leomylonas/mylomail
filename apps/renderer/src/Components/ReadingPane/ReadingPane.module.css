@@ -5,8 +5,16 @@
 	border-left: 1px solid var(--cds-border-subtle);
 }
 
+.subjectRow {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--cds-spacing-04);
+	margin-bottom: var(--cds-spacing-03);
+}
+
 .subject {
-	margin: 0 0 var(--cds-spacing-03);
+	margin: 0;
 	font-size: 1.125rem;
 }
 

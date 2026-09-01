@@ -15,10 +15,12 @@ import {
 	backendConnectionChannel,
 	notificationClickedChannel,
 	openAttachmentChannel,
+	openWindowChannel,
 	showNotificationChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
+	type OpenWindowRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 
@@ -139,16 +141,107 @@ export async function startShell(): Promise<void> {
 	// only defence against another local process.
 	console.info(`Backend ready on 127.0.0.1:${backend.port}.`);
 
+	// One additional main window, one message window, one popped-out compose window — all the
+	// same shell, all sharing this one backend connection regardless of window count (§13
+	// Epic 10). The renderer asks for a shape; only the shell decides bounds and offset.
+	ipcMain.handle(
+		openWindowChannel,
+		async (event, request: unknown): Promise<void> => {
+			if (!isOpenWindowRequest(request)) {
+				throw new Error("A valid window request is required.");
+			}
+
+			const opener = BrowserWindow.fromWebContents(event.sender);
+			const window = await createWindow(origin, {
+				query: request.query,
+				bounds: opener ? offsetBounds(opener.getBounds()) : undefined,
+			});
+			trackBoundsPersistence(window, origin);
+		},
+	);
+
+	// The bounds convention (§13): a newly opened window inherits the primary/last-active
+	// window's last-known size and position, offset slightly — not a fully independent bounds
+	// history per window identity. Persisted globally, read once at startup for the first
+	// window; every later window in this run instead offsets from whichever window opened it.
+	const savedBounds = await loadWindowBounds(origin);
+	const first = await createWindow(origin, { bounds: savedBounds });
+	trackBoundsPersistence(first, origin);
+
 	// The backend is a child of this process, so it must not outlive it.
 	app.on("before-quit", () => backend.child.kill("SIGTERM"));
-
-	await createWindow(origin);
 }
 
-async function createWindow(origin: string): Promise<BrowserWindow> {
+interface WindowBounds {
+	width: number;
+	height: number;
+	x?: number;
+	y?: number;
+}
+
+function offsetBounds(bounds: WindowBounds): WindowBounds {
+	return {
+		width: bounds.width,
+		height: bounds.height,
+		x: bounds.x === undefined ? undefined : bounds.x + 24,
+		y: bounds.y === undefined ? undefined : bounds.y + 24,
+	};
+}
+
+async function loadWindowBounds(
+	origin: string,
+): Promise<WindowBounds | undefined> {
+	try {
+		const response = await session.defaultSession.fetch(
+			`${origin}/shell-settings`,
+		);
+		if (!response.ok) return undefined;
+		const settings = (await response.json()) as {
+			windowBoundsJson?: string | null;
+		};
+		if (!settings.windowBoundsJson) return undefined;
+		const bounds = JSON.parse(settings.windowBoundsJson) as unknown;
+		return isWindowBounds(bounds) ? bounds : undefined;
+	} catch {
+		// No persisted bounds yet, or the backend isn't answering this early — the default
+		// size below is a perfectly good first launch.
+		return undefined;
+	}
+}
+
+/** Debounced so dragging a window doesn't fire a PUT per pixel. */
+function trackBoundsPersistence(window: BrowserWindow, origin: string): void {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const persist = () => {
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			const bounds = window.getBounds();
+			void session.defaultSession
+				.fetch(`${origin}/shell-settings/window-bounds`, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ windowBoundsJson: JSON.stringify(bounds) }),
+				})
+				.catch(() => {
+					// Best-effort: losing the next window's starting position is not worth
+					// surfacing to the user.
+				});
+		}, 500);
+	};
+	window.on("resize", persist);
+	window.on("move", persist);
+}
+
+async function createWindow(
+	origin: string,
+	options?: { query?: string; bounds?: WindowBounds },
+): Promise<BrowserWindow> {
+	const bounds = options?.bounds;
 	const window = new BrowserWindow({
-		width: 1280,
-		height: 800,
+		width: bounds?.width ?? 1280,
+		height: bounds?.height ?? 800,
+		x: bounds?.x,
+		y: bounds?.y,
 		show: false,
 		webPreferences: {
 			preload: join(here, "Preload.cjs"),
@@ -191,9 +284,25 @@ async function createWindow(origin: string): Promise<BrowserWindow> {
 	});
 	// Loaded over http from the backend rather than from disk: same-origin is what lets one
 	// httpOnly cookie authenticate documents, assets, fetches and the WebSocket handshake
-	// alike, and keeps the launch token out of every URL.
-	await window.loadURL(origin);
+	// alike, and keeps the launch token out of every URL. The query string only ever picks a
+	// view within that same document — never a different origin.
+	const url = options?.query ? `${origin}/?${options.query}` : origin;
+	await window.loadURL(url);
 	return window;
+}
+
+function isWindowBounds(value: unknown): value is WindowBounds {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.width === "number" && typeof candidate.height === "number"
+	);
+}
+
+function isOpenWindowRequest(value: unknown): value is OpenWindowRequest {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	return candidate.query === undefined || typeof candidate.query === "string";
 }
 
 /**

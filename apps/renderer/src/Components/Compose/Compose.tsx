@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, TextInput } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
@@ -37,11 +37,17 @@ export function Compose({
 	hub,
 	accountId,
 	onClose,
+	onDetach,
 	draft,
 }: {
 	hub: HubConnection;
 	accountId: string;
 	onClose: () => void;
+	/**
+	 * Pops this draft into its own window (§13 Epic 10). Absent inside a window that is
+	 * already just this draft — a compose window cannot detach from itself.
+	 */
+	onDetach?: (draftId: string) => void;
 	draft?: OpenDraft;
 }) {
 	const [to, setTo] = useState(() => formatAddresses(draft?.to));
@@ -58,28 +64,61 @@ export function Compose({
 	);
 	const fileInput = useRef<HTMLInputElement>(null);
 
-	/**
-	 * Saves without sending.
-	 *
-	 * The draft id is kept so a second save updates the same draft rather than creating
-	 * another — on IMAP an update is an append plus an expunge of the old copy, and a new id
-	 * each time would leave the server accumulating half-written messages.
-	 */
-	const save = async (): Promise<string> => {
-		const draft = await hub.invoke<{ id: string }>("SaveDraft", {
-			draftId,
-			accountId,
-			inReplyToMessageId: null,
-			to: parseAddresses(to),
-			cc: parseAddresses(cc),
-			bcc: parseAddresses(bcc),
-			subject,
-			bodyHtml: body,
-		});
+	// `save` always reads the latest field values through this ref rather than closing over
+	// state, because a queued save (below) can run well after the render that scheduled it.
+	const fieldsRef = useRef({ to, cc, bcc, subject, body, draftId });
+	useEffect(() => {
+		fieldsRef.current = { to, cc, bcc, subject, body, draftId };
+	});
 
-		setDraftId(draft.id);
-		setSavedAt(new Date().toLocaleTimeString());
-		return draft.id;
+	// Autosave, the manual "Save draft" button, "Send" and "Open in new window" all call
+	// `save()`, and any two of them can overlap — most obviously the debounced autosave firing
+	// while a manual save or send is already in flight. Two concurrent `SaveDraft` calls with
+	// the same (still-null, for a brand new draft) `draftId` would each create their own draft
+	// rather than one updating the other, orphaning one on the server; even once a draftId
+	// exists, whichever response resolved last would win the `draftId`/`savedAt` state
+	// regardless of which save was actually newer. Chaining every save onto the previous one's
+	// promise serialises them, so each runs against the draft id the one before it produced.
+	const saveChain = useRef<Promise<string>>(Promise.resolve(draft?.id ?? ""));
+	const save = (): Promise<string> => {
+		const run = async (): Promise<string> => {
+			const fields = fieldsRef.current;
+			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
+				draftId: fields.draftId,
+				accountId,
+				inReplyToMessageId: null,
+				to: parseAddresses(fields.to),
+				cc: parseAddresses(fields.cc),
+				bcc: parseAddresses(fields.bcc),
+				subject: fields.subject,
+				bodyHtml: fields.body,
+			});
+
+			setDraftId(saved.id);
+			fieldsRef.current = { ...fieldsRef.current, draftId: saved.id };
+			setSavedAt(new Date().toLocaleTimeString());
+			return saved.id;
+		};
+		const next = saveChain.current.then(run, run);
+		saveChain.current = next;
+		return next;
+	};
+
+	// Autosaved on a debounce so a popped-out window (§13 Epic 10) survives being closed
+	// without discarding — closing a window is not a moment this component gets to intercept,
+	// so the draft has to already be safe on the server by the time that happens, not saved in
+	// response to it. Skipped while empty: an untouched compose pane should not litter Drafts.
+	useEffect(() => {
+		if (!to && !subject && !body) return;
+		const timer = setTimeout(() => void save(), 2000);
+		return () => clearTimeout(timer);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- `save` reads fieldsRef, not these values, at run time
+	}, [to, cc, bcc, subject, body]);
+
+	const detach = async () => {
+		if (!onDetach) return;
+		const id = await save();
+		onDetach(id);
 	};
 
 	const send = async () => {
@@ -94,18 +133,8 @@ export function Compose({
 		}
 		setBusy(true);
 		try {
-			const draft = await hub.invoke<{ id: string }>("SaveDraft", {
-				draftId,
-				accountId,
-				inReplyToMessageId: null,
-				to: parseAddresses(to),
-				cc: parseAddresses(cc),
-				bcc: parseAddresses(bcc),
-				subject,
-				bodyHtml: body,
-			});
-
-			const outboxItemId = await hub.invoke<string>("SendDraft", draft.id);
+			const id = await save();
+			const outboxItemId = await hub.invoke<string>("SendDraft", id);
 			setSent({ outboxItemId, cancelled: false });
 		} finally {
 			setBusy(false);
@@ -264,6 +293,11 @@ export function Compose({
 				</Button>
 				{savedAt ? (
 					<span className={styles.sent}>Saved at {savedAt}</span>
+				) : null}
+				{onDetach ? (
+					<Button size="sm" kind="ghost" onClick={() => void detach()}>
+						Open in new window
+					</Button>
 				) : null}
 				<Button size="sm" kind="ghost" onClick={onClose}>
 					Discard

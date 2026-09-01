@@ -1,4 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+	Group,
+	Panel,
+	Separator,
+	type PanelImperativeHandle,
+} from "react-resizable-panels";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
@@ -21,6 +27,7 @@ import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 interface Account {
@@ -54,7 +61,9 @@ export function AppShell() {
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const selectedMessageId = useStoreValue(store, "selectedMessageId");
 	const selectedMessageSubject = useStoreValue(store, "selectedMessageSubject");
-	const sidebarWidth = useStoreValue(store, "sidebarWidth");
+	const layout = useShellLayout();
+	const sidebarRef = useRef<PanelImperativeHandle>(null);
+	const detailRef = useRef<PanelImperativeHandle>(null);
 
 	const queryClient = useQueryClient();
 	const accounts = useQuery({
@@ -113,10 +122,7 @@ export function AppShell() {
 	);
 
 	return (
-		<div
-			className={styles.shell}
-			style={{ ["--mylomail-sidebar-width" as string]: `${sidebarWidth}px` }}
-		>
+		<div className={styles.shell}>
 			<header className={styles.header}>
 				<h1 className={styles.title}>MyloMail</h1>
 				<span className={styles.status}>{describe(status, accounts.data)}</span>
@@ -157,82 +163,175 @@ export function AppShell() {
 				>
 					Calendar
 				</Button>
-			</header>
-
-			<div className={styles.panels}>
-				{effectivePane === "calendar" && hub && accounts.data?.length ? (
-					<div className={styles.calendarPanel}>
-						<Calendar hub={hub} accounts={accounts.data} />
-					</div>
-				) : null}
-				{effectivePane !== "calendar" && hub && selectedAccountId ? (
-					<MailboxTree hub={hub} accountId={selectedAccountId} />
-				) : effectivePane !== "calendar" ? (
-					<div />
+				{window.windows ? (
+					<Button
+						size="sm"
+						kind="ghost"
+						onClick={() => void window.windows?.open()}
+					>
+						New window
+					</Button>
 				) : null}
 				{effectivePane !== "calendar" ? (
-					<div className={styles.reading}>
-						<SearchBox query={query} onChange={setQuery} />
-						{hub && selectedAccountId && selectedMailboxId ? (
-							<MessageList
+					<>
+						<Button
+							size="sm"
+							kind="ghost"
+							onClick={() =>
+								sidebarRef.current?.isCollapsed()
+									? sidebarRef.current.expand()
+									: sidebarRef.current?.collapse()
+							}
+						>
+							Toggle sidebar
+						</Button>
+						<Button
+							size="sm"
+							kind="ghost"
+							onClick={() =>
+								detailRef.current?.isCollapsed()
+									? detailRef.current.expand()
+									: detailRef.current?.collapse()
+							}
+						>
+							Toggle reading pane
+						</Button>
+					</>
+				) : null}
+			</header>
+
+			{effectivePane === "calendar" && hub && accounts.data?.length ? (
+				<div className={styles.calendarPanel}>
+					<Calendar hub={hub} accounts={accounts.data} />
+				</div>
+			) : (
+				<Group
+					className={styles.panels}
+					defaultLayout={{
+						sidebar: layout.initial.sidebar,
+						list: layout.initial.list,
+						detail: layout.initial.detail,
+					}}
+					onLayoutChanged={(sizes, meta) => {
+						// Only a direct drag writes back the shared default — recomputes from
+						// constraints or the initial mount are not a user's stated preference.
+						if (!meta.isUserInteraction) return;
+						layout.onResize({
+							sidebar: sizes.sidebar,
+							list: sizes.list,
+							detail: sizes.detail,
+						});
+					}}
+				>
+					<Panel
+						id="sidebar"
+						minSize="15"
+						collapsible
+						collapsedSize="0"
+						panelRef={sidebarRef}
+					>
+						{hub && selectedAccountId ? (
+							<MailboxTree hub={hub} accountId={selectedAccountId} />
+						) : (
+							<div />
+						)}
+					</Panel>
+					<Separator className={styles.handle} />
+					<Panel id="list" minSize="20">
+						<div className={styles.reading}>
+							<SearchBox query={query} onChange={setQuery} />
+							{hub && selectedAccountId && selectedMailboxId ? (
+								<MessageList
+									hub={hub}
+									accountId={selectedAccountId}
+									mailboxId={selectedMailboxId}
+									query={query}
+									onSelect={(message) => {
+										store.setState("selectedMessageId", message.id);
+										store.setState("selectedMessageSubject", message.subject);
+									}}
+								/>
+							) : (
+								<p style={{ padding: "1rem" }}>Select a mailbox.</p>
+							)}
+						</div>
+					</Panel>
+					<Separator className={styles.handle} />
+					<Panel
+						id="detail"
+						minSize="20"
+						collapsible
+						collapsedSize="0"
+						panelRef={detailRef}
+					>
+						{hub && selectedAccountId && effectivePane === "compose" ? (
+							<Compose
+								key={openDraft?.id ?? "new"}
 								hub={hub}
 								accountId={selectedAccountId}
-								mailboxId={selectedMailboxId}
-								query={query}
-								onSelect={(message) => {
-									store.setState("selectedMessageId", message.id);
-									store.setState("selectedMessageSubject", message.subject);
+								draft={openDraft}
+								onClose={() => setPane("reading")}
+								onDetach={
+									window.windows
+										? (draftId) => {
+												void window.windows?.open(
+													`compose=${draftId}&account=${selectedAccountId}`,
+												);
+												setPane("reading");
+											}
+										: undefined
+								}
+							/>
+						) : null}
+						{hub && selectedAccountId && effectivePane === "drafts" ? (
+							<div className={styles.draftPanel}>
+								<DraftList
+									hub={hub}
+									accountId={selectedAccountId}
+									onOpen={(draft) => {
+										setOpenDraft(draft);
+										setPane("compose");
+									}}
+								/>
+							</div>
+						) : null}
+						{hub && selectedAccountId && effectivePane === "settings" ? (
+							<AccountSettings
+								hub={hub}
+								initial={toSettings(accounts.data, selectedAccountId)}
+								onClose={() => setPane("reading")}
+							/>
+						) : null}
+						{hub && selectedMessageId && effectivePane === "reading" ? (
+							<ReadingPane
+								hub={hub}
+								messageId={selectedMessageId}
+								subject={selectedMessageSubject}
+								onOpenInNewWindow={
+									window.windows
+										? () =>
+												void window.windows?.open(
+													`message=${selectedMessageId}&subject=${encodeURIComponent(
+														selectedMessageSubject,
+													)}`,
+												)
+										: undefined
+								}
+							/>
+						) : null}
+						{effectivePane === "add-account" ? (
+							<AddAccount
+								onAdded={() => {
+									void queryClient.invalidateQueries({
+										queryKey: ["accounts"],
+									});
+									setPane("reading");
 								}}
 							/>
-						) : (
-							<p style={{ padding: "1rem" }}>Select a mailbox.</p>
-						)}
-					</div>
-				) : null}
-				{hub && selectedAccountId && effectivePane === "compose" ? (
-					<Compose
-						key={openDraft?.id ?? "new"}
-						hub={hub}
-						accountId={selectedAccountId}
-						draft={openDraft}
-						onClose={() => setPane("reading")}
-					/>
-				) : null}
-				{hub && selectedAccountId && effectivePane === "drafts" ? (
-					<div className={styles.draftPanel}>
-						<DraftList
-							hub={hub}
-							accountId={selectedAccountId}
-							onOpen={(draft) => {
-								setOpenDraft(draft);
-								setPane("compose");
-							}}
-						/>
-					</div>
-				) : null}
-				{hub && selectedAccountId && effectivePane === "settings" ? (
-					<AccountSettings
-						hub={hub}
-						initial={toSettings(accounts.data, selectedAccountId)}
-						onClose={() => setPane("reading")}
-					/>
-				) : null}
-				{hub && selectedMessageId && effectivePane === "reading" ? (
-					<ReadingPane
-						hub={hub}
-						messageId={selectedMessageId}
-						subject={selectedMessageSubject}
-					/>
-				) : null}
-				{effectivePane === "add-account" ? (
-					<AddAccount
-						onAdded={() => {
-							void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-							setPane("reading");
-						}}
-					/>
-				) : null}
-			</div>
+						) : null}
+					</Panel>
+				</Group>
+			)}
 		</div>
 	);
 }

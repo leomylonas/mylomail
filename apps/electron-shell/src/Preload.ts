@@ -3,10 +3,12 @@ import {
 	backendConnectionChannel,
 	notificationClickedChannel,
 	openAttachmentChannel,
+	openWindowChannel,
 	showNotificationChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
+	type OpenWindowRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 
 /**
@@ -44,4 +46,15 @@ contextBridge.exposeInMainWorld("notifications", {
 		ipcRenderer.on(notificationClickedChannel, handler);
 		return () => ipcRenderer.off(notificationClickedChannel, handler);
 	},
+});
+
+/**
+ * Opening a window is a main-process decision (§13 Epic 10): the renderer asks for one by
+ * shape, and the shell decides bounds, offset, and which existing window it opened relative to.
+ */
+contextBridge.exposeInMainWorld("windows", {
+	open: (query?: string): Promise<void> =>
+		ipcRenderer.invoke(openWindowChannel, {
+			query,
+		} satisfies OpenWindowRequest) as Promise<void>,
 });

@@ -19,5 +19,8 @@ declare global {
 				}) => void,
 			): () => void;
 		};
+		windows?: {
+			open(query?: string): Promise<void>;
+		};
 	}
 }

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
-import { SkeletonText } from "@carbon/react";
+import { Button, SkeletonText } from "@carbon/react";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
@@ -23,10 +23,13 @@ export function ReadingPane({
 	hub,
 	messageId,
 	subject,
+	onOpenInNewWindow,
 }: {
 	hub: HubConnection;
 	messageId: string;
 	subject: string;
+	/** Absent inside a window that is already just this one message (§13 Epic 10). */
+	onOpenInNewWindow?: () => void;
 }) {
 	const body = useQuery({
 		queryKey: ["body", messageId],
@@ -38,7 +41,14 @@ export function ReadingPane({
 
 	return (
 		<article className={styles.pane} aria-label="Message">
-			<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
+			<div className={styles.subjectRow}>
+				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
+				{onOpenInNewWindow ? (
+					<Button size="sm" kind="ghost" onClick={onOpenInNewWindow}>
+						Open in new window
+					</Button>
+				) : null}
+			</div>
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
 			{body.data ? (
 				<Body body={body.data} messageId={messageId} hub={hub} />

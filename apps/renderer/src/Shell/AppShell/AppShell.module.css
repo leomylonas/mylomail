@@ -26,16 +26,24 @@
 }
 
 .panels {
-	display: grid;
-	grid-template-columns: var(--mylomail-sidebar-width) minmax(0, 1fr) minmax(
-			0,
-			1.2fr
-		);
 	min-height: 0;
+	height: 100%;
+}
+
+.handle {
+	width: 4px;
+	background: var(--cds-border-subtle);
+	cursor: col-resize;
+}
+
+.handle:hover,
+.handle[data-resize-handle-active] {
+	background: var(--cds-interactive, #0f62fe);
 }
 
 .reading {
 	min-height: 0;
+	height: 100%;
 	overflow-y: auto;
 }
 
@@ -45,6 +53,6 @@
 }
 
 .calendarPanel {
-	grid-column: 1 / -1;
 	min-height: 0;
+	height: 100%;
 }

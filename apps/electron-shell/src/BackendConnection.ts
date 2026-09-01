@@ -11,6 +11,7 @@ export const backendConnectionChannel = "backend:connection";
 export const openAttachmentChannel = "attachment:open";
 export const showNotificationChannel = "notification:show";
 export const notificationClickedChannel = "notification:clicked";
+export const openWindowChannel = "window:open";
 
 /**
  * What the renderer hands the shell to show a native OS notification (§13 Epic 9).
@@ -47,4 +48,15 @@ export interface NotificationClicked {
  */
 export interface BackendConnection {
 	origin: string;
+}
+
+/**
+ * Requests an additional window (§13 Epic 10). `query` becomes the new window's URL query
+ * string — empty for a plain independent main window, `message=<id>` to open a single message,
+ * `compose=<draftId>&account=<accountId>` to pop a draft out of the main window that opened it.
+ * A relative query string, never a full URL: the shell decides the origin, so a window can never
+ * be pointed anywhere but the backend it already trusts.
+ */
+export interface OpenWindowRequest {
+	query?: string;
 }

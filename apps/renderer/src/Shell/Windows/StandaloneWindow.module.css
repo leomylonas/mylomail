@@ -1,0 +1,11 @@
+.window {
+	height: 100vh;
+	overflow-y: auto;
+	background: var(--cds-background);
+	color: var(--cds-text-primary);
+}
+
+.status {
+	padding: var(--cds-spacing-05);
+	color: var(--cds-text-secondary);
+}
