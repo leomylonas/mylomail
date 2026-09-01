@@ -76,6 +76,12 @@ public interface IMailHub
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
 
 	/// <summary>
+	/// Sidebar drag-reorder among accounts (§13 Epic 1) — purely local, the same as
+	/// <see cref="ReorderMailboxes"/>: no provider has a concept of account ordering.
+	/// </summary>
+	Task ReorderAccounts(IReadOnlyList<Guid> orderedAccountIds);
+
+	/// <summary>
 	/// Pins a certificate for this account and hostname (§15) — offered only after normal TLS
 	/// validation has already failed and the user has seen the fingerprint/issuer this rejected
 	/// certificate presents; never called speculatively.
@@ -357,6 +363,20 @@ public class MailHub(
 			PollIntervalSeconds = account.PollIntervalSeconds,
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
 		};
+	}
+
+	public async Task ReorderAccounts(IReadOnlyList<Guid> orderedAccountIds)
+	{
+		var accounts = await context.Accounts.ToDictionaryAsync(a => a.Id);
+		for (var index = 0; index < orderedAccountIds.Count; index++)
+		{
+			if (accounts.TryGetValue(orderedAccountIds[index], out var account))
+			{
+				account.SortOrder = index;
+			}
+		}
+
+		await context.SaveChangesAsync();
 	}
 
 	public Task TrustCertificate(Guid accountId, string hostname, string sha256Fingerprint) =>

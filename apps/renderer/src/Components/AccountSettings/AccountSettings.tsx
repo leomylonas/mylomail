@@ -62,6 +62,19 @@ export function AccountSettings({
 					setValues({ ...values, displayName: event.target.value })
 				}
 			/>
+			<label className={styles.colorField} htmlFor="settings-color">
+				Colour
+				<input
+					id="settings-color"
+					type="color"
+					// A never-saved account has no colour yet; a neutral grey is a better
+					// starting point in the picker than the browser's own black default.
+					value={values.color || "#8d8d8d"}
+					onChange={(event) =>
+						setValues({ ...values, color: event.target.value })
+					}
+				/>
+			</label>
 			<NumberInput
 				id="settings-poll"
 				label="Check for mail every (seconds)"

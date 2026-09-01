@@ -154,6 +154,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("UpdateAccount", settings);
     }
 
+    public readonly reorderAccounts = async (orderedAccountIds: string[]): Promise<void> => {
+        return await this.connection.invoke("ReorderAccounts", orderedAccountIds);
+    }
+
     public readonly trustCertificate = async (accountId: string, hostname: string, sha256Fingerprint: string): Promise<void> => {
         return await this.connection.invoke("TrustCertificate", accountId, hostname, sha256Fingerprint);
     }

@@ -115,6 +115,13 @@ export type IMailHub = {
     */
     updateAccount(settings: AccountSettingsDto): Promise<AccountSettingsDto>;
     /**
+    * Sidebar drag-reorder among accounts (§13 Epic 1) — purely local, the same as
+    * : no provider has a concept of account ordering.
+    * @param orderedAccountIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    reorderAccounts(orderedAccountIds: string[]): Promise<void>;
+    /**
     * Pins a certificate for this account and hostname (§15) — offered only after normal TLS
     * validation has already failed and the user has seen the fingerprint/issuer this rejected
     * certificate presents; never called speculatively.
