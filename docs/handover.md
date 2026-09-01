@@ -155,12 +155,18 @@ This is a snapshot of the current state, not a history; use Git for history.
   is never pushed upstream); a folder dropped on a folder with a different parent reparents it
   (new `MoveMailbox` hub method over the pre-existing `MailboxManagement.MoveAsync`), guarded
   client-side against dropping a folder onto its own descendant (would cycle `ParentId`, which
-  the tree's recursive render has no way back out of). "Save as .eml" (previously a disabled
-  placeholder) now decodes `SaveMessageAsEml`'s base64 payload to a `Blob` and hands it to the
-  OS's own download flow via a synthetic download anchor — no new IPC needed. Print is a button
-  on the reading pane calling `window.print()`, with `@media print` hiding the header and
-  sidebar/list panels by the DOM ids `react-resizable-panels` already gives them for layout
-  persistence. The `mailto:` prompt checks `app.isDefaultProtocolClient` and
+  the tree's recursive render has no way back out of) — and, after a follow-up
+  (`442bd43`), server-side too: `MoveAsync` itself now walks the candidate parent's ancestor
+  chain and rejects the move at every depth, since the hub method has other possible callers
+  than this one drag UI. "Save as .eml" (previously a disabled placeholder) now decodes
+  `SaveMessageAsEml`'s base64 payload to a `Blob` and hands it to the OS's own download flow via
+  a synthetic download anchor — no new IPC needed. Print is a button on the reading pane calling
+  `window.print()`, with `@media print` hiding the header and sidebar/list panels by the DOM ids
+  `react-resizable-panels` already gives them for layout persistence; a further pass (`63ac662`)
+  added "Print" to the message-list context menu too, per §13's standing per-message menu
+  convention — it prefetches the body into the query cache and switches to the reading pane
+  before printing, so it goes through the same sandboxed `MessageHtml` render rather than a
+  second, ad-hoc one. The `mailto:` prompt checks `app.isDefaultProtocolClient` and
   `AppSettings.MailtoPromptDismissed` (new `PUT /shell-settings/mailto-prompt-dismissed`, same
   singleton-row pattern as panel-layout/window-bounds) once the first window exists at startup.
   Both batches verified: `pnpm check`, the full `dotnet test` suite, and the full Playwright e2e
@@ -183,10 +189,6 @@ This is a snapshot of the current state, not a history; use Git for history.
    only been verified at the API level, not visually end-to-end. Needs either a self-signed-cert
    trust path for CalDAV (IMAP already has `CertificateTrustMode`; CalDAV doesn't) or a
    real HTTPS CalDAV fixture.
-5. `MailboxManagement.MoveAsync` (and the new drag-to-reparent UI that calls it) has no
-   server-side guard against reparenting a folder onto its own descendant — the renderer's
-   `isDescendantOf` check covers the UI path, but the hub method itself would still accept a
-   cyclic move from any other caller. Worth a small guard in `MoveAsync` itself.
 
 ## Read first
 
