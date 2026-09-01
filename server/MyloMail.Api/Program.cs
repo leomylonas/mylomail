@@ -5,9 +5,12 @@ using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Hubs;
+using MyloMail.Api.Observability;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -29,6 +32,27 @@ builder.Services.AddSignalR();
 
 // The real publisher replaces the no-op default only where a hub actually exists.
 builder.Services.AddSingleton<IHubEvents, HubEvents>();
+
+// Opt-in, default off (§15). Read once at launch, the same as every other setting this early —
+// there is no live-reload story for AppSettings, and a change here only takes effect on
+// restart. No exporter is added at all when telemetry is off or no endpoint is configured, so
+// a user who never opts in pays nothing for it.
+var telemetry = TelemetryBootstrap.Read(dataDirectory);
+if (telemetry is { Enabled: true, OtelEndpoint: { Length: > 0 } otelEndpoint })
+{
+	builder.Services
+		.AddOpenTelemetry()
+		.ConfigureResource(resource => resource.AddService("MyloMail.Api"))
+		.WithTracing(tracing =>
+			tracing
+				.AddAspNetCoreInstrumentation()
+				.AddHttpClientInstrumentation()
+				// No-PII discipline (§10): auto-instrumentation captures routes, status
+				// codes and durations, never request/response bodies — the same rule
+				// application logging follows for message addresses, subjects and bodies.
+				.AddOtlpExporter(otlp => otlp.Endpoint = new Uri(otelEndpoint))
+		);
+}
 
 var app = builder.Build();
 app.UseLaunchToken();
