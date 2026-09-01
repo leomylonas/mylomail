@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -172,6 +172,10 @@ class IMailHub_HubProxy implements IMailHub {
     public readonly deleteCalendarEvent = async (eventId: string): Promise<void> => {
         return await this.connection.invoke("DeleteCalendarEvent", eventId);
     }
+
+    public readonly markNotificationDelivered = async (notificationId: string): Promise<void> => {
+        return await this.connection.invoke("MarkNotificationDelivered", notificationId);
+    }
 }
 
 
@@ -200,6 +204,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
         const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
         const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
+        const __notificationReady = (...args: [NotificationDto]) => receiver.notificationReady(...args);
 
         connection.on("AccountStatusChanged", __accountStatusChanged);
         connection.on("MailboxUpdated", __mailboxUpdated);
@@ -215,6 +220,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
         connection.on("CalendarConflictDetected", __calendarConflictDetected);
         connection.on("ConnectivityChanged", __connectivityChanged);
+        connection.on("NotificationReady", __notificationReady);
 
         const methodList: ReceiverMethod[] = [
             { methodName: "AccountStatusChanged", method: __accountStatusChanged },
@@ -230,7 +236,8 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
             { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
-            { methodName: "ConnectivityChanged", method: __connectivityChanged }
+            { methodName: "ConnectivityChanged", method: __connectivityChanged },
+            { methodName: "NotificationReady", method: __notificationReady }
         ]
 
         return new ReceiverMethodSubscription(connection, methodList);

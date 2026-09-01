@@ -1,12 +1,23 @@
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import {
+	app,
+	BrowserWindow,
+	dialog,
+	ipcMain,
+	Notification,
+	session,
+	shell,
+} from "electron";
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
 	backendConnectionChannel,
+	notificationClickedChannel,
 	openAttachmentChannel,
+	showNotificationChannel,
 	type BackendConnection,
+	type NotificationRequest,
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 
@@ -91,6 +102,30 @@ export async function startShell(): Promise<void> {
 			return shell.openPath(path);
 		},
 	);
+
+	// Dispatch is the shell's job, not the renderer's (§13 Epic 9): only main process code
+	// calls the native Notification API. A click focuses every open window and hands it the
+	// message id, which is as far as this goes until Epic 10 gives windows independent
+	// identities to navigate against.
+	ipcMain.handle(showNotificationChannel, (_event, request: unknown): void => {
+		if (!isNotificationRequest(request)) {
+			throw new Error("A valid notification request is required.");
+		}
+
+		const notification = new Notification({
+			title: request.title,
+			body: request.body,
+		});
+		notification.on("click", () => {
+			for (const window of BrowserWindow.getAllWindows()) {
+				if (window.isMinimized()) window.restore();
+				window.show();
+				window.focus();
+				window.webContents.send(notificationClickedChannel, request.messageId);
+			}
+		});
+		notification.show();
+	});
 
 	// The port, never the token: this line is diagnostics, and the token is the backend's
 	// only defence against another local process.
@@ -185,6 +220,17 @@ const dangerousExtensions = new Set([
 
 function isGuid(value: unknown): value is string {
 	return typeof value === "string" && guid.test(value);
+}
+
+function isNotificationRequest(value: unknown): value is NotificationRequest {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		isGuid(candidate.id) &&
+		isGuid(candidate.messageId) &&
+		typeof candidate.title === "string" &&
+		typeof candidate.body === "string"
+	);
 }
 
 function isAttachmentTempPath(path: string): boolean {

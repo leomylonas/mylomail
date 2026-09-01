@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -140,6 +140,12 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     deleteCalendarEvent(eventId: string): Promise<void>;
+    /**
+    * Confirms the shell showed a notification at least once (§13 Epic 9).
+    * @param notificationId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    markNotificationDelivered(notificationId: string): Promise<void>;
 }
 
 /**
@@ -223,5 +229,12 @@ export type IMailClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     connectivityChanged(online: boolean): Promise<void>;
+    /**
+    * Relayed straight to the preload bridge, which asks electron-shell to show the
+    * native OS notification. Dispatch is the shell's job, not the renderer's (§13 Epic 9).
+    * @param notification Transpiled from MyloMail.Api.Contracts.NotificationDto
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    notificationReady(notification: NotificationDto): Promise<void>;
 }
 

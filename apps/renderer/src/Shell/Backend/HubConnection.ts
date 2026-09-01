@@ -106,6 +106,24 @@ export function connectHub(
 		},
 	);
 
+	// Dispatch is the shell's job, not this window's (§13 Epic 9): relay straight to the
+	// preload bridge, and confirm delivery only once the shell has actually shown it — a
+	// crash between these two steps redelivers the same notification rather than losing it.
+	hub.on(
+		"NotificationReady",
+		(notification: {
+			id: string;
+			accountId: string;
+			messageId: string;
+			title: string;
+			body: string;
+		}) => {
+			void window.notifications
+				?.show(notification)
+				.then(() => hub.invoke("MarkNotificationDelivered", notification.id));
+		},
+	);
+
 	// A reconnect is a full resynchronisation, not a pending-mutation check. While
 	// disconnected this window missed every event above, and pending mutations alone cannot
 	// repair a cache that is now simply wrong (§7).

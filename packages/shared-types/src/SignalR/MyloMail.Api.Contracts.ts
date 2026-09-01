@@ -310,6 +310,20 @@ export type CalendarEventSummaryDto = {
     syncConflict: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.NotificationDto */
+export type NotificationDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from string */
+    title: string;
+    /** Transpiled from string */
+    body: string;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.SaveCalendarEventRequest */
 export type SaveCalendarEventRequest = {
     /** Transpiled from System.Guid */

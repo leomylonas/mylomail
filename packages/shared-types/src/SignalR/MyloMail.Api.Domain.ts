@@ -61,6 +61,11 @@ export enum MessageFlagField {
     IsFlagged = 1,
 }
 
+/** Transpiled from MyloMail.Api.Domain.NotificationKind */
+export enum NotificationKind {
+    NewMessage = 0,
+}
+
 /** Transpiled from MyloMail.Api.Domain.OutboxStatus */
 export enum OutboxStatus {
     Draft = 0,

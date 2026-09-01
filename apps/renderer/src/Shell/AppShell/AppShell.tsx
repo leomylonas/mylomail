@@ -75,6 +75,19 @@ export function AppShell() {
 	// so there is no first-render flash of the reading pane before the accounts query settles.
 	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
 
+	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
+	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
+	// update happens inside the callback, in response to that external event, not during
+	// render.
+	useEffect(
+		() =>
+			window.notifications?.onClicked((messageId) => {
+				store.setState("selectedMessageId", messageId);
+				setPane("reading");
+			}),
+		[store],
+	);
+
 	return (
 		<div
 			className={styles.shell}

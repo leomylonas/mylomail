@@ -9,6 +9,16 @@
 /** The channel the renderer uses to learn where the backend is. */
 export const backendConnectionChannel = "backend:connection";
 export const openAttachmentChannel = "attachment:open";
+export const showNotificationChannel = "notification:show";
+export const notificationClickedChannel = "notification:clicked";
+
+/** What the renderer hands the shell to show a native OS notification (§13 Epic 9). */
+export interface NotificationRequest {
+	id: string;
+	title: string;
+	body: string;
+	messageId: string;
+}
 
 /**
  * Where the backend is listening.
