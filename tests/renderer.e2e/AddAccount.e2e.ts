@@ -1,0 +1,50 @@
+import { expect, test } from "@playwright/test";
+import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+
+/**
+ * The CondStore tier of the local matrix (`pnpm imap:up`), shared with `Mailboxes.e2e.ts`
+ * but never touched by it: this spec only ever adds an account, it never creates or renames
+ * folders, so the two cannot disturb each other.
+ */
+const imapPort = 12143;
+
+/**
+ * A fresh launch has no accounts, so the app has to get the user from nothing to a usable
+ * mailbox through its own UI — the one thing every other spec in this suite has always done
+ * with a raw `fetch("/accounts", ...)` instead.
+ */
+test("a new user adds an IMAP account through the form and reaches their inbox", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await window.getByLabel("Account name").fill("Matrix");
+		await window.getByLabel("Email address").fill("test@mylomail.local");
+		await window.getByLabel("IMAP host").fill("127.0.0.1");
+		await window.getByLabel("Port", { exact: true }).fill(String(imapPort));
+		// Carbon's Toggle keeps its actual <button> visually hidden for accessibility; the
+		// clickable surface a user sees is the <label>, which forwards the click natively.
+		await window.locator('label[for="add-account-ssl"]').click();
+		await window.getByLabel("Password", { exact: true }).fill("password");
+		await window.getByLabel("SMTP host").fill("127.0.0.1");
+		await window.getByLabel("SMTP port").fill("11025");
+
+		await window.getByRole("button", { name: "Create account" }).click();
+
+		// The form is gone and the mailbox tree it unblocked is visible: the account round
+		// tripped through the real endpoint rather than the mutation merely resolving locally.
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeHidden({ timeout: 30_000 });
+		await expect(window.getByRole("button", { name: /INBOX/ })).toBeVisible({
+			timeout: 60_000,
+		});
+	} finally {
+		await app.close();
+	}
+});

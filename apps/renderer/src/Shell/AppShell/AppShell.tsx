@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
@@ -12,6 +12,7 @@ import {
 	AccountSettings,
 	type AccountSettingsValues,
 } from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
+import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
@@ -41,7 +42,7 @@ export function AppShell() {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
 	const [pane, setPane] = useState<
-		"reading" | "compose" | "settings" | "drafts"
+		"reading" | "compose" | "settings" | "drafts" | "add-account"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	const store = useWindowStore();
@@ -51,6 +52,7 @@ export function AppShell() {
 	const selectedMessageSubject = useStoreValue(store, "selectedMessageSubject");
 	const sidebarWidth = useStoreValue(store, "sidebarWidth");
 
+	const queryClient = useQueryClient();
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
@@ -67,6 +69,11 @@ export function AppShell() {
 		if (!selectedAccountId && accounts.data?.length)
 			store.setState("selectedAccountId", accounts.data[0].id);
 	}, [accounts.data, selectedAccountId, store]);
+
+	// The front door: with nothing set up yet, the form is what the user should see, not an
+	// empty reading pane with no way to get past it. Derived rather than synced via an effect,
+	// so there is no first-render flash of the reading pane before the accounts query settles.
+	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
 
 	return (
 		<div
@@ -102,6 +109,9 @@ export function AppShell() {
 				>
 					Settings
 				</Button>
+				<Button size="sm" kind="ghost" onClick={() => setPane("add-account")}>
+					Add account
+				</Button>
 			</header>
 
 			<div className={styles.panels}>
@@ -127,7 +137,7 @@ export function AppShell() {
 						<p style={{ padding: "1rem" }}>Select a mailbox.</p>
 					)}
 				</div>
-				{hub && selectedAccountId && pane === "compose" ? (
+				{hub && selectedAccountId && effectivePane === "compose" ? (
 					<Compose
 						key={openDraft?.id ?? "new"}
 						hub={hub}
@@ -136,7 +146,7 @@ export function AppShell() {
 						onClose={() => setPane("reading")}
 					/>
 				) : null}
-				{hub && selectedAccountId && pane === "drafts" ? (
+				{hub && selectedAccountId && effectivePane === "drafts" ? (
 					<div className={styles.draftPanel}>
 						<DraftList
 							hub={hub}
@@ -148,18 +158,26 @@ export function AppShell() {
 						/>
 					</div>
 				) : null}
-				{hub && selectedAccountId && pane === "settings" ? (
+				{hub && selectedAccountId && effectivePane === "settings" ? (
 					<AccountSettings
 						hub={hub}
 						initial={toSettings(accounts.data, selectedAccountId)}
 						onClose={() => setPane("reading")}
 					/>
 				) : null}
-				{hub && selectedMessageId && pane === "reading" ? (
+				{hub && selectedMessageId && effectivePane === "reading" ? (
 					<ReadingPane
 						hub={hub}
 						messageId={selectedMessageId}
 						subject={selectedMessageSubject}
+					/>
+				) : null}
+				{effectivePane === "add-account" ? (
+					<AddAccount
+						onAdded={() => {
+							void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+							setPane("reading");
+						}}
 					/>
 				) : null}
 			</div>
