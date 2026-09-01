@@ -288,18 +288,19 @@ This is a snapshot of the current state, not a history; use Git for history.
   window to the tray instead of destroying it on close when `MinimizeToTray` is active; a `quitting`
   flag set in `before-quit` lets a real quit close windows and kill the backend child normally.
 - **OpenTelemetry:** `AppSettings.TelemetryEnabled`/`OtelEndpoint` existed as schema with nothing
-  reading them. `server/MyloMail.Api/Observability/TelemetryBootstrap.cs` reads both via a direct
-  read-only `Microsoft.Data.Sqlite` connection against `app.db`, before the host (and therefore the
-  EF `DbContext`) exists — exporter registration has to happen at `builder.Services` time. ASP.NET
+  reading them. First pass read them from the database via a direct pre-host SQLite connection;
+  corrected on review — telemetry is deployment configuration, like provider client registration,
+  not a user-facing app setting, so it does not belong in the database at all. Removed the two
+  columns (migration `RemoveTelemetryFromAppSettings`) and reads `Telemetry:Enabled` /
+  `Telemetry:OtelEndpoint` from `builder.Configuration` instead (`Telemetry__Enabled` /
+  `Telemetry__OtelEndpoint` env vars, documented in `AGENTS.md` next to the provider vars). ASP.NET
   Core + HttpClient auto-instrumentation and an OTLP exporter are registered only when enabled and
-  an endpoint is set; the common (off) case adds no exporter at all. A fresh/pre-migration database
-  reads as "off," matching the field's default.
-- **CI matrix:** the `ubuntu-latest`/`windows-latest`/`macos-latest` matrix `docs/architecture.md`
-  calls for existed but only ran on tag pushes/manual dispatch; ordinary pushes and PRs ran a single
-  ubuntu-only job. Collapsed into one always-on matrixed job.
-  All three verified: `pnpm check`, `pnpm status`, full `dotnet test` (267 passed), and an
-  `invariant-review` covering the tray close-handler ordering and the raw-SQLite-read timing
-  relative to `DatabaseBootstrapper.MigrateAsync` — no findings.
+  an endpoint is set; the common (off) case adds no exporter at all.
+- **CI matrix:** initially collapsed the existing tag-only `ubuntu`/`windows`/`macos` matrix into
+  an always-on job; reverted on request — running the full suite on three platforms per commit was
+  a deliberate cost tradeoff, not an oversight. `.github/workflows/ci.yml` is unchanged from before
+  this pass.
+  Verified: `pnpm check`, `pnpm status`, full `dotnet test` (267 passed).
 
 ## Next task
 
