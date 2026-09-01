@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 /**
@@ -118,6 +118,28 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     moveToTrash(accountId: string, messageIds: string[]): Promise<void>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarSummaryDto>>
+    */
+    getCalendars(accountId: string): Promise<CalendarSummaryDto[]>;
+    /**
+    * @param calendarId Transpiled from System.Guid
+    * @param from Transpiled from System.DateTimeOffset
+    * @param to Transpiled from System.DateTimeOffset
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarEventSummaryDto>>
+    */
+    getCalendarEvents(calendarId: string, from: (Date | string), to: (Date | string)): Promise<CalendarEventSummaryDto[]>;
+    /**
+    * @param request Transpiled from MyloMail.Api.Contracts.SaveCalendarEventRequest
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.CalendarEventSummaryDto>
+    */
+    saveCalendarEvent(request: SaveCalendarEventRequest): Promise<CalendarEventSummaryDto>;
+    /**
+    * @param eventId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    deleteCalendarEvent(eventId: string): Promise<void>;
 }
 
 /**

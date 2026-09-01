@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 
 
@@ -155,6 +155,22 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly moveToTrash = async (accountId: string, messageIds: string[]): Promise<void> => {
         return await this.connection.invoke("MoveToTrash", accountId, messageIds);
+    }
+
+    public readonly getCalendars = async (accountId: string): Promise<CalendarSummaryDto[]> => {
+        return await this.connection.invoke("GetCalendars", accountId);
+    }
+
+    public readonly getCalendarEvents = async (calendarId: string, from: (Date | string), to: (Date | string)): Promise<CalendarEventSummaryDto[]> => {
+        return await this.connection.invoke("GetCalendarEvents", calendarId, from, to);
+    }
+
+    public readonly saveCalendarEvent = async (request: SaveCalendarEventRequest): Promise<CalendarEventSummaryDto> => {
+        return await this.connection.invoke("SaveCalendarEvent", request);
+    }
+
+    public readonly deleteCalendarEvent = async (eventId: string): Promise<void> => {
+        return await this.connection.invoke("DeleteCalendarEvent", eventId);
     }
 }
 

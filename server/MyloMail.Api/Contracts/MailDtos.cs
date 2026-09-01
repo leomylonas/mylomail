@@ -149,3 +149,40 @@ public record OutboxItemDto(
 	DateTimeOffset ScheduledSendAt,
 	string? LastError
 );
+
+/// <summary>A calendar as the calendar view renders it (§1).</summary>
+[TranspilationSource]
+public record CalendarSummaryDto(Guid Id, Guid AccountId, string Name, string? Colour, bool IsDefault);
+
+/// <summary>
+/// One event as the calendar grid or agenda view renders it. Attendees and the full
+/// recurrence set are not carried here — the summary is what a month grid needs, not what an
+/// event's own detail view needs (§1).
+/// </summary>
+[TranspilationSource]
+public record CalendarEventSummaryDto(
+	Guid Id,
+	Guid CalendarId,
+	string Title,
+	string? Location,
+	string? Description,
+	DateTimeOffset Start,
+	DateTimeOffset End,
+	bool IsAllDay,
+	EventStatus Status,
+	bool IsRecurring,
+	bool SyncConflict
+);
+
+/// <summary>What the calendar UI sends when it creates or edits an event.</summary>
+[TranspilationSource]
+public record SaveCalendarEventRequest(
+	Guid? EventId,
+	Guid CalendarId,
+	string Title,
+	string? Location,
+	string? Description,
+	DateTimeOffset Start,
+	DateTimeOffset End,
+	bool IsAllDay
+);

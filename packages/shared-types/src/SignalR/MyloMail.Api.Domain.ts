@@ -10,6 +10,13 @@ export type Address = {
     email: string;
 }
 
+/** Transpiled from MyloMail.Api.Domain.EventStatus */
+export enum EventStatus {
+    Confirmed = 0,
+    Tentative = 1,
+    Cancelled = 2,
+}
+
 /** Transpiled from MyloMail.Api.Domain.ProviderType */
 export enum ProviderType {
     Imap = 0,

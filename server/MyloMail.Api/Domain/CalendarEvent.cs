@@ -1,3 +1,5 @@
+using Tapper;
+
 namespace MyloMail.Api.Domain;
 
 public class Calendar
@@ -91,6 +93,7 @@ public enum ResponseStatus
 	Tentative,
 }
 
+[TranspilationSource]
 public enum EventStatus
 {
 	Confirmed,

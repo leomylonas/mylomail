@@ -70,6 +70,14 @@ public interface IMailHub
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
 
 	Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
+
+	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
+
+	Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(Guid calendarId, DateTimeOffset from, DateTimeOffset to);
+
+	Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request);
+
+	Task DeleteCalendarEvent(Guid eventId);
 }
 
 public class MailHub(
@@ -78,6 +86,7 @@ public class MailHub(
 	MessageSearch search,
 	DraftService drafts,
 	MailboxManagement mailboxes,
+	CalendarEventService calendarEvents,
 	IMailProviderFactory providers
 ) : Hub<IMailClient>, IMailHub
 {
@@ -322,6 +331,67 @@ public class MailHub(
 			await mutations.MoveToTrashAsync(accountId, messageId);
 		}
 	}
+
+	public async Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId) =>
+		await context
+			.Calendars.Where(c => c.AccountId == accountId)
+			.Select(c => new CalendarSummaryDto(c.Id, c.AccountId, c.Name, c.Colour, c.IsDefault))
+			.ToListAsync();
+
+	/// <summary>Events overlapping <paramref name="from"/>/<paramref name="to"/>, not merely starting within it.</summary>
+	public async Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(
+		Guid calendarId,
+		DateTimeOffset from,
+		DateTimeOffset to
+	) =>
+		await context
+			.CalendarEvents.Where(e => e.CalendarId == calendarId && e.Start < to && e.End > from)
+			.OrderBy(e => e.Start)
+			.Select(e => new CalendarEventSummaryDto(
+				e.Id,
+				e.CalendarId,
+				e.Title,
+				e.Location,
+				e.Description,
+				e.Start,
+				e.End,
+				e.IsAllDay,
+				e.Status,
+				e.RecurrenceRules.Count > 0 || e.RecurrenceMasterId != null,
+				e.SyncConflict
+			))
+			.ToListAsync();
+
+	public async Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request)
+	{
+		var saved = await calendarEvents.SaveAsync(
+			new CalendarEventInput(
+				request.EventId,
+				request.CalendarId,
+				request.Title,
+				request.Location,
+				request.Description,
+				request.Start,
+				request.End,
+				request.IsAllDay
+			)
+		);
+		return new CalendarEventSummaryDto(
+			saved.Id,
+			saved.CalendarId,
+			saved.Title,
+			saved.Location,
+			saved.Description,
+			saved.Start,
+			saved.End,
+			saved.IsAllDay,
+			saved.Status,
+			saved.RecurrenceRules.Count > 0 || saved.RecurrenceMasterId != null,
+			saved.SyncConflict
+		);
+	}
+
+	public Task DeleteCalendarEvent(Guid eventId) => calendarEvents.DeleteAsync(eventId);
 }
 
 /// <summary>One locally desired change the server has not yet confirmed (§6).</summary>
