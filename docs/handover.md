@@ -279,6 +279,28 @@ This is a snapshot of the current state, not a history; use Git for history.
   with exactly the expected byte mismatch, confirming the test guards a real bug.
   Verified: `pnpm check` (Node 22), and the full `dotnet test` suite (267 passed).
 
+- **System tray / `CloseBehavior`:** `AppSettings.CloseBehavior` had existed as schema since the
+  initial migration with no consumer. `GET /shell-settings` now returns it and a new
+  `PUT /shell-settings/close-behavior` sets it (no renderer UI yet — there's no Epic 8 settings
+  screen to put a toggle in — but the surface is ready). `apps/electron-shell/src/Tray.ts` creates
+  a `Tray` (icon embedded as a base64 data URL — the main-process bundle has no static-asset copy
+  step) with "Open MyloMail"/"Quit". `Main.ts` reads `CloseBehavior` once at startup and hides each
+  window to the tray instead of destroying it on close when `MinimizeToTray` is active; a `quitting`
+  flag set in `before-quit` lets a real quit close windows and kill the backend child normally.
+- **OpenTelemetry:** `AppSettings.TelemetryEnabled`/`OtelEndpoint` existed as schema with nothing
+  reading them. `server/MyloMail.Api/Observability/TelemetryBootstrap.cs` reads both via a direct
+  read-only `Microsoft.Data.Sqlite` connection against `app.db`, before the host (and therefore the
+  EF `DbContext`) exists — exporter registration has to happen at `builder.Services` time. ASP.NET
+  Core + HttpClient auto-instrumentation and an OTLP exporter are registered only when enabled and
+  an endpoint is set; the common (off) case adds no exporter at all. A fresh/pre-migration database
+  reads as "off," matching the field's default.
+- **CI matrix:** the `ubuntu-latest`/`windows-latest`/`macos-latest` matrix `docs/architecture.md`
+  calls for existed but only ran on tag pushes/manual dispatch; ordinary pushes and PRs ran a single
+  ubuntu-only job. Collapsed into one always-on matrixed job.
+  All three verified: `pnpm check`, `pnpm status`, full `dotnet test` (267 passed), and an
+  `invariant-review` covering the tray close-handler ordering and the raw-SQLite-read timing
+  relative to `DatabaseBootstrapper.MigrateAsync` — no findings.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
