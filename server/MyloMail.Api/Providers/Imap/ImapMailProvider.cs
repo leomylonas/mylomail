@@ -92,7 +92,8 @@ public sealed partial class ImapMailProvider : IMailProvider
 				Problem(ErrorCategory.Auth, "Authentication failed", ex.Message)
 			);
 		}
-		catch (Exception ex) when (ex is ImapProtocolException or IOException or SocketException)
+		catch (Exception ex)
+			when (ex is ImapProtocolException or IOException or SocketException or SslHandshakeException)
 		{
 			return new AuthResult(
 				false,
