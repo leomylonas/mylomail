@@ -302,6 +302,27 @@ This is a snapshot of the current state, not a history; use Git for history.
   this pass.
   Verified: `pnpm check`, `pnpm status`, full `dotnet test` (267 passed).
 
+- **Global settings screen (Epic 8) and remote-content allow list (Epic 5):** a follow-up gap
+  audit against `architecture.md` (excluding the already-known Gmail/Graph stubs) found two flat
+  requirements with no implementation: no settings screen existed for anything install-wide
+  (theme, close behaviour, credential-storage visibility — `AccountSettings.tsx` only ever
+  covered per-account fields), and "allow remote content" was local `MessageHtml` component
+  state that reset every time a message was reopened, with no persisted per-sender list.
+  `ShellSettings.tsx` adds the settings screen: theme (new `PUT /shell-settings/theme`,
+  applied via a new `ThemeProvider.tsx` wrapping every window in Carbon's `GlobalTheme`),
+  close behaviour (the endpoint from the tray work), a credential-store-status notice (new
+  `GET /credential-store/status`), and the trusted-senders list. `TrustedRemoteContentSender`
+  (new table) backs a persisted, address-based allow list — not account-scoped, since trust in
+  a sender isn't a fact about which account received their mail — with a new
+  `RemoteContentController` and a checkbox on the existing "Load content" prompt.
+  `invariant-review` caught a real regression: the "load content" override was derived as
+  `allowRemoteOverride || isTrustedSender` (to sidestep a setState-in-effect lint error), but
+  `MessageHtml` is never remounted per message, so clicking "Load content" on one message left
+  remote content — including tracking pixels — silently unblocked on the next, unrelated
+  message. Fixed by keying `MessageHtml` on `messageId` in `ReadingPane` so it remounts.
+  Verified: `pnpm check`, full `dotnet test` (267 passed), full Playwright e2e suite (7/7,
+  including `HtmlRendering` re-run after the fix).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
