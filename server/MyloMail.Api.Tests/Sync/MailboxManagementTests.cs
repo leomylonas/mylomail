@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
@@ -71,6 +72,35 @@ public class MailboxManagementTests
 			// Never touched: reordering one sibling group must not renumber a folder from
 			// another parent that happens to share the (default) sort order.
 			Assert.Equal(0, reloaded["Elsewhere"]);
+		});
+	}
+
+	[Fact]
+	public async Task Moving_a_folder_into_its_own_descendant_is_rejected()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+
+			var parent = new Mailbox { Id = Guid.NewGuid(), AccountId = account.Id, ProviderMailboxId = "Parent", Name = "Parent" };
+			var child = new Mailbox { Id = Guid.NewGuid(), AccountId = account.Id, ProviderMailboxId = "Child", Name = "Child", ParentId = parent.Id };
+			var grandchild = new Mailbox { Id = Guid.NewGuid(), AccountId = account.Id, ProviderMailboxId = "Grandchild", Name = "Grandchild", ParentId = child.Id };
+			context.Mailboxes.AddRange(parent, child, grandchild);
+			await context.SaveChangesAsync();
+
+			var mailboxes = scope.GetRequiredService<MailboxManagement>();
+
+			// Every depth: onto itself, onto a direct child, onto a deeper descendant.
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, parent.Id));
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, child.Id));
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, grandchild.Id));
+
+			// Untouched by the rejected attempts.
+			var reloaded = await context.Mailboxes.FirstAsync(m => m.Id == parent.Id);
+			Assert.Null(reloaded.ParentId);
 		});
 	}
 }

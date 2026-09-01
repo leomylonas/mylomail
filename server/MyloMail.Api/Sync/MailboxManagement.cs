@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
@@ -59,6 +60,16 @@ public sealed class MailboxManagement(
 	public async Task MoveAsync(Guid mailboxId, Guid? newParentId, CancellationToken ct = default)
 	{
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
+
+		// The client's own drag UI already guards this, but it is not the only caller a hub
+		// method has to assume — a cyclic ParentId chain is a tree with no way back out for
+		// every reader that walks it (the sidebar's recursive render included), so it is
+		// rejected here rather than trusted to have been rejected already.
+		if (newParentId is Guid candidateParentId && await IsDescendantOfAsync(candidateParentId, mailboxId, ct))
+		{
+			throw new HubException("A folder cannot be moved into itself or one of its own subfolders.");
+		}
+
 		var parent = newParentId is Guid id
 			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
 			: null;
@@ -67,6 +78,30 @@ public sealed class MailboxManagement(
 
 		await AdoptAsync(mailbox, moved, ct);
 		await ReconcileAsync(account, ct);
+	}
+
+	/// <summary>Whether <paramref name="candidateId"/> is <paramref name="ancestorId"/> itself or sits beneath it.</summary>
+	private async Task<bool> IsDescendantOfAsync(Guid candidateId, Guid ancestorId, CancellationToken ct)
+	{
+		var current = candidateId;
+		while (true)
+		{
+			if (current == ancestorId)
+			{
+				return true;
+			}
+
+			var parentId = await context
+				.Mailboxes.Where(m => m.Id == current)
+				.Select(m => m.ParentId)
+				.FirstOrDefaultAsync(ct);
+			if (parentId is not Guid next)
+			{
+				return false;
+			}
+
+			current = next;
+		}
 	}
 
 	/// <summary>
