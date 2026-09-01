@@ -25,13 +25,22 @@ namespace MyloMail.Api.Providers.CalDav;
 /// </para>
 /// <para>
 /// A recurrence override instance's provider event id is its resource href plus its
-/// <c>RECURRENCE-ID</c>, because several <c>VEVENT</c>s share one .ics resource and one
-/// href. <see cref="UpdateEventAsync"/> and <see cref="DeleteEventAsync"/> therefore only
-/// operate at the resource (master) level — editing a single override in place is deferred
-/// with RSVP, since both need the same multi-VEVENT PUT this pass does not build.
+/// <c>RECURRENCE-ID</c>, because several <c>VEVENT</c>s share one .ics resource and one href.
+/// Editing one in place (<see cref="UpdateEventAsync"/>, when <c>ev.RecurrenceMasterId</c> is
+/// set) therefore GETs the current resource, merges just that one <c>VEVENT</c> via
+/// <see cref="CalDavIcs.MergeOverride"/>, and PUTs the whole resource back — a naive
+/// single-<c>VEVENT</c> PUT (the master-level path every other update uses) would silently
+/// discard the master and every other override sharing the resource. <see cref="DeleteEventAsync"/>
+/// still only operates at the resource level; deleting a single override in place needs the
+/// same merge, cancelling it (<c>STATUS:CANCELLED</c>) rather than removing the resource, and
+/// is not yet built.
 /// </para>
 /// </remarks>
-public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpClient http) : ICalendarProvider
+public sealed class CalDavCalendarProvider(
+	CalDavRequestFactory requests,
+	HttpClient http,
+	IMailProviderFactory mail
+) : ICalendarProvider
 {
 	private static readonly HttpMethod PropFind = new("PROPFIND");
 	private static readonly HttpMethod Report = new("REPORT");
@@ -128,6 +137,13 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 	public async Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 	{
 		var target = ResourceHref(account, ev.ProviderEventId);
+
+		if (ev.RecurrenceMasterId is not null)
+		{
+			await UpdateOverrideAsync(account, ev, target, expectedETag, ct);
+			return;
+		}
+
 		var request = await requests.CreateAsync(account, HttpMethod.Put, target, ct);
 		CalDavWebDavRequest.SetIfMatch(request, expectedETag);
 		request.Content = new StringContent(CalDavIcs.ToIcs(ev.ICalUid, ToDto(ev)), System.Text.Encoding.UTF8, "text/calendar");
@@ -138,6 +154,48 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
 		}
 		response.EnsureSuccessStatusCode();
+	}
+
+	/// <summary>
+	/// Updates one override instance without disturbing its siblings: GET the current
+	/// resource content to merge into, then PUT the whole thing back.
+	/// </summary>
+	/// <remarks>
+	/// <paramref name="expectedETag"/> — not whatever the GET just observed — is what goes in
+	/// <c>If-Match</c>. A resource's <c>getetag</c> is shared by every <c>VEVENT</c> inside it,
+	/// so this override's own stored revision already <i>is</i> the resource-level one (§1); an
+	/// If-Match built from a same-request GET would always match and detect no conflict at all,
+	/// since fetching immediately before writing cannot observe an edit that happens in between.
+	/// </remarks>
+	private async Task UpdateOverrideAsync(
+		Account account,
+		CalendarEvent ev,
+		Uri target,
+		string? expectedETag,
+		CancellationToken ct
+	)
+	{
+		var getRequest = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
+		using var getResponse = await http.SendAsync(getRequest, ct);
+		if (getResponse.StatusCode == HttpStatusCode.NotFound)
+		{
+			throw new ProviderConflictException("The recurring event this instance belongs to no longer exists.");
+		}
+		getResponse.EnsureSuccessStatusCode();
+		var currentIcs = await getResponse.Content.ReadAsStringAsync(ct);
+
+		var merged = CalDavIcs.MergeOverride(currentIcs, ev.ICalUid, ToDto(ev));
+
+		var putRequest = await requests.CreateAsync(account, HttpMethod.Put, target, ct);
+		CalDavWebDavRequest.SetIfMatch(putRequest, expectedETag);
+		putRequest.Content = new StringContent(merged, System.Text.Encoding.UTF8, "text/calendar");
+
+		using var putResponse = await http.SendAsync(putRequest, ct);
+		if (putResponse.StatusCode == HttpStatusCode.PreconditionFailed)
+		{
+			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
+		}
+		putResponse.EnsureSuccessStatusCode();
 	}
 
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
@@ -159,11 +217,65 @@ public sealed class CalDavCalendarProvider(CalDavRequestFactory requests, HttpCl
 	}
 
 	/// <summary>
-	/// RSVP over CalDAV/IMAP is an iTIP <c>REPLY</c> sent as mail, a distinct piece of work
-	/// from calendar CRUD (§1, §13 Epic 7) and not yet built.
+	/// RSVP over CalDAV/IMAP: an iTIP <c>REPLY</c> — one <c>VEVENT</c> naming only the replying
+	/// attendee (RFC 5546 §3.2.3) — sent to the organiser as a `text/calendar; method=REPLY`
+	/// attachment on an ordinary email, through the same <see cref="IMailProvider.SendAsync"/>
+	/// this account already sends mail with. Nothing calendar-specific about delivery: the
+	/// organiser's calendar client is what interprets the attachment.
 	/// </summary>
-	public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, CancellationToken ct) =>
-		throw new NotSupportedException("CalDAV invite RSVP (iTIP REPLY) is not yet implemented.");
+	public async Task RespondToInviteAsync(
+		Account account,
+		CalendarEvent ev,
+		InviteResponse response,
+		string? comment,
+		Address replyingAs,
+		CancellationToken ct
+	)
+	{
+		if (ev.Organizer is not { } organizer)
+		{
+			throw new InvalidOperationException("This event has no organiser to reply to.");
+		}
+
+		var status = response switch
+		{
+			InviteResponse.Accept => ResponseStatus.Accepted,
+			InviteResponse.Decline => ResponseStatus.Declined,
+			_ => ResponseStatus.Tentative,
+		};
+		var ics = CalDavIcs.ToReplyIcs(ev, replyingAs, status);
+		var verb = response switch
+		{
+			InviteResponse.Accept => "Accepted",
+			InviteResponse.Decline => "Declined",
+			_ => "Tentative",
+		};
+
+		var draft = new Draft
+		{
+			AccountId = account.Id,
+			FromAddress = replyingAs.Email,
+			To = [new Address(organizer.Name, organizer.Email)],
+			Subject = $"{verb}: {ev.Title}",
+			BodyHtml = System.Net.WebUtility.HtmlEncode(comment ?? $"{DisplayName(replyingAs)} has {verb.ToLowerInvariant()} this invitation."),
+			Attachments =
+			[
+				new DraftAttachment
+				{
+					Filename = "invite.ics",
+					Content = System.Text.Encoding.UTF8.GetBytes(ics),
+					MimeType = "text/calendar; method=REPLY; charset=UTF-8",
+				},
+			],
+		};
+
+		// A reply is not a draft anyone edits or revisits — a fresh Message-ID is exactly
+		// right here, unlike a user's own send (§15), which reuses one generated before the
+		// first attempt so a crash mid-send can still be reconciled against the Sent mailbox.
+		await mail.For(account).SendAsync(account, draft, $"<{Guid.NewGuid()}@mylomail.local>", ct);
+	}
+
+	private static string DisplayName(Address address) => address.Name is { Length: > 0 } name ? name : address.Email;
 
 	private static Uri Endpoint(Account account) =>
 		account.ProviderConfig is ImapProviderConfig { CalDav: { } config }

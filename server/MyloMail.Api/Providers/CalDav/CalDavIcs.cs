@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
 
@@ -15,7 +16,7 @@ namespace MyloMail.Api.Providers.CalDav;
 /// override's is the href plus its <c>RECURRENCE-ID</c>, because the sync page upserts by
 /// provider event id and the two are not interchangeable.
 /// </remarks>
-internal static class CalDavIcs
+internal static partial class CalDavIcs
 {
 	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag)
 	{
@@ -48,9 +49,18 @@ internal static class CalDavIcs
 		return events;
 	}
 
-	public static string ToIcs(string uid, CalendarEventDto ev)
+	public static string ToIcs(string uid, CalendarEventDto ev) =>
+		$"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//MyloMail//CalDAV//EN\r\n{RenderVEvent(uid, ev)}END:VCALENDAR\r\n";
+
+	/// <summary>
+	/// One <c>VEVENT</c>'s lines, <c>BEGIN:VEVENT</c> through <c>END:VEVENT</c> inclusive — a
+	/// resource commonly holds several sharing one <c>UID</c> (a recurrence master plus its
+	/// overrides), so this is the unit both a whole-resource PUT (<see cref="ToIcs"/>) and a
+	/// single-override merge (<see cref="MergeOverride"/>) actually build.
+	/// </summary>
+	private static string RenderVEvent(string uid, CalendarEventDto ev)
 	{
-		var lines = new List<string> { "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MyloMail//CalDAV//EN", "BEGIN:VEVENT" };
+		var lines = new List<string> { "BEGIN:VEVENT" };
 		lines.Add($"UID:{Escape(uid)}");
 		lines.Add($"DTSTAMP:{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmss'Z'}");
 		lines.Add(FormatDateTimeProperty("DTSTART", ev.Start, ev.IsAllDay, ev.StartTimeZoneId));
@@ -110,6 +120,107 @@ internal static class CalDavIcs
 		{
 			lines.Add(FormatDateTimeProperty("RECURRENCE-ID", recurrenceId, ev.IsAllDay, ev.StartTimeZoneId));
 		}
+		lines.Add("END:VEVENT");
+		return string.Join("\r\n", lines) + "\r\n";
+	}
+
+	/// <summary>
+	/// Replaces one override's <c>VEVENT</c> within an existing resource's raw text, leaving
+	/// the master and every other override byte-for-byte as the server sent them — appends
+	/// before <c>END:VCALENDAR</c> if no existing block has this <c>RECURRENCE-ID</c> (a new
+	/// override, not yet on the server).
+	/// </summary>
+	/// <remarks>
+	/// This is what makes editing a single recurrence-override instance safe: the whole
+	/// resource is one PUT, so an update built the way <see cref="ToIcs"/> builds a fresh
+	/// resource would silently discard the master and every other override sharing it.
+	/// Untouched blocks are copied verbatim rather than round-tripped through
+	/// <see cref="ParseEvents"/>/<see cref="RenderVEvent"/> specifically to avoid losing any
+	/// property this provider does not itself model (custom `X-` properties, `VALARM`, and so
+	/// on) on an instance nobody asked to change.
+	/// </remarks>
+	public static string MergeOverride(string ics, string uid, CalendarEventDto overrideEvent)
+	{
+		var newBlock = RenderVEvent(uid, overrideEvent);
+		var targetRecurrenceId = overrideEvent.RecurrenceId;
+
+		var replaced = false;
+		var result = VEventPattern().Replace(ics, match =>
+		{
+			if (replaced || BlockRecurrenceId(match.Value) != targetRecurrenceId)
+			{
+				return match.Value;
+			}
+			replaced = true;
+			return newBlock;
+		});
+
+		if (replaced)
+		{
+			return result;
+		}
+
+		// No existing block carried this RECURRENCE-ID: this override does not exist on the
+		// server yet. Inserted right before the resource closes, after every block already
+		// there — order among VEVENTs sharing a resource carries no meaning in RFC 5545.
+		var closing = result.LastIndexOf("END:VCALENDAR", StringComparison.OrdinalIgnoreCase);
+		return closing < 0 ? result + newBlock : result[..closing] + newBlock + result[closing..];
+	}
+
+	private static DateTimeOffset? BlockRecurrenceId(string block)
+	{
+		foreach (var line in Unfold(block))
+		{
+			if (!line.StartsWith("RECURRENCE-ID", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			var (_, parameters, value) = ParseLine(line);
+			return ParseDateTime(parameters, value);
+		}
+		return null;
+	}
+
+	[GeneratedRegex("BEGIN:VEVENT\r?\n.*?END:VEVENT\r?\n", RegexOptions.Singleline)]
+	private static partial Regex VEventPattern();
+
+	/// <summary>
+	/// An iTIP <c>REPLY</c> to an invite (§13 Epic 7): one <c>VEVENT</c> naming only the
+	/// replying attendee, per RFC 5546 §3.2.3 — a reply describes the sender's own
+	/// participation status, not the whole attendee list, which the organiser already has.
+	/// </summary>
+	public static string ToReplyIcs(CalendarEvent ev, Address replyingAs, ResponseStatus status)
+	{
+		var partstat = status switch
+		{
+			ResponseStatus.Accepted => "ACCEPTED",
+			ResponseStatus.Declined => "DECLINED",
+			ResponseStatus.Tentative => "TENTATIVE",
+			_ => "NEEDS-ACTION",
+		};
+		var cn = replyingAs.Name is { Length: > 0 } ? $";CN={Escape(replyingAs.Name)}" : "";
+		var organizerCn = ev.Organizer?.Name is { Length: > 0 } ? $";CN={Escape(ev.Organizer.Name)}" : "";
+
+		var lines = new List<string>
+		{
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"PRODID:-//MyloMail//CalDAV//EN",
+			"METHOD:REPLY",
+			"BEGIN:VEVENT",
+			$"UID:{Escape(ev.ICalUid)}",
+			$"DTSTAMP:{DateTimeOffset.UtcNow:yyyyMMdd'T'HHmmss'Z'}",
+			FormatDateTimeProperty("DTSTART", ev.Start, ev.IsAllDay, ev.StartTimeZoneId),
+			FormatDateTimeProperty("DTEND", ev.End, ev.IsAllDay, ev.EndTimeZoneId),
+			$"SUMMARY:{Escape(ev.Title)}",
+			$"SEQUENCE:{ev.Sequence}",
+		};
+		if (ev.Organizer is { } organizer)
+		{
+			lines.Add($"ORGANIZER{organizerCn}:mailto:{organizer.Email}");
+		}
+		lines.Add($"ATTENDEE{cn};PARTSTAT={partstat}:mailto:{replyingAs.Email}");
 		lines.Add("END:VEVENT");
 		lines.Add("END:VCALENDAR");
 		return string.Join("\r\n", lines) + "\r\n";

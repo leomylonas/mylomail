@@ -167,6 +167,7 @@ public sealed class CalendarRecurrenceDeletionTests
 			CalendarEvent ev,
 			InviteResponse response,
 			string? comment,
+			Address replyingAs,
 			CancellationToken ct
 		) => throw new NotSupportedException();
 	}

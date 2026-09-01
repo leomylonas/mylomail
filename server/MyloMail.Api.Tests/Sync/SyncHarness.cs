@@ -180,7 +180,7 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 	public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) => throw new NotSupportedException();
 	public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) => throw new NotSupportedException();
 	public Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct) => throw new NotSupportedException();
-	public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, CancellationToken ct) => throw new NotSupportedException();
+	public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, Address replyingAs, CancellationToken ct) => throw new NotSupportedException();
 }
 
 /// <summary>Records what was announced rather than announcing it.</summary>

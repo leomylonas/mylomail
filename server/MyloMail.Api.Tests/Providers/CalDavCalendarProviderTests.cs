@@ -4,6 +4,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Tests.Fakes;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Providers;
@@ -187,7 +188,100 @@ public sealed class CalDavCalendarProviderTests
 		Assert.Equal(HttpMethod.Delete, handler.Requests.Single().Method);
 	}
 
-	private static CalDavCalendarProvider Provider(HttpMessageHandler handler)
+	[Fact]
+	public async Task Updating_a_recurrence_override_merges_it_into_the_shared_resource_without_disturbing_siblings()
+	{
+		var resourceIcs = """
+			BEGIN:VCALENDAR
+			VERSION:2.0
+			BEGIN:VEVENT
+			UID:series
+			DTSTART:20260101T090000Z
+			DTEND:20260101T100000Z
+			SUMMARY:Standup
+			SEQUENCE:0
+			RRULE:FREQ=DAILY
+			END:VEVENT
+			BEGIN:VEVENT
+			UID:series
+			RECURRENCE-ID:20260103T090000Z
+			DTSTART:20260103T110000Z
+			DTEND:20260103T120000Z
+			SUMMARY:Standup (moved once already)
+			SEQUENCE:1
+			END:VEVENT
+			END:VCALENDAR
+			""".ReplaceLineEndings("\r\n");
+
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(resourceIcs) });
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.NoContent));
+		var provider = Provider(handler);
+
+		var overrideEvent = new CalendarEvent
+		{
+			Id = Guid.NewGuid(),
+			CalendarId = Guid.NewGuid(),
+			ProviderEventId = $"{Endpoint}series.ics#{new DateTimeOffset(2026, 1, 3, 9, 0, 0, TimeSpan.Zero):O}",
+			ICalUid = "series",
+			RecurrenceMasterId = Guid.NewGuid(),
+			RecurrenceId = new DateTimeOffset(2026, 1, 3, 9, 0, 0, TimeSpan.Zero),
+			Title = "Standup (moved)",
+			Start = new DateTimeOffset(2026, 1, 3, 13, 0, 0, TimeSpan.Zero),
+			End = new DateTimeOffset(2026, 1, 3, 14, 0, 0, TimeSpan.Zero),
+			Sequence = 1,
+		};
+
+		await provider.UpdateEventAsync(Account(), overrideEvent, "\"resource-etag\"", default);
+
+		Assert.Equal(2, handler.Requests.Count);
+		Assert.Equal(HttpMethod.Get, handler.Requests[0].Method);
+		var put = handler.Requests[1];
+		Assert.Equal(HttpMethod.Put, put.Method);
+		// The resource-level revision the caller already had, not anything the GET observed —
+		// see UpdateOverrideAsync's remarks on why those must not be the same value.
+		Assert.Equal("\"resource-etag\"", put.Headers.IfMatch.Single().Tag);
+
+		var body = await put.Content!.ReadAsStringAsync();
+		Assert.Contains("SUMMARY:Standup\r\n", body); // the master, untouched
+		Assert.Contains("Standup (moved)", body); // the newly merged override
+		Assert.DoesNotContain("moved once already", body); // the old override content is gone
+		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(body, "BEGIN:VEVENT").Count);
+	}
+
+	[Fact]
+	public async Task Responding_to_an_invite_sends_an_itip_reply_to_the_organiser()
+	{
+		var mail = new FakeMailProvider(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		var provider = Provider(new FakeHandler(), mail);
+		var ev = Event();
+		ev.Organizer = new Address("Alice Organiser", "alice@example.test");
+
+		await provider.RespondToInviteAsync(
+			Account(),
+			ev,
+			InviteResponse.Decline,
+			comment: null,
+			replyingAs: new Address("Bob Attendee", "bob@example.test"),
+			ct: default
+		);
+
+		var sent = mail.LastSentDraft;
+		Assert.NotNull(sent);
+		Assert.Equal("bob@example.test", sent!.FromAddress);
+		Assert.Equal("alice@example.test", Assert.Single(sent.To).Email);
+		Assert.Equal("Declined: Existing", sent.Subject);
+
+		var attachment = Assert.Single(sent.Attachments);
+		Assert.StartsWith("text/calendar", attachment.MimeType);
+		var ics = System.Text.Encoding.UTF8.GetString(attachment.Content);
+		Assert.Contains("METHOD:REPLY", ics);
+		Assert.Contains("PARTSTAT=DECLINED", ics);
+		Assert.Contains("mailto:bob@example.test", ics);
+		Assert.Contains("mailto:alice@example.test", ics);
+	}
+
+	private static CalDavCalendarProvider Provider(HttpMessageHandler handler, IMailProvider? mailProvider = null)
 	{
 		var store = new InMemoryCredentialStore();
 		store.StoreAsync(
@@ -195,7 +289,16 @@ public sealed class CalDavCalendarProviderTests
 			new CredentialPayload(MailProviderFactory.ImapPasswordFormat, "imap-secret"u8.ToArray()),
 			default
 		).GetAwaiter().GetResult();
-		return new CalDavCalendarProvider(new CalDavRequestFactory(store), new HttpClient(handler));
+		return new CalDavCalendarProvider(
+			new CalDavRequestFactory(store),
+			new HttpClient(handler),
+			new SingleMailProviderFactory(mailProvider ?? new FakeMailProvider(ProviderShapes.Imap(ImapCapabilityTier.QResync)))
+		);
+	}
+
+	private sealed class SingleMailProviderFactory(IMailProvider provider) : IMailProviderFactory
+	{
+		public IMailProvider For(Account account) => provider;
 	}
 
 	private static readonly Guid AccountId = Guid.NewGuid();

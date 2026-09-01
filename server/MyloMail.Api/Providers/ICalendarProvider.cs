@@ -49,11 +49,18 @@ public interface ICalendarProvider
 	/// Graph and Google Calendar handle RSVP natively; the CalDAV/IMAP path generates an
 	/// iCalendar <c>REPLY</c> and sends it via <see cref="IMailProvider.SendAsync"/>.
 	/// </summary>
+	/// <param name="replyingAs">
+	/// The account's own address to reply from — deliberately not read off <paramref
+	/// name="account"/> itself, since §1 keeps no <c>EmailAddress</c> column there (the
+	/// authoritative address is the default <c>SendIdentity</c>, which lives in the database
+	/// this provider layer does not query). The caller resolves it once and passes it down.
+	/// </param>
 	Task RespondToInviteAsync(
 		Account account,
 		CalendarEvent ev,
 		InviteResponse response,
 		string? comment,
+		Address replyingAs,
 		CancellationToken ct
 	);
 }

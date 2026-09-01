@@ -10,8 +10,11 @@ namespace MyloMail.Api.Providers;
 /// Gmail and Microsoft 365 calendars (<c>GoogleCalendarProvider</c>, <c>GraphCalendarProvider</c>)
 /// are a later slice, matching the mail providers' own staged build order.
 /// </summary>
-public sealed class CalendarProviderFactory(ICredentialStore credentials, IHttpClientFactory httpClients)
-	: ICalendarProviderFactory
+public sealed class CalendarProviderFactory(
+	ICredentialStore credentials,
+	IHttpClientFactory httpClients,
+	IMailProviderFactory mail
+) : ICalendarProviderFactory
 {
 	public ICalendarProvider For(Account account)
 	{
@@ -20,6 +23,10 @@ public sealed class CalendarProviderFactory(ICredentialStore credentials, IHttpC
 			throw new ProviderNotConfiguredException(account.ProviderType, "CalDAV endpoint configuration");
 		}
 
-		return new CalDavCalendarProvider(new CalDavRequestFactory(credentials), httpClients.CreateClient(nameof(CalDavCalendarProvider)));
+		return new CalDavCalendarProvider(
+			new CalDavRequestFactory(credentials),
+			httpClients.CreateClient(nameof(CalDavCalendarProvider)),
+			mail
+		);
 	}
 }

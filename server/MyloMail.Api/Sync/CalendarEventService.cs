@@ -141,6 +141,38 @@ public sealed class CalendarEventService(
 	/// (§1). A provider rejection (conflict, or already gone) leaves everything local as it was;
 	/// there is nothing to reconcile against a delete that did not happen.
 	/// </summary>
+	/// <summary>
+	/// Accept/Decline/Tentative on an invite (§13 Epic 7). Graph and Google Calendar handle
+	/// this via their own native APIs; on the CalDAV/IMAP path the provider generates an iTIP
+	/// <c>REPLY</c> and sends it as mail, which is why this resolves the replying identity's
+	/// own address here rather than leaving the provider layer to query the database for it.
+	/// </summary>
+	public async Task RespondToInviteAsync(
+		Guid eventId,
+		InviteResponse response,
+		string? comment,
+		CancellationToken ct = default
+	)
+	{
+		var ev = await context.CalendarEvents.FirstAsync(e => e.Id == eventId, ct);
+		var calendar = await context.Calendars.FirstAsync(c => c.Id == ev.CalendarId, ct);
+		var account = await context.Accounts.FirstAsync(a => a.Id == calendar.AccountId, ct);
+		var identity = await context
+			.SendIdentities.Where(i => i.AccountId == account.Id && i.IsDefault)
+			.FirstAsync(ct);
+
+		await providers
+			.For(account)
+			.RespondToInviteAsync(
+				account,
+				ev,
+				response,
+				comment,
+				new Address(identity.DisplayName, identity.EmailAddress),
+				ct
+			);
+	}
+
 	public async Task DeleteAsync(Guid eventId, CancellationToken ct = default)
 	{
 		var ev = await context.CalendarEvents.FirstOrDefaultAsync(e => e.Id == eventId, ct);

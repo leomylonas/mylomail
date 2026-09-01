@@ -88,6 +88,9 @@ public interface IMailHub
 
 	Task DeleteCalendarEvent(Guid eventId);
 
+	/// <summary>Accept/Decline/Tentative on an invite (§13 Epic 7).</summary>
+	Task RespondToInvite(Guid eventId, InviteResponse response, string? comment);
+
 	/// <summary>Confirms the shell showed a notification at least once (§13 Epic 9).</summary>
 	Task MarkNotificationDelivered(Guid notificationId);
 
@@ -427,6 +430,9 @@ public class MailHub(
 	}
 
 	public Task DeleteCalendarEvent(Guid eventId) => calendarEvents.DeleteAsync(eventId);
+
+	public Task RespondToInvite(Guid eventId, InviteResponse response, string? comment) =>
+		calendarEvents.RespondToInviteAsync(eventId, response, comment);
 
 	public Task MarkNotificationDelivered(Guid notificationId) =>
 		notifications.MarkDeliveredAsync(notificationId);

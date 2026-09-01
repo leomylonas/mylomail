@@ -423,6 +423,9 @@ public sealed class FakeMailProvider : IMailProvider
 			Subject = message.Subject,
 		};
 
+	/// <summary>What the last <see cref="SendAsync"/> call was given, for tests that assert on send content.</summary>
+	public Draft? LastSentDraft { get; private set; }
+
 	public Task SendAsync(Account account, Draft draft, string stableMessageId, CancellationToken ct)
 	{
 		if (sendFailure is Exception failure)
@@ -431,6 +434,7 @@ public sealed class FakeMailProvider : IMailProvider
 			throw failure;
 		}
 
+		LastSentDraft = draft;
 		return Task.CompletedTask;
 	}
 

@@ -232,7 +232,7 @@ public sealed class CalendarEventServiceTests
 			return Task.CompletedTask;
 		}
 
-		public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, CancellationToken ct) =>
+		public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, Address replyingAs, CancellationToken ct) =>
 			throw new NotSupportedException();
 	}
 }
