@@ -1,0 +1,82 @@
+.grid {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	grid-auto-rows: minmax(6rem, 1fr);
+	gap: 1px;
+	background: var(--cds-border-subtle, #e0e0e0);
+	border: 1px solid var(--cds-border-subtle, #e0e0e0);
+	overflow: auto;
+}
+
+.weekday {
+	background: var(--cds-layer-01, #f4f4f4);
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-align: center;
+}
+
+.day {
+	background: var(--cds-layer, #fff);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: var(--cds-spacing-02);
+}
+
+.day[data-outside-month="true"] {
+	background: var(--cds-layer-01, #f4f4f4);
+	color: var(--cds-text-secondary, #525252);
+}
+
+.dayNumber {
+	align-self: flex-start;
+	background: none;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	width: 1.5rem;
+	height: 1.5rem;
+	font-size: 0.75rem;
+	color: inherit;
+}
+
+.day[data-today="true"] .dayNumber {
+	background: var(--cds-interactive, #0f62fe);
+	color: var(--cds-text-on-color, #fff);
+}
+
+.events {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-top: var(--cds-spacing-02);
+	overflow: hidden;
+}
+
+.eventChip {
+	--mylomail-event-color: var(--cds-interactive, #0f62fe);
+
+	background: var(--mylomail-event-color);
+	color: #fff;
+	border: none;
+	border-radius: 3px;
+	padding: 1px var(--cds-spacing-02);
+	font-size: 0.7rem;
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.eventChip[data-conflict="true"] {
+	outline: 2px solid var(--cds-support-error, #da1e28);
+	outline-offset: -2px;
+}
+
+.overflow {
+	font-size: 0.7rem;
+	color: var(--cds-text-secondary, #525252);
+	padding: 0 var(--cds-spacing-02);
+}

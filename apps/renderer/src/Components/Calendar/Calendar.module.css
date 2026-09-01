@@ -1,0 +1,53 @@
+.calendar {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--cds-spacing-03) var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle, #e0e0e0);
+	gap: var(--cds-spacing-04);
+}
+
+.nav {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-02);
+	flex: 0 0 auto;
+}
+
+.switcher {
+	flex: 0 0 auto;
+	width: 12rem;
+}
+
+.month {
+	font-size: 1rem;
+	font-weight: 600;
+	margin-left: var(--cds-spacing-03);
+}
+
+.body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+.body > * {
+	flex: 1;
+	min-height: 0;
+}
+
+.empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--cds-text-secondary, #525252);
+	padding: var(--cds-spacing-05);
+	text-align: center;
+}

@@ -12,6 +12,8 @@
     "@lexical/utils": "^0.49.0",
     "@microsoft/signalr": "^8.0.29",
     "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-virtual": "^3.14.10",
+    "dayjs": "^1.11.23",
     "dompurify": "^3.4.14",
     "lexical": "^0.49.0",
     "react": "^19.2.8",

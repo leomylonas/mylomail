@@ -43,3 +43,8 @@
 	min-height: 0;
 	overflow-y: auto;
 }
+
+.calendarPanel {
+	grid-column: 1 / -1;
+	min-height: 0;
+}

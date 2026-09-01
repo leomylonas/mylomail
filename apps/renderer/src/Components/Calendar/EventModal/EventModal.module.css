@@ -1,0 +1,31 @@
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-04);
+}
+
+.row {
+	display: flex;
+	gap: var(--cds-spacing-04);
+}
+
+.row > * {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.conflict {
+	color: var(--cds-support-error, #da1e28);
+	font-size: 0.875rem;
+}
+
+.delete {
+	align-self: flex-start;
+	background: none;
+	border: none;
+	color: var(--cds-support-error, #da1e28);
+	cursor: pointer;
+	padding: 0;
+	font-size: 0.875rem;
+	text-decoration: underline;
+}

@@ -21,6 +21,9 @@ export const queryKeys = {
 	pending: (accountId: string) => ["pending", accountId] as const,
 	search: (accountId: string, query: string, mailboxId: string | null) =>
 		["search", accountId, query, mailboxId] as const,
+	calendars: (accountId: string) => ["calendars", accountId] as const,
+	calendarEvents: (calendarId: string, from: string, to: string) =>
+		["calendar-events", calendarId, from, to] as const,
 };
 
 /**
@@ -105,6 +108,14 @@ export function connectHub(
 			void queryClient.invalidateQueries({ queryKey: ["messages"] });
 		},
 	);
+
+	// Neither event names the calendar it belongs to, only the event id, so this invalidates
+	// broadly rather than trying to scope it — calendar volume is nowhere near mail volume.
+	for (const event of ["CalendarEventUpdated", "CalendarConflictDetected"]) {
+		hub.on(event, () => {
+			void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+		});
+	}
 
 	// Dispatch is the shell's job, not this window's (§13 Epic 9): relay straight to the
 	// preload bridge, and confirm delivery only once the shell has actually shown it — a

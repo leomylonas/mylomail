@@ -1,0 +1,74 @@
+.scroller {
+	height: 100%;
+	overflow-y: auto;
+	position: relative;
+}
+
+.spacer {
+	position: relative;
+	width: 100%;
+}
+
+.dayRow {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	padding: var(--cds-spacing-03) var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle, #e0e0e0);
+}
+
+.dayLabel {
+	font-weight: 600;
+	font-size: 0.875rem;
+	margin-bottom: var(--cds-spacing-02);
+}
+
+.empty {
+	color: var(--cds-text-secondary, #525252);
+	font-size: 0.8rem;
+}
+
+.eventList {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-02);
+}
+
+.event {
+	--mylomail-event-color: var(--cds-interactive, #0f62fe);
+
+	display: flex;
+	align-items: baseline;
+	gap: var(--cds-spacing-03);
+	width: 100%;
+	background: none;
+	border: none;
+	border-left: 3px solid var(--mylomail-event-color);
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	text-align: left;
+	cursor: pointer;
+	font-size: 0.85rem;
+}
+
+.event[data-conflict="true"] {
+	outline: 1px solid var(--cds-support-error, #da1e28);
+}
+
+.time {
+	color: var(--cds-text-secondary, #525252);
+	font-size: 0.75rem;
+	min-width: 4.5rem;
+}
+
+.title {
+	font-weight: 500;
+}
+
+.location {
+	color: var(--cds-text-secondary, #525252);
+	font-size: 0.75rem;
+}

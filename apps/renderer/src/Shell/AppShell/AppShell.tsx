@@ -13,6 +13,7 @@ import {
 	type AccountSettingsValues,
 } from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
+import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
 import { Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
@@ -44,7 +45,7 @@ export function AppShell() {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
 	const [pane, setPane] = useState<
-		"reading" | "compose" | "settings" | "drafts" | "add-account"
+		"reading" | "compose" | "settings" | "drafts" | "add-account" | "calendar"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	const store = useWindowStore();
@@ -148,31 +149,46 @@ export function AppShell() {
 				<Button size="sm" kind="ghost" onClick={() => setPane("add-account")}>
 					Add account
 				</Button>
+				<Button
+					size="sm"
+					kind="ghost"
+					disabled={!accounts.data?.length}
+					onClick={() => setPane("calendar")}
+				>
+					Calendar
+				</Button>
 			</header>
 
 			<div className={styles.panels}>
-				{hub && selectedAccountId ? (
+				{effectivePane === "calendar" && hub && accounts.data?.length ? (
+					<div className={styles.calendarPanel}>
+						<Calendar hub={hub} accounts={accounts.data} />
+					</div>
+				) : null}
+				{effectivePane !== "calendar" && hub && selectedAccountId ? (
 					<MailboxTree hub={hub} accountId={selectedAccountId} />
-				) : (
+				) : effectivePane !== "calendar" ? (
 					<div />
-				)}
-				<div className={styles.reading}>
-					<SearchBox query={query} onChange={setQuery} />
-					{hub && selectedAccountId && selectedMailboxId ? (
-						<MessageList
-							hub={hub}
-							accountId={selectedAccountId}
-							mailboxId={selectedMailboxId}
-							query={query}
-							onSelect={(message) => {
-								store.setState("selectedMessageId", message.id);
-								store.setState("selectedMessageSubject", message.subject);
-							}}
-						/>
-					) : (
-						<p style={{ padding: "1rem" }}>Select a mailbox.</p>
-					)}
-				</div>
+				) : null}
+				{effectivePane !== "calendar" ? (
+					<div className={styles.reading}>
+						<SearchBox query={query} onChange={setQuery} />
+						{hub && selectedAccountId && selectedMailboxId ? (
+							<MessageList
+								hub={hub}
+								accountId={selectedAccountId}
+								mailboxId={selectedMailboxId}
+								query={query}
+								onSelect={(message) => {
+									store.setState("selectedMessageId", message.id);
+									store.setState("selectedMessageSubject", message.subject);
+								}}
+							/>
+						) : (
+							<p style={{ padding: "1rem" }}>Select a mailbox.</p>
+						)}
+					</div>
+				) : null}
 				{hub && selectedAccountId && effectivePane === "compose" ? (
 					<Compose
 						key={openDraft?.id ?? "new"}
