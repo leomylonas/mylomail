@@ -250,6 +250,65 @@ public sealed class CalDavCalendarProviderTests
 	}
 
 	[Fact]
+	public async Task Deleting_a_recurrence_override_cancels_it_in_place_rather_than_removing_the_series()
+	{
+		var resourceIcs = """
+			BEGIN:VCALENDAR
+			VERSION:2.0
+			BEGIN:VEVENT
+			UID:series
+			DTSTART:20260101T090000Z
+			DTEND:20260101T100000Z
+			SUMMARY:Standup
+			SEQUENCE:0
+			RRULE:FREQ=DAILY
+			END:VEVENT
+			BEGIN:VEVENT
+			UID:series
+			RECURRENCE-ID:20260103T090000Z
+			DTSTART:20260103T110000Z
+			DTEND:20260103T120000Z
+			SUMMARY:Standup (moved)
+			SEQUENCE:1
+			END:VEVENT
+			END:VCALENDAR
+			""".ReplaceLineEndings("\r\n");
+
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(resourceIcs) });
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.NoContent));
+		var provider = Provider(handler);
+
+		var overrideEvent = new CalendarEvent
+		{
+			Id = Guid.NewGuid(),
+			CalendarId = Guid.NewGuid(),
+			ProviderEventId = $"{Endpoint}series.ics#{new DateTimeOffset(2026, 1, 3, 9, 0, 0, TimeSpan.Zero):O}",
+			ICalUid = "series",
+			ProviderRevision = "\"resource-etag\"",
+			RecurrenceMasterId = Guid.NewGuid(),
+			RecurrenceId = new DateTimeOffset(2026, 1, 3, 9, 0, 0, TimeSpan.Zero),
+			Title = "Standup (moved)",
+			Start = new DateTimeOffset(2026, 1, 3, 11, 0, 0, TimeSpan.Zero),
+			End = new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero),
+			Sequence = 1,
+		};
+
+		await provider.DeleteEventAsync(Account(), overrideEvent, default);
+
+		Assert.Equal(2, handler.Requests.Count);
+		Assert.Equal(HttpMethod.Get, handler.Requests[0].Method);
+		var put = handler.Requests[1];
+		Assert.Equal(HttpMethod.Put, put.Method);
+		Assert.Equal("\"resource-etag\"", put.Headers.IfMatch.Single().Tag);
+
+		var body = await put.Content!.ReadAsStringAsync();
+		Assert.Contains("SUMMARY:Standup\r\n", body); // the master, untouched
+		Assert.Contains("STATUS:CANCELLED", body); // the override, cancelled rather than removed
+		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(body, "BEGIN:VEVENT").Count);
+	}
+
+	[Fact]
 	public async Task Responding_to_an_invite_sends_an_itip_reply_to_the_organiser()
 	{
 		var mail = new FakeMailProvider(ProviderShapes.Imap(ImapCapabilityTier.QResync));

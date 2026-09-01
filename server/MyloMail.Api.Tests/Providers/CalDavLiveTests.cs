@@ -128,7 +128,7 @@ public sealed class CalDavLiveTests
 	}
 
 	[SkippableFact]
-	public async Task A_single_recurrence_override_can_be_edited_without_disturbing_the_master_or_other_overrides()
+	public async Task A_single_recurrence_override_can_be_edited_and_then_cancelled_without_disturbing_the_master()
 	{
 		Skip.If(
 			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
@@ -227,6 +227,21 @@ public sealed class CalDavLiveTests
 		var freshSync = await provider.SyncCalendarAsync(account, calendar, cursor: null, continuation: null, default);
 		var masterStillIntact = Assert.Single(freshSync.Upserted, e => e.RecurrenceId is null);
 		Assert.Equal("Standup", masterStillIntact.Title);
+
+		// "Deleting" this same override cancels it in place rather than removing the series —
+		// a resource-level DELETE here would take the master and the rest of the recurrence
+		// with it, since they all share one .ics resource.
+		toEdit.ProviderRevision = overrideAfter.ProviderRevision;
+		await provider.DeleteEventAsync(account, toEdit, default);
+
+		var thirdPage = await provider.SyncCalendarAsync(account, calendar, secondPage.NewCursor, null, default);
+		var cancelled = Assert.Single(thirdPage.Upserted, e => e.RecurrenceId is not null);
+		Assert.Equal(EventStatus.Cancelled, cancelled.Status);
+		Assert.Empty(thirdPage.DeletedProviderEventIds);
+
+		var finalSync = await provider.SyncCalendarAsync(account, calendar, cursor: null, continuation: null, default);
+		var masterAfterCancel = Assert.Single(finalSync.Upserted, e => e.RecurrenceId is null);
+		Assert.Equal("Standup", masterAfterCancel.Title);
 	}
 
 	private static async Task PutRawAsync(HttpClient http, Uri target, string ics)

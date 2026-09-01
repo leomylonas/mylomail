@@ -26,14 +26,13 @@ namespace MyloMail.Api.Providers.CalDav;
 /// <para>
 /// A recurrence override instance's provider event id is its resource href plus its
 /// <c>RECURRENCE-ID</c>, because several <c>VEVENT</c>s share one .ics resource and one href.
-/// Editing one in place (<see cref="UpdateEventAsync"/>, when <c>ev.RecurrenceMasterId</c> is
-/// set) therefore GETs the current resource, merges just that one <c>VEVENT</c> via
-/// <see cref="CalDavIcs.MergeOverride"/>, and PUTs the whole resource back — a naive
-/// single-<c>VEVENT</c> PUT (the master-level path every other update uses) would silently
-/// discard the master and every other override sharing the resource. <see cref="DeleteEventAsync"/>
-/// still only operates at the resource level; deleting a single override in place needs the
-/// same merge, cancelling it (<c>STATUS:CANCELLED</c>) rather than removing the resource, and
-/// is not yet built.
+/// Editing (<see cref="UpdateEventAsync"/>) or "deleting" (<see cref="DeleteEventAsync"/>, which
+/// marks it <c>STATUS:CANCELLED</c> rather than removing anything) one in place, when
+/// <c>ev.RecurrenceMasterId</c> is set, therefore GETs the current resource, merges just that
+/// one <c>VEVENT</c> via <see cref="CalDavIcs.MergeOverride"/>, and PUTs the whole resource back
+/// — a naive single-<c>VEVENT</c> PUT or a resource-level DELETE (the master-level paths every
+/// other update/delete uses) would silently discard the master and every other override sharing
+/// the resource.
 /// </para>
 /// </remarks>
 public sealed class CalDavCalendarProvider(
@@ -201,6 +200,13 @@ public sealed class CalDavCalendarProvider(
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
 	{
 		var target = ResourceHref(account, ev.ProviderEventId);
+
+		if (ev.RecurrenceMasterId is not null)
+		{
+			await CancelOverrideAsync(account, ev, target, ct);
+			return;
+		}
+
 		var request = await requests.CreateAsync(account, HttpMethod.Delete, target, ct);
 		CalDavWebDavRequest.SetIfMatch(request, ev.ProviderRevision);
 
@@ -214,6 +220,41 @@ public sealed class CalDavCalendarProvider(
 			return;
 		}
 		response.EnsureSuccessStatusCode();
+	}
+
+	/// <summary>
+	/// "Deletes" one recurrence-override instance by marking it cancelled in place, the same
+	/// merge <see cref="UpdateOverrideAsync"/> uses — DELETE-ing the resource this instance's
+	/// href points at would remove the master and every other override sharing it, since a
+	/// recurrence-override instance's "resource" <i>is</i> the whole series (§1). A cancelled
+	/// <c>VEVENT</c> (RFC 5545 §3.8.1.11) is the correct representation for "this occurrence no
+	/// longer happens" without disturbing the recurrence rule itself.
+	/// </summary>
+	private async Task CancelOverrideAsync(Account account, CalendarEvent ev, Uri target, CancellationToken ct)
+	{
+		var getRequest = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
+		using var getResponse = await http.SendAsync(getRequest, ct);
+		if (getResponse.StatusCode == HttpStatusCode.NotFound)
+		{
+			// The series is already gone — there is nothing left to cancel an instance of.
+			return;
+		}
+		getResponse.EnsureSuccessStatusCode();
+		var currentIcs = await getResponse.Content.ReadAsStringAsync(ct);
+
+		var cancelled = ToDto(ev) with { Status = EventStatus.Cancelled };
+		var merged = CalDavIcs.MergeOverride(currentIcs, ev.ICalUid, cancelled);
+
+		var putRequest = await requests.CreateAsync(account, HttpMethod.Put, target, ct);
+		CalDavWebDavRequest.SetIfMatch(putRequest, ev.ProviderRevision);
+		putRequest.Content = new StringContent(merged, System.Text.Encoding.UTF8, "text/calendar");
+
+		using var putResponse = await http.SendAsync(putRequest, ct);
+		if (putResponse.StatusCode == HttpStatusCode.PreconditionFailed)
+		{
+			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
+		}
+		putResponse.EnsureSuccessStatusCode();
 	}
 
 	/// <summary>
