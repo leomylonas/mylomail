@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.FileProviders;
@@ -36,6 +37,10 @@ var attachmentTemp = app.Services.GetRequiredService<AttachmentTempDirectory>();
 attachmentTemp.Cleanup();
 app.Lifetime.ApplicationStopping.Register(attachmentTemp.Cleanup);
 
+// Eagerly resolved so its OS network-availability subscription is live from startup, not from
+// whenever the first minutely probe happens to construct it.
+app.Services.GetRequiredService<ConnectivityMonitor>();
+
 // The renderer is served from this origin so that one cookie authenticates every request it
 // makes, including the WebSocket handshake. Serving it from file:// is what forced a token
 // into the hub URL.
@@ -71,6 +76,16 @@ await using (var scope = app.Services.CreateAsyncScope())
 	// enqueued, so nothing outstanding is left unowned.
 	await scope.ServiceProvider.GetRequiredService<StartupScheduler>().ScheduleAsync();
 }
+
+// The low-frequency half of connectivity discovery (§3, §15) — the OS event handles an
+// interface going up or down immediately; this catches what that can't, at the coarsest
+// cadence Hangfire's recurring scheduler offers, which is exactly the "low-frequency" this
+// signal calls for.
+RecurringJob.AddOrUpdate<ConnectivityMonitor>(
+	"connectivity-probe",
+	monitor => monitor.ProbeAsync(default),
+	Cron.Minutely
+);
 
 await app.StartAsync();
 var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()?.Addresses;

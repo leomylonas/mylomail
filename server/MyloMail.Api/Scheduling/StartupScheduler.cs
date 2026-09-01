@@ -82,6 +82,19 @@ public sealed class StartupScheduler(
 			}
 		}
 
+		// Job storage is in-memory, so an export batch mid-walk when the process died is not
+		// running anywhere any more — resumed from its own persisted progress (§6 table), not
+		// restarted from the beginning.
+		var exports = await context
+			.ExportJobs.Where(j => j.Status == ExportJobStatus.Running)
+			.Select(j => j.Id)
+			.ToListAsync(ct);
+
+		foreach (var exportId in exports)
+		{
+			jobs.Enqueue<ExportJobs>(j => j.RunBatchAsync(exportId, default));
+		}
+
 		logger.LogInformation(
 			"Startup scheduling: {Accounts} accounts, {Backfills} backfills resumed, {Leases} leases released, "
 				+ "{Ambiguous} attempts awaiting reconciliation, {Pending} pending sends, "

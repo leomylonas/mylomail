@@ -155,8 +155,10 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<DraftJobs>();
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<ContentJobs>();
+		services.AddScoped<ExportJobs>();
 		services.AddScoped<StartupScheduler>();
 		services.AddScoped<AccountProvisioningService>();
+		services.AddSingleton<ConnectivityMonitor>();
 
 		services.AddHangfire(configuration =>
 			configuration

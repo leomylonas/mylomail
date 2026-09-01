@@ -61,6 +61,15 @@ public interface IMailHub
 
 	Task<bool> DeleteMailbox(Guid mailboxId);
 
+	/// <summary>Drag-a-folder-onto-a-folder reparenting (§13 Epic 2). Null moves it to the root.</summary>
+	Task MoveMailbox(Guid mailboxId, Guid? newParentId);
+
+	/// <summary>
+	/// Sidebar drag-reorder among siblings of one parent (§13 Epic 2) — purely local, since no
+	/// provider supports arbitrary folder ordering.
+	/// </summary>
+	Task ReorderMailboxes(Guid accountId, Guid? parentId, IReadOnlyList<Guid> orderedMailboxIds);
+
 	Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId);
 
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
@@ -89,6 +98,13 @@ public interface IMailHub
 	/// slow.
 	/// </summary>
 	Task<Guid?> ResolveStagedMessage(Guid notificationId);
+
+	/// <summary>The raw MIME bytes for one message, base64-encoded, fetched on demand if needed.</summary>
+	Task<string> SaveMessageAsEml(Guid messageId);
+
+	Task<Guid> StartBulkExport(Guid accountId, string destinationPath);
+
+	Task CancelBulkExport(Guid exportId);
 }
 
 public class MailHub(
@@ -100,7 +116,8 @@ public class MailHub(
 	CalendarEventService calendarEvents,
 	Notifications.NotificationService notifications,
 	ChangeStreamService changeStream,
-	IMailProviderFactory providers
+	IMailProviderFactory providers,
+	Scheduling.ExportJobs export
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -277,6 +294,11 @@ public class MailHub(
 	/// <summary>Returns whether the messages went with the folder, which differs by provider (§2).</summary>
 	public Task<bool> DeleteMailbox(Guid mailboxId) => mailboxes.DeleteAsync(mailboxId);
 
+	public Task MoveMailbox(Guid mailboxId, Guid? newParentId) => mailboxes.MoveAsync(mailboxId, newParentId);
+
+	public Task ReorderMailboxes(Guid accountId, Guid? parentId, IReadOnlyList<Guid> orderedMailboxIds) =>
+		mailboxes.ReorderAsync(accountId, parentId, orderedMailboxIds);
+
 	/// <summary>
 	/// What the provider does, for the questions the UI has to ask before acting.
 	/// </summary>
@@ -437,6 +459,20 @@ public class MailHub(
 			.Select(n => n.MessageId)
 			.FirstOrDefaultAsync();
 	}
+
+	public async Task<string> SaveMessageAsEml(Guid messageId)
+	{
+		var occurrence = await context.MessageMailboxes.FirstAsync(o => o.MessageId == messageId);
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == occurrence.MailboxId);
+		var account = await context.Accounts.FirstAsync(a => a.Id == mailbox.AccountId);
+		var raw = await export.RawBytesAsync(account, messageId);
+		return Convert.ToBase64String(raw);
+	}
+
+	public Task<Guid> StartBulkExport(Guid accountId, string destinationPath) =>
+		export.StartAsync(accountId, destinationPath);
+
+	public Task CancelBulkExport(Guid exportId) => export.RequestCancelAsync(exportId);
 }
 
 /// <summary>One locally desired change the server has not yet confirmed (§6).</summary>

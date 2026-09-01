@@ -54,6 +54,15 @@ public interface IHubEvents
 	/// Epic 9).
 	/// </summary>
 	Task NotificationReadyAsync(NotificationDto notification);
+
+	/// <summary>After each batch a bulk-export job writes; also signals completion/cancellation.</summary>
+	Task ExportProgressAsync(Guid exportId, int written, int total);
+
+	/// <summary>
+	/// Emitted when network-class failures begin and when connectivity returns, so the UI can
+	/// show one calm offline state rather than per-mailbox errors multiplying every poll (§15).
+	/// </summary>
+	Task ConnectivityChangedAsync(bool online);
 }
 
 /// <summary>Broadcasts to every connected renderer.</summary>
@@ -91,6 +100,11 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task NotificationReadyAsync(NotificationDto notification) =>
 		hub.Clients.All.NotificationReady(notification);
+
+	public Task ExportProgressAsync(Guid exportId, int written, int total) =>
+		hub.Clients.All.ExportProgress(exportId, written, total);
+
+	public Task ConnectivityChangedAsync(bool online) => hub.Clients.All.ConnectivityChanged(online);
 }
 
 /// <summary>
@@ -123,4 +137,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 
 	public Task NotificationReadyAsync(NotificationDto notification) => Task.CompletedTask;
+
+	public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
+
+	public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;
 }

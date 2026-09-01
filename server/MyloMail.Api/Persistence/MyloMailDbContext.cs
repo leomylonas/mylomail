@@ -46,6 +46,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<CredentialFallbackSettings> CredentialFallbackSettings => Set<CredentialFallbackSettings>();
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
 	public DbSet<NotificationRecord> NotificationRecords => Set<NotificationRecord>();
+	public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -58,6 +59,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureComposition(model);
 		ConfigureCalendar(model);
 		ConfigureNotifications(model);
+		ConfigureExport(model);
 		ConfigureCredentialFallback(model);
 
 		model.Entity<Domain.AppSettings>(e =>
@@ -500,6 +502,18 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 			// Redispatch-pending-at-startup scans this; ordering by DateTimeOffset in SQL
 			// does not work; SQLite Id ordering is bar the point here regardless (§8, §9).
 			e.HasIndex(x => x.DeliveredAt);
+		});
+	}
+
+	private static void ConfigureExport(ModelBuilder model)
+	{
+		model.Entity<ExportJob>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+
+			// Startup reconciliation scans for jobs still in progress (§6 table).
+			e.HasIndex(x => x.Status);
 		});
 	}
 }

@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -8,6 +9,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
@@ -65,8 +67,10 @@ internal sealed class SyncHarness : IAsyncDisposable
 			.AddSingleton<IMailProviderFactory>(new StubFactory(Provider))
 			.AddSingleton<ICalendarProviderFactory>(new StubCalendarFactory(CalendarProvider))
 			.AddSingleton<IHubEvents>(Events)
+			.AddSingleton<IBackgroundJobClient>(new RecordingJobClient())
 			.AddMutations()
 			.AddSync()
+			.AddScoped<ExportJobs>()
 			.BuildServiceProvider();
 
 	public async Task RestartAsync()
@@ -274,4 +278,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Notifications.Add(notification);
 		return Task.CompletedTask;
 	}
+
+	public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
+
+	public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;
 }
