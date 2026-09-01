@@ -171,6 +171,41 @@ This is a snapshot of the current state, not a history; use Git for history.
   singleton-row pattern as panel-layout/window-bounds) once the first window exists at startup.
   Both batches verified: `pnpm check`, the full `dotnet test` suite, and the full Playwright e2e
   suite, all green; each also passed an independent invariant review with no unresolved findings.
+- **A real HTTPS CalDAV test fixture exists** (`05c950e`), closing the calendar-UI
+  testing-infrastructure gap: the backend requires HTTPS for CalDAV Basic auth (`904908f`), so
+  the local matrix needed a real HTTPS server, not just the fake-transport unit tests in
+  `CalDavCalendarProviderTests`. `tests/caldav-matrix` runs Radicale over a self-signed cert
+  (`pnpm caldav:up`/`caldav:down`); the new `CalDavLiveTests` (Conformance+Deep, self-skipping
+  without `TEST_CALDAV_*` env vars like every other live-server test here) drives
+  `CalDavCalendarProvider` directly against it through create/sync/update/delete. It immediately
+  found a real bug: `UpdateEventAsync`/`DeleteEventAsync` passed a sync-page's server-relative
+  href straight to `new Uri(string)` with no base, which on Unix is silently parsed as a
+  `file://` URI rather than throwing — every update or delete of an event materialised from a
+  real sync page (as opposed to one freshly created locally) failed against a real server.
+  `ResourceHref` now resolves against the account's own CalDAV endpoint. Discrimination-checked.
+  Certificate trust is **not** exercised by this fixture — the test's own `HttpClient` accepts
+  any certificate; `AccountTrustedCertificate`/`Account.CertificateTrustMode` are designed
+  (§1, §9) but not wired to any provider's transport yet, for any provider.
+- **CalDAV RSVP and single recurrence-override editing are built** (`543e951`), closing the
+  two things `CalDavCalendarProvider`'s own class remarks said were deferred "pending the same
+  multi-VEVENT PUT this pass does not build." `UpdateEventAsync` now branches on
+  `ev.RecurrenceMasterId`: an override GETs the current resource, merges just that one `VEVENT`
+  via the new `CalDavIcs.MergeOverride` (regex block replacement, byte-for-byte preserving the
+  master and every other override), and PUTs the whole resource back — the master-level
+  single-`VEVENT` PUT every other update still uses would have silently discarded everything
+  else sharing the resource. `RespondToInviteAsync` builds an iTIP `REPLY` (RFC 5546 §3.2.3) via
+  the new `CalDavIcs.ToReplyIcs` and sends it as a `text/calendar; method=REPLY` attachment on an
+  in-memory `Draft`, straight through the account's `IMailProvider` — bypassing
+  DraftService/Outbox/the mutation queue entirely, matching what `docs/architecture.md` already
+  documented for this path. `ICalendarProvider.RespondToInviteAsync` gained a `replyingAs`
+  `Address` parameter, since `Account` deliberately carries no `EmailAddress` column;
+  `CalendarEventService` resolves the default `SendIdentity` once and passes it down. CalDAV is
+  still the only real `ICalendarProvider` implementation, so nothing else broke.
+  Verified: fake-transport unit tests for both, plus two new live tests against the real HTTPS
+  fixture proving the override merge round-trips through a real server's `sync-collection`
+  REPORT; discrimination-checked (reverting the merge branch made both fail for the right
+  reason). Independent invariant review: no violations — the RSVP fire-and-forget send matches
+  the documented architecture rather than being a new gap.
 
 ## Next task
 
@@ -179,16 +214,18 @@ This is a snapshot of the current state, not a history; use Git for history.
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
    `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`. The add-account form's
    disabled Gmail/Microsoft 365 options are waiting on this plus their OAuth flows.
-2. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
-   in place are both deferred in the CalDAV provider — see its class remarks for why.
-3. OS notification dispatch has not been verified against a real notification daemon — this
+2. OS notification dispatch has not been verified against a real notification daemon — this
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-4. No HTTPS-capable CalDAV server exists in the local test matrix, so calendar-UI event CRUD has
-   only been verified at the API level, not visually end-to-end. Needs either a self-signed-cert
-   trust path for CalDAV (IMAP already has `CertificateTrustMode`; CalDAV doesn't) or a
-   real HTTPS CalDAV fixture.
+3. Deleting a single recurrence-override instance in place is still not built —
+   `DeleteEventAsync` only operates at the resource level. It needs the same GET-merge-PUT shape
+   `UpdateOverrideAsync` now uses, but cancelling the instance (`STATUS:CANCELLED` in its
+   `VEVENT`, or removing just that block) rather than deleting the whole resource.
+4. Certificate pinning (`AccountTrustedCertificate`, `Account.CertificateTrustMode`, the
+   `TrustCertificate` hub method) is designed in §1/§9 but wired to no provider's transport at
+   all — not IMAP, not CalDAV. A user pointed at a self-signed server currently has no way to
+   trust it short of the OS-level trust store.
 
 ## Read first
 
