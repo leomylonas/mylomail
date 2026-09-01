@@ -73,7 +73,7 @@ nvm use            # reads .nvmrc
 corepack enable    # provides the pnpm version pinned in packageManager
 ```
 
-`.NET 8` per `global.json`. `dotnet tool restore` once, for the type generators.
+`.NET 10` per `global.json`. `dotnet tool restore` once, for the type generators.
 
 ### Provider client registration
 
