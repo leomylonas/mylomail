@@ -80,26 +80,35 @@ This is a snapshot of the current state, not a history; use Git for history.
   resync-baseline-timing bug before this landed (fixed, and covered by a discrimination-checked
   regression test using a clock that actually advances — a frozen one cannot tell "captured
   before resync" apart from "captured after").
-  **Known remaining gap, called out explicitly rather than left implicit**: §3 states
-  notifications should be created by scanning the _staging queue_ directly, before canonical
-  replay runs — "otherwise live mail would go unnotified for the entire backfill... worst on a
-  triggered resync of an established mailbox." This implementation instead computes eligibility
-  at `ReplayStagedAsync` time, which _delays_ such a notification until replay catches up
-  rather than dropping it, but that can still be hours on a large account. Closing this
-  properly needs `NotificationRecord.MessageId` to become nullable (or gain a
-  provider-identity-keyed alternative), since the staged DTO has no canonical `Message` row
-  yet, plus the "fetch on demand" navigation the doc describes for a notification clicked
-  before its message is materialised. This is real, scoped work, not a quick follow-up — see
-  the next task list.
   Also fixed a real pre-existing gap while wiring this: `ChangeStreamService.ReplayStagedAsync`
   previously fired no `MessageReceived`/`MessageUpdated` events at all for Gmail's replayed
   staged history, which this epic's eligibility model needed closed.
+- **The staging-queue gap above is now closed** (`c79f5dc`). `NotificationRecord.MessageId` is
+  nullable; a new `ProviderStableId` column identifies a staged arrival before its canonical
+  `Message` row exists. `RecordEligibleFromStagedAsync` evaluates and announces directly from
+  the provider's own DTOs inside `StagePageAsync`'s transaction — a Gmail account still mid
+  backfill now gets notified immediately, not once replay eventually catches up.
+  `BackfillMessageIdsAsync` links a pending record to its row once any path resolves it. A
+  second invariant review of this fix found a real remaining race — coverage can materialise a
+  message's row independently of replay, and the ordinary sync page that follows could insert
+  a duplicate under a different key — closed with two independent checks
+  (`CoverageService.RunPageAsync` now backfills too, and `RecordEligibleAsync` recognises a
+  pending staged record for a message it's about to notify under its own id), both covered by
+  a discrimination-checked regression test.
+  **Still open**: clicking a notification before its message replays does nothing beyond
+  focusing the window — §3's last sentence ("fetched on demand rather than the navigation
+  failing") is not built. `NotificationDto.MessageId` is `null` in exactly that case, so the
+  renderer already knows when this applies; it just has nowhere to send that click yet.
 
 ## Next task
 
-1. **Close the staged-notification gap (§3, §13 Epic 9)**, described just above — the one
-   correctness gap knowingly shipped in this pass. Scan `StagedChangeEvents` for arrivals and
-   create `NotificationRecord`s from the staged payload before replay, not at replay time.
+1. **"Fetch on demand" for a pre-replay notification click (§3, §13 Epic 9)** — the one
+   remaining piece of the notifications epic. When `AppShell`'s click handler receives a null
+   `messageId`, it currently does nothing; per the doc it should trigger fetching that message
+   rather than the navigation failing. The account/provider stable id needed to do this isn't
+   currently threaded through to the renderer at all — `NotificationDto` would need to carry it
+   (or the accountId already on it is enough to trigger a full `ReplayStagedAsync` for that
+   account and then poll/wait for the backfill).
 2. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
    colour-distinguished; event create/edit dialog against `SaveCalendarEvent`; a visible
    conflict indicator wired to `CalendarConflictDetected` for events with `SyncConflict` set.
