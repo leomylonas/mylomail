@@ -141,6 +141,8 @@ public sealed class MailProviderFactoryTests
 	private sealed class StubResolver : IProviderMailboxResolver
 	{
 		public string ProviderMailboxId(Guid mailboxId) => mailboxId.ToString();
+
+		public string LocalPath(Guid mailboxId, char separator) => mailboxId.ToString();
 	}
 
 	private sealed class NoTrustedCertificates : ITrustedCertificateStore

@@ -169,6 +169,8 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 
 	public string ProviderMailboxId(Guid mailboxId) => providerMailboxIds[mailboxId];
 
+	public string LocalPath(Guid mailboxId, char separator) => providerMailboxIds[mailboxId];
+
 	public async ValueTask DisposeAsync()
 	{
 		foreach (var id in createdMessages)

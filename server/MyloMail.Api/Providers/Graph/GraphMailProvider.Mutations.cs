@@ -154,11 +154,70 @@ public sealed partial class GraphMailProvider
 		return new BatchResult(items);
 	}
 
-	public Task<BatchResult> MoveToTrashAsync(
+	/// <summary>
+	/// Moves the occurrence with no destination <see cref="DomainMailbox"/> the way
+	/// <see cref="MoveMessagesAsync"/> has one, since well-known folder names (<c>deleteditems</c>
+	/// here) are valid Graph folder ids on their own — the same well-known-id shortcut
+	/// <see cref="MoveMailboxAsync"/> uses for the mailbox root.
+	/// </summary>
+	public async Task<BatchResult> MoveToTrashAsync(
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
-	) => throw new NotSupportedException(NotThinStage);
+	)
+	{
+		const string TrashFolderId = "deleteditems";
+		var client = await ClientAsync(account, ct);
+		var items = new List<BatchItemResult>(refs.Count);
+		foreach (var group in refs.Chunk(20))
+		{
+			var batch = new BatchRequestContentCollection(client.RequestAdapter, 20);
+			var steps = new Dictionary<string, MessageOccurrenceRef>();
+			foreach (var reference in group)
+			{
+				var request = client.Me.Messages[reference.ProviderOccurrenceId].Move.ToPostRequestInformation(
+					new MovePostRequestBody { DestinationId = TrashFolderId }
+				);
+				SetImmutableIdPreference(request);
+				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
+			}
+
+			var response = await client.Batch.PostAsync(batch, ct);
+			foreach (var (id, reference) in steps)
+			{
+				using var itemResponse = await response.GetResponseByIdAsync(id);
+				if (!itemResponse.IsSuccessStatusCode)
+				{
+					items.Add(Failed(reference, itemResponse.StatusCode));
+					continue;
+				}
+
+				items.Add(
+					new BatchItemResult(
+						reference.MessageId,
+						reference.MailboxId,
+						true,
+						null,
+						[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
+					)
+				);
+			}
+		}
+
+		return new BatchResult(items);
+	}
+
+	/// <summary>
+	/// Graph messages have exactly one mailbox membership (§2:
+	/// <see cref="MyloMail.Api.Providers.ProviderCapabilities.SupportsMultipleMailboxMembership"/>
+	/// is false), so there is no "still exists elsewhere" outcome removal from that one mailbox
+	/// could mean — the same divergence IMAP resolves by treating this the same as deletion.
+	/// </summary>
+	public Task<BatchResult> RemoveFromMailboxAsync(
+		Account account,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		CancellationToken ct
+	) => DeletePermanentlyAsync(account, refs, ct);
 
 	public async Task<BatchResult> DeletePermanentlyAsync(
 		Account account,

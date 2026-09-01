@@ -154,5 +154,13 @@ public sealed class ImapLiveMailboxTests
 				scope.ServiceProvider.GetRequiredService<MyloMailDbContext>()
 			).ProviderMailboxId(mailboxId);
 		}
+
+		public string LocalPath(Guid mailboxId, char separator)
+		{
+			using var scope = services.CreateScope();
+			return new DbProviderMailboxResolver(
+				scope.ServiceProvider.GetRequiredService<MyloMailDbContext>()
+			).LocalPath(mailboxId, separator);
+		}
 	}
 }

@@ -59,11 +59,42 @@ public sealed partial class GmailMailProvider
 		removeSourceLabel: true
 	);
 
-	public Task<BatchResult> MoveToTrashAsync(
+	/// <summary>
+	/// Adds Gmail's own <c>TRASH</c> label via the dedicated trash endpoint rather than a
+	/// label-modify call — Gmail's API reserves this transition for it, and it is what makes
+	/// the message eligible for the 30-day auto-purge Gmail's own UI relies on.
+	/// </summary>
+	public async Task<BatchResult> MoveToTrashAsync(
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
-	) => throw new NotSupportedException(NotThinStage);
+	)
+	{
+		var service = await ServiceAsync(account, ct);
+		var items = new List<BatchItemResult>(refs.Count);
+		foreach (var reference in refs)
+		{
+			try
+			{
+				await service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId).ExecuteAsync(ct);
+				items.Add(
+					new BatchItemResult(
+						reference.MessageId,
+						reference.MailboxId,
+						true,
+						null,
+						[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
+					)
+				);
+			}
+			catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+			{
+				items.Add(NotFound(reference));
+			}
+		}
+
+		return new BatchResult(items);
+	}
 
 	public async Task<BatchResult> DeletePermanentlyAsync(
 		Account account,

@@ -50,5 +50,7 @@ public sealed class ImapAuthenticateLiveTests
 	private sealed class ThrowingMailboxResolver : IProviderMailboxResolver
 	{
 		public string ProviderMailboxId(Guid mailboxId) => throw new NotSupportedException();
+
+		public string LocalPath(Guid mailboxId, char separator) => throw new NotSupportedException();
 	}
 }

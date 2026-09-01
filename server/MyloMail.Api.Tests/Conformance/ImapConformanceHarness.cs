@@ -89,6 +89,8 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 
 	public string ProviderMailboxId(Guid mailboxId) => folders[mailboxId];
 
+	public string LocalPath(Guid mailboxId, char separator) => folders[mailboxId];
+
 	public async Task<MessageOccurrenceRef> SeedMessageAsync(
 		Mailbox mailbox,
 		CancellationToken ct = default

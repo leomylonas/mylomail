@@ -15,4 +15,13 @@ public interface IProviderMailboxResolver
 	/// <summary>The current provider mailbox identifier for a local mailbox id.</summary>
 	/// <exception cref="KeyNotFoundException">The mailbox is not known locally.</exception>
 	string ProviderMailboxId(Guid mailboxId);
+
+	/// <summary>
+	/// The full <paramref name="separator"/>-joined name from the account root down to this
+	/// mailbox — for a provider (Gmail) whose folder hierarchy is a naming convention rather
+	/// than parent references, so a nested label's real server-side name is its whole local
+	/// path, synthesised intermediate nodes included (§1).
+	/// </summary>
+	/// <exception cref="KeyNotFoundException">The mailbox is not known locally.</exception>
+	string LocalPath(Guid mailboxId, char separator);
 }

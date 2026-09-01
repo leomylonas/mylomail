@@ -29,4 +29,28 @@ public sealed class DbProviderMailboxResolver(MyloMailDbContext context) : IProv
 					+ "so it cannot be addressed on the server."
 			);
 	}
+
+	public string LocalPath(Guid mailboxId, char separator)
+	{
+		var segments = new List<string>();
+		var current = mailboxId;
+
+		while (true)
+		{
+			var mailbox =
+				context.Mailboxes.AsNoTracking().FirstOrDefault(m => m.Id == current)
+				?? throw new KeyNotFoundException($"Mailbox {current} is not known locally.");
+			segments.Add(mailbox.Name);
+
+			if (mailbox.ParentId is not Guid parentId)
+			{
+				break;
+			}
+
+			current = parentId;
+		}
+
+		segments.Reverse();
+		return string.Join(separator, segments);
+	}
 }
