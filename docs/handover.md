@@ -45,22 +45,48 @@ This is a snapshot of the current state, not a history; use Git for history.
   44.10% to 44.33%; further recovery needs materially more test investment in
   `CalendarSyncService`, not a quick follow-up. Lowering the floor was a deliberate, reviewed
   call, not silent drift — don't raise it back without adding the coverage first.
+- Calendar hub reads/CRUD exist: `GetCalendars`/`GetCalendarEvents` (range-overlap query) and
+  `SaveCalendarEvent`/`DeleteCalendarEvent` via `CalendarEventService`, which calls the provider
+  synchronously and deliberately bypasses the message mutation queue — a calendar event is a
+  single document with no occurrence/mailbox membership, not the per-message ordering problem
+  that queue exists for. Update keeps a rejected edit applied locally with `SyncConflict` set
+  rather than losing it (§15); delete cascades to recurrence overrides (`0481451`). No renderer
+  calendar UI yet — that is still open, see below.
+- A full pass against `docs/architecture.md` §13 found the renderer has no **add-account** flow
+  at all: every account anywhere in this codebase (every e2e test, every manual check this
+  session) was created via a raw `fetch("/accounts", ...)`, never through UI.
+  `AccountSettings.tsx` only edits an account that already exists. This blocks a real user from
+  using the app at all and is now the top priority — see below.
 
 ## Next task
 
-1. **Calendar hub reads/CRUD and renderer UI.** The provider and sync loop exist; nothing above
-   the sync layer does yet — no hub methods to list/create/update/delete events, no calendar
-   panel. Use `If-Match` conflicts to drive `CalendarConflictDetected` only once calendar
-   mutations exist (there is no mutation-queue integration for calendar writes yet — decide
-   whether calendar CRUD goes through the same mutation queue as mail or a separate path before
-   building it).
-2. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
+1. **Add-account flow (Epic 1).** No UI exists to create an account; `POST /accounts` has only
+   ever been driven by tests and manual `fetch` calls. Build the form (IMAP host/port/security/
+   username/password at minimum; Gmail/Microsoft 365 OAuth buttons can be visibly
+   present-but-disabled until their client registrations land, per item 4 below) and wire it to
+   the existing `POST /accounts` endpoint. This is the front door to every other feature already
+   built — prioritise it over further calendar work.
+2. **Calendar renderer UI (Epic 7).** Grid and agenda views, unified across accounts,
+   colour-distinguished; event create/edit dialog against `SaveCalendarEvent`; a visible
+   conflict indicator wired to `CalendarConflictDetected` for events with `SyncConflict` set.
+   Agenda view must be virtualised per the epic's explicit requirement.
+3. **OS notifications (Epic 9).** Entirely unbuilt on both ends — no `NotificationEpoch`/stream
+   baseline tracking, no durable `(AccountId, MessageId, NotificationKind)` record, no OS
+   `Notification` dispatch from `electron-shell`. The design is fully worked out in §13 Epic 9
+   (notification epoch vs. stream baseline is the subtle part — read it before starting, the
+   epoch must be captured _before_ resynchronisation begins on cursor invalidation, never after).
+4. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
    unsupplied per user request. They are deployment environment values and must never be
    committed: `Providers__Gmail__ClientId`, `Providers__Gmail__ClientSecret`,
    `Providers__Graph__ClientId`, optional `Providers__Graph__Authority`.
-3. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
+5. Other confirmed gaps against §13, roughly in likely-priority order: Epic 2 drag-and-drop
+   (folder reorder, drag-a-message-onto-a-folder — create/rename/delete already exist); Epic 10
+   multi-window (only one `BrowserWindow` exists today) and Epic 11 resizable layout (no
+   `react-resizable-panels` dependency yet); print (`webContents.print`/`printToPDF`); the
+   `mailto:` default-handler prompt (`app.setAsDefaultProtocolClient`).
+6. `ExportProgress` and `ConnectivityChanged` remain feature-blocked; implement their underlying
    export/connectivity state before adding broadcasts.
-4. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
+7. RSVP (iTIP `REPLY` generation and send) and editing a single recurrence-override instance
    in place are both deferred in the CalDAV provider — see its class remarks for why.
 
 ## Read first
