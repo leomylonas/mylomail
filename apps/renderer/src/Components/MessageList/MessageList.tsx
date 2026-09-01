@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQuery,
+	useQueryClient,
+	type QueryClient,
+} from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { SkeletonText } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
@@ -33,12 +38,20 @@ export function MessageList({
 	mailboxId,
 	query,
 	onSelect,
+	onPrint,
 }: {
 	hub: HubConnection;
 	accountId: string;
 	mailboxId: string;
 	query: string;
 	onSelect: (message: { id: string; subject: string }) => void;
+	/**
+	 * Opens the message in the reading pane, the same as {@link onSelect}, but the caller
+	 * additionally switches to it: printing has to go through the reading pane's own sandboxed
+	 * `MessageHtml` rendering rather than a second, ad-hoc render path for remote-authored
+	 * content (§13).
+	 */
+	onPrint: (message: { id: string; subject: string }) => void;
 }) {
 	const queryClient = useQueryClient();
 	const searching = query.trim().length > 0;
@@ -186,6 +199,8 @@ export function MessageList({
 						setFlags.mutate,
 						trash.mutate,
 						hub,
+						queryClient,
+						onPrint,
 					)}
 				/>
 			) : null}
@@ -209,6 +224,8 @@ function messageActions(
 	}) => void,
 	trash: (message: MessageSummary) => void,
 	hub: HubConnection,
+	queryClient: QueryClient,
+	onPrint: (message: { id: string; subject: string }) => void,
 ): MenuAction[] {
 	return [
 		{
@@ -243,7 +260,31 @@ function messageActions(
 			label: "Save as .eml",
 			run: () => void saveAsEml(hub, message),
 		},
+		{
+			label: "Print",
+			run: () => void printMessage(hub, queryClient, message, onPrint),
+		},
 	];
+}
+
+/**
+ * Loads the body into the query cache before switching to the reading pane, so it renders
+ * already-fetched rather than showing "Downloading this message…" under the print dialog —
+ * printing has to go through that same sandboxed render, never a second ad-hoc one (§13).
+ */
+async function printMessage(
+	hub: HubConnection,
+	queryClient: QueryClient,
+	message: MessageSummary,
+	onPrint: (message: { id: string; subject: string }) => void,
+): Promise<void> {
+	await queryClient.fetchQuery({
+		queryKey: ["body", message.id],
+		queryFn: () => hub.invoke("GetMessageBody", message.id),
+	});
+	onPrint(message);
+	// One frame so the reading pane has actually mounted the now-cached body before printing.
+	requestAnimationFrame(() => window.print());
 }
 
 /**

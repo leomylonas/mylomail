@@ -250,6 +250,11 @@ export function AppShell() {
 										store.setState("selectedMessageId", message.id);
 										store.setState("selectedMessageSubject", message.subject);
 									}}
+									onPrint={(message) => {
+										store.setState("selectedMessageId", message.id);
+										store.setState("selectedMessageSubject", message.subject);
+										setPane("reading");
+									}}
 								/>
 							) : (
 								<p style={{ padding: "1rem" }}>Select a mailbox.</p>
