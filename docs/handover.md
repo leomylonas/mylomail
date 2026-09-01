@@ -323,6 +323,31 @@ This is a snapshot of the current state, not a history; use Git for history.
   Verified: `pnpm check`, full `dotnet test` (267 passed), full Playwright e2e suite (7/7,
   including `HtmlRendering` re-run after the fix).
 
+- **Quit confirmation for pending scheduled mail, and a bulk-export UI:** a third gap audit
+  (still excluding Gmail/Graph) found two more flat requirements with no implementation.
+  Quitting with a message inside its undo-send delay silently lost it — `before-quit`
+  unconditionally killed the backend, and job storage being in-memory (§9) means that state
+  has no durable existence yet. A new `GET /outbox/pending-count` (counting
+  `OutboxStatus.Scheduled`, the state both undo-send and an arbitrary future schedule sit in)
+  backs a `before-quit` handler in `Main.ts` that now asks "Quit Anyway"/"Cancel" when
+  something's pending, and fails open (quits with no dialog) on zero, a request failure, or a
+  timeout. Separately, bulk export's backend (job, hub methods, persisted progress) has existed
+  since an earlier pass with no renderer UI at all — `ExportAccount.tsx`, embedded in
+  `AccountSettings`, now picks a destination via a new `window.dialogs.pickExportFolder()` IPC
+  round-trip and shows live progress via the existing `ExportProgress` broadcast.
+  `invariant-review` caught two real gaps in the quit-confirmation draft: a _hung_ (not down)
+  backend would leave the confirmation fetch unsettled forever, making the app unquittable
+  through any normal path (fixed with a 3s `AbortController` timeout); and rapid repeated quit
+  attempts could stack multiple confirmation dialogs before the first resolved (fixed with an
+  in-flight guard). It also caught a genuine type-generation drift from the _previous_ two
+  commits: `pnpm generate:types` had never been re-run after the settings-screen and
+  remote-content-allow-list DTOs landed, so `packages/shared-types` was stale for them —
+  harmless at runtime (those endpoints are called with plain `fetch`, not the generated client)
+  but corrected in a dedicated commit.
+  Verified: `pnpm check`, full `dotnet test` (267 passed), full Playwright e2e suite (7/7) — the
+  quit-confirmation dialog itself isn't exercised by the existing e2e suite (no spec drives
+  `app.quit()`), so that path was reviewed for correctness rather than run end-to-end.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
