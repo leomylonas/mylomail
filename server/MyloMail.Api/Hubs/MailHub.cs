@@ -116,6 +116,9 @@ public interface IMailHub
 	Task<Guid> StartBulkExport(Guid accountId, string destinationPath);
 
 	Task CancelBulkExport(Guid exportId);
+
+	/// <summary>The account's most recent export, if it has ever run one (§13 Export).</summary>
+	Task<ExportJobDto?> GetExportStatus(Guid accountId);
 }
 
 public class MailHub(
@@ -492,6 +495,14 @@ public class MailHub(
 		export.StartAsync(accountId, destinationPath);
 
 	public Task CancelBulkExport(Guid exportId) => export.RequestCancelAsync(exportId);
+
+	public async Task<ExportJobDto?> GetExportStatus(Guid accountId)
+	{
+		var job = await export.GetLatestAsync(accountId);
+		return job is null
+			? null
+			: new ExportJobDto(job.Id, job.Status, job.WrittenCount, job.TotalCount, job.LastError);
+	}
 }
 
 /// <summary>One locally desired change the server has not yet confirmed (§6).</summary>

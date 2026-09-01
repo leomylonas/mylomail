@@ -1,3 +1,5 @@
+using Tapper;
+
 namespace MyloMail.Api.Domain;
 
 /// <summary>
@@ -44,6 +46,7 @@ public class ExportJob
 	public DateTimeOffset CreatedAt { get; set; }
 }
 
+[TranspilationSource]
 public enum ExportJobStatus
 {
 	Running,

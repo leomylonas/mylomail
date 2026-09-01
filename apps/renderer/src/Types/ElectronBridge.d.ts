@@ -22,5 +22,8 @@ declare global {
 		windows?: {
 			open(query?: string): Promise<void>;
 		};
+		dialogs?: {
+			pickExportFolder(): Promise<string | null>;
+		};
 	}
 }

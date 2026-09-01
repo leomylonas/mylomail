@@ -1,0 +1,12 @@
+.export {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-04);
+}
+
+.progress {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-03);
+	align-items: flex-start;
+}

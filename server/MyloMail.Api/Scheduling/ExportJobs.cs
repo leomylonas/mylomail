@@ -63,6 +63,17 @@ public sealed class ExportJobs(
 	}
 
 	/// <summary>
+	/// The account's most recent export, whatever its status — lets a settings/export screen
+	/// reopened mid-export (or after one finished) show where it left off, rather than only
+	/// ever seeing progress broadcast live while it happened to be open.
+	/// </summary>
+	public Task<ExportJob?> GetLatestAsync(Guid accountId, CancellationToken ct = default) =>
+		context
+			.ExportJobs.Where(j => j.AccountId == accountId)
+			.OrderByDescending(j => j.CreatedAt)
+			.FirstOrDefaultAsync(ct);
+
+	/// <summary>
 	/// Compare-and-swap, the same convention used for scheduled-send cancellation (§13): only a
 	/// still-running job can be asked to stop, and the running batch is what actually stops it,
 	/// not this call.

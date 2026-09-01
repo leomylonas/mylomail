@@ -8,6 +8,7 @@ import {
 } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
 import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -121,6 +122,7 @@ export function AccountSettings({
 					hideCloseButton
 				/>
 			) : null}
+			<ExportAccount hub={hub} accountId={values.id} />
 			<div>
 				<Button size="sm" onClick={() => void save()}>
 					Save

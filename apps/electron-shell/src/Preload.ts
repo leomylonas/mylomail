@@ -4,6 +4,7 @@ import {
 	notificationClickedChannel,
 	openAttachmentChannel,
 	openWindowChannel,
+	pickExportFolderChannel,
 	showNotificationChannel,
 	type BackendConnection,
 	type NotificationClicked,
@@ -57,4 +58,13 @@ contextBridge.exposeInMainWorld("windows", {
 		ipcRenderer.invoke(openWindowChannel, {
 			query,
 		} satisfies OpenWindowRequest) as Promise<void>,
+});
+
+/**
+ * The renderer has no filesystem access (§13 Export) — picking where a bulk export writes to
+ * is a native folder-picker dialog, a main-process capability like attachment opening above.
+ */
+contextBridge.exposeInMainWorld("dialogs", {
+	pickExportFolder: (): Promise<string | null> =>
+		ipcRenderer.invoke(pickExportFolderChannel) as Promise<string | null>,
 });
