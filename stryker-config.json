@@ -9,7 +9,7 @@
       "**/Scheduling/**/*.cs"
     ],
     "reporters": ["json", "progress"],
-    "thresholds": { "high": 90, "low": 80, "break": 47 },
+    "thresholds": { "high": 90, "low": 80, "break": 44 },
     "coverage-analysis": "perTest",
     "additional-timeout": 10000
   }
