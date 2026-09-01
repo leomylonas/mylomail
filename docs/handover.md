@@ -206,6 +206,40 @@ This is a snapshot of the current state, not a history; use Git for history.
   REPORT; discrimination-checked (reverting the merge branch made both fail for the right
   reason). Independent invariant review: no violations — the RSVP fire-and-forget send matches
   the documented architecture rather than being a new gap.
+- **Deleting a single recurrence-override instance in place is built** (`a0a2d80`), the last
+  piece of the recurrence-override story. `DeleteEventAsync` now branches on
+  `ev.RecurrenceMasterId` the same way `UpdateEventAsync` already did: an override GETs the
+  resource, merges a `STATUS:CANCELLED` `VEVENT` for that `RECURRENCE-ID` via the existing
+  `CalDavIcs.MergeOverride`, and PUTs the whole thing back — RFC 5545 §3.8.1.11's documented way
+  to say "this occurrence no longer happens" without touching the recurrence rule or the master.
+  Verified against the real HTTPS fixture (edit an override, then delete it, confirm the master
+  survives both and the override reports `Cancelled` rather than gone on the next sync);
+  discrimination-checked.
+- **Certificate pinning is wired into both providers** (`73557aa`). `AccountTrustedCertificate`
+  and `Account.CertificateTrustMode` existed as schema only until now — nothing consulted them.
+  `CertificateTrust.Validate` is the one shared implementation IMAP (`ImapClient` connect and
+  `SmtpClient` send, against the possibly-different SMTP host) and CalDAV
+  (`HttpClientHandler`) both call: validate normally first; only once that fails, permit the
+  connection if the presented certificate's SHA-256 fingerprint matches a pin for the expected
+  hostname; `TrustAll` bypasses both checks. `AccountTrustedCertificate`'s schema was brought in
+  line with the doc along the way (`Thumbprint` → `Sha256Fingerprint`, new `ExpectedHostname`
+  column). Pinned-certificate lists are resolved once per provider construction, not queried
+  from inside the synchronous TLS callback. `CalendarProviderFactory` now builds a fresh,
+  disposed-by-its-caller `HttpClient` per account instead of one DI-pooled client shared by
+  every account, since trust is a per-account decision a shared handler's callback can't
+  honour. New `TrustCertificate` hub method; `AccountSettingsDto`/`UpdateAccount` carry
+  `CertificateTrustMode`. A rejected certificate reports `ErrorCategory.Validation` with the
+  fingerprint/issuer as structured `Extensions` (IMAP connect) or a `ProviderAuthenticationException`
+  carrying the same message (SMTP send, which has no `AuthResult` to return through — thrown as
+  a definite pre-authentication rejection, not the ambiguous-outcome path a generic thrown send
+  gets). Verified: unit tests for the four trust decisions plus store idempotency, and a live
+  test against the real HTTPS fixture driving the actual logic through reject → pin → accept and
+  the `TrustAll` bypass against a genuine self-signed certificate; discrimination-checked.
+  Independent invariant review: no violations; two non-blocking findings (no structured SMTP
+  error path, the new per-account CalDAV client was never disposed) fixed in the same commit.
+  **No renderer UI yet** — no "trust this certificate" prompt on a rejected connection, no
+  `TrustAll` toggle with its required warning in account settings. The backend and hub API are
+  complete; only the UI to drive them is missing.
 
 ## Next task
 
@@ -218,14 +252,11 @@ This is a snapshot of the current state, not a history; use Git for history.
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-3. Deleting a single recurrence-override instance in place is still not built —
-   `DeleteEventAsync` only operates at the resource level. It needs the same GET-merge-PUT shape
-   `UpdateOverrideAsync` now uses, but cancelling the instance (`STATUS:CANCELLED` in its
-   `VEVENT`, or removing just that block) rather than deleting the whole resource.
-4. Certificate pinning (`AccountTrustedCertificate`, `Account.CertificateTrustMode`, the
-   `TrustCertificate` hub method) is designed in §1/§9 but wired to no provider's transport at
-   all — not IMAP, not CalDAV. A user pointed at a self-signed server currently has no way to
-   trust it short of the OS-level trust store.
+3. Certificate pinning's renderer UI: a "certificate untrusted" prompt (fingerprint/issuer from
+   `MutationProblemDetails.Extensions`, a "Trust this certificate" action calling the new
+   `TrustCertificate` hub method) surfaced when `AddAccount`/`ReauthenticateAccount` gets an
+   `ErrorCategory.Validation` result; and a `CertificateTrustMode` toggle in `AccountSettings`
+   with the in-app warning `docs/architecture.md` calls for before enabling `TrustAll`.
 
 ## Read first
 
