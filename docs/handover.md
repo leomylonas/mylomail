@@ -237,9 +237,27 @@ This is a snapshot of the current state, not a history; use Git for history.
   the `TrustAll` bypass against a genuine self-signed certificate; discrimination-checked.
   Independent invariant review: no violations; two non-blocking findings (no structured SMTP
   error path, the new per-account CalDAV client was never disposed) fixed in the same commit.
-  **No renderer UI yet** — no "trust this certificate" prompt on a rejected connection, no
-  `TrustAll` toggle with its required warning in account settings. The backend and hub API are
-  complete; only the UI to drive them is missing.
+- **Certificate pinning's renderer UI is built** (`8b3b555`). `AddAccount` shows an
+  `ActionableNotification` offering "Trust this certificate and retry" on a rejected certificate,
+  reading the fingerprint/hostname straight out of the failure's `MutationProblemDetails.Extensions`
+  rather than parsing prose — `AccountAuthenticationFailedException` now carries the whole
+  problem, not just its message, and the controller returns it unwrapped so nothing is lost on
+  the way. `ErrorPresentation.present()` gained a data-driven `"trust-certificate"` action:
+  still one mapping, not one per call site, it just now also looks at `Extensions` when a
+  `Validation` failure happens to carry them. Pinning a specific fingerprint needs an account id
+  that doesn't exist yet at `AddAccount` time (credentials are verified before anything is
+  persisted, precisely so a rejected attempt leaves nothing behind), so the only choice available
+  that early is a new `CertificateTrustMode` field on `AddAccountRequest` — `TrustAll` for the
+  account about to be created. `AccountSettings` gained the matching toggle with the in-app
+  warning the architecture doc calls for, for tightening back to a specific pin (the already-built
+  `TrustCertificate` hub method) once the account exists. Along the way, fixed a real gap the
+  types regeneration surfaced: `InviteResponse` (used by the RSVP hub method from an earlier
+  commit) was missing `[TranspilationSource]`, silently crashing `pnpm generate:types` for the
+  whole `IMailHub` interface since that commit — regenerating now also picked up several other
+  DTOs that were never generated after their own earlier commits.
+  Verified: `pnpm check`, the full `dotnet test` suite (263 passed, including a new
+  discrimination-checked test proving the fingerprint/hostname survive the exception→controller
+  round trip), and the full Playwright e2e suite (7/7).
 
 ## Next task
 
@@ -252,11 +270,10 @@ This is a snapshot of the current state, not a history; use Git for history.
    container has none, and Electron's `Notification` API is unreliable to assert on headlessly.
    The hub → preload → `new Notification(...)` wiring is exercised by unit tests and builds
    clean, but a manual check on a real desktop is still worth doing before calling this fully done.
-3. Certificate pinning's renderer UI: a "certificate untrusted" prompt (fingerprint/issuer from
-   `MutationProblemDetails.Extensions`, a "Trust this certificate" action calling the new
-   `TrustCertificate` hub method) surfaced when `AddAccount`/`ReauthenticateAccount` gets an
-   `ErrorCategory.Validation` result; and a `CertificateTrustMode` toggle in `AccountSettings`
-   with the in-app warning `docs/architecture.md` calls for before enabling `TrustAll`.
+3. Pinning a _specific_ certificate fingerprint for an account that already exists (rather than
+   `TrustAll` at creation time) has no UI trigger yet — it needs a `ReauthenticateAccount` flow,
+   which doesn't exist either. The `TrustCertificate` hub method and the "certificate untrusted"
+   presentation are both ready for it; only the reauthentication surface itself is missing.
 
 ## Read first
 
