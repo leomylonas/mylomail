@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -207,6 +207,12 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     cancelBulkExport(exportId: string): Promise<void>;
+    /**
+    * The account's most recent export, if it has ever run one (§13 Export).
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ExportJobDto?>
+    */
+    getExportStatus(accountId: string): Promise<ExportJobDto>;
 }
 
 /**

@@ -4,15 +4,21 @@
  * code is regenerated next time TypeContractor runs.
  */
 import { z } from 'zod';
+import { CloseBehavior } from '../Domain/CloseBehavior';
+import { ThemePreference } from '../Domain/ThemePreference';
 
 export interface ShellSettingsDto {
   panelLayout?: string;
   windowBoundsJson?: string;
   mailtoPromptDismissed: boolean;
+  closeBehavior: CloseBehavior;
+  theme: ThemePreference;
 }
 
 export const ShellSettingsDtoSchema = z.object({
   panelLayout: z.string().nullable(),
   windowBoundsJson: z.string().nullable(),
   mailtoPromptDismissed: z.boolean(),
+  closeBehavior: z.nativeEnum(CloseBehavior),
+  theme: z.nativeEnum(ThemePreference),
 });

@@ -62,6 +62,15 @@ export enum CertificateTrustMode {
     TrustAll = 1,
 }
 
+/** Transpiled from MyloMail.Api.Domain.ExportJobStatus */
+export enum ExportJobStatus {
+    Running = 0,
+    CancelRequested = 1,
+    Cancelled = 2,
+    Completed = 3,
+    Failed = 4,
+}
+
 /** Transpiled from MyloMail.Api.Domain.MessageFlagField */
 export enum MessageFlagField {
     IsRead = 0,
