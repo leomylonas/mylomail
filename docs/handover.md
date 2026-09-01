@@ -348,6 +348,23 @@ This is a snapshot of the current state, not a history; use Git for history.
   quit-confirmation dialog itself isn't exercised by the existing e2e suite (no spec drives
   `app.quit()`), so that path was reviewed for correctness rather than run end-to-end.
 
+- **.NET 10 upgrade:** `global.json` and `Directory.Build.props` bumped to SDK/TFM 10;
+  `Microsoft.EntityFrameworkCore.Sqlite`/`Design`, `System.Security.Cryptography.ProtectedData`,
+  `Microsoft.Extensions.TimeProvider.Testing`, and the `dotnet-ef` tool all bumped to their .NET
+  10-aligned releases. `Microsoft.Graph` 5.104.0 → 6.5.0 was also required (not itself
+  runtime-aligned, but its old transitive `Microsoft.Kiota.Abstractions` carried a high-severity
+  advisory that now fails restore under this repo's existing audit-as-error rule).
+  Uncovered and fixed a real regression in `scripts/watch.ts`'s dotnet watcher, exposed by the
+  upgrade: SDK 10's `dotnet watch` no longer consumes `--project <path>` as its own option (it's
+  forwarded to MSBuild verbatim and rejected with `MSB1001`), and its initial build cycle's
+  console output changed enough that the watcher's `cycleStart` regex never matched — together
+  these left `pnpm status`'s `dotnet` column permanently stuck "pending" with no visible error,
+  even though the underlying build was fine the whole time. Fixed by running from inside the
+  project directory instead of `--project`, and widening the regex.
+  Verified: `pnpm check`, full `dotnet test` (267 passed, now under `net10.0`), full Playwright
+  e2e suite (7/7) against the real Electron app and .NET 10 backend, and `pnpm status` confirmed
+  clean through both an initial watcher cycle and a real file-change restart.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
