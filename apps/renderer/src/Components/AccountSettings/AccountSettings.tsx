@@ -9,6 +9,7 @@ import {
 import type { HubConnection } from "@microsoft/signalr";
 import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
+import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -71,7 +72,14 @@ export function AccountSettings({
 					// starting point in the picker than the browser's own black default.
 					value={values.color || "#8d8d8d"}
 					onChange={(event) =>
-						setValues({ ...values, color: event.target.value })
+						setValues({
+							...values,
+							// A contrast floor, not whatever the OS picker happened to
+							// return (§13 Accessibility): near-white or near-black picks
+							// would make the sidebar swatch effectively invisible against
+							// one of the two themes.
+							color: ensureAccentContrast(event.target.value),
+						})
 					}
 				/>
 			</label>
