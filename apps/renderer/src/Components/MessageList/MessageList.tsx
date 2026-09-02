@@ -40,6 +40,8 @@ import {
 	type ForwardAttachment,
 	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -145,6 +147,7 @@ export function MessageList({
 	onCompose: (seed: ComposeSeed) => void;
 }) {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 	const searching = query.trim().length > 0;
 	const [menu, setMenu] = useState<{
 		x: number;
@@ -187,6 +190,16 @@ export function MessageList({
 			hub.invoke<PendingChange[]>("GetPendingSyncState", accountId),
 	});
 
+	// The enqueue itself failing (hub disconnected, validation) is not the same as a later
+	// provider-side failure, which the global MessageSyncFailed handler already surfaces —
+	// without this, a failure of the hub.invoke() call itself failed with no explanation.
+	const reportFailure = (title: string) => (error: unknown) =>
+		notify(notifications, {
+			kind: "error",
+			title,
+			detail: error instanceof Error ? error.message : String(error),
+		});
+
 	// Bulk by construction: every caller passes the whole target set, one message included,
 	// rather than this component looping — a single hub call per action either way, since
 	// SetFlags/MoveToTrash already take an id list (§13 Epic 6).
@@ -209,6 +222,7 @@ export function MessageList({
 			),
 		onSettled: () =>
 			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) }),
+		onError: reportFailure("The flag could not be changed"),
 	});
 
 	const trash = useMutation({
@@ -219,6 +233,7 @@ export function MessageList({
 				messages.map((message) => message.id),
 			),
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
+		onError: reportFailure("The message could not be moved to trash"),
 	});
 
 	// Message-scoped and never reversible by the app (§6) — unlike MoveToTrash, which the
@@ -231,6 +246,7 @@ export function MessageList({
 				messages.map((message) => message.id),
 			),
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
+		onError: reportFailure("The message could not be deleted"),
 	});
 
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local

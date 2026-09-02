@@ -138,6 +138,34 @@ export function ExportAccount({
 					hideCloseButton
 				/>
 			) : null}
+
+			{start.isError ? (
+				<InlineNotification
+					kind="error"
+					title="Could not start the export"
+					subtitle={
+						start.error instanceof Error
+							? start.error.message
+							: String(start.error)
+					}
+					lowContrast
+					hideCloseButton
+				/>
+			) : null}
+
+			{cancel.isError ? (
+				<InlineNotification
+					kind="error"
+					title="Could not cancel the export"
+					subtitle={
+						cancel.error instanceof Error
+							? cancel.error.message
+							: String(cancel.error)
+					}
+					lowContrast
+					hideCloseButton
+				/>
+			) : null}
 		</div>
 	);
 }

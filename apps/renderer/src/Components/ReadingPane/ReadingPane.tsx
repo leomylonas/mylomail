@@ -4,6 +4,8 @@ import { Button, SkeletonText } from "@carbon/react";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
 
 interface MessageInvite {
@@ -167,6 +169,7 @@ function InviteBanner({
 	messageId: string;
 }) {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 	const invite = useQuery({
 		queryKey: ["invite", messageId],
 		queryFn: () =>
@@ -178,6 +181,12 @@ function InviteBanner({
 			hub.invoke("RespondToInvite", invite.data?.eventId, response, null),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: ["invite", messageId] }),
+		onError: (error: unknown) =>
+			notify(notifications, {
+				kind: "error",
+				title: "The response could not be sent",
+				detail: error instanceof Error ? error.message : String(error),
+			}),
 	});
 
 	if (!invite.data) return null;

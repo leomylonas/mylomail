@@ -10,3 +10,7 @@
 	justify-content: space-between;
 	gap: var(--cds-spacing-03);
 }
+
+.error {
+	color: var(--cds-text-secondary);
+}

@@ -5,6 +5,8 @@ import {
 	prepare,
 	resolveInlineImages,
 } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MessageHtml/MessageHtml.module.css";
 
 interface TrustedSender {
@@ -36,17 +38,26 @@ function useIsTrustedSender(senderAddress: string | undefined): boolean {
 
 function useTrustSender() {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 	return useMutation({
 		mutationFn: async (address: string) => {
-			await fetch("/remote-content/trusted-senders", {
+			const response = await fetch("/remote-content/trusted-senders", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ address }),
 			});
+			if (!response.ok)
+				throw new Error(`Could not trust ${address} (${response.status}).`);
 		},
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: trustedSendersKey });
 		},
+		onError: (error: unknown) =>
+			notify(notifications, {
+				kind: "error",
+				title: "The sender could not be trusted",
+				detail: error instanceof Error ? error.message : String(error),
+			}),
 	});
 }
 

@@ -24,6 +24,13 @@ export function AttachmentList({
 		queryFn: () => hub.invoke<Attachment[]>("GetAttachmentMetadata", messageId),
 	});
 
+	if (attachments.isError)
+		return (
+			<p className={styles.error} role="alert">
+				Could not load attachments.
+			</p>
+		);
+
 	const visible =
 		attachments.data?.filter((attachment) => !attachment.isInline) ?? [];
 	if (!visible.length) return null;

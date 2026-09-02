@@ -4,6 +4,8 @@ import { Button, Modal, Tag, TextArea, TextInput, Toggle } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Calendar/EventModal/EventModal.module.css";
 
 interface Attendee {
@@ -74,6 +76,7 @@ export function EventModal({
 	const [comment, setComment] = useState("");
 	const isNew = !initial.eventId;
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 
 	const detail = useQuery({
 		queryKey: ["calendar-event-detail", initial.eventId],
@@ -91,6 +94,12 @@ export function EventModal({
 				queryKey: ["calendar-event-detail", initial.eventId],
 			});
 		},
+		onError: (error: unknown) =>
+			notify(notifications, {
+				kind: "error",
+				title: "The response could not be sent",
+				detail: error instanceof Error ? error.message : String(error),
+			}),
 	});
 
 	return (
