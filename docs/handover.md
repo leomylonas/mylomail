@@ -542,6 +542,36 @@ This is a snapshot of the current state, not a history; use Git for history.
   fixes this round vs. new-feature-sized findings in most prior passes) — the real remaining work
   is the three items already tracked below (reply/forward, scheduled send, TanStack Table/Virtual),
   and effort should shift there rather than continuing to search for new gaps.
+- **Reply/Reply-all/Forward, true scheduled send, and TanStack Table/Virtual for the message
+  list — all three now done.** Built in parallel across three isolated git worktrees (one per
+  feature), then merged by hand: two of the three worktrees turned out to be built against a
+  several-dozen-commit-old base and needed rebasing before merge, and the reply/forward and
+  table-rewrite worktrees both touched `MessageList.tsx` heavily enough that a plain `git merge`
+  would have silently dropped work — reconciled manually instead. Reply/reply-all/forward adds a
+  new `MessageReplyContextDto`/`MailHub.GetMessageReplyContext` plus pure helpers in the new
+  `ComposeReplyForward.ts` (quoting/forwarding HTML construction, subject prefixing, reply-all
+  Cc-exclusion); along the way fixed a real pre-existing bug where `Compose.tsx` hardcoded
+  `inReplyToMessageId: null` on every autosave, silently un-threading any reply draft immediately.
+  Scheduled send turned out to need almost no new backend work — `OutboxService.QueueAsync`
+  already fully supported an arbitrary future time — so it was just threading an optional
+  `DateTimeOffset?` through `MailHub.SendDraft`/`DraftService.SendAsync`, plus a Gmail-style split
+  send button in `Compose.tsx` (Tomorrow morning / next-Monday-morning presets, or a custom
+  Carbon `DatePicker`/`TimePicker`). The message list now uses TanStack Table (via its official
+  `/legacy` v8-compatibility subpath — the installed version resolved to a genuinely new v9 major
+  with a different default API) for sortable From/Subject/Date columns and a client-side
+  free-text filter, plus TanStack Virtual for row windowing, following the same pattern already
+  established in `CalendarAgenda.tsx`; every pre-existing behavior (multi-select, drag-and-drop,
+  the full context menu, keyboard shortcuts, search-vs-browse switching, the pending-change
+  overlay) was verified intact through the rewrite. `invariant-review` caught three further real
+  bugs before this shipped, all fixed: reply/forward silently seeded a blank quote when content
+  hadn't been fetched yet or had permanently failed (now an honest placeholder via a new
+  `resolveOriginalHtml` helper, and plain-text-only bodies are escaped/newline-converted instead
+  of embedded as raw HTML); reply-all's Cc-exclusion compared addresses case-sensitively, so the
+  same address differing only in case could end up listed twice; and the forward-attachment-copy
+  loop had no per-iteration error handling, so one failed attachment silently aborted copying the
+  rest. `pnpm check` clean, `dotnet test` 274 passed/0 failed (unchanged — no dedicated tests
+  added for the new hub methods, consistent with this codebase's existing pattern for thin
+  passthrough hub methods).
 
 ## Next task
 
@@ -567,21 +597,6 @@ This is a snapshot of the current state, not a history; use Git for history.
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
-5. **Reply/Reply all/Forward are unimplemented** — `MessageList.tsx`'s `messageActions` stubs
-   all three with `unavailable: "Compose is not built yet."`. Needs a real compose-reply flow
-   (quoted body, To/Cc population, `Draft.InReplyToMessageId`/`In-Reply-To` header threading)
-   before a keyboard shortcut for any of them is worth adding.
-6. **True scheduled send is unimplemented.** §15 describes sending at an arbitrary future time
-   as the same mechanism as the already-working undo-send delay, with a worked "message
-   scheduled for 09:00" example — but `MailHub.SendDraft` takes no target time, there's no
-   `ScheduleSend`-style hub method, and `Compose.tsx` has no time picker. Only the fixed-delay
-   undo-send half of this feature exists.
-7. **Message list has no TanStack Table or TanStack Virtual.** §12 calls for
-   "Outlook-style sortable/filterable message list columns" (Table) and virtualisation (Virtual)
-   for the message list and calendar agenda view. `@tanstack/react-virtual` is used in
-   `CalendarAgenda.tsx` but never in `MessageList.tsx`, which is a plain `<ul>` with no sort or
-   filter state; `@tanstack/react-table` isn't a dependency at all yet. Real UI work, not a
-   wiring gap.
 
 ## Read first
 
