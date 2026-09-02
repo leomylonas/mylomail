@@ -590,6 +590,31 @@ This is a snapshot of the current state, not a history; use Git for history.
   persist promptly) could read a stale identity from `fieldsRef`, which is otherwise only kept
   current by a passive effect running after paint — later than the already-chained save's
   microtask — fixed by updating `fieldsRef.current` directly in the selector's own handler.
+- **Thirteenth architecture.md pass — calendar `ResolveEventConflict` didn't exist, and
+  `MessageList.tsx`'s ARIA roles were mismatched.** §7 lists `ResolveEventConflict` as a
+  client-facing calendar hub method and §15 requires a "keep mine / keep theirs" prompt for a
+  flagged `CalendarEvent.SyncConflict`; only "keep mine" was reachable (resubmitting the local
+  edit through the ordinary save path) — the hub method didn't exist, and there was no way to
+  discard a local edit and pull the server's version. Added
+  `CalendarEventService.ResolveConflictAsync`, `MailHub.ResolveEventConflict`, and "Keep
+  mine"/"Keep theirs" buttons in `EventModal`'s conflict banner. `invariant-review` caught two
+  real bugs before this shipped: clearing `SyncConflict` unconditionally inside
+  `CalendarSyncService.Apply()` meant an _ordinary background sync pass_, not just explicit
+  resolution, could silently overwrite a still-unresolved conflict's local edit while also
+  erasing the flag that would have shown something was wrong — fixed by threading an optional
+  `resolvingEventId` through the sync call chain so routine polling now skips any event still
+  flagged `SyncConflict`, except the one a user's "keep theirs" call names explicitly; and the
+  "keep theirs" path re-looked-up the event by its local `Id` afterward, which a rejected sync
+  cursor can invalidate (`CalendarSyncService` discards and re-creates every local row for that
+  calendar under fresh ids when this happens, per §3) — fixed by re-querying on
+  `(CalendarId, ProviderEventId)` captured before the sync runs. Also found: `MessageList.tsx`'s
+  header used `row`/`columnheader`/`aria-sort` (which require a `table`/`grid`/`treegrid`
+  ancestor per the ARIA spec) above a `list`/`listitem` body with no such ancestor — since each
+  row is one atomic button, not a per-cell-navigable grid, retrofitting real table/grid
+  semantics would fight the actual interaction model, so the header is now a plain labelled
+  group of sort buttons instead. `dotnet test` 277 passed/0 failed (up from 274 — two new tests
+  cover keep-mine/keep-theirs, plus the routine-sync-preserves-conflict case
+  `invariant-review`'s finding was about). `pnpm check` clean under Node 22.
 
 ## Next task
 
