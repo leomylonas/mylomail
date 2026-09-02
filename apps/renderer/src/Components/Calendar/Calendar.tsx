@@ -33,6 +33,15 @@ interface CalendarEventSummary {
 	isAllDay: boolean;
 	isRecurring: boolean;
 	syncConflict: boolean;
+	/**
+	 * A generated occurrence of a recurring series, not a real row (§13 Epic 7) — `id` is a
+	 * stable derived id, not something `GetCalendarEventDetail`/`SaveCalendarEvent` can look
+	 * up. `masterEventId` is the real row to edit instead: today's editing only reaches the
+	 * whole series, not this one not-yet-overridden occurrence (per-occurrence editing exists
+	 * only for an override CalDAV sync already materialised as its own row).
+	 */
+	isVirtualOccurrence: boolean;
+	masterEventId: string | null;
 }
 
 type ModalState =
@@ -118,6 +127,23 @@ export function Calendar({
 
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+
+	// A virtual occurrence's own id is a derived id, not a real row — GetCalendarEventDetail,
+	// DeleteCalendarEvent and ResolveEventConflict all address a real EventId, so opening one
+	// substitutes masterEventId in its place. Editing therefore reaches the whole series, not
+	// this one not-yet-overridden occurrence, until per-occurrence editing of a virtual
+	// occurrence is built (§13 Epic 7) — the master is never itself present in the fetched
+	// list to look up (every one of its own occurrences, including the first, is expanded),
+	// so this substitutes the id directly rather than trying to find a summary row for it.
+	const openEditModal = (eventId: string) => {
+		const event = eventsById.get(eventId);
+		if (!event) return;
+		const target =
+			event.isVirtualOccurrence && event.masterEventId
+				? { ...event, id: event.masterEventId }
+				: event;
+		setModal({ mode: "edit", event: target });
+	};
 
 	const save = useMutation({
 		mutationFn: (values: EventFormValues) =>
@@ -238,20 +264,14 @@ export function Calendar({
 								});
 							}
 						}}
-						onSelectEvent={(eventId) => {
-							const event = eventsById.get(eventId);
-							if (event) setModal({ mode: "edit", event });
-						}}
+						onSelectEvent={openEditModal}
 					/>
 				) : (
 					<CalendarAgenda
 						rangeStart={rangeStart}
 						rangeEnd={rangeEnd}
 						events={events}
-						onSelectEvent={(eventId) => {
-							const event = eventsById.get(eventId);
-							if (event) setModal({ mode: "edit", event });
-						}}
+						onSelectEvent={openEditModal}
 					/>
 				)}
 			</div>

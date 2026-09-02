@@ -247,6 +247,18 @@ public record CalendarSummaryDto(Guid Id, Guid AccountId, string Name, string? C
 /// recurrence set are not carried here — the summary is what a month grid needs, not what an
 /// event's own detail view needs (§1).
 /// </summary>
+/// <param name="IsVirtualOccurrence">
+/// True for a generated (not-yet-materialised) occurrence of a recurring series (§13 Epic 7)
+/// — <paramref name="Id"/> is a stable derived id, not a real row, so it cannot be passed to
+/// <c>GetCalendarEventDetail</c>/<c>SaveCalendarEvent</c>. <paramref name="MasterEventId"/>
+/// is the real row to use instead; editing routes to the whole series until per-occurrence
+/// editing of a not-yet-overridden instance is built (today's per-occurrence editing only
+/// covers an override CalDAV sync already materialised as its own row).
+/// </param>
+/// <param name="MasterEventId">
+/// The recurring master's real id, set only when <paramref name="IsVirtualOccurrence"/> is
+/// true.
+/// </param>
 [TranspilationSource]
 public record CalendarEventSummaryDto(
 	Guid Id,
@@ -259,7 +271,9 @@ public record CalendarEventSummaryDto(
 	bool IsAllDay,
 	EventStatus Status,
 	bool IsRecurring,
-	bool SyncConflict
+	bool SyncConflict,
+	bool IsVirtualOccurrence,
+	Guid? MasterEventId
 );
 
 /// <summary>One attendee as an event's own detail view needs it (§13 Epic 7) — not carried on

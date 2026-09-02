@@ -406,6 +406,10 @@ export type CalendarEventSummaryDto = {
     isRecurring: boolean;
     /** Transpiled from bool */
     syncConflict: boolean;
+    /** Transpiled from bool */
+    isVirtualOccurrence: boolean;
+    /** Transpiled from System.Guid */
+    masterEventId?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AttendeeDto */

@@ -759,29 +759,16 @@ public class MailHub(
 			.Select(c => new CalendarSummaryDto(c.Id, c.AccountId, c.Name, c.Colour, c.IsDefault))
 			.ToListAsync();
 
-	/// <summary>Events overlapping <paramref name="from"/>/<paramref name="to"/>, not merely starting within it.</summary>
-	public async Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(
+	/// <summary>
+	/// Events overlapping <paramref name="from"/>/<paramref name="to"/>, not merely starting
+	/// within it — including a recurring master's own occurrences within the window, expanded
+	/// query-time (§13 Epic 7).
+	/// </summary>
+	public Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(
 		Guid calendarId,
 		DateTimeOffset from,
 		DateTimeOffset to
-	) =>
-		await context
-			.CalendarEvents.Where(e => e.CalendarId == calendarId && e.Start < to && e.End > from)
-			.OrderBy(e => e.Start)
-			.Select(e => new CalendarEventSummaryDto(
-				e.Id,
-				e.CalendarId,
-				e.Title,
-				e.Location,
-				e.Description,
-				e.Start,
-				e.End,
-				e.IsAllDay,
-				e.Status,
-				e.RecurrenceRules.Count > 0 || e.RecurrenceMasterId != null,
-				e.SyncConflict
-			))
-			.ToListAsync();
+	) => CalendarEventOccurrences.ForCalendarAsync(context, calendarId, from, to);
 
 	public async Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request)
 	{
@@ -817,7 +804,9 @@ public class MailHub(
 			ev.IsAllDay,
 			ev.Status,
 			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
-			ev.SyncConflict
+			ev.SyncConflict,
+			false,
+			null
 		);
 
 	public async Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId)
