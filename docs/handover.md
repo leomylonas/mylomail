@@ -993,6 +993,23 @@ check` clean under Node 22.
   an unresolved failure vanish immediately — fixed by skipping non-terminal rows, with a
   regression test confirmed to fail against the pre-fix logic. `dotnet test` 308 passed/0
   failed (up from 304). `pnpm check` clean under Node 22.
+- **Forty-first pass — resolved three leads from the fortieth pass's Epic re-read; one was a
+  real gap.** Epic 7's "organiser sees attendee responses update" and "agenda view
+  virtualised" both confirmed clean (`CalendarSyncService` fires `CalendarEventUpdated` for
+  any changed event, not just new/deleted; `CalendarAgenda.tsx` genuinely uses
+  `useVirtualizer`). Epic 2's "sensible handling/error messaging where a provider doesn't
+  support an operation (e.g. Gmail's lack of true nesting)" was real: Gmail's synthesized
+  nested-label intermediate `Mailbox` rows (`ProviderMailboxId == null`, already documented at
+  `architecture.md:94` as "not renameable or deletable, since no provider object backs them")
+  had nothing actually enforcing that — `MailboxTree.tsx`'s context menu offered Rename/Delete
+  unconditionally, reaching a developer-facing `InvalidOperationException` in
+  `GmailMailProvider.cs`. Added `MailboxSummaryDto.IsSynthesized`, gated Rename/Delete using
+  the same `unavailable` mechanism already used for "Sync settings…". `invariant-review`
+  confirmed the field's definition is correct and exclusive, and caught a closer-than-described
+  miss: dropping a _message_ onto a synthesized folder via drag-and-drop hit the identical
+  exception class, reachable through ordinary interaction — fixed the same way; mailbox-
+  reparenting drops onto a synthesized node were confirmed intentionally supported and left
+  alone. `pnpm check` clean under Node 22.
 
 ## Next task
 
