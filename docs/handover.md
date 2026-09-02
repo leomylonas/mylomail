@@ -847,6 +847,20 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   `invariant-review` confirmed both query key strings match their components exactly, nothing
   else in the renderer shares either prefix (no over-invalidation), and the fix closes the bug
   end-to-end in both directions. `pnpm check` clean under Node 22.
+- **Thirtieth pass — `DraftUpdated` had no renderer consumer at all.** Verified the
+  twenty-ninth pass's flagged lead first (message-side handlers are genuinely clean:
+  `MessageReceived`/`Updated`/`Deleted` correctly invalidate `["messages"]`/`["search"]`), then
+  swept the remaining event families. `IMailClient.cs` declares `DraftUpdated` and it fires
+  from 6 real backend call sites, but `HubConnection.ts` had a handler for every other §7
+  event except this one — the `["drafts", accountId]` key was never invalidated by anything,
+  not even a local `onSuccess` call. Worse than the twenty-ninth pass's calendar bug (that one
+  had partial coverage; this had none) — the Drafts pane showed whatever it fetched on first
+  mount, forever. Fixed by adding the missing handler. `invariant-review` confirmed the query
+  key match and did a full sweep of all 15 `IMailClient.cs` events: everything now has a
+  handler except `OutboxStatusChanged`/`ConnectivityChanged`, which have no renderer consumer
+  of any kind (no outbox pane, no connectivity UI exists) rather than a stale-cache bug —
+  flagged as a separate, lower-severity finding for a future pass, not fixed here since there's
+  no existing query key to invalidate. `pnpm check` clean under Node 22.
 
 ## Next task
 
