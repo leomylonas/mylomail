@@ -950,6 +950,23 @@ check` clean under Node 22.
   Query's `mutateAsync()` rethrows the exact error object with no wrapping, so the new
   `instanceof ReauthenticateError` de-duplication guard genuinely works rather than silently
   never firing. `pnpm check` clean under Node 22.
+- **Thirty-eighth pass — `Compose.tsx`'s entire save/send/attach flow had zero error
+  handling, the most severe instance across four rounds of this technique.** A maximally
+  exhaustive final sweep (every `useQuery`/`useMutation`/write-`fetch` across the whole
+  renderer, cross-checked against everything already fixed) found `save()`, `send()`,
+  `detach()`, `addFiles()`, `removeAttachment()`, and `undo()` all had only `try/finally`,
+  never `try/catch` — a failed Send just silently stopped spinning with no explanation, the
+  single most consequential action in a mail client. `AccountSettings.tsx`'s save had the same
+  gap. Fixed by wrapping every top-level fire-and-forget entry point in a `reportFailure`
+  catch, while deliberately leaving `save()` itself throwing (its internal callers — `detach`,
+  `send`, the forward-attachment-copy effect — need the rejection to propagate so they skip
+  their own next step rather than proceeding with an undefined draft id). Surfaced and fixed a
+  genuine, unrelated pre-existing ESLint declaration-order issue (`uploadAttachment` used
+  before its own definition) along the way. `invariant-review` traced every `save()` caller
+  and confirmed none proceeds past a failure as if it succeeded, found no double-reporting, and
+  caught one more real gap in the same file (`GetSendIdentities`'s effect had no catch either) —
+  fixed the same way. Four consecutive increasingly-thorough sweeps (passes 35-38) now confirm
+  this bug class is closed across the renderer. `pnpm check` clean under Node 22.
 
 ## Next task
 
