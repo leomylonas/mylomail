@@ -434,6 +434,27 @@ This is a snapshot of the current state, not a history; use Git for history.
   the conformance suite, and a direct backend check of the new hub method rather than a live
   click-through, since the local test matrix has no CalDAV server that can stage a real invite
   with attendees.
+- **Sixth architecture.md pass — Graph send default and tenant consent outcome.** Two gaps in
+  `GraphMailProvider`/`GraphOAuthAuthenticator`. First, §15's draft-then-send policy was only
+  being honored when an attachment exceeded the 3MB inline limit; anything else went out via the
+  direct `/sendMail` shortcut, which returns no message id for post-crash reconciliation to key
+  off. `SendAsync` now always creates the draft, uploads any large attachments against it, then
+  sends by the draft's id — unconditionally. Second, §5 calls for a distinct, non-retryable
+  outcome when a Microsoft 365 tenant has blocked ordinary user consent, since sending the user
+  back to re-enter credentials doesn't fix an admin approval block; `AuthenticateAsync` now
+  recognises MSAL's `ConsentRequired` classification or the raw `AADSTS65001`/`AADSTS90094` STS
+  codes and returns `ErrorCategory.Validation` with a new `adminConsentRequired` extension flag.
+  `invariant-review` confirmed both changes are invariant-safe (no frozen mutation/reconciliation
+  assumption depends on the old Graph send shape; the MSAL catch-block ordering is valid, checked
+  against the actual type hierarchy) but caught a real UX bug in the first draft: `present()`'s
+  call sites never forward the DTO's `title`, so the new outcome was rendering as the generic
+  "The server refused this" / retry message — exactly the wrong read for a non-retryable admin
+  block. Fixed by branching on the new extension flag in `ErrorPresentation.ts`, the same pattern
+  already used for certificate-untrusted. Verified with `pnpm check` (under Node 22 — this
+  sandbox's default shell Node is v18 and silently fails `stylelint`/`vitest` with ESM/engine
+  errors that look unrelated to the diff; `nvm use 22` first) and `dotnet test` (267 passed). Not
+  re-run against a live Microsoft 365 tenant — the AADSTS code matching is confirmed correct by
+  reading MSAL's actual exception hierarchy, not by an interactive consent-blocked login.
 
 ## Next task
 
