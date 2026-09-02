@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, TextInput } from "@carbon/react";
+import {
+	Button,
+	DatePicker,
+	DatePickerInput,
+	OverflowMenu,
+	OverflowMenuItem,
+	TextInput,
+	TimePicker,
+} from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
@@ -7,6 +15,8 @@ import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 interface Sent {
 	outboxItemId: string;
 	cancelled: boolean;
+	/** Absent for a normal send (the undo-send delay applies); set for a genuine schedule. */
+	scheduledFor?: Date;
 }
 
 interface DraftAttachment {
@@ -62,6 +72,12 @@ export function Compose({
 	const [attachments, setAttachments] = useState<DraftAttachment[]>(
 		draft?.attachments ?? [],
 	);
+	// Send-later's own picker, distinct from "sent" state below: choosing a date/time does
+	// not commit to anything until "Schedule" is pressed, same as a plain "Send" click does
+	// not commit until it resolves.
+	const [schedulePickerOpen, setSchedulePickerOpen] = useState(false);
+	const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
+	const [scheduleTime, setScheduleTime] = useState("");
 	const fileInput = useRef<HTMLInputElement>(null);
 
 	// `save` always reads the latest field values through this ref rather than closing over
@@ -121,7 +137,12 @@ export function Compose({
 		onDetach(id);
 	};
 
-	const send = async () => {
+	/**
+	 * `scheduledFor` absent (or null) is a normal send — the account's undo-send delay
+	 * applies. A given time is a genuine future schedule; both go through the same
+	 * `SendDraft` hub method and the same outbox mechanism server-side (§15).
+	 */
+	const send = async (scheduledFor?: Date) => {
 		if (
 			!attachments.length &&
 			/\b(attached|attachment|attach)\b/i.test(body) &&
@@ -134,11 +155,39 @@ export function Compose({
 		setBusy(true);
 		try {
 			const id = await save();
-			const outboxItemId = await hub.invoke<string>("SendDraft", id);
-			setSent({ outboxItemId, cancelled: false });
+			const outboxItemId = await hub.invoke<string>(
+				"SendDraft",
+				id,
+				scheduledFor ? scheduledFor.toISOString() : null,
+			);
+			setSent({ outboxItemId, cancelled: false, scheduledFor });
 		} finally {
 			setBusy(false);
+			setSchedulePickerOpen(false);
 		}
+	};
+
+	const scheduleForPreset = (preset: "tomorrow" | "monday") => {
+		const target = new Date();
+		target.setHours(8, 0, 0, 0);
+		if (preset === "tomorrow") {
+			target.setDate(target.getDate() + 1);
+		} else {
+			// Always the *next* Monday, even if today is already Monday — a preset never
+			// means "in a few hours," which "today" could otherwise resolve to.
+			const daysUntilMonday = (1 - target.getDay() + 7) % 7 || 7;
+			target.setDate(target.getDate() + daysUntilMonday);
+		}
+		void send(target);
+	};
+
+	const scheduleCustom = () => {
+		if (!scheduleDate || !scheduleTime) return;
+		const [hours, minutes] = scheduleTime.split(":").map(Number);
+		if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
+		const target = new Date(scheduleDate);
+		target.setHours(hours, minutes, 0, 0);
+		void send(target);
 	};
 
 	const addFiles = async (files: FileList | File[]) => {
@@ -195,7 +244,9 @@ export function Compose({
 				<p className={styles.sent}>
 					{sent.cancelled
 						? "Sending cancelled. Your message was not sent."
-						: "Sending…"}
+						: sent.scheduledFor
+							? `Scheduled for ${sent.scheduledFor.toLocaleString()}.`
+							: "Sending…"}
 				</p>
 				<div className={styles.actions}>
 					{sent.cancelled ? null : (
@@ -280,9 +331,66 @@ export function Compose({
 				>
 					Attach files
 				</Button>
-				<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
-					Send
-				</Button>
+				<div className={styles.sendSplit}>
+					<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
+						Send
+					</Button>
+					<OverflowMenu
+						aria-label="Send later"
+						size="sm"
+						disabled={busy || !to}
+						flipped
+					>
+						<OverflowMenuItem
+							itemText="Tomorrow morning"
+							onClick={() => scheduleForPreset("tomorrow")}
+						/>
+						<OverflowMenuItem
+							itemText="Monday morning"
+							onClick={() => scheduleForPreset("monday")}
+						/>
+						<OverflowMenuItem
+							itemText="Pick date & time…"
+							hasDivider
+							onClick={() => setSchedulePickerOpen(true)}
+						/>
+					</OverflowMenu>
+				</div>
+				{schedulePickerOpen ? (
+					<div className={styles.schedulePicker}>
+						<DatePicker
+							datePickerType="single"
+							minDate={new Date()}
+							onChange={(dates) => setScheduleDate(dates[0] ?? null)}
+						>
+							<DatePickerInput
+								id="compose-schedule-date"
+								labelText="Date"
+								placeholder="mm/dd/yyyy"
+							/>
+						</DatePicker>
+						<TimePicker
+							id="compose-schedule-time"
+							labelText="Time"
+							value={scheduleTime}
+							onChange={(event) => setScheduleTime(event.target.value)}
+						/>
+						<Button
+							size="sm"
+							disabled={busy || !scheduleDate || !scheduleTime}
+							onClick={scheduleCustom}
+						>
+							Schedule
+						</Button>
+						<Button
+							size="sm"
+							kind="ghost"
+							onClick={() => setSchedulePickerOpen(false)}
+						>
+							Cancel
+						</Button>
+					</div>
+				) : null}
 				<Button
 					size="sm"
 					kind="tertiary"

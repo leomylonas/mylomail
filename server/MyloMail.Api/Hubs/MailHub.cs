@@ -52,7 +52,12 @@ public interface IMailHub
 
 	Task DeleteDraft(Guid draftId);
 
-	Task<Guid> SendDraft(Guid draftId);
+	/// <summary>
+	/// Queues a draft for sending. <paramref name="scheduledFor"/> is null for a normal
+	/// send (the account's undo-send delay applies) or an explicit future time for a
+	/// scheduled send (§15) — both go through the same outbox mechanism.
+	/// </summary>
+	Task<Guid> SendDraft(Guid draftId, DateTimeOffset? scheduledFor = null);
 
 	Task<bool> CancelScheduledSend(Guid outboxItemId);
 
@@ -330,7 +335,8 @@ public class MailHub(
 	/// Queues a draft for sending and returns the outbox item, which is what cancellation
 	/// addresses during the undo window (§15).
 	/// </summary>
-	public async Task<Guid> SendDraft(Guid draftId) => (await drafts.SendAsync(draftId)).Id;
+	public async Task<Guid> SendDraft(Guid draftId, DateTimeOffset? scheduledFor = null) =>
+		(await drafts.SendAsync(draftId, scheduledFor)).Id;
 
 	/// <summary>
 	/// Attempts to cancel. False means the worker already took it, and the answer is final:
