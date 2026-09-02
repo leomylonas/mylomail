@@ -934,6 +934,22 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   left untouched, `onError`/`onSettled` both still fire correctly in `MessageList.tsx`, no new
   error string surfaces message content, and nothing under `Mutations/` is touched. `pnpm
 check` clean under Node 22.
+- **Thirty-seventh pass — four more instances, confirming the pass-36 sweep wasn't
+  exhaustive.** Re-grepped every `useQuery`/`useMutation` and cross-checked against what was
+  already fixed/confirmed-fine. `AppShell.tsx`'s top-level `accounts` query had no `isError`
+  check anywhere — the header status text showed "No accounts yet." during a real fetch
+  failure, the most visible surface in the app (verified `effectivePane`'s Add-Account routing
+  does NOT also misfire on error, only the status text needed fixing).
+  `ShellSettings.tsx`'s three raw-`fetch` writes never checked `response.ok` (the same bug
+  class `MessageHtml.tsx` had before pass 36), and its `credentialStore` query defaulted to a
+  false-positive "using the safe native store" claim on failure — fixed to throw and show a
+  neutral error state instead, while leaving other low-stakes preference defaults alone.
+  `ReauthenticateAccount.tsx`'s `trustAndRetry` mutation had no `onError` for its
+  `TrustCertificate` hub call specifically (a sibling failure path was already correctly
+  surfaced). `invariant-review` traced the trickiest point carefully: confirmed TanStack
+  Query's `mutateAsync()` rethrows the exact error object with no wrapping, so the new
+  `instanceof ReauthenticateError` de-duplication guard genuinely works rather than silently
+  never firing. `pnpm check` clean under Node 22.
 
 ## Next task
 
