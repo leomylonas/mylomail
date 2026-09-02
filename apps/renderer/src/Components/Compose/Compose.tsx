@@ -5,11 +5,15 @@ import {
 	DatePickerInput,
 	OverflowMenu,
 	OverflowMenuItem,
+	Select,
+	SelectItem,
+	SkeletonText,
 	TextInput,
 	TimePicker,
 } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
+import type { SendIdentityDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
@@ -29,6 +33,7 @@ interface DraftAttachment {
 
 export interface OpenDraft {
 	id: string;
+	sendIdentityId?: string | null;
 	inReplyToMessageId?: string | null;
 	to: { name: string | null; email: string }[];
 	cc: { name: string | null; email: string }[];
@@ -98,6 +103,40 @@ export function Compose({
 	const inReplyToMessageId =
 		draft?.inReplyToMessageId ?? seed?.inReplyToMessageId ?? null;
 
+	// Null means "not chosen yet" — an existing draft's saved identity always wins once
+	// identities load; a brand-new draft picks the account's default at that point (§15).
+	const [identities, setIdentities] = useState<SendIdentityDto[]>([]);
+	const [sendIdentityId, setSendIdentityId] = useState<string | null>(
+		draft?.sendIdentityId ?? null,
+	);
+	// `Editor` (Lexical) only ever reads its `initialHtml` once, at construction — it never
+	// re-syncs from a later `body` change. A brand-new draft's signature has to be appended
+	// to `body` *before* `Editor` first mounts, or it would silently exist in state/on save
+	// but never appear on screen. An existing draft needs no wait: its saved body already
+	// reflects whatever signature the user kept, edited or removed.
+	const [editorReady, setEditorReady] = useState(() => Boolean(draft));
+	useEffect(() => {
+		void (async () => {
+			const list = await hub.invoke<SendIdentityDto[]>(
+				"GetSendIdentities",
+				accountId,
+			);
+			setIdentities(list);
+			if (sendIdentityId) return;
+
+			const chosen = list.find((identity) => identity.isDefault) ?? list[0];
+			if (chosen) {
+				setSendIdentityId(chosen.id);
+				// Appended after any reply/forward quote a seed already placed, per §15's
+				// "below quoted reply text" convention.
+				if (!draft && chosen.signatureHtml) {
+					setBody((current) => `${current}<p><br></p>${chosen.signatureHtml}`);
+				}
+			}
+		})().finally(() => setEditorReady(true));
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per mount
+	}, []);
+
 	// `save` always reads the latest field values through this ref rather than closing over
 	// state, because a queued save (below) can run well after the render that scheduled it.
 	const fieldsRef = useRef({
@@ -107,6 +146,7 @@ export function Compose({
 		subject,
 		body,
 		draftId,
+		sendIdentityId,
 		inReplyToMessageId,
 	});
 	useEffect(() => {
@@ -117,6 +157,7 @@ export function Compose({
 			subject,
 			body,
 			draftId,
+			sendIdentityId,
 			inReplyToMessageId,
 		};
 	});
@@ -136,6 +177,7 @@ export function Compose({
 			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
 				draftId: fields.draftId,
 				accountId,
+				sendIdentityId: fields.sendIdentityId,
 				inReplyToMessageId: fields.inReplyToMessageId,
 				to: parseAddresses(fields.to),
 				cc: parseAddresses(fields.cc),
@@ -361,6 +403,32 @@ export function Compose({
 				void addFiles(event.dataTransfer.files);
 			}}
 		>
+			{identities.length > 1 ? (
+				<Select
+					id="compose-from"
+					labelText="From"
+					value={sendIdentityId ?? ""}
+					onChange={(event) => {
+						const id = event.target.value;
+						setSendIdentityId(id);
+						// `fieldsRef` is otherwise only kept current by a passive effect that
+						// runs after paint — too late for `save()`'s already-chained promise,
+						// which can run as a microtask before that effect flushes and would
+						// then persist the identity this selection just replaced. Updated
+						// directly here so this explicit, discrete save is never stale.
+						fieldsRef.current = { ...fieldsRef.current, sendIdentityId: id };
+						void save();
+					}}
+				>
+					{identities.map((identity) => (
+						<SelectItem
+							key={identity.id}
+							value={identity.id}
+							text={`${identity.displayName} <${identity.emailAddress}>`}
+						/>
+					))}
+				</Select>
+			) : null}
 			<TextInput
 				id="compose-to"
 				labelText="To"
@@ -385,10 +453,11 @@ export function Compose({
 				value={subject}
 				onChange={(event) => setSubject(event.target.value)}
 			/>
-			<Editor
-				onChange={setBody}
-				initialHtml={draft?.bodyHtml ?? seed?.bodyHtml}
-			/>
+			{editorReady ? (
+				<Editor onChange={setBody} initialHtml={body} />
+			) : (
+				<SkeletonText paragraph lineCount={4} />
+			)}
 			<input
 				className={styles.fileInput}
 				ref={fileInput}

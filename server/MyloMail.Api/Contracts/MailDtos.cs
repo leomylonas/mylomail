@@ -121,6 +121,7 @@ public record MessageReplyContextDto(
 public record DraftDto(
 	Guid Id,
 	Guid AccountId,
+	Guid SendIdentityId,
 	Guid? InReplyToMessageId,
 	IReadOnlyList<Address> To,
 	IReadOnlyList<Address> Cc,
@@ -133,17 +134,38 @@ public record DraftDto(
 [TranspilationSource]
 public record DraftAttachmentDto(Guid Id, string Filename, string MimeType, long Size, bool IsInline);
 
-/// <summary>What the compose window sends when it saves or sends.</summary>
+/// <summary>
+/// What the compose window sends when it saves or sends.
+/// </summary>
+/// <param name="SendIdentityId">
+/// Null lets the server pick the account's default identity — the case for a brand-new draft
+/// that has never had one explicitly chosen. Once a draft exists, the compose window always
+/// round-trips whatever identity `DraftDto.SendIdentityId` reported, the same way
+/// <paramref name="InReplyToMessageId"/> is round-tripped, so switching identities sticks
+/// across autosaves (§15).
+/// </param>
 [TranspilationSource]
 public record SaveDraftRequest(
 	Guid? DraftId,
 	Guid AccountId,
+	Guid? SendIdentityId,
 	Guid? InReplyToMessageId,
 	IReadOnlyList<Address> To,
 	IReadOnlyList<Address> Cc,
 	IReadOnlyList<Address> Bcc,
 	string Subject,
 	string BodyHtml
+);
+
+/// <summary>A send-as identity, as compose's identity picker needs it (§1, §15).</summary>
+[TranspilationSource]
+public record SendIdentityDto(
+	Guid Id,
+	Guid AccountId,
+	string DisplayName,
+	string EmailAddress,
+	string? SignatureHtml,
+	bool IsDefault
 );
 
 /// <summary>

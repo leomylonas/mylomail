@@ -51,6 +51,12 @@ public interface IMailHub
 	/// <summary>Structured drafts, including drafts discovered from the server's Drafts mailbox.</summary>
 	Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId);
 
+	/// <summary>
+	/// This account's send-as identities, default first, for compose's identity picker (§1,
+	/// §15). Always at least one row — every account has a default identity.
+	/// </summary>
+	Task<IReadOnlyList<SendIdentityDto>> GetSendIdentities(Guid accountId);
+
 	Task<DraftDto> SaveDraft(SaveDraftRequest request);
 
 	Task DeleteDraft(Guid draftId);
@@ -316,12 +322,29 @@ public class MailHub(
 				.Select(ToDto),
 		];
 
+	public async Task<IReadOnlyList<SendIdentityDto>> GetSendIdentities(Guid accountId) =>
+		[
+			.. (await context
+				.SendIdentities.Where(i => i.AccountId == accountId)
+				.OrderByDescending(i => i.IsDefault)
+				.ToListAsync())
+				.Select(i => new SendIdentityDto(
+					i.Id,
+					i.AccountId,
+					i.DisplayName,
+					i.EmailAddress,
+					i.SignatureHtml,
+					i.IsDefault
+				)),
+		];
+
 	public async Task<DraftDto> SaveDraft(SaveDraftRequest request)
 	{
 		var draft = await drafts.SaveAsync(
 			new DraftInput(
 				request.DraftId,
 				request.AccountId,
+				request.SendIdentityId,
 				request.InReplyToMessageId,
 				request.To,
 				request.Cc,
@@ -338,6 +361,7 @@ public class MailHub(
 		new(
 			draft.Id,
 			draft.AccountId,
+			draft.SendIdentityId,
 			draft.InReplyToMessageId,
 			draft.To,
 			draft.Cc,

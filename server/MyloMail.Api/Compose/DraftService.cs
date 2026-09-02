@@ -10,6 +10,7 @@ namespace MyloMail.Api.Compose;
 public sealed record DraftInput(
 	Guid? DraftId,
 	Guid AccountId,
+	Guid? SendIdentityId,
 	Guid? InReplyToMessageId,
 	IReadOnlyList<Address> To,
 	IReadOnlyList<Address> Cc,
@@ -51,7 +52,10 @@ public sealed class DraftService(
 			context.Drafts.Add(draft);
 		}
 
-		draft.SendIdentityId = await DefaultIdentityAsync(input.AccountId, ct);
+		// The caller round-trips whatever identity a previous save reported, the same way
+		// InReplyToMessageId is round-tripped — only a brand-new draft that has never had one
+		// chosen falls back to the account's default (§15).
+		draft.SendIdentityId = input.SendIdentityId ?? await DefaultIdentityAsync(input.AccountId, ct);
 		draft.InReplyToMessageId = input.InReplyToMessageId;
 		draft.To = input.To;
 		draft.Cc = input.Cc;

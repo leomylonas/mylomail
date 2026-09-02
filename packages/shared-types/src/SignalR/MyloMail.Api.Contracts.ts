@@ -219,6 +219,8 @@ export type DraftDto = {
     /** Transpiled from System.Guid */
     accountId: string;
     /** Transpiled from System.Guid */
+    sendIdentityId: string;
+    /** Transpiled from System.Guid */
     inReplyToMessageId?: string;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
     to: Address[];
@@ -255,6 +257,8 @@ export type SaveDraftRequest = {
     /** Transpiled from System.Guid */
     accountId: string;
     /** Transpiled from System.Guid */
+    sendIdentityId?: string;
+    /** Transpiled from System.Guid */
     inReplyToMessageId?: string;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
     to: Address[];
@@ -266,6 +270,22 @@ export type SaveDraftRequest = {
     subject: string;
     /** Transpiled from string */
     bodyHtml: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.SendIdentityDto */
+export type SendIdentityDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    displayName: string;
+    /** Transpiled from string */
+    emailAddress: string;
+    /** Transpiled from string? */
+    signatureHtml?: string;
+    /** Transpiled from bool */
+    isDefault: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AccountCapabilitiesDto */
