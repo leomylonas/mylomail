@@ -778,6 +778,35 @@ test` 292 passed/0 failed (unchanged — read-only accessor, no new backend logi
   confirmed every code path is covered and nothing under `Mutations/` or any other frozen
   invariant is touched. `dotnet test` 293 passed/0 failed (up from 292). `pnpm check` clean under
   Node 22.
+- **Twenty-third pass — no gap found.** Checked §16 fault-injection kill-point coverage
+  exhaustively (all 11 named boundaries have a genuine covering test), IMAP capability-tier
+  gating (`IntegrityReconciliationService.Required()` correctly matches the QRESYNC/CONDSTORE/
+  Neither split), and FTS5 field-scoped search (`Subject:`/`from:` prefixes pass straight
+  through to SQLite's column-filter syntax with no client-side parsing to break it). Reported
+  clean rather than manufacturing a finding.
+- **Twenty-fourth pass — `Account.PollingEnabled` ("Check for new mail") was a complete no-op.**
+  Persisted and settable from account settings, but `SyncJobs.RunnableAsync`/`StillRunnableAsync`
+  never referenced it — every poll loop (mail sync, change-stream, integrity reconciliation,
+  calendar) kept running regardless of the toggle. Fixed by adding the check to both gates.
+  Because it's a genuine two-way toggle (unlike `IsEnabled`, which this codebase only ever sets
+  false on removal), `MailHub.UpdateAccount` also needed to detect a false→true transition and
+  restart polling via the same `TopologyAsync` re-enqueue `StartupScheduler.ResumeAccountAsync`
+  uses for reauthentication recovery. `invariant-review` caught a real follow-up bug in that
+  restart path: mirroring `ResumeAccountAsync`'s unconditional `polls.StopAll` before re-enqueuing
+  is only safe there because a reauth-paused account's loops have reliably already stopped and
+  released their registry slot by the time it runs (reauth needs human interaction, taking at
+  least one poll interval) — a `PollingEnabled` toggle can flip off-then-on in under a second, so
+  a still-alive loop that hasn't ticked yet may still hold its slot, and force-clearing it would
+  let a second, concurrent loop start for the same scope. Fixed by dropping `polls.StopAll`
+  entirely — `PollRegistry.TryStart` already no-ops harmlessly against a still-claimed scope, so
+  a genuinely-stopped loop's slot (already released via its own `Stop()` call) is reclaimed
+  correctly, and a still-alive loop's slot is left alone to resume itself on its own next tick.
+  A second `invariant-review` pass confirmed this: every `SyncJobs` loop body releases its slot
+  on every path that ends it, the divergence from the reauth pattern is justified (different,
+  non-racing scenario), and the new regression test's scope is honestly represented (it validates
+  `PollRegistry`/`StartChangeStreamsAsync`'s existing safety property through the real code path,
+  not `MailHub.UpdateAccount` end-to-end — no MailHub-level test harness exists in this codebase).
+  `dotnet test` 296 passed/0 failed (up from 293). `pnpm check` clean under Node 22.
 
 ## Next task
 
