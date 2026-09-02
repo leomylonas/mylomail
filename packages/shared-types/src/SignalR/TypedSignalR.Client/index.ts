@@ -118,6 +118,22 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetSendIdentities", accountId);
     }
 
+    public readonly addSendIdentity = async (accountId: string, displayName: string, emailAddress: string, signatureHtml: string): Promise<SendIdentityDto> => {
+        return await this.connection.invoke("AddSendIdentity", accountId, displayName, emailAddress, signatureHtml);
+    }
+
+    public readonly updateSendIdentity = async (identityId: string, displayName: string, emailAddress: string, signatureHtml: string): Promise<SendIdentityDto> => {
+        return await this.connection.invoke("UpdateSendIdentity", identityId, displayName, emailAddress, signatureHtml);
+    }
+
+    public readonly setDefaultSendIdentity = async (identityId: string): Promise<SendIdentityDto> => {
+        return await this.connection.invoke("SetDefaultSendIdentity", identityId);
+    }
+
+    public readonly deleteSendIdentity = async (identityId: string): Promise<void> => {
+        return await this.connection.invoke("DeleteSendIdentity", identityId);
+    }
+
     public readonly saveDraft = async (request: SaveDraftRequest): Promise<DraftDto> => {
         return await this.connection.invoke("SaveDraft", request);
     }

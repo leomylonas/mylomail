@@ -57,6 +57,29 @@ public interface IMailHub
 	/// </summary>
 	Task<IReadOnlyList<SendIdentityDto>> GetSendIdentities(Guid accountId);
 
+	/// <summary>Adds a send-as identity — the account's first ever becomes its default (§1, §15).</summary>
+	Task<SendIdentityDto> AddSendIdentity(
+		Guid accountId,
+		string displayName,
+		string emailAddress,
+		string? signatureHtml
+	);
+
+	Task<SendIdentityDto> UpdateSendIdentity(
+		Guid identityId,
+		string displayName,
+		string emailAddress,
+		string? signatureHtml
+	);
+
+	/// <summary>Promotes one identity to the account's default, demoting whichever one held it (§1).</summary>
+	Task<SendIdentityDto> SetDefaultSendIdentity(Guid identityId);
+
+	/// <exception cref="HubException">
+	/// The identity is the account's default, or a saved draft still points at it.
+	/// </exception>
+	Task DeleteSendIdentity(Guid identityId);
+
 	Task<DraftDto> SaveDraft(SaveDraftRequest request);
 
 	Task DeleteDraft(Guid draftId);
@@ -183,6 +206,7 @@ public class MailHub(
 	MutationQueue mutations,
 	MessageSearch search,
 	DraftService drafts,
+	SendIdentityService identities,
 	MailboxManagement mailboxes,
 	CalendarEventService calendarEvents,
 	Notifications.NotificationService notifications,
@@ -344,6 +368,48 @@ public class MailHub(
 					i.IsDefault
 				)),
 		];
+
+	public async Task<SendIdentityDto> AddSendIdentity(
+		Guid accountId,
+		string displayName,
+		string emailAddress,
+		string? signatureHtml
+	) => ToSendIdentityDto(await identities.AddAsync(accountId, displayName, emailAddress, signatureHtml));
+
+	public async Task<SendIdentityDto> UpdateSendIdentity(
+		Guid identityId,
+		string displayName,
+		string emailAddress,
+		string? signatureHtml
+	) =>
+		ToSendIdentityDto(
+			await identities.UpdateAsync(identityId, displayName, emailAddress, signatureHtml)
+		);
+
+	public async Task<SendIdentityDto> SetDefaultSendIdentity(Guid identityId) =>
+		ToSendIdentityDto(await identities.SetDefaultAsync(identityId));
+
+	public async Task DeleteSendIdentity(Guid identityId)
+	{
+		try
+		{
+			await identities.DeleteAsync(identityId);
+		}
+		catch (InvalidOperationException ex)
+		{
+			throw new HubException(ex.Message);
+		}
+	}
+
+	private static SendIdentityDto ToSendIdentityDto(SendIdentity identity) =>
+		new(
+			identity.Id,
+			identity.AccountId,
+			identity.DisplayName,
+			identity.EmailAddress,
+			identity.SignatureHtml,
+			identity.IsDefault
+		);
 
 	public async Task<DraftDto> SaveDraft(SaveDraftRequest request)
 	{

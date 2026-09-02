@@ -64,6 +64,34 @@ export type IMailHub = {
     */
     getSendIdentities(accountId: string): Promise<SendIdentityDto[]>;
     /**
+    * Adds a send-as identity — the account's first ever becomes its default (§1, §15).
+    * @param accountId Transpiled from System.Guid
+    * @param displayName Transpiled from string
+    * @param emailAddress Transpiled from string
+    * @param signatureHtml Transpiled from string?
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.SendIdentityDto>
+    */
+    addSendIdentity(accountId: string, displayName: string, emailAddress: string, signatureHtml: string): Promise<SendIdentityDto>;
+    /**
+    * @param identityId Transpiled from System.Guid
+    * @param displayName Transpiled from string
+    * @param emailAddress Transpiled from string
+    * @param signatureHtml Transpiled from string?
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.SendIdentityDto>
+    */
+    updateSendIdentity(identityId: string, displayName: string, emailAddress: string, signatureHtml: string): Promise<SendIdentityDto>;
+    /**
+    * Promotes one identity to the account's default, demoting whichever one held it (§1).
+    * @param identityId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.SendIdentityDto>
+    */
+    setDefaultSendIdentity(identityId: string): Promise<SendIdentityDto>;
+    /**
+    * @param identityId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    deleteSendIdentity(identityId: string): Promise<void>;
+    /**
     * @param request Transpiled from MyloMail.Api.Contracts.SaveDraftRequest
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.DraftDto>
     */

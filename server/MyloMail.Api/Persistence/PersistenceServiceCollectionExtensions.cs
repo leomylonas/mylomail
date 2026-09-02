@@ -121,6 +121,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<SearchIndexer>();
 		services.AddScoped<MessageSearch>();
 		services.AddScoped<DraftService>();
+		services.AddScoped<SendIdentityService>();
 		services.AddScoped<DraftSyncService>();
 		services.AddScoped<RemoteDraftMaterializer>();
 		services.AddScoped<MailboxManagement>();

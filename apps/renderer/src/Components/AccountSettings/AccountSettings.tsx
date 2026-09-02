@@ -10,6 +10,7 @@ import type { HubConnection } from "@microsoft/signalr";
 import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
+import { SendIdentityManager } from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -143,6 +144,7 @@ export function AccountSettings({
 					hideCloseButton
 				/>
 			) : null}
+			<SendIdentityManager hub={hub} accountId={values.id} />
 			<ExportAccount hub={hub} accountId={values.id} />
 			<div>
 				<Button size="sm" onClick={() => void save()}>
