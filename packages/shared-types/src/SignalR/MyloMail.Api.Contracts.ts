@@ -26,6 +26,18 @@ export type AccountDto = {
     sortOrder: number;
     /** Transpiled from bool */
     sidebarCollapsed: boolean;
+    /** Transpiled from int */
+    pollIntervalSeconds: number;
+    /** Transpiled from bool */
+    pollingEnabled: boolean;
+    /** Transpiled from int */
+    undoSendDelaySeconds: number;
+    /** Transpiled from bool */
+    notificationsEnabled: boolean;
+    /** Transpiled from MyloMail.Api.Domain.CertificateTrustMode */
+    certificateTrustMode: CertificateTrustMode;
+    /** Transpiled from int */
+    attachmentSizeLimitOverride?: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AddAccountRequest */

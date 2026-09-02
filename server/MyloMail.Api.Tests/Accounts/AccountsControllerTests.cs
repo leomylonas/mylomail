@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Accounts;
 using MyloMail.Api.Contracts;
@@ -112,6 +113,41 @@ public sealed class AccountsControllerTests
 
 		Assert.NotNull(listed);
 		Assert.Contains(listed!, a => a.EmailAddress == "someone@example.org");
+	}
+
+	/// <summary>
+	/// The listed account carries the settings the form needs to open pre-filled with what
+	/// was actually saved, not defaults (§1) — AccountDto previously omitted all of these.
+	/// </summary>
+	[Fact]
+	public async Task Listing_reports_settings_saved_through_UpdateAccount()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Added", ProviderType.Gmail, "someone@example.org", null, null))
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var row = await context.Accounts.SingleAsync(a => a.Id == account.Id);
+			row.PollIntervalSeconds = 120;
+			row.AttachmentSizeLimitOverride = 10 * 1024 * 1024;
+			await context.SaveChangesAsync();
+			return true;
+		});
+
+		var listed = await harness.UsingAsync(async services =>
+		{
+			var response = await Controller(services).List(default);
+			return Assert.IsType<OkObjectResult>(response.Result).Value as IReadOnlyList<AccountDto>;
+		});
+
+		var dto = Assert.Single(listed!, a => a.Id == account.Id);
+		Assert.Equal(120, dto.PollIntervalSeconds);
+		Assert.Equal(10 * 1024 * 1024, dto.AttachmentSizeLimitOverride);
 	}
 
 	private static AccountsController Controller(IServiceProvider services) =>

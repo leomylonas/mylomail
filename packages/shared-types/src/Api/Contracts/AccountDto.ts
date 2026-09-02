@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { ProviderType } from '../Domain/ProviderType';
 import { AuthState } from '../Domain/AuthState';
+import { CertificateTrustMode } from '../Domain/CertificateTrustMode';
 
 export interface AccountDto {
   id: string;
@@ -18,6 +19,12 @@ export interface AccountDto {
   color: string;
   sortOrder: number;
   sidebarCollapsed: boolean;
+  pollIntervalSeconds: number;
+  pollingEnabled: boolean;
+  undoSendDelaySeconds: number;
+  notificationsEnabled: boolean;
+  certificateTrustMode: CertificateTrustMode;
+  attachmentSizeLimitOverride?: number;
 }
 
 export const AccountDtoSchema = z.object({
@@ -31,4 +38,10 @@ export const AccountDtoSchema = z.object({
   color: z.string(),
   sortOrder: z.number(),
   sidebarCollapsed: z.boolean(),
+  pollIntervalSeconds: z.number(),
+  pollingEnabled: z.boolean(),
+  undoSendDelaySeconds: z.number(),
+  notificationsEnabled: z.boolean(),
+  certificateTrustMode: z.nativeEnum(CertificateTrustMode),
+  attachmentSizeLimitOverride: z.number().nullable(),
 });

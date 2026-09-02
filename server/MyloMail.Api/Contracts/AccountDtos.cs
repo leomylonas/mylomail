@@ -7,6 +7,13 @@ namespace MyloMail.Api.Contracts;
 /// <remarks>
 /// <paramref name="EmailAddress"/> comes from the account's default <c>SendIdentity</c>,
 /// which is the authoritative address — <c>Account</c> deliberately has no address column.
+/// <para>
+/// Carries every field <c>AccountSettings.tsx</c> needs to open pre-filled with what was
+/// actually last saved, not a hardcoded default (§1) — this list was previously missing
+/// <see cref="PollIntervalSeconds"/> through <see cref="AttachmentSizeLimitOverride"/>
+/// entirely, so the settings form always opened showing defaults rather than the account's
+/// real values, however recently they were changed.
+/// </para>
 /// </remarks>
 [TranspilationSource]
 public record AccountDto(
@@ -19,7 +26,13 @@ public record AccountDto(
 	string? LastAuthError,
 	string Color,
 	int SortOrder,
-	bool SidebarCollapsed
+	bool SidebarCollapsed,
+	int PollIntervalSeconds,
+	bool PollingEnabled,
+	int UndoSendDelaySeconds,
+	bool NotificationsEnabled,
+	CertificateTrustMode CertificateTrustMode,
+	int? AttachmentSizeLimitOverride
 );
 
 /// <summary>

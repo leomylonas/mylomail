@@ -50,6 +50,7 @@ interface Account {
 	lastAuthError?: string | null;
 	sidebarCollapsed?: boolean;
 	attachmentSizeLimitOverride?: number | null;
+	certificateTrustMode?: CertificateTrustMode;
 }
 
 /**
@@ -438,7 +439,8 @@ function toSettings(
 		pollingEnabled: account?.pollingEnabled ?? true,
 		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
 		notificationsEnabled: account?.notificationsEnabled ?? true,
-		certificateTrustMode: CertificateTrustMode.Default,
+		certificateTrustMode:
+			account?.certificateTrustMode ?? CertificateTrustMode.Default,
 		attachmentSizeLimitOverride: account?.attachmentSizeLimitOverride ?? null,
 	};
 }

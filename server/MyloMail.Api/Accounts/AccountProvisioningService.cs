@@ -281,7 +281,13 @@ internal static class AccountDtoFactory
 			account.LastAuthError,
 			account.Color,
 			account.SortOrder,
-			account.SidebarCollapsed
+			account.SidebarCollapsed,
+			account.PollIntervalSeconds,
+			account.PollingEnabled,
+			account.UndoSendDelaySeconds,
+			account.NotificationsEnabled,
+			account.CertificateTrustMode,
+			account.AttachmentSizeLimitOverride
 		);
 }
 
