@@ -65,8 +65,14 @@ public record SyncProgressDto(
 /// <paramref name="IsFetched"/> is explicit because "no body yet" and "a message with no
 /// body" look identical otherwise, and only one of them is worth waiting for.
 /// </remarks>
+/// <param name="IsFailed">
+/// Content acquisition gave up after repeated attempts (§15) — distinct from
+/// <paramref name="IsFetched"/> being false while a fetch is still in progress or queued, so
+/// the reading pane can stop waiting instead of polling forever for content that will never
+/// arrive.
+/// </param>
 [TranspilationSource]
-public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched);
+public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched, bool IsFailed);
 
 /// <summary>Received attachment metadata; bytes remain solely in the raw MIME (§1).</summary>
 [TranspilationSource]

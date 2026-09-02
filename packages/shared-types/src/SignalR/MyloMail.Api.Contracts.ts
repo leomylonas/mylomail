@@ -174,6 +174,8 @@ export type MessageBodyDto = {
     html?: string;
     /** Transpiled from bool */
     isFetched: boolean;
+    /** Transpiled from bool */
+    isFailed: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AttachmentDto */

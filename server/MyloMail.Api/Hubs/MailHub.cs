@@ -266,7 +266,8 @@ public class MailHub(
 			messageId,
 			body?.TextBody,
 			body?.HtmlBody,
-			state?.Status == ContentStatus.Indexed
+			state?.Status == ContentStatus.Indexed,
+			state?.Status == ContentStatus.Failed
 		);
 	}
 

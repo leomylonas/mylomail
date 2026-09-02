@@ -31,6 +31,14 @@ public sealed class ContentAcquisition(
 	ILogger<ContentAcquisition> logger
 )
 {
+	/// <summary>
+	/// A single failure is treated as a transient blip — network flakiness mid-fetch, say —
+	/// and retried. Only after this many consecutive failures is the message given up on as
+	/// permanently unreadable, since a fetch that keeps failing on the same bytes would
+	/// otherwise be retried by <see cref="Scheduling.ContentJobs"/> forever.
+	/// </summary>
+	internal const int MaxAttempts = 5;
+
 	/// <summary>Fetches and stores one message's content.</summary>
 	public async Task AcquireAsync(Account account, Guid messageId, CancellationToken ct = default)
 	{
@@ -67,7 +75,10 @@ public sealed class ContentAcquisition(
 		}
 		catch (Exception ex)
 		{
-			state.Status = ContentStatus.Failed;
+			// Requeued rather than failed outright while attempts remain: a transient network
+			// blip mid-fetch must not read the same as permanently malformed data. `Attempts`
+			// was already incremented above the fetch, so this is attempt-counted correctly.
+			state.Status = state.Attempts < MaxAttempts ? ContentStatus.Queued : ContentStatus.Failed;
 			state.LastError = ex.Message;
 			await context.SaveChangesAsync(ct);
 			logger.LogWarning(ex, "Content fetch failed for message {MessageId}.", messageId);
@@ -94,13 +105,14 @@ public sealed class ContentAcquisition(
 		// inconsistent with the database.
 		context.ChangeTracker.Clear();
 
+		// See the fetch-failure catch above: retried while attempts remain, permanently
+		// failed only once they run out.
+		var status = state.Attempts < MaxAttempts ? ContentStatus.Queued : ContentStatus.Failed;
 		await context
 			.MessageContentStates.Where(c => c.MessageId == state.MessageId)
 			.ExecuteUpdateAsync(
 				updates =>
-					updates
-						.SetProperty(c => c.Status, ContentStatus.Failed)
-						.SetProperty(c => c.LastError, ex.Message),
+					updates.SetProperty(c => c.Status, status).SetProperty(c => c.LastError, ex.Message),
 				ct
 			);
 	}

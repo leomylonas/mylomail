@@ -10,6 +10,7 @@ interface MessageBody {
 	text: string | null;
 	html: string | null;
 	isFetched: boolean;
+	isFailed: boolean;
 }
 
 /**
@@ -42,8 +43,11 @@ export function ReadingPane({
 		queryKey: ["body", messageId],
 		queryFn: () => hub.invoke<MessageBody>("GetMessageBody", messageId),
 		// Content lands after the message does, so an unfetched body is worth asking about
-		// again; a fetched one never changes unless its raw content is replaced.
-		refetchInterval: (query) => (query.state.data?.isFetched ? false : 2000),
+		// again; a fetched one never changes unless its raw content is replaced. A failed one
+		// never will, having already exhausted its retries server-side (§15) — polling it
+		// forever would just be asking the same unanswerable question every two seconds.
+		refetchInterval: (query) =>
+			query.state.data?.isFetched || query.state.data?.isFailed ? false : 2000,
 	});
 
 	return (
@@ -83,6 +87,14 @@ function Body({
 	hub: HubConnection;
 	senderAddress?: string;
 }) {
+	if (body.isFailed)
+		return (
+			<p className={styles.waiting} role="alert">
+				Couldn&apos;t download this message. It may be temporarily unavailable
+				from the server.
+			</p>
+		);
+
 	if (!body.isFetched)
 		return <p className={styles.waiting}>Downloading this message…</p>;
 

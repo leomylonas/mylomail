@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
@@ -59,7 +60,6 @@ var app = builder.Build();
 app.UseLaunchToken();
 
 var attachmentTemp = app.Services.GetRequiredService<AttachmentTempDirectory>();
-attachmentTemp.Cleanup();
 app.Lifetime.ApplicationStopping.Register(attachmentTemp.Cleanup);
 
 // Eagerly resolved so its OS network-availability subscription is live from startup, not from
@@ -100,6 +100,17 @@ await using (var scope = app.Services.CreateAsyncScope())
 	// behind a durable queue (§6). It runs after migration and before any job can be
 	// enqueued, so nothing outstanding is left unowned.
 	await scope.ServiceProvider.GetRequiredService<StartupScheduler>().ScheduleAsync();
+
+	// Must run after migration: on a fresh install AppSettings' table does not exist until
+	// MigrateAsync creates it just above, so reading it any earlier throws before the
+	// database is even there to read (§9).
+	var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+	var settings = await context.AppSettings.FirstOrDefaultAsync();
+	// A missing row is equivalent to all-defaults (§9), and the default is true.
+	if (settings?.AttachmentTempCleanupOnStartup ?? true)
+	{
+		attachmentTemp.Cleanup();
+	}
 }
 
 // The low-frequency half of connectivity discovery (§3, §15) — the OS event handles an

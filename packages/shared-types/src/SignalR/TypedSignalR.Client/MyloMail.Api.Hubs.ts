@@ -163,11 +163,28 @@ export type IMailHub = {
     */
     moveMessages(accountId: string, messageIds: string[], targetMailboxId: string): Promise<void>;
     /**
+    * Drops one membership without deleting the message (§6) — meaningful only where a
+    * message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
+    * from : this never touches the message itself.
+    * @param accountId Transpiled from System.Guid
+    * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @param mailboxId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    removeFromMailbox(accountId: string, messageIds: string[], mailboxId: string): Promise<void>;
+    /**
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     moveToTrash(accountId: string, messageIds: string[]): Promise<void>;
+    /**
+    * Deletes the message outright — never reversible by the app (§6).
+    * @param accountId Transpiled from System.Guid
+    * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    deletePermanently(accountId: string, messageIds: string[]): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarSummaryDto>>

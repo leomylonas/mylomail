@@ -178,8 +178,16 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("MoveMessages", accountId, messageIds, targetMailboxId);
     }
 
+    public readonly removeFromMailbox = async (accountId: string, messageIds: string[], mailboxId: string): Promise<void> => {
+        return await this.connection.invoke("RemoveFromMailbox", accountId, messageIds, mailboxId);
+    }
+
     public readonly moveToTrash = async (accountId: string, messageIds: string[]): Promise<void> => {
         return await this.connection.invoke("MoveToTrash", accountId, messageIds);
+    }
+
+    public readonly deletePermanently = async (accountId: string, messageIds: string[]): Promise<void> => {
+        return await this.connection.invoke("DeletePermanently", accountId, messageIds);
     }
 
     public readonly getCalendars = async (accountId: string): Promise<CalendarSummaryDto[]> => {
