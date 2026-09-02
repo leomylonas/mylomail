@@ -11,6 +11,8 @@ import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Ap
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
 import { SendIdentityManager } from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -44,16 +46,25 @@ export function AccountSettings({
 }) {
 	const [values, setValues] = useState(initial);
 	const [saved, setSaved] = useState(false);
+	const { store: notifications } = useWindowNotifications();
 
 	const save = async () => {
-		// The server clamps the poll interval and undo window and returns what it applied, so
-		// the form shows the value in force rather than the one that was asked for.
-		const applied = await hub.invoke<AccountSettingsValues>(
-			"UpdateAccount",
-			values,
-		);
-		setValues(applied);
-		setSaved(true);
+		try {
+			// The server clamps the poll interval and undo window and returns what it
+			// applied, so the form shows the value in force rather than the one asked for.
+			const applied = await hub.invoke<AccountSettingsValues>(
+				"UpdateAccount",
+				values,
+			);
+			setValues(applied);
+			setSaved(true);
+		} catch (error) {
+			notify(notifications, {
+				kind: "error",
+				title: "These settings could not be saved",
+				detail: error instanceof Error ? error.message : String(error),
+			});
+		}
 	};
 
 	return (

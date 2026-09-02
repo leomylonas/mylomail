@@ -19,6 +19,8 @@ import type {
 	SendIdentityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
 interface Sent {
@@ -78,6 +80,18 @@ export function Compose({
 	 */
 	seed?: ComposeSeed;
 }) {
+	const { store: notifications } = useWindowNotifications();
+	// save() itself keeps throwing rather than reporting internally: send/detach/the
+	// forward-attachment-copy effect all await it and need to know it failed so they can skip
+	// their own next step, not proceed as if a draft id existed. Every top-level, fire-and-
+	// forget entry point below reports on its own catch instead.
+	const reportFailure = (title: string) => (error: unknown) =>
+		notify(notifications, {
+			kind: "error",
+			title,
+			detail: error instanceof Error ? error.message : String(error),
+		});
+
 	const [to, setTo] = useState(() => formatAddresses(draft?.to ?? seed?.to));
 	const [cc, setCc] = useState(() => formatAddresses(draft?.cc ?? seed?.cc));
 	const [bcc, setBcc] = useState(() =>
@@ -147,7 +161,9 @@ export function Compose({
 					setBody((current) => `${current}<p><br></p>${chosen.signatureHtml}`);
 				}
 			}
-		})().finally(() => setEditorReady(true));
+		})()
+			.catch(reportFailure("The send-from addresses could not be loaded"))
+			.finally(() => setEditorReady(true));
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per mount
 	}, []);
 
@@ -216,10 +232,30 @@ export function Compose({
 	// response to it. Skipped while empty: an untouched compose pane should not litter Drafts.
 	useEffect(() => {
 		if (!to && !subject && !body) return;
-		const timer = setTimeout(() => void save(), 2000);
+		const timer = setTimeout(
+			() => void save().catch(reportFailure("This draft could not be saved")),
+			2000,
+		);
 		return () => clearTimeout(timer);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- `save` reads fieldsRef, not these values, at run time
 	}, [to, cc, bcc, subject, body]);
+
+	/** Shared by manual/dropped file uploads and forward's copy-from-original-message path. */
+	const uploadAttachment = async (
+		id: string,
+		content: Blob,
+		filename: string,
+	): Promise<void> => {
+		const form = new FormData();
+		form.append("file", content, filename);
+		const response = await fetch(`/drafts/${id}/attachments`, {
+			method: "POST",
+			body: form,
+		});
+		if (!response.ok) throw new Error(`Could not attach ${filename}.`);
+		const attachment = (await response.json()) as DraftAttachment;
+		setAttachments((current) => [...current, attachment]);
+	};
 
 	// A forward's own attachments have to be copied onto the new draft server-side — there is
 	// no "attach this other message's attachment" concept, only "upload bytes" — so this reads
@@ -261,6 +297,8 @@ export function Compose({
 						`Couldn't copy ${failed.length === 1 ? "this attachment" : "these attachments"} from the original message: ${failed.join(", ")}.`,
 					);
 				}
+			} catch (error) {
+				reportFailure("This draft could not be saved")(error);
 			} finally {
 				setBusy(false);
 			}
@@ -270,8 +308,12 @@ export function Compose({
 
 	const detach = async () => {
 		if (!onDetach) return;
-		const id = await save();
-		onDetach(id);
+		try {
+			const id = await save();
+			onDetach(id);
+		} catch (error) {
+			reportFailure("This draft could not be saved")(error);
+		}
 	};
 
 	/**
@@ -332,6 +374,12 @@ export function Compose({
 				scheduledFor ? scheduledFor.toISOString() : null,
 			);
 			setSent({ outboxItemId, cancelled: false, scheduledFor });
+		} catch (error) {
+			reportFailure(
+				scheduledFor
+					? "This message could not be scheduled"
+					: "This message could not be sent",
+			)(error);
 		} finally {
 			setBusy(false);
 			setSchedulePickerOpen(false);
@@ -361,23 +409,6 @@ export function Compose({
 		void send(target);
 	};
 
-	/** Shared by manual/dropped file uploads and forward's copy-from-original-message path. */
-	const uploadAttachment = async (
-		id: string,
-		content: Blob,
-		filename: string,
-	): Promise<void> => {
-		const form = new FormData();
-		form.append("file", content, filename);
-		const response = await fetch(`/drafts/${id}/attachments`, {
-			method: "POST",
-			body: form,
-		});
-		if (!response.ok) throw new Error(`Could not attach ${filename}.`);
-		const attachment = (await response.json()) as DraftAttachment;
-		setAttachments((current) => [...current, attachment]);
-	};
-
 	const addFiles = async (files: FileList | File[]) => {
 		setBusy(true);
 		try {
@@ -385,6 +416,8 @@ export function Compose({
 			for (const file of Array.from(files)) {
 				await uploadAttachment(id, file, file.name);
 			}
+		} catch (error) {
+			reportFailure("This attachment could not be added")(error);
 		} finally {
 			setBusy(false);
 		}
@@ -402,6 +435,8 @@ export function Compose({
 			setAttachments((current) =>
 				current.filter((attachment) => attachment.id !== attachmentId),
 			);
+		} catch (error) {
+			reportFailure("This attachment could not be removed")(error);
 		} finally {
 			setBusy(false);
 		}
@@ -411,11 +446,15 @@ export function Compose({
 	// does the honest answer is that the message has gone (§15).
 	const undo = async () => {
 		if (!sent) return;
-		const cancelled = await hub.invoke<boolean>(
-			"CancelScheduledSend",
-			sent.outboxItemId,
-		);
-		setSent({ ...sent, cancelled });
+		try {
+			const cancelled = await hub.invoke<boolean>(
+				"CancelScheduledSend",
+				sent.outboxItemId,
+			);
+			setSent({ ...sent, cancelled });
+		} catch (error) {
+			reportFailure("The send could not be undone")(error);
+		}
 	};
 
 	if (sent) {
@@ -465,7 +504,7 @@ export function Compose({
 						// then persist the identity this selection just replaced. Updated
 						// directly here so this explicit, discrete save is never stale.
 						fieldsRef.current = { ...fieldsRef.current, sendIdentityId: id };
-						void save();
+						void save().catch(reportFailure("This draft could not be saved"));
 					}}
 				>
 					{identities.map((identity) => (
@@ -610,7 +649,9 @@ export function Compose({
 					size="sm"
 					kind="tertiary"
 					disabled={busy}
-					onClick={() => void save()}
+					onClick={() =>
+						void save().catch(reportFailure("This draft could not be saved"))
+					}
 				>
 					Save draft
 				</Button>
