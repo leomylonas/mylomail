@@ -488,6 +488,25 @@ This is a snapshot of the current state, not a history; use Git for history.
   that menu entry; documented the gap directly on the hub method (`MailHub.cs`) so it gets wired
   in once IMAP/Graph's mutation divergence — already a named, deferred "stage C" piece of work —
   actually distinguishes "remove from this folder" from "delete."
+- **Ninth architecture.md pass — two Electron-shell gaps in `Main.ts`.** (1) §9: "Electron
+  detects unexpected backend process exit and offers restart" had no implementation — only
+  `BackendSupervisor`'s own startup-phase race was covered (the credential-store restart case), so
+  a mid-session backend crash was silently unhandled. Added an `exit` listener on `backend.child`
+  right after startup succeeds, guarded by the existing `quitting` flag; on an unexpected exit it
+  offers Restart/Quit and, on Restart, does `app.relaunch()` + `app.exit(0)` — the whole app
+  relaunches fresh rather than re-plumbing a new backend into windows that assumed a still-live
+  connection. (2) §13 Epic 10: minimize-to-tray was applying to every window's close, not just the
+  _last_ one — closing a popped-out compose window while the main window stayed open hid it to the
+  tray instead of closing normally. Fixed by additionally requiring
+  `BrowserWindow.getAllWindows().length === 1` in the close handler, confirmed correct by
+  `invariant-review` against Electron's documented event order (`close` fires before a window is
+  removed from that list). `invariant-review` also confirmed `relaunch()`+`exit()` is the correct
+  Electron restart pattern and that `app.exit()` doesn't re-trigger `before-quit` (no
+  dialog-stacking loop), flagging one accepted, narrow edge case: a backend crash landing during
+  the exact window the quit-confirmation dialog is already open could show both dialogs at once.
+  No `Main.test.ts` exists for this file — verified by code review + `pnpm check` (clean, under
+  Node 22), consistent with how this session's other `Main.ts` work (quit-confirm, mailto-prompt)
+  was verified.
 
 ## Next task
 
