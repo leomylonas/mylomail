@@ -572,6 +572,24 @@ This is a snapshot of the current state, not a history; use Git for history.
   rest. `pnpm check` clean, `dotnet test` 274 passed/0 failed (unchanged — no dedicated tests
   added for the new hub methods, consistent with this codebase's existing pattern for thin
   passthrough hub methods).
+- **Twelfth architecture.md pass — §15 "Signatures" was entirely unimplemented on the
+  frontend.** `SendIdentity` (multiple send-as identities per account, each with its own
+  display name/address/signature, explicitly in scope per the doc) existed as a backend schema
+  with `DraftService` silently always resolving the account's default — never exposed to the
+  renderer at all: no generated type, no hub method, no UI. Added `GetSendIdentities` +
+  `SendIdentityDto`; `DraftDto`/`SaveDraftRequest` gained `SendIdentityId`, round-tripped the
+  same way `InReplyToMessageId` already is. `Compose.tsx` now shows a "From" selector when an
+  account has more than one identity, and appends the chosen identity's signature after any
+  reply/forward quote for a brand-new draft only (never an existing one, whose saved body
+  already reflects whatever the user kept). `invariant-review` caught two real bugs before this
+  shipped: the appended signature never actually rendered, because `Editor` (Lexical) only reads
+  its `initialHtml` once at construction and never re-syncs from a later `body` state change —
+  fixed by delaying `Editor`'s first render (skeleton placeholder) until the signature has
+  already been folded into `body`, for a brand-new draft only; and the "From" selector's
+  immediate on-select save (bypassing the normal debounce, since a discrete choice should
+  persist promptly) could read a stale identity from `fieldsRef`, which is otherwise only kept
+  current by a passive effect running after paint — later than the already-chained save's
+  microtask — fixed by updating `fieldsRef.current` directly in the selector's own handler.
 
 ## Next task
 
