@@ -455,6 +455,26 @@ This is a snapshot of the current state, not a history; use Git for history.
   errors that look unrelated to the diff; `nvm use 22` first) and `dotnet test` (267 passed). Not
   re-run against a live Microsoft 365 tenant — the AADSTS code matching is confirmed correct by
   reading MSAL's actual exception hierarchy, not by an interactive consent-blocked login.
+- **Seventh architecture.md pass — tombstone garbage collection (§6) had no implementation at
+  all.** A message losing every mailbox membership was documented as becoming a tombstone that
+  persists "until mutation state, reconciliation state and other references permit collection,"
+  but no code anywhere ever deleted a `Message` row — local storage grew unbounded for every
+  message ever deleted server-side. New `TombstoneGcJobs` (self-scheduling, one message per pass,
+  wired into `StartupScheduler` per enabled account) finds zero-membership messages and checks
+  exactly the references §6 names — a non-terminal `MutationItem`, a pending
+  `MessagePendingChange`, an undelivered `NotificationRecord`, a `Draft.InReplyToMessageId` — before
+  deleting the FTS5 search row (via the existing `SearchIndexer.RemoveAsync`) and the `Message`
+  row itself in one transaction. `invariant-review` caught two real problems in the first draft:
+  (1) critical — zero membership was treated as immediately collectible, which violates §3's
+  documented Graph-move race (a folder move's source-removal and destination-addition deltas can
+  arrive minutes apart, in either order); fixed with a new `Message.OrphanedAt` column, set the
+  first time GC notices zero membership and cleared the moment membership returns, with a 30-minute
+  grace period before collection. (2) the eligibility check and the delete were non-atomic; fixed
+  by re-running the check immediately before the delete, inside the same transaction — narrows the
+  TOCTOU window but does not fully eliminate it, since `MutationItem.MessageId`/
+  `Draft.InReplyToMessageId` deliberately carry no FK (see `TombstoneGcJobs.TryCollectAsync`'s own
+  remarks). 6 new tests cover the grace period, each reference kind, and a message regaining
+  membership before its grace period elapses. Verified with `dotnet test` (274 passed, up from 267) and `pnpm check` (clean, under Node 22).
 
 ## Next task
 
@@ -500,3 +520,9 @@ This is a snapshot of the current state, not a history; use Git for history.
   ETag and IMAP carries the Drafts UID.
 - Use Node 22 (`source "$HOME/.nvm/nvm.sh" && nvm use`) and wrappers only: `pnpm status`,
   `pnpm check`; do not invoke raw `dotnet`, `tsc`, ESLint or Vitest.
+- `TombstoneGcJobs`'s eligibility-then-delete TOCTOU window is narrowed, not closed: a draft save
+  or mutation enqueue landing in the gap between the in-transaction recheck and the delete would
+  still reference a row that's gone, since `MutationItem.MessageId`/`Draft.InReplyToMessageId`
+  deliberately have no FK. Accepted for now as an extremely narrow, already-rare window (requires
+  a message sitting orphaned for 30+ minutes AND a concurrent write landing in a sub-transaction
+  gap); revisit if it's ever observed in practice.
