@@ -251,6 +251,11 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		CancellationToken ct
 	)
 	{
+		// Any occurrence at all means this message is no longer a GC candidate — a late Graph
+		// destination delta landing after collection started noticed it orphaned is exactly
+		// the race §3/§6 require GC to survive.
+		message.OrphanedAt = null;
+
 		var existing =
 			context
 				.ChangeTracker.Entries<MessageMailbox>()

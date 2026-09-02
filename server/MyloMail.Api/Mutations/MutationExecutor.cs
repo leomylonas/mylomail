@@ -265,6 +265,11 @@ public sealed class MutationExecutor(
 			{
 				occurrence.ProviderOccurrenceId = change.NewProviderOccurrenceId!;
 			}
+
+			// A membership just landed — no longer a GC candidate, however briefly it may
+			// have looked like one (§6).
+			var landed = await context.Messages.FirstAsync(m => m.Id == outcome.MessageId, ct);
+			landed.OrphanedAt = null;
 		}
 
 		if (item.OperationKind == MutationOperationKind.SetFlags)

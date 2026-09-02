@@ -70,6 +70,19 @@ public class Message
 	/// <summary>Whether <see cref="MessageRaw"/> has been populated.</summary>
 	public bool RawFetched { get; set; }
 
+	/// <summary>
+	/// When tombstone collection first observed this message with no mailbox membership at
+	/// all. Null while it has at least one, and cleared the moment it gains one again (§6).
+	/// </summary>
+	/// <remarks>
+	/// Exists only so collection can wait out §3's Graph-move race — a source-removal delta
+	/// and its matching destination-addition delta can arrive minutes apart, in either order,
+	/// leaving a canonical message transiently membership-less. Recorded the first time
+	/// collection notices, not the moment membership actually dropped, which only ever makes
+	/// the wait longer than the race requires, never shorter.
+	/// </remarks>
+	public DateTimeOffset? OrphanedAt { get; set; }
+
 	public ICollection<MessageMailbox> Occurrences { get; set; } = [];
 }
 

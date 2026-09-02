@@ -57,6 +57,11 @@ public sealed class StartupScheduler(
 			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
 			jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 
+			// A standing sweep, not outstanding work interrupted by the crash: tombstone
+			// collection is idempotent and re-scans from DB state on every pass, so it needs
+			// no persisted "was running" signal — only a restart of the loop (§6).
+			jobs.Enqueue<TombstoneGcJobs>(j => j.SweepAsync(accountId, default));
+
 			// Pending sends and unresolved ones both go through the outbox job: it reconciles
 			// before it dispatches, so a send left mid-flight by the crash is settled before
 			// anything new goes out.

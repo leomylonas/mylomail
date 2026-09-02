@@ -192,6 +192,14 @@ public sealed class MutationReconciler(
 		{
 			context.MessageMailboxes.Remove(occurrence);
 		}
+
+		if (locations.Count > 0)
+		{
+			// Membership survives (or is regained) here — no longer a GC candidate (§6).
+			var message = await context.Messages.FirstAsync(m => m.Id == messageId, ct);
+			message.OrphanedAt = null;
+		}
+
 		foreach (var (mailboxId, providerId) in locations)
 		{
 			var occurrence = existing.FirstOrDefault(o => o.MailboxId == mailboxId);

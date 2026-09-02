@@ -20,6 +20,7 @@ public sealed class SchedulingTests
 	[Theory]
 	[InlineData(typeof(SyncJobs))]
 	[InlineData(typeof(MutationJobs))]
+	[InlineData(typeof(TombstoneGcJobs))]
 	public void Every_job_type_disables_automatic_retry(Type jobType)
 	{
 		var attribute = jobType.GetCustomAttribute<AutomaticRetryAttribute>();
