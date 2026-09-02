@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Sidebar/Sidebar.module.css";
 
 interface SidebarAccount {
@@ -29,13 +31,25 @@ export function Sidebar({
 	accounts: SidebarAccount[];
 }) {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+	// Without this a failed drag-to-reorder or collapse toggle just silently reverted on the
+	// next accounts refetch, indistinguishable from the app having ignored the action —
+	// the same reasoning MailboxTree's own mutations already follow.
+	const reportFailure = (title: string) => (error: unknown) =>
+		notify(notifications, {
+			kind: "error",
+			title,
+			detail: error instanceof Error ? error.message : String(error),
+		});
 
 	const reorder = useMutation({
 		mutationFn: (orderedAccountIds: string[]) =>
 			hub.invoke("ReorderAccounts", orderedAccountIds),
 		onSuccess: () =>
 			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+		onError: reportFailure("The accounts could not be reordered"),
 	});
 
 	const toggleCollapsed = useMutation({
@@ -47,6 +61,7 @@ export function Sidebar({
 			),
 		onSuccess: () =>
 			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+		onError: reportFailure("The sidebar setting could not be saved"),
 	});
 
 	return (

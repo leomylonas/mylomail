@@ -26,6 +26,12 @@ export function DraftList({
 	}, [drafts, hub]);
 
 	if (drafts.isLoading) return <p className={styles.empty}>Loading drafts…</p>;
+	if (drafts.isError)
+		return (
+			<p className={styles.empty} role="alert">
+				Could not load drafts.
+			</p>
+		);
 	if (!drafts.data?.length) return <p className={styles.empty}>No drafts.</p>;
 	return (
 		<ul className={styles.drafts}>
