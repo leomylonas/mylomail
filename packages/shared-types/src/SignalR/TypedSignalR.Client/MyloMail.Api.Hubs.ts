@@ -432,6 +432,16 @@ export type IMailClient = {
     */
     connectivityChanged(online: boolean): Promise<void>;
     /**
+    * App-wide theme/close-behaviour/mailto-prompt state changed (§7, §13 Epic 10).
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    shellSettingsChanged(): Promise<void>;
+    /**
+    * The remote-content allow list changed (§7, §13 Epic 5, Epic 10).
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    trustedSendersChanged(): Promise<void>;
+    /**
     * Relayed straight to the preload bridge, which asks electron-shell to show the
     * native OS notification. Dispatch is the shell's job, not the renderer's (§13 Epic 9).
     * @param notification Transpiled from MyloMail.Api.Contracts.NotificationDto

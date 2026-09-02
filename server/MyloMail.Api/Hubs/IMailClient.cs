@@ -59,6 +59,12 @@ public interface IMailClient
 	/// </summary>
 	Task ConnectivityChanged(bool online);
 
+	/// <summary>App-wide theme/close-behaviour/mailto-prompt state changed (§7, §13 Epic 10).</summary>
+	Task ShellSettingsChanged();
+
+	/// <summary>The remote-content allow list changed (§7, §13 Epic 5, Epic 10).</summary>
+	Task TrustedSendersChanged();
+
 	/// <summary>
 	/// Relayed straight to the preload bridge, which asks <c>electron-shell</c> to show the
 	/// native OS notification. Dispatch is the shell's job, not the renderer's (§13 Epic 9).

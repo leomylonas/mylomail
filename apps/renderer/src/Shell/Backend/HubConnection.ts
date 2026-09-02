@@ -115,6 +115,20 @@ export function connectHub(
 		queryClient.setQueryData(queryKeys.connectivity(), online);
 	});
 
+	// Theme/close-behaviour/mailto-prompt and the remote-content allow list (§13 Epics 8, 5)
+	// changed in some window — every window converges per Epic 10's "all actions reflected
+	// live across all open windows." Panel layout/window bounds are deliberately excluded
+	// upstream (a read-once-at-open default, not something every window syncs to).
+	hub.on("ShellSettingsChanged", () => {
+		void queryClient.invalidateQueries({ queryKey: ["shell-settings"] });
+	});
+
+	hub.on("TrustedSendersChanged", () => {
+		void queryClient.invalidateQueries({
+			queryKey: ["remote-content-trusted-senders"],
+		});
+	});
+
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic
 	// state has already been reverted, so without this the flag springs back with no
 	// explanation and the user is left believing the app is simply unreliable.

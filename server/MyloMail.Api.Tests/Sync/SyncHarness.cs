@@ -285,4 +285,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 	public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
 
 	public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;
+
+	public Task ShellSettingsChangedAsync() => Task.CompletedTask;
+
+	public Task TrustedSendersChangedAsync() => Task.CompletedTask;
 }

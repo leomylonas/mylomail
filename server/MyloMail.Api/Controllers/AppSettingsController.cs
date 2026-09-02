@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Contracts;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Controllers;
@@ -9,11 +10,13 @@ namespace MyloMail.Api.Controllers;
 /// Shell-wide settings that are not per-account (§13 Epic 11): a window reads the global default
 /// panel layout and last-known bounds once at open, and writes back the same singleton row —
 /// never a per-window value — when the user resizes or moves it (§12: global persisted default,
-/// live per-window state does not sync elsewhere).
+/// live per-window state does not sync elsewhere). Theme/close-behaviour/mailto-prompt have no
+/// such carve-out, so those three broadcast <see cref="IHubEvents.ShellSettingsChangedAsync"/>
+/// per Epic 10's "all actions reflected live across all open windows."
 /// </summary>
 [ApiController]
 [Route("shell-settings")]
-public class AppSettingsController(MyloMailDbContext context) : ControllerBase
+public class AppSettingsController(MyloMailDbContext context, IHubEvents events) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<ShellSettingsDto>> Get(CancellationToken ct)
@@ -39,6 +42,7 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 		var settings = await GetOrCreateAsync(ct);
 		settings.CloseBehavior = request.CloseBehavior;
 		await context.SaveChangesAsync(ct);
+		await events.ShellSettingsChangedAsync();
 		return NoContent();
 	}
 
@@ -48,6 +52,7 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 		var settings = await GetOrCreateAsync(ct);
 		settings.Theme = request.Theme;
 		await context.SaveChangesAsync(ct);
+		await events.ShellSettingsChangedAsync();
 		return NoContent();
 	}
 
@@ -84,6 +89,7 @@ public class AppSettingsController(MyloMailDbContext context) : ControllerBase
 		var settings = await GetOrCreateAsync(ct);
 		settings.MailtoPromptDismissed = request.Dismissed;
 		await context.SaveChangesAsync(ct);
+		await events.ShellSettingsChangedAsync();
 		return NoContent();
 	}
 

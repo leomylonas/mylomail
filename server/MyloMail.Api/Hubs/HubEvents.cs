@@ -63,6 +63,22 @@ public interface IHubEvents
 	/// show one calm offline state rather than per-mailbox errors multiplying every poll (§15).
 	/// </summary>
 	Task ConnectivityChangedAsync(bool online);
+
+	/// <summary>
+	/// Theme, close behaviour, or the mailto-prompt dismissal changed — the app-wide settings
+	/// (§13 Epic 8) other than panel layout/window bounds, which are deliberately a
+	/// read-once-at-open default rather than something every open window converges on
+	/// (§12, <see cref="Controllers.AppSettingsController"/>'s own doc comment). Epic 10
+	/// requires actions reflected live across every window; this is that requirement for the
+	/// shell-settings singleton row.
+	/// </summary>
+	Task ShellSettingsChangedAsync();
+
+	/// <summary>
+	/// The remote-content allow list (§13 Epic 5) changed. A message showing a "load remote
+	/// content" prompt in one window for a sender just trusted in another must not keep asking.
+	/// </summary>
+	Task TrustedSendersChangedAsync();
 }
 
 /// <summary>Broadcasts to every connected renderer.</summary>
@@ -105,6 +121,10 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 		hub.Clients.All.ExportProgress(exportId, written, total);
 
 	public Task ConnectivityChangedAsync(bool online) => hub.Clients.All.ConnectivityChanged(online);
+
+	public Task ShellSettingsChangedAsync() => hub.Clients.All.ShellSettingsChanged();
+
+	public Task TrustedSendersChangedAsync() => hub.Clients.All.TrustedSendersChanged();
 }
 
 /// <summary>
@@ -141,4 +161,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
 
 	public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;
+
+	public Task ShellSettingsChangedAsync() => Task.CompletedTask;
+
+	public Task TrustedSendersChangedAsync() => Task.CompletedTask;
 }

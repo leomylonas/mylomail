@@ -309,6 +309,8 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
         const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
         const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
+        const __shellSettingsChanged = () => receiver.shellSettingsChanged();
+        const __trustedSendersChanged = () => receiver.trustedSendersChanged();
         const __notificationReady = (...args: [NotificationDto]) => receiver.notificationReady(...args);
 
         connection.on("AccountStatusChanged", __accountStatusChanged);
@@ -325,6 +327,8 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
         connection.on("CalendarConflictDetected", __calendarConflictDetected);
         connection.on("ConnectivityChanged", __connectivityChanged);
+        connection.on("ShellSettingsChanged", __shellSettingsChanged);
+        connection.on("TrustedSendersChanged", __trustedSendersChanged);
         connection.on("NotificationReady", __notificationReady);
 
         const methodList: ReceiverMethod[] = [
@@ -342,6 +346,8 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
             { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
             { methodName: "ConnectivityChanged", method: __connectivityChanged },
+            { methodName: "ShellSettingsChanged", method: __shellSettingsChanged },
+            { methodName: "TrustedSendersChanged", method: __trustedSendersChanged },
             { methodName: "NotificationReady", method: __notificationReady }
         ]
 
