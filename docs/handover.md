@@ -1037,6 +1037,33 @@ check` clean under Node 22.
   the EF-translatability split is correct in both directions, and nothing under `Mutations/`'s
   frozen invariants is touched. 22 new tests. `dotnet test` 330 passed/0 failed (up from 308).
   `pnpm check` clean under Node 22.
+- **Passes 45-47 — no gap found; forty-eighth pass — recurring calendar events never actually
+  recurred in the UI, a genuine missing core feature, built with user approval.** Passes 45-47
+  checked default-record races, crash-window coverage, Electron auto-update, export
+  resumability, and accessibility on recently-added components — all clean. The forty-eighth
+  pass then found `RecurrenceRules` were stored as raw unparsed RRULE strings and never
+  expanded anywhere — a weekly event showed once, on the week it was created, and never again,
+  directly contradicting §13 Epic 7's "correct time/timezone/recurrence handling." Raised to
+  the user as a scope decision (query-time vs. sync-time expansion, vs. just documenting the
+  gap); they approved query-time expansion. Added `Ical.Net` for RRULE/RDATE/EXDATE parsing;
+  `CalendarRecurrenceExpander.Expand` (pure, stateless) generates occurrences within a window,
+  bounded by the window itself or a defensive 2000-occurrence cap;
+  `CalendarEventOccurrences.ForCalendarAsync` correlates each generated occurrence against the
+  master's pre-fetched override/cancelled rows (keyed by original `RECURRENCE-ID` slot, one
+  query, no N+1) — a modified override replaces it, a cancelled one suppresses it, anything
+  else is synthesised as a virtual row with a stable deterministic id. The Ical.Net API itself
+  was verified empirically via a throwaway compiled/executed probe before being relied on, not
+  guessed from memory — including confirming the DST-transition timezone conversion is
+  genuinely correct (a 9am `America/New_York` weekly event across the 2026-03-08 transition
+  correctly shifts UTC instant while holding 9am local time). `invariant-review` independently
+  re-derived the DST correctness by tracing the actual conversion code, confirmed override
+  precedence can't double-show or miss a slot under any ordering, confirmed no N+1, and
+  confirmed nothing under `Mutations/`'s frozen invariants is touched. Deliberately deferred:
+  true per-occurrence editing of a not-yet-materialised virtual occurrence (would need
+  extending `SaveAsync`/`CalendarEventInput` to create a real override row and push it to
+  CalDAV) — clicking one today routes to editing the whole series, the same behaviour a
+  recurring master already had. 9 new tests. `dotnet test` 339 passed/0 failed (up from 330).
+  `pnpm check` clean under Node 22.
 
 ## Next task
 
