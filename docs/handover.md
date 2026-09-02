@@ -475,6 +475,19 @@ This is a snapshot of the current state, not a history; use Git for history.
   `Draft.InReplyToMessageId` deliberately carry no FK (see `TombstoneGcJobs.TryCollectAsync`'s own
   remarks). 6 new tests cover the grace period, each reference kind, and a message regaining
   membership before its grace period elapses. Verified with `dotnet test` (274 passed, up from 267) and `pnpm check` (clean, under Node 22).
+- **Eighth architecture.md pass — `RemoveFromMailbox`/`DeletePermanently` fully implemented but
+  unreachable from the UI.** §7 lists both as client-facing batch message-mutation hub methods;
+  the mutation kinds, queue, executor, reconciler, per-provider handling and a Gmail-specific
+  recovery policy all existed, but `MailHub`/`IMailHub` never declared either method. Added both,
+  following the existing `MoveToTrash`/`SetFlags` per-message-loop pattern, and wired
+  `DeletePermanently` into the message-list context menu. `RemoveFromMailbox` is intentionally
+  **not** wired into any UI yet: `invariant-review` found IMAP's implementation is a placeholder
+  that expunges the message outright and Graph's forwards straight to permanent deletion — a
+  first draft's "Remove from this folder" menu entry (no danger styling) would have made a
+  mild-looking action silently and irreversibly delete mail on any non-Gmail account. Removed
+  that menu entry; documented the gap directly on the hub method (`MailHub.cs`) so it gets wired
+  in once IMAP/Graph's mutation divergence — already a named, deferred "stage C" piece of work —
+  actually distinguishes "remove from this folder" from "delete."
 
 ## Next task
 
@@ -494,6 +507,12 @@ This is a snapshot of the current state, not a history; use Git for history.
    explicitly flagged as unconfirmed in `GraphMailProvider.Send.cs`'s own comment. Running
    `GmailConformanceTests`/`GraphConformanceTests` for real needs `.dev/provider-test.env`
    sourced and, if no cached token still works, a fresh interactive OAuth consent click.
+4. **IMAP/Graph "stage C" mutation divergence** — `RemoveFromMailbox`'s IMAP and Graph
+   implementations both currently collapse to the same effect as `DeletePermanently`
+   (`ImapMailProvider.Mutations.cs`, `GraphMailProvider.Mutations.cs`), which is why the hub
+   method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
+   vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
+   context menu the same way `DeletePermanently` already is.
 
 ## Read first
 
