@@ -516,6 +516,8 @@ public class MailHub(
 		account.UndoSendDelaySeconds = Math.Max(settings.UndoSendDelaySeconds, 0);
 		account.NotificationsEnabled = settings.NotificationsEnabled;
 		account.CertificateTrustMode = settings.CertificateTrustMode;
+		account.AttachmentSizeLimitOverride =
+			settings.AttachmentSizeLimitOverride is > 0 ? settings.AttachmentSizeLimitOverride : null;
 
 		await context.SaveChangesAsync();
 		return settings with

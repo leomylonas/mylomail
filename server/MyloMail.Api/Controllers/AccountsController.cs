@@ -89,6 +89,14 @@ public class AccountsController(
 		{
 			return Problem("Independent SMTP credentials need a user name.", statusCode: 400, title: "Missing SMTP user name");
 		}
+		if (request.InitialSyncMode != InitialSyncMode.Full && request.InitialSyncBoundValue is not > 0)
+		{
+			return Problem(
+				"A bounded initial sync needs a positive month/message count.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing initial sync bound"
+			);
+		}
 
 		try
 		{
@@ -101,7 +109,9 @@ public class AccountsController(
 					ToSecret(request),
 					ToCalDavSecret(request),
 					ToSmtpSecret(request),
-					request.CertificateTrustMode
+					request.CertificateTrustMode,
+					request.InitialSyncMode,
+					request.InitialSyncBoundValue
 				),
 				ct
 			);

@@ -22,6 +22,8 @@ export interface AccountSettingsValues {
 	undoSendDelaySeconds: number;
 	notificationsEnabled: boolean;
 	certificateTrustMode: CertificateTrustMode;
+	/** Bytes. Null leaves it unset — the provider's own limit (or "unknown") applies (§15). */
+	attachmentSizeLimitOverride: number | null;
 }
 
 /**
@@ -144,6 +146,26 @@ export function AccountSettings({
 					hideCloseButton
 				/>
 			) : null}
+			<NumberInput
+				id="settings-attachment-limit"
+				label="Maximum attachment size override (MB)"
+				helperText="Leave at 0 to use the provider's own limit."
+				min={0}
+				value={
+					values.attachmentSizeLimitOverride
+						? Math.round(values.attachmentSizeLimitOverride / (1024 * 1024))
+						: 0
+				}
+				onChange={(_, { value }) =>
+					setValues({
+						...values,
+						attachmentSizeLimitOverride:
+							Number(value) > 0
+								? Math.round(Number(value) * 1024 * 1024)
+								: null,
+					})
+				}
+			/>
 			<SendIdentityManager hub={hub} accountId={values.id} />
 			<ExportAccount hub={hub} accountId={values.id} />
 			<div>

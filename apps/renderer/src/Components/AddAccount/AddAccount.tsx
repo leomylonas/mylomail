@@ -13,6 +13,7 @@ import {
 } from "@carbon/react";
 import {
 	CertificateTrustMode,
+	InitialSyncMode,
 	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import type { AddAccountRequest } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
@@ -59,6 +60,13 @@ interface FormState {
 	 * `AccountSettings` once the account is there to pin one for.
 	 */
 	trustCertificateOnRetry: boolean;
+	/**
+	 * Bounded (last N months/messages) or full-history initial sync (§3, §13 Epic 3) — set
+	 * once, at account creation, since re-bounding an already-synced account is a different
+	 * operation (backfilling further, not starting over) that this form doesn't offer.
+	 */
+	initialSyncMode: InitialSyncMode;
+	initialSyncBoundValue: number;
 }
 
 const initial: FormState = {
@@ -76,6 +84,8 @@ const initial: FormState = {
 	smtpUserName: "",
 	smtpSecret: "",
 	trustCertificateOnRetry: false,
+	initialSyncMode: InitialSyncMode.Full,
+	initialSyncBoundValue: 3,
 };
 
 /**
@@ -112,6 +122,11 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				certificateTrustMode: trustCertificate
 					? CertificateTrustMode.TrustAll
 					: CertificateTrustMode.Default,
+				initialSyncMode: form.initialSyncMode,
+				initialSyncBoundValue:
+					form.initialSyncMode === InitialSyncMode.Full
+						? undefined
+						: form.initialSyncBoundValue,
 			};
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
@@ -272,6 +287,46 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				<p className={styles.helper}>
 					Sign-in for this provider is not wired up yet.
 				</p>
+			)}
+
+			<RadioButtonGroup
+				legendText="Initial sync"
+				name="initial-sync-mode"
+				valueSelected={String(form.initialSyncMode)}
+				onChange={(value) =>
+					set("initialSyncMode", Number(value) as InitialSyncMode)
+				}
+			>
+				<RadioButton
+					id="initial-sync-full"
+					labelText="Full history"
+					value={String(InitialSyncMode.Full)}
+				/>
+				<RadioButton
+					id="initial-sync-months"
+					labelText="Last N months"
+					value={String(InitialSyncMode.LastNMonths)}
+				/>
+				<RadioButton
+					id="initial-sync-messages"
+					labelText="Last N messages"
+					value={String(InitialSyncMode.LastNMessages)}
+				/>
+			</RadioButtonGroup>
+			{form.initialSyncMode === InitialSyncMode.Full ? null : (
+				<NumberInput
+					id="initial-sync-bound"
+					label={
+						form.initialSyncMode === InitialSyncMode.LastNMonths
+							? "Months"
+							: "Messages"
+					}
+					min={1}
+					value={form.initialSyncBoundValue}
+					onChange={(_, { value }) =>
+						set("initialSyncBoundValue", Number(value))
+					}
+				/>
 			)}
 
 			{add.isError && add.error instanceof AddAccountError ? (

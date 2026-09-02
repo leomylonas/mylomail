@@ -25,7 +25,9 @@ public sealed record NewAccount(
 	CredentialPayload? Secret,
 	CredentialPayload? CalDavSecret = null,
 	CredentialPayload? SmtpSecret = null,
-	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default
+	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default,
+	InitialSyncMode InitialSyncMode = InitialSyncMode.Full,
+	int? InitialSyncBoundValue = null
 );
 
 /// <summary>
@@ -73,7 +75,10 @@ public sealed class AccountProvisioningService(
 			AuthState = AuthState.Connected,
 			IsEnabled = true,
 			PollIntervalSeconds = 60,
-			InitialSyncMode = InitialSyncMode.Full,
+			InitialSyncMode = request.InitialSyncMode,
+			InitialSyncBoundValue = request.InitialSyncMode == InitialSyncMode.Full
+				? null
+				: request.InitialSyncBoundValue,
 			SortOrder = await context.Accounts.CountAsync(ct),
 			// Never notify for anything dated before this instant (§13 Epic 9) — set once,
 			// here, and never moved afterwards.

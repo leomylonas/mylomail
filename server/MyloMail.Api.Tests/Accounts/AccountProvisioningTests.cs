@@ -272,6 +272,58 @@ public sealed class AccountProvisioningTests
 		});
 	}
 
+	[Fact]
+	public async Task A_bounded_initial_sync_choice_is_persisted_on_the_account()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(
+					new NewAccount(
+						"Test",
+						ProviderType.Gmail,
+						"someone@example.org",
+						null,
+						null,
+						InitialSyncMode: InitialSyncMode.LastNMonths,
+						InitialSyncBoundValue: 3
+					)
+				)
+		);
+
+		Assert.Equal(InitialSyncMode.LastNMonths, account.InitialSyncMode);
+		Assert.Equal(3, account.InitialSyncBoundValue);
+	}
+
+	[Fact]
+	public async Task An_unbounded_initial_sync_choice_carries_no_bound_value_even_if_one_was_supplied()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(
+					new NewAccount(
+						"Test",
+						ProviderType.Gmail,
+						"someone@example.org",
+						null,
+						null,
+						// A stray bound value with Full mode is meaningless and must not be
+						// stored as if it meant something.
+						InitialSyncMode: InitialSyncMode.Full,
+						InitialSyncBoundValue: 3
+					)
+				)
+		);
+
+		Assert.Equal(InitialSyncMode.Full, account.InitialSyncMode);
+		Assert.Null(account.InitialSyncBoundValue);
+	}
+
 	private static CredentialPayload Secret() => new("imap-password", "hunter2"u8.ToArray());
 
 	private static Task<Account> AddAsync(MutationHarness harness, string address, CredentialPayload? secret = null) =>

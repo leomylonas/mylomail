@@ -49,6 +49,7 @@ interface Account {
 	authState?: AuthState;
 	lastAuthError?: string | null;
 	sidebarCollapsed?: boolean;
+	attachmentSizeLimitOverride?: number | null;
 }
 
 /**
@@ -438,6 +439,7 @@ function toSettings(
 		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
 		notificationsEnabled: account?.notificationsEnabled ?? true,
 		certificateTrustMode: CertificateTrustMode.Default,
+		attachmentSizeLimitOverride: account?.attachmentSizeLimitOverride ?? null,
 	};
 }
 

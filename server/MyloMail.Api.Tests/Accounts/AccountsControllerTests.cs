@@ -70,6 +70,29 @@ public sealed class AccountsControllerTests
 		AssertProblem(result, StatusCodes.Status400BadRequest);
 	}
 
+	/// <summary>A bounded initial sync with no bound is meaningless — nothing to bound by.</summary>
+	[Fact]
+	public async Task A_bounded_initial_sync_with_no_bound_value_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Gmail,
+					"someone@example.org",
+					null,
+					null,
+					InitialSyncMode: InitialSyncMode.LastNMonths
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
 	/// <summary>The listed address comes from the default identity, not from the account row.</summary>
 	[Fact]
 	public async Task Listing_reports_the_address_from_the_default_identity()

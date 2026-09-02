@@ -180,6 +180,11 @@ public record SendIdentityDto(
 public record AccountCapabilitiesDto(Guid AccountId, bool DeletingMailboxDeletesMessages);
 
 /// <summary>The per-account settings a user can change (§1).</summary>
+/// <param name="AttachmentSizeLimitOverride">
+/// A user-set ceiling, in bytes, on outgoing attachment size for this account — read by
+/// <c>IMailProvider.GetAttachmentConstraintsAsync</c> alongside whatever the provider itself
+/// reports (§15). Null leaves it unset; the provider's own limit (or "unknown") applies.
+/// </param>
 [TranspilationSource]
 public record AccountSettingsDto(
 	Guid Id,
@@ -189,7 +194,8 @@ public record AccountSettingsDto(
 	bool PollingEnabled,
 	int UndoSendDelaySeconds,
 	bool NotificationsEnabled,
-	CertificateTrustMode CertificateTrustMode
+	CertificateTrustMode CertificateTrustMode,
+	int? AttachmentSizeLimitOverride
 );
 
 [TranspilationSource]

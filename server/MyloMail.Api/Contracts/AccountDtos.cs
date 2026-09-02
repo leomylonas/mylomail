@@ -45,7 +45,14 @@ public record AddAccountRequest(
 	/// A retry after a rejected certificate is the only place this is set to anything but
 	/// <see cref="CertificateTrustMode.Default"/>.
 	/// </summary>
-	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default
+	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default,
+	/// <summary>
+	/// Bounded (last N months/messages) or full-history initial sync (§3, §13 Epic 3) — set
+	/// once, at creation; there is no later "re-bound an existing account" operation.
+	/// </summary>
+	InitialSyncMode InitialSyncMode = InitialSyncMode.Full,
+	/// <summary>Required when <see cref="InitialSyncMode"/> is not <see cref="Domain.InitialSyncMode.Full"/>.</summary>
+	int? InitialSyncBoundValue = null
 );
 
 /// <summary>
