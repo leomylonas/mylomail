@@ -29,6 +29,8 @@ public sealed class FakeMailProvider : IMailProvider
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
 	private Exception? sendFailure;
+	private Exception? draftPushFailure;
+	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
 	private MutationProblemDetails? authFailureProblem;
 	private long occurrenceSequence;
@@ -61,6 +63,19 @@ public sealed class FakeMailProvider : IMailProvider
 
 	/// <summary>Makes the next send throw, so a rejection path can be exercised.</summary>
 	public void FailSendWith(Exception failure) => sendFailure = failure;
+
+	/// <summary>
+	/// Makes a later draft push throw after minting a provider id (a real remote draft was
+	/// created — the failure is the process crashing before that news gets home, not the
+	/// provider call itself failing). <paramref name="successesBeforeFailure"/> earlier pushes
+	/// within the same batch succeed normally first, so a caller can assert those earlier
+	/// successes are not lost when a later one in the same batch fails.
+	/// </summary>
+	public void FailDraftPushWith(Exception failure, int successesBeforeFailure = 0)
+	{
+		draftPushFailure = failure;
+		draftPushSuccessesBeforeFailure = successesBeforeFailure;
+	}
 
 	/// <summary>Removes a mailbox behind the client's back, as another client would.</summary>
 	public void RemoveMailbox(string providerMailboxId) => mailboxes.Remove(providerMailboxId);
@@ -444,12 +459,36 @@ public sealed class FakeMailProvider : IMailProvider
 		return Task.CompletedTask;
 	}
 
+	/// <summary>
+	/// Every provider id this fake has handed out for a draft push, in call order — a real
+	/// provider has no way to tell "update" from "create" once <see cref="Draft.ProviderDraftId"/>
+	/// is lost, so it always mints a fresh id, exactly like this fake does.
+	/// </summary>
+	public List<string> DraftProviderIdsIssued { get; } = [];
+
 	public Task<DraftResult> CreateOrUpdateDraftAsync(
 		Account account,
 		Draft draft,
 		string? expectedRevision,
 		CancellationToken ct
-	) => Task.FromResult(new DraftResult(NextOccurrenceId(), "rev-1"));
+	)
+	{
+		var providerId = NextOccurrenceId();
+		DraftProviderIdsIssued.Add(providerId);
+		if (draftPushFailure is Exception failure)
+		{
+			if (draftPushSuccessesBeforeFailure > 0)
+			{
+				draftPushSuccessesBeforeFailure--;
+			}
+			else
+			{
+				draftPushFailure = null;
+				throw failure;
+			}
+		}
+		return Task.FromResult(new DraftResult(providerId, "rev-1"));
+	}
 
 	public Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct) =>
 		Task.CompletedTask;

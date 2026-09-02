@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -25,7 +26,8 @@ public sealed class DraftSyncService(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	IHubEvents events,
-	ILogger<DraftSyncService> logger
+	ILogger<DraftSyncService> logger,
+	IFaultInjector faults
 )
 {
 	public async Task<int> PushAsync(Guid accountId, CancellationToken ct = default)
@@ -66,6 +68,8 @@ public sealed class DraftSyncService(
 				draft.ProviderRevision = result.ProviderRevision;
 				draft.PushedAt = sending;
 				pushed++;
+
+				faults.Reached(FaultPoints.DraftPushAfterProviderCallBeforeCommit);
 			}
 			catch (ProviderConflictException ex)
 			{
@@ -81,10 +85,14 @@ public sealed class DraftSyncService(
 				return pushed;
 			}
 
+			// Saved per-draft, not batched after the loop (§16): a crash between two drafts'
+			// pushes must not lose the ProviderDraftId a provider call already committed
+			// server-side, which would otherwise leave that draft looking un-pushed and create
+			// an orphaned duplicate on retry.
+			await context.SaveChangesAsync(ct);
 			await events.DraftUpdatedAsync(draft.Id);
 		}
 
-		await context.SaveChangesAsync(ct);
 		return pushed;
 	}
 

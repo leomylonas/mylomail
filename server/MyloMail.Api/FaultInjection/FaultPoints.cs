@@ -42,6 +42,13 @@ public static class FaultPoints
 	/// staged events have not yet been replayed into the canonical model.
 	/// </summary>
 	public const string SyncBeforeStagedReplay = "sync.before-staged-replay";
+
+	/// <summary>
+	/// A draft push's provider call has returned (the remote draft now genuinely exists),
+	/// before that result is saved. The window a batched save would have crossed without
+	/// noticing — the remote side effect already happened and cannot be replayed away.
+	/// </summary>
+	public const string DraftPushAfterProviderCallBeforeCommit = "draft-push.after-provider-call-before-commit";
 }
 
 /// <summary>Kills the process at a named point, or does nothing.</summary>
