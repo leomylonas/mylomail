@@ -131,7 +131,8 @@ public sealed class DraftService(
 	}
 
 	/// <summary>
-	/// Queues a draft for sending, after the account's undo-send delay.
+	/// Queues a draft for sending, after the account's undo-send delay, or at an explicit
+	/// future time if <paramref name="scheduledFor"/> is given.
 	/// </summary>
 	/// <remarks>
 	/// The draft is not deleted here. It remains the authoring document until the send
@@ -139,12 +140,16 @@ public sealed class DraftService(
 	/// and a user whose cancelled message had already been destroyed would have lost their
 	/// work (§15).
 	/// </remarks>
-	public async Task<OutboxItem> SendAsync(Guid draftId, CancellationToken ct = default)
+	public async Task<OutboxItem> SendAsync(
+		Guid draftId,
+		DateTimeOffset? scheduledFor = null,
+		CancellationToken ct = default
+	)
 	{
 		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
 		var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
 
-		return await outbox.QueueAsync(account, draft.Id, ct: ct);
+		return await outbox.QueueAsync(account, draft.Id, scheduledFor, ct: ct);
 	}
 
 	/// <summary>Cancels a queued send, if it has not already been taken for dispatch.</summary>
