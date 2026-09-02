@@ -1,12 +1,30 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
 	useMutation,
 	useQuery,
 	useQueryClient,
 	type QueryClient,
 } from "@tanstack/react-query";
+import {
+	flexRender,
+	type SortingState,
+	type FilterFn,
+} from "@tanstack/react-table";
+// TanStack Table v9 replaced the v8 `useReactTable`/`createColumnHelper` API with a new
+// `useTable`/`createTableHook` paradigm; the `/legacy` subpath is the library's own official
+// v8-compatibility shim (deprecated, but a maintained export, not a hack) and is used here
+// deliberately so this reads exactly like the well-documented v8 API rather than the very new
+// v9 one. Migrating to `useTable` is a reasonable future cleanup, not required for correctness.
+import {
+	useLegacyTable as useReactTable,
+	getCoreRowModel,
+	getSortedRowModel,
+	getFilteredRowModel,
+	legacyCreateColumnHelper as createColumnHelper,
+} from "@tanstack/react-table/legacy";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { HubConnection } from "@microsoft/signalr";
-import { SkeletonText } from "@carbon/react";
+import { SkeletonText, TextInput } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
@@ -22,6 +40,7 @@ interface MessageSummary {
 	receivedAt: string;
 	isRead: boolean;
 	isFlagged: boolean;
+	hasNonInlineAttachments: boolean;
 }
 
 interface PendingChange {
@@ -31,6 +50,57 @@ interface PendingChange {
 }
 
 const isReadField = 0;
+
+const columnHelper = createColumnHelper<MessageSummary>();
+
+/**
+ * Row height fed to the virtualizer as an estimate (§12). Rows in this list are all the same
+ * height — unlike the calendar agenda's day rows, which vary with event count — so this is a
+ * constant rather than a per-row measurement, and `measureElement` still corrects it if a row
+ * ever does render taller (e.g. a very long wrapped subject).
+ */
+const rowHeightEstimate = 64;
+
+/**
+ * Matches across the fields the row itself displays, not full-text search: this is a fast,
+ * local narrowing of whatever page of messages is already loaded, distinct from the `Search`
+ * hub method the search box already triggers server-side (§12, §13 Epic 6).
+ */
+const globalFilterFn: FilterFn<MessageSummary> = (
+	row,
+	_columnId,
+	filterValue,
+) => {
+	const needle = String(filterValue).trim().toLowerCase();
+	if (!needle) return true;
+	const message = row.original;
+	return (
+		message.subject.toLowerCase().includes(needle) ||
+		message.snippet.toLowerCase().includes(needle) ||
+		describeSender(message).toLowerCase().includes(needle)
+	);
+};
+
+const columns = [
+	columnHelper.accessor((row) => describeSender(row), {
+		id: "from",
+		header: "From",
+	}),
+	columnHelper.accessor("subject", {
+		id: "subject",
+		header: "Subject",
+	}),
+	columnHelper.accessor("receivedAt", {
+		id: "receivedAt",
+		header: "Date",
+		// ISO timestamps sort correctly as strings only when every value shares the same
+		// offset convention; comparing parsed instants is correct regardless of how the
+		// server serialised the offset.
+		sortingFn: (a, b) =>
+			new Date(a.original.receivedAt).getTime() -
+			new Date(b.original.receivedAt).getTime(),
+	}),
+];
 
 export function MessageList({
 	hub,
@@ -68,6 +138,11 @@ export function MessageList({
 		new Set(),
 	);
 	const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
+
+	// Outlook-style sortable columns and a local filter (§12) — client-side over whatever page
+	// is already loaded, not a new server round trip.
+	const [sorting, setSorting] = useState<SortingState>([]);
+	const [filterText, setFilterText] = useState("");
 
 	// One list, two sources. Searching scopes to the selected mailbox, because a search from
 	// inside a folder that silently returned results from everywhere would be a different
@@ -137,9 +212,33 @@ export function MessageList({
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
 	});
 
+	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
+	// filter narrowed the view stays selected, so a bulk action or shortcut still acts on
+	// everything the user actually picked, not just what happens to still be visible.
 	const selectedMessages = (messages.data ?? []).filter((message) =>
 		selectedIds.has(message.id),
 	);
+
+	const table = useReactTable({
+		data: messages.data ?? [],
+		columns,
+		state: { sorting, globalFilter: filterText },
+		onSortingChange: setSorting,
+		onGlobalFilterChange: setFilterText,
+		globalFilterFn,
+		getCoreRowModel: getCoreRowModel(),
+		getSortedRowModel: getSortedRowModel(),
+		getFilteredRowModel: getFilteredRowModel(),
+	});
+	const rows = table.getRowModel().rows;
+
+	const parentRef = useRef<HTMLDivElement>(null);
+	const virtualizer = useVirtualizer({
+		count: rows.length,
+		getScrollElement: () => parentRef.current,
+		estimateSize: () => rowHeightEstimate,
+		overscan: 8,
+	});
 
 	// Follows the current selection, not just the context-menu target, so a shortcut and a
 	// multi-select bulk action cannot diverge in what "the selection" means (§13 Epic 6).
@@ -204,101 +303,163 @@ export function MessageList({
 
 	return (
 		<>
-			<ul className={styles.list}>
-				{messages.data.map((message, index) => {
-					const read = isRead(message, pending.data);
-					const isSelected = selectedIds.has(message.id);
+			<div className={styles.toolbar}>
+				<TextInput
+					id="message-list-filter"
+					labelText="Filter messages"
+					hideLabel
+					placeholder="Filter messages…"
+					size="sm"
+					value={filterText}
+					onChange={(event) => setFilterText(event.target.value)}
+				/>
+			</div>
+			<div className={styles.headerRow} role="row">
+				{table.getHeaderGroups()[0].headers.map((header) => {
+					const sorted = header.column.getIsSorted();
 					return (
-						<li key={message.id}>
-							<button
-								type="button"
-								aria-pressed={isSelected}
-								className={`${styles.row} ${read ? "" : styles.unread} ${isSelected ? styles.selected : ""}`}
-								draggable
-								onDragStart={(event) => {
-									// Dragging a row that's part of a multi-selection carries the
-									// whole selection; dragging any other row carries just itself
-									// (§13 Epic 6), matching the same "acts on the whole
-									// selection, or resets to one" convention right-click uses.
-									const ids =
-										isSelected && selectedIds.size > 1
-											? [...selectedIds]
-											: [message.id];
-									event.dataTransfer.setData(messageDragType, ids.join(","));
-									event.dataTransfer.effectAllowed = "move";
-								}}
-								onContextMenu={(event) => {
-									event.preventDefault();
-									// Right-clicking a message already part of a multi-selection
-									// acts on the whole selection, following the same convention
-									// as ctrl/shift-click; right-clicking outside it starts a new
-									// one-message selection instead of leaving a stale one active.
-									const targets =
-										isSelected && selectedIds.size > 1
-											? selectedMessages
-											: [message];
-									if (!isSelected || selectedIds.size === 1) {
-										setSelectedIds(new Set([message.id]));
-										setAnchorIndex(index);
-									}
-									setMenu({ x: event.clientX, y: event.clientY, targets });
-								}}
-								onClick={(event) => {
-									if (event.shiftKey && anchorIndex !== null) {
-										const [start, end] = [
-											Math.min(anchorIndex, index),
-											Math.max(anchorIndex, index),
-										];
-										setSelectedIds(
-											new Set(
-												messages.data
-													.slice(start, end + 1)
-													.map((row) => row.id),
-											),
-										);
-										return;
-									}
-
-									if (event.ctrlKey || event.metaKey) {
-										setSelectedIds((current) => {
-											const next = new Set(current);
-											if (next.has(message.id)) next.delete(message.id);
-											else next.add(message.id);
-											return next;
-										});
-										setAnchorIndex(index);
-										return;
-									}
-
-									setSelectedIds(new Set([message.id]));
-									setAnchorIndex(index);
-									onSelect({ ...message, from: senderAddress(message) });
-									// Opening a message marks it read, as every mail client does.
-									// Already-read messages enqueue nothing: a redundant mutation
-									// would still be a real provider call.
-									if (!read)
-										setFlags.mutate({
-											messages: [message],
-											isRead: true,
-											isFlagged: null,
-										});
-								}}
-							>
-								<span>
-									{message.subject || "(no subject)"}
-									<br />
-									<span className={styles.sender}>
-										{describeSender(message)}
-									</span>
-								</span>
-								<span className={styles.sender}>
-									{new Date(message.receivedAt).toLocaleString()}
-								</span>
-							</button>
-						</li>
+						<button
+							key={header.id}
+							type="button"
+							className={styles.headerCell}
+							onClick={header.column.getToggleSortingHandler()}
+							aria-sort={
+								sorted === "asc"
+									? "ascending"
+									: sorted === "desc"
+										? "descending"
+										: "none"
+							}
+						>
+							{flexRender(header.column.columnDef.header, header.getContext())}
+							{sorted === "asc" ? " ▲" : sorted === "desc" ? " ▼" : null}
+						</button>
 					);
 				})}
-			</ul>
+				<span className={styles.headerCell} aria-hidden="true" />
+			</div>
+			{rows.length === 0 ? (
+				<p className={styles.empty}>No messages match that filter.</p>
+			) : (
+				<div ref={parentRef} className={styles.scroller} role="list">
+					<div
+						className={styles.spacer}
+						style={{ height: virtualizer.getTotalSize() }}
+					>
+						{virtualizer.getVirtualItems().map((item) => {
+							const message = rows[item.index].original;
+							const index = item.index;
+							const read = isRead(message, pending.data);
+							const isSelected = selectedIds.has(message.id);
+							return (
+								<div
+									key={message.id}
+									ref={virtualizer.measureElement}
+									data-index={index}
+									role="listitem"
+									className={styles.virtualRow}
+									style={{ transform: `translateY(${item.start}px)` }}
+								>
+									<button
+										type="button"
+										aria-pressed={isSelected}
+										className={`${styles.row} ${read ? "" : styles.unread} ${isSelected ? styles.selected : ""}`}
+										draggable
+										onDragStart={(event) => {
+											// Dragging a row that's part of a multi-selection carries
+											// the whole selection; dragging any other row carries just
+											// itself (§13 Epic 6), matching the same "acts on the whole
+											// selection, or resets to one" convention right-click uses.
+											const ids =
+												isSelected && selectedIds.size > 1
+													? [...selectedIds]
+													: [message.id];
+											event.dataTransfer.setData(
+												messageDragType,
+												ids.join(","),
+											);
+											event.dataTransfer.effectAllowed = "move";
+										}}
+										onContextMenu={(event) => {
+											event.preventDefault();
+											// Right-clicking a message already part of a
+											// multi-selection acts on the whole selection, following
+											// the same convention as ctrl/shift-click; right-clicking
+											// outside it starts a new one-message selection instead of
+											// leaving a stale one active.
+											const targets =
+												isSelected && selectedIds.size > 1
+													? selectedMessages
+													: [message];
+											if (!isSelected || selectedIds.size === 1) {
+												setSelectedIds(new Set([message.id]));
+												setAnchorIndex(index);
+											}
+											setMenu({ x: event.clientX, y: event.clientY, targets });
+										}}
+										onClick={(event) => {
+											if (event.shiftKey && anchorIndex !== null) {
+												const [start, end] = [
+													Math.min(anchorIndex, index),
+													Math.max(anchorIndex, index),
+												];
+												setSelectedIds(
+													new Set(
+														rows
+															.slice(start, end + 1)
+															.map((row) => row.original.id),
+													),
+												);
+												return;
+											}
+
+											if (event.ctrlKey || event.metaKey) {
+												setSelectedIds((current) => {
+													const next = new Set(current);
+													if (next.has(message.id)) next.delete(message.id);
+													else next.add(message.id);
+													return next;
+												});
+												setAnchorIndex(index);
+												return;
+											}
+
+											setSelectedIds(new Set([message.id]));
+											setAnchorIndex(index);
+											onSelect({ ...message, from: senderAddress(message) });
+											// Opening a message marks it read, as every mail client
+											// does. Already-read messages enqueue nothing: a
+											// redundant mutation would still be a real provider call.
+											if (!read)
+												setFlags.mutate({
+													messages: [message],
+													isRead: true,
+													isFlagged: null,
+												});
+										}}
+									>
+										<span className={styles.cell}>
+											{describeSender(message)}
+										</span>
+										<span className={styles.cell}>
+											{message.subject || "(no subject)"}
+											<br />
+											<span className={styles.sender}>{message.snippet}</span>
+										</span>
+										<span className={styles.cell}>
+											{new Date(message.receivedAt).toLocaleString()}
+										</span>
+										<span className={styles.indicators} aria-hidden="true">
+											{message.isFlagged ? "🚩" : null}
+											{message.hasNonInlineAttachments ? "📎" : null}
+										</span>
+									</button>
+								</div>
+							);
+						})}
+					</div>
+				</div>
+			)}
 			{menu ? (
 				<MessageContextMenu
 					open

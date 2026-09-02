@@ -1,13 +1,58 @@
-.list {
+.toolbar {
+	padding: var(--cds-spacing-03) var(--cds-spacing-05);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.headerRow {
+	display: grid;
+	grid-template-columns: 160px 1fr 140px 48px;
+	gap: var(--cds-spacing-03);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.headerCell {
+	padding: var(--cds-spacing-03) var(--cds-spacing-05);
+	border: none;
+	background: none;
+	color: var(--cds-text-secondary);
+	font: inherit;
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-align: left;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+}
+
+.headerCell:hover {
+	color: var(--cds-text-primary);
+}
+
+.scroller {
 	overflow-y: auto;
-	height: 100%;
+	/* Fills whatever height remains under the toolbar and header, which are not virtualised. */
+	height: calc(100% - 5rem);
+}
+
+.spacer {
+	position: relative;
+	width: 100%;
+}
+
+.virtualRow {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
 }
 
 .row {
 	display: grid;
-	grid-template-columns: 1fr auto;
+	grid-template-columns: 160px 1fr 140px 48px;
+	align-items: center;
 	gap: var(--cds-spacing-03);
 	width: 100%;
+	height: 100%;
 	padding: var(--cds-spacing-04) var(--cds-spacing-05);
 	border: none;
 	border-bottom: 1px solid var(--cds-border-subtle);
@@ -20,6 +65,18 @@
 
 .row:hover {
 	background: var(--cds-layer-hover);
+}
+
+.cell {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.indicators {
+	display: flex;
+	gap: var(--cds-spacing-02);
+	font-size: 0.875rem;
 }
 
 .unread {
