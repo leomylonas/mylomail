@@ -807,6 +807,33 @@ test` 292 passed/0 failed (unchanged — read-only accessor, no new backend logi
   `PollRegistry`/`StartChangeStreamsAsync`'s existing safety property through the real code path,
   not `MailHub.UpdateAccount` end-to-end — no MailHub-level test harness exists in this codebase).
   `dotnet test` 296 passed/0 failed (up from 293). `pnpm check` clean under Node 22.
+- **Twenty-fifth through twenty-seventh passes — no gap found.** Applied the twenty-fourth
+  pass's "is this persisted/settable field load-bearing anywhere, or a silent no-op" angle
+  exhaustively to every remaining `Account`/`AccountSettingsDto`/`ImapProviderConfig` field
+  (twenty-fifth), then every `Mailbox`/`ImapMailboxMetadata` field (twenty-sixth — one always-
+  unused field, `Mailbox.IsSubscribed`, judged not a gap since no UI ever promises it does
+  anything, unlike `PollingEnabled`'s user-facing broken toggle), then every `Calendar`/
+  `SendIdentity`/`Draft` field (twenty-seventh). All confirmed genuinely consumed or
+  deliberately UI-only by design. This angle is now exhausted across the plausible domain
+  classes.
+- **Twenty-eighth pass — §10's Serilog logging pipeline was never built.** The doc promises
+  "Serilog, async sink... A shared enricher/destructuring policy partially obfuscates
+  identifying fields (e.g. email addresses)"; the app ran on ASP.NET Core's bare default
+  logging, with zero Serilog references anywhere. Not an active leak — grepped for any log call
+  interpolating a body/subject/credential/token and found none, so the no-PII half of the
+  promise was already honored by discipline — but the infrastructure itself didn't exist.
+  Raised to the user as a scope decision (Serilog vs. the already-referenced-but-unwired
+  OpenTelemetry packages, vs. just fixing the doc); they chose to build Serilog as documented.
+  Added `Serilog.AspNetCore`/`Enrichers.Thread`/`Sinks.Async`/`Sinks.File`; wired an async file
+  sink under the same `dataDirectory` the database already uses, `Microsoft`/`System` log-level
+  overrides (EF Core's SQL-per-statement diagnostics were flooding the log at Information,
+  discovered via manual smoke test), and `EmailMaskingDestructuringPolicy` — the doc's "shared
+  enricher/destructuring policy" — which masks an `@`-destructured `Address`'s email to its
+  first character plus domain. `invariant-review` confirmed no PII risk from the now-durable
+  log file (nothing sensitive was logged before either), correct log-level-override scoping,
+  and correct middleware placement. Manually smoke-tested the built app starting, migrating,
+  and writing a real log file end-to-end. 2 new tests against a real Serilog `Logger`. `dotnet
+test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
 
 ## Next task
 
