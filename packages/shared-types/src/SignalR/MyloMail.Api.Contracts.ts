@@ -446,6 +446,18 @@ export type MessageInviteDto = {
     myResponseStatus?: InviteResponse;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.AttachmentConstraintsDto */
+export type AttachmentConstraintsDto = {
+    /** Transpiled from long */
+    apiPerFileLimit?: number;
+    /** Transpiled from long */
+    knownMessageSizeLimit?: number;
+    /** Transpiled from long */
+    configuredOverride?: number;
+    /** Transpiled from bool */
+    isUnknown: boolean;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.NotificationDto */
 export type NotificationDto = {
     /** Transpiled from System.Guid */

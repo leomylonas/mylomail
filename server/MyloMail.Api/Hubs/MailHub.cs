@@ -52,6 +52,12 @@ public interface IMailHub
 
 	Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId);
 
+	/// <summary>
+	/// The account's attachment limits (§15), for Compose to check before send. Reported
+	/// honestly rather than as a single number — see <see cref="AttachmentConstraintsDto"/>.
+	/// </summary>
+	Task<AttachmentConstraintsDto> GetAttachmentConstraints(Guid accountId);
+
 	/// <summary>The address/subject/date fields a reply or forward is built from (§13).</summary>
 	Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId);
 
@@ -586,6 +592,19 @@ public class MailHub(
 		return new AccountCapabilitiesDto(
 			accountId,
 			providers.For(account).Capabilities.DeletingMailboxDeletesMessages
+		);
+	}
+
+	/// <inheritdoc cref="IMailHub.GetAttachmentConstraints" />
+	public async Task<AttachmentConstraintsDto> GetAttachmentConstraints(Guid accountId)
+	{
+		var account = await context.Accounts.FirstAsync(a => a.Id == accountId);
+		var constraints = await providers.For(account).GetAttachmentConstraintsAsync(account, default);
+		return new AttachmentConstraintsDto(
+			constraints.ApiPerFileLimit,
+			constraints.KnownMessageSizeLimit,
+			constraints.ConfiguredOverride,
+			constraints.IsUnknown
 		);
 	}
 

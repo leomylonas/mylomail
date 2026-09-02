@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -46,6 +46,13 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.AttachmentDto>>
     */
     getAttachmentMetadata(messageId: string): Promise<AttachmentDto[]>;
+    /**
+    * The account's attachment limits (§15), for Compose to check before send. Reported
+    * honestly rather than as a single number — see .
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AttachmentConstraintsDto>
+    */
+    getAttachmentConstraints(accountId: string): Promise<AttachmentConstraintsDto>;
     /**
     * The address/subject/date fields a reply or forward is built from (§13).
     * @param messageId Transpiled from System.Guid

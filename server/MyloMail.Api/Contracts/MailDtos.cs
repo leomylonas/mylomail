@@ -285,6 +285,19 @@ public record MessageInviteDto(
 );
 
 /// <summary>
+/// Attachment limits for the compose window (§15), reported honestly rather than as a single
+/// number — see <see cref="Providers.Contracts.AttachmentConstraints"/>, which this mirrors
+/// onto the wire.
+/// </summary>
+[TranspilationSource]
+public record AttachmentConstraintsDto(
+	long? ApiPerFileLimit,
+	long? KnownMessageSizeLimit,
+	long? ConfiguredOverride,
+	bool IsUnknown
+);
+
+/// <summary>
 /// One OS notification the shell owes the user (§13 Epic 9). Carries enough to render it
 /// without a round trip: the renderer relays this straight to the preload bridge.
 /// </summary>

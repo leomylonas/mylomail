@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -104,6 +104,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getAttachmentMetadata = async (messageId: string): Promise<AttachmentDto[]> => {
         return await this.connection.invoke("GetAttachmentMetadata", messageId);
+    }
+
+    public readonly getAttachmentConstraints = async (accountId: string): Promise<AttachmentConstraintsDto> => {
+        return await this.connection.invoke("GetAttachmentConstraints", accountId);
     }
 
     public readonly getMessageReplyContext = async (messageId: string): Promise<MessageReplyContextDto> => {

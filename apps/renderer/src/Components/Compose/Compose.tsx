@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
 	Button,
 	DatePicker,
@@ -13,7 +14,10 @@ import {
 } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
-import type { SendIdentityDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type {
+	AttachmentConstraintsDto,
+	SendIdentityDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
@@ -85,6 +89,16 @@ export function Compose({
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
 	const [savedAt, setSavedAt] = useState<string | null>(null);
+	// Checked before send (§15) — reported honestly rather than as a single number, since a
+	// tenant's real Exchange message-size cap frequently isn't discoverable at all.
+	const attachmentConstraints = useQuery({
+		queryKey: ["attachmentConstraints", accountId],
+		queryFn: () =>
+			hub.invoke<AttachmentConstraintsDto>(
+				"GetAttachmentConstraints",
+				accountId,
+			),
+	});
 	const [attachments, setAttachments] = useState<DraftAttachment[]>(
 		draft?.attachments ?? [],
 	);
@@ -266,6 +280,40 @@ export function Compose({
 	 * `SendDraft` hub method and the same outbox mechanism server-side (§15).
 	 */
 	const send = async (scheduledFor?: Date) => {
+		const constraints = attachmentConstraints.data;
+		if (attachments.length && constraints) {
+			// Base64 encoding inflates raw bytes by 4/3 — the check is against what actually
+			// goes out on the wire, not the file sizes on disk (§15).
+			const encodedTotal = attachments.reduce(
+				(sum, a) => sum + Math.ceil(a.size * (4 / 3)),
+				0,
+			);
+			const totalLimit =
+				constraints.configuredOverride ?? constraints.knownMessageSizeLimit;
+			const oversizedFile = constraints.apiPerFileLimit
+				? attachments.find((a) => a.size > constraints.apiPerFileLimit!)
+				: undefined;
+			if (oversizedFile) {
+				window.alert(
+					`"${oversizedFile.filename}" is larger than this account's per-file attachment limit. Remove or shrink it before sending.`,
+				);
+				return;
+			}
+			if (totalLimit && encodedTotal > totalLimit) {
+				window.alert(
+					"These attachments are too large for this account to send. Remove some before sending.",
+				);
+				return;
+			}
+			if (
+				constraints.isUnknown &&
+				!window.confirm(
+					"This account's attachment size limit couldn't be determined. Send anyway?",
+				)
+			) {
+				return;
+			}
+		}
 		if (
 			!attachments.length &&
 			/\b(attached|attachment|attach)\b/i.test(body) &&
