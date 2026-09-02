@@ -52,6 +52,23 @@
 	gap: var(--cds-spacing-03);
 }
 
+.reminders {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-04);
+	border: 1px solid var(--cds-border-subtle);
+}
+
+.reminders h4 {
+	margin: 0;
+}
+
+.reminders ul {
+	margin: 0;
+	padding-left: var(--cds-spacing-05);
+}
+
 .rsvp {
 	display: flex;
 	flex-direction: column;

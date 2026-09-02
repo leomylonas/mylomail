@@ -426,6 +426,8 @@ export type CalendarEventDetailDto = {
     isOrganizer: boolean;
     /** Transpiled from MyloMail.Api.Domain.InviteResponse */
     myResponseStatus?: InviteResponse;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
+    reminders: (Date | string)[];
 }
 
 /** Transpiled from MyloMail.Api.Contracts.NotificationDto */

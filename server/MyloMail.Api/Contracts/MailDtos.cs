@@ -251,13 +251,18 @@ public record AttendeeDto(string? Name, string Email, AttendeeRole Role, Respons
 /// <see cref="CalendarEventSummaryDto"/> for the same reason the doc comment above gives for
 /// leaving recurrence detail out of it.
 /// </summary>
+/// <param name="Reminders">
+/// Absolute trigger times parsed from the source's own <c>VALARM</c> blocks (§1) — read-only
+/// here; MyloMail's own compose flow does not yet write reminders back to the provider.
+/// </param>
 [TranspilationSource]
 public record CalendarEventDetailDto(
 	Guid Id,
 	Address? Organizer,
 	IReadOnlyList<AttendeeDto> Attendees,
 	bool IsOrganizer,
-	InviteResponse? MyResponseStatus
+	InviteResponse? MyResponseStatus,
+	IReadOnlyList<DateTimeOffset> Reminders
 );
 
 /// <summary>

@@ -19,6 +19,8 @@ interface EventDetail {
 	attendees: Attendee[];
 	isOrganizer: boolean;
 	myResponseStatus: InviteResponse | null;
+	/** Absolute trigger times parsed from the source's own VALARM blocks (§1). Read-only. */
+	reminders: string[];
 }
 
 const responseStatusLabel = [
@@ -252,6 +254,16 @@ export function EventModal({
 								</div>
 							</div>
 						) : null}
+					</div>
+				) : null}
+				{detail.data && detail.data.reminders.length > 0 ? (
+					<div className={styles.reminders}>
+						<h4>Reminders</h4>
+						<ul>
+							{detail.data.reminders.map((trigger) => (
+								<li key={trigger}>{dayjs(trigger).format("MMM D, h:mm A")}</li>
+							))}
+						</ul>
 					</div>
 				) : null}
 				{onDelete ? (
