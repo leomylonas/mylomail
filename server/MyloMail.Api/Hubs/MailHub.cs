@@ -100,7 +100,25 @@ public interface IMailHub
 
 	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
 
+	/// <summary>
+	/// Drops one membership without deleting the message (§6) — meaningful only where a
+	/// message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
+	/// from <see cref="MoveToTrash"/>: this never touches the message itself.
+	/// </summary>
+	/// <remarks>
+	/// No renderer caller yet: IMAP's provider implementation is a placeholder that expunges
+	/// the message outright (its own comment calls this "an implementation shortcut, not a
+	/// statement they are the same operation"), and Graph's forwards straight to permanent
+	/// deletion. Exposing this in the message-list menu today would make "remove from this
+	/// folder" silently irreversible on both. Wire it into the UI once that per-provider
+	/// divergence lands — Gmail's implementation is already correct.
+	/// </remarks>
+	Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId);
+
 	Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
+
+	/// <summary>Deletes the message outright — never reversible by the app (§6).</summary>
+	Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds);
 
 	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
 
@@ -425,11 +443,27 @@ public class MailHub(
 		}
 	}
 
+	public async Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId)
+	{
+		foreach (var messageId in messageIds)
+		{
+			await mutations.RemoveFromMailboxAsync(accountId, messageId, mailboxId);
+		}
+	}
+
 	public async Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds)
 	{
 		foreach (var messageId in messageIds)
 		{
 			await mutations.MoveToTrashAsync(accountId, messageId);
+		}
+	}
+
+	public async Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds)
+	{
+		foreach (var messageId in messageIds)
+		{
+			await mutations.DeletePermanentlyAsync(accountId, messageId);
 		}
 	}
 

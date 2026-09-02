@@ -125,6 +125,18 @@ export function MessageList({
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
 	});
 
+	// Message-scoped and never reversible by the app (§6) — unlike MoveToTrash, which the
+	// provider's own trash still lets the user recover from.
+	const deletePermanently = useMutation({
+		mutationFn: (messages: MessageSummary[]) =>
+			hub.invoke(
+				"DeletePermanently",
+				accountId,
+				messages.map((message) => message.id),
+			),
+		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
+	});
+
 	const selectedMessages = (messages.data ?? []).filter((message) =>
 		selectedIds.has(message.id),
 	);
@@ -292,6 +304,7 @@ export function MessageList({
 						menu.targets,
 						setFlags.mutate,
 						trash.mutate,
+						deletePermanently.mutate,
 						hub,
 						queryClient,
 						onPrint,
@@ -317,6 +330,7 @@ function messageActions(
 		isFlagged: boolean | null;
 	}) => void,
 	trash: (messages: MessageSummary[]) => void,
+	deletePermanently: (messages: MessageSummary[]) => void,
 	hub: HubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
@@ -364,6 +378,11 @@ function messageActions(
 		{
 			label: `Move to trash${suffix}`,
 			run: () => trash(targets),
+			danger: true,
+		},
+		{
+			label: `Delete permanently${suffix}`,
+			run: () => deletePermanently(targets),
 			danger: true,
 		},
 		{
