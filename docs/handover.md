@@ -653,6 +653,29 @@ This is a snapshot of the current state, not a history; use Git for history.
   `accountId`-existence check before inserting an identity, no email-address format validation,
   and a TOCTOU window in the draft-reference check that the `Restrict` FK backstops into a clean
   error rather than data corruption if ever actually hit.
+- **Fifteenth architecture.md pass — bounded initial sync and attachment size override both had
+  zero UI/DTO path despite full backend support.** §3/§13 Epic 3's bounded (last N
+  months/messages) vs. full-history initial sync choice was hardcoded to `Full` for every
+  account regardless of what a user might want; §15's `Account.AttachmentSizeLimitOverride`
+  ("user-set") could only ever be `null`. `invariant-review` traced the read sites
+  (`CoverageService` → each provider's `InitialSyncMailboxAsync`; each provider's
+  `GetAttachmentConstraintsAsync`) and confirmed both were genuinely live, previously-dead
+  columns, not decorative — this UI work actually changes sync/attachment behavior, not just
+  writes an unread field. Added `InitialSyncMode`/`InitialSyncBoundValue` to
+  `AddAccountRequest`/`NewAccount`, a radio group + bound input in `AddAccount.tsx`, and
+  server-side validation (a bounded mode needs a positive bound) in `AccountsController`. Added
+  `AttachmentSizeLimitOverride` to `AccountSettingsDto`, a number-in-MB input in
+  `AccountSettings.tsx`. `invariant-review` then confirmed the new settings field would never
+  actually hydrate from the server on form open — a pre-existing gap already true of every other
+  field on that form, since `AccountDto` had never carried `pollIntervalSeconds`,
+  `certificateTrustMode`, etc. either. Fixed immediately rather than left as backlog, since this
+  session had just doubled the number of affected fields: added all six missing fields
+  (`PollIntervalSeconds`, `PollingEnabled`, `UndoSendDelaySeconds`, `NotificationsEnabled`,
+  `CertificateTrustMode`, `AttachmentSizeLimitOverride`) to `AccountDto` itself and both of its
+  construction sites (`AccountProvisioningService.ToDto`, `AccountsController.ToDto` — genuine
+  near-duplicates, not consolidated here to keep the diff to the actual gap), so the account list
+  the settings form is seeded from now genuinely carries what was last saved. 4 new tests total;
+  `dotnet test` 286 passed/0 failed (up from 282). `pnpm check` clean under Node 22.
 
 ## Next task
 
