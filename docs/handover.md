@@ -698,6 +698,22 @@ This is a snapshot of the current state, not a history; use Git for history.
   to extend cheaply; a plain two-column write structurally identical to the already-untested
   `SetMailboxCollapsed`). `dotnet test` 286 passed/0 failed (unchanged). `pnpm check` clean under
   Node 22.
+- **Seventeenth architecture.md pass — two findings.** (1) `CalendarEvent.Reminders` (§1) was
+  computed and persisted (parsed from CalDAV `VALARM` blocks) but never exposed in any DTO or
+  UI. Added to `CalendarEventDetailDto`, shown read-only in `EventModal.tsx`. `invariant-review`
+  confirmed this is correctly scoped as read-only (no reminder field exists anywhere on the
+  write side — `CalendarEventInput`/`SaveCalendarEventRequest` — so there's genuinely nothing to
+  wire up instead) and confirmed no staleness risk (`CalDavIcs.cs` recomputes `TRIGGER` times
+  against the event's current `Start` on every sync pass, and `Apply()` fully overwrites rather
+  than merges). (2) A larger, unfixed finding: meeting-invite handling from a **received
+  message** is entirely missing — Epic 7 requires Accept/Decline/Tentative "from message or
+  calendar," with `.ics`/`text/calendar` MIME parsing feeding the `CalendarEvent` model, but no
+  code anywhere parses an incoming message's calendar MIME part; RSVP is reachable only from the
+  calendar view (`EventModal.tsx`), never the reading pane. This is feature-sized work (MIME
+  parsing on ingest, correlating an invite to an existing/new `CalendarEvent`, reading-pane UI),
+  not a UI-wiring gap like the other findings this pass and the last two — raised with the user
+  for a scope decision before starting it, per the same pattern used for send-as identity
+  management in the fourteenth pass.
 
 ## Next task
 
