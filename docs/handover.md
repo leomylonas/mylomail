@@ -1010,6 +1010,33 @@ check` clean under Node 22.
   exception class, reachable through ordinary interaction — fixed the same way; mailbox-
   reparenting drops onto a synthesized node were confirmed intentionally supported and left
   alone. `pnpm check` clean under Node 22.
+- **Forty-second/forty-third passes — no gap found; one feature-sized finding escalated and
+  built.** Continued the §13 Epic re-read (Epic 7 attendee-response refresh, Epic 5 attachment
+  temp-cleanup, print stylesheet, Epic 6 Message-ID, Epic 9 notification eligibility) with
+  nothing wrong found on any of those. Also checked IMAP special-use detection as a fallback
+  technique and found a real gap: `ImapMailProvider.cs` relies entirely on RFC 6154 SPECIAL-USE
+  server attributes with no fallback, so a server that doesn't advertise it reports every
+  folder as `SpecialUse.None`, silently breaking send reconciliation and similar features. Not
+  explicitly promised by the doc (§16 only says the capability matrix "needs testing"), so
+  raised to the user rather than built blind — they approved a name-based fallback plus a
+  manual per-mailbox override UI.
+- **Built the approved IMAP special-use fallback + override.** Added a modest, English-centric
+  name heuristic (`ImapMailProvider.SpecialUseFromName`) as the last arm of the existing
+  attribute switch, never overriding a real server attribute. Added
+  `Mailbox.SpecialUseOverride` and a computed `EffectiveSpecialUse` property, following
+  `InitialSyncModeOverride`'s exact convention — an override column sync logic never writes to,
+  so a resync can't clobber a user's correction. Added `SetMailboxSpecialUseOverride` and a
+  "Folder role…" entry in `MailboxTree.tsx`'s context menu. Updated every decision-making call
+  site (`RemoteDraftMaterializer.cs`, `MessageIngestor.cs`, `SendReconciler.cs`,
+  `MutationReconciler.cs`) to respect the override, using the in-memory `EffectiveSpecialUse`
+  property where appropriate and an explicit inline `(SpecialUseOverride ?? SpecialUse)` form
+  in genuine EF Core LINQ-to-Entities queries, since EF can translate the latter to SQL
+  `COALESCE` but not a call to a C#-only computed property. `invariant-review` confirmed the
+  fallback never fires when a real attribute exists, override precedence is applied
+  consistently with no missed call site, the resync-survival test is a genuine discriminator,
+  the EF-translatability split is correct in both directions, and nothing under `Mutations/`'s
+  frozen invariants is touched. 22 new tests. `dotnet test` 330 passed/0 failed (up from 308).
+  `pnpm check` clean under Node 22.
 
 ## Next task
 
