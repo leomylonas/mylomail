@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, MessageReplyContextDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -102,6 +102,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetAttachmentMetadata", messageId);
     }
 
+    public readonly getMessageReplyContext = async (messageId: string): Promise<MessageReplyContextDto> => {
+        return await this.connection.invoke("GetMessageReplyContext", messageId);
+    }
+
     public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {
         return await this.connection.invoke("Search", accountId, query, mailboxId);
     }
@@ -118,8 +122,8 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("DeleteDraft", draftId);
     }
 
-    public readonly sendDraft = async (draftId: string): Promise<string> => {
-        return await this.connection.invoke("SendDraft", draftId);
+    public readonly sendDraft = async (draftId: string, scheduledFor: ((Date | string) | undefined)): Promise<string> => {
+        return await this.connection.invoke("SendDraft", draftId, scheduledFor);
     }
 
     public readonly cancelScheduledSend = async (outboxItemId: string): Promise<boolean> => {

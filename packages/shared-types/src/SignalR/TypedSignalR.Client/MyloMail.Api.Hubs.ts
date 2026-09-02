@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, MessageReplyContextDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -38,6 +38,12 @@ export type IMailHub = {
     */
     getAttachmentMetadata(messageId: string): Promise<AttachmentDto[]>;
     /**
+    * The address/subject/date fields a reply or forward is built from (§13).
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageReplyContextDto>
+    */
+    getMessageReplyContext(messageId: string): Promise<MessageReplyContextDto>;
+    /**
     * @param accountId Transpiled from System.Guid
     * @param query Transpiled from string
     * @param mailboxId Transpiled from System.Guid?
@@ -61,10 +67,14 @@ export type IMailHub = {
     */
     deleteDraft(draftId: string): Promise<void>;
     /**
+    * Queues a draft for sending.  is null for a normal
+    * send (the account's undo-send delay applies) or an explicit future time for a
+    * scheduled send (§15) — both go through the same outbox mechanism.
     * @param draftId Transpiled from System.Guid
+    * @param scheduledFor Transpiled from System.DateTimeOffset?
     * @returns Transpiled from System.Threading.Tasks.Task<System.Guid>
     */
-    sendDraft(draftId: string): Promise<string>;
+    sendDraft(draftId: string, scheduledFor: ((Date | string) | undefined)): Promise<string>;
     /**
     * @param outboxItemId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<bool>

@@ -89,6 +89,28 @@ function escapeHtml(text: string): string {
 		.replace(/"/g, "&quot;");
 }
 
+/** The original message's body as `GetMessageBody` returned it (§13). */
+export interface MessageBody {
+	html: string | null;
+	text: string | null;
+	isFetched: boolean;
+	isFailed: boolean;
+}
+
+/**
+ * Resolves what a reply/forward should actually quote, honestly reflecting whatever
+ * `GetMessageBody` is currently able to say — never a silent blank.
+ */
+export function resolveOriginalHtml(body: MessageBody): string {
+	if (body.isFetched && body.html) return body.html;
+	if (body.isFetched && body.text) {
+		return `<p>${escapeHtml(body.text).replace(/\n/g, "<br>")}</p>`;
+	}
+	return body.isFailed
+		? "<p><em>(This message's content could not be downloaded, so it cannot be quoted.)</em></p>"
+		: "<p><em>(This message's content is still downloading and cannot be quoted yet — try again in a moment.)</em></p>";
+}
+
 function formatAddress(address: Address): string {
 	return address.name
 		? `${escapeHtml(address.name)} &lt;${escapeHtml(address.email)}&gt;`
@@ -133,7 +155,10 @@ export function buildReplySeed(
 	const cc =
 		mode === "replyAll"
 			? excludeSelf(dedupe([...context.to, ...context.cc]), ownAddress).filter(
-					(address) => !to.some((t) => t.email === address.email),
+					(address) =>
+						!to.some(
+							(t) => t.email.toLowerCase() === address.email.toLowerCase(),
+						),
 				)
 			: [];
 

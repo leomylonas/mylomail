@@ -20,6 +20,11 @@
 	display: none;
 }
 
+.forwardCopyError {
+	color: var(--cds-support-error);
+	font-size: 0.75rem;
+}
+
 .attachments {
 	margin: 0;
 	padding-left: var(--cds-spacing-05);

@@ -30,6 +30,7 @@
 
 .scroller {
 	overflow-y: auto;
+
 	/* Fills whatever height remains under the toolbar and header, which are not virtualised. */
 	height: calc(100% - 5rem);
 }

@@ -21,6 +21,8 @@ import {
 	getSortedRowModel,
 	getFilteredRowModel,
 	legacyCreateColumnHelper as createColumnHelper,
+	type LegacyFeatures,
+	type LegacyColumnDef,
 } from "@tanstack/react-table/legacy";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { HubConnection } from "@microsoft/signalr";
@@ -33,6 +35,7 @@ import { messageDragType } from "@mylomail/renderer/Lib/DragTypes";
 import {
 	buildForwardSeed,
 	buildReplySeed,
+	resolveOriginalHtml,
 	type ComposeSeed,
 	type ForwardAttachment,
 	type MessageReplyContext,
@@ -73,7 +76,7 @@ const rowHeightEstimate = 64;
  * local narrowing of whatever page of messages is already loaded, distinct from the `Search`
  * hub method the search box already triggers server-side (§12, §13 Epic 6).
  */
-const globalFilterFn: FilterFn<MessageSummary> = (
+const globalFilterFn: FilterFn<LegacyFeatures, MessageSummary> = (
 	row,
 	_columnId,
 	filterValue,
@@ -88,6 +91,11 @@ const globalFilterFn: FilterFn<MessageSummary> = (
 	);
 };
 
+// TanStack Table's `ColumnDef` is invariant enough in its value type parameter that an array
+// mixing per-column accessor value types (string here, in every case, but inferred separately
+// per column) cannot be given one precise array-level type without fighting the type checker —
+// a well-known rough edge of this API, not a sign something here is actually wrong. Cast once,
+// at the single point `useReactTable` consumes it, rather than widening every column to `any`.
 const columns = [
 	columnHelper.accessor((row) => describeSender(row), {
 		id: "from",
@@ -103,7 +111,7 @@ const columns = [
 		// ISO timestamps sort correctly as strings only when every value shares the same
 		// offset convention; comparing parsed instants is correct regardless of how the
 		// server serialised the offset.
-		sortingFn: (a, b) =>
+		sortFn: (a, b) =>
 			new Date(a.original.receivedAt).getTime() -
 			new Date(b.original.receivedAt).getTime(),
 	}),
@@ -234,7 +242,7 @@ export function MessageList({
 
 	const table = useReactTable({
 		data: messages.data ?? [],
-		columns,
+		columns: columns as LegacyColumnDef<MessageSummary>[],
 		state: { sorting, globalFilter: filterText },
 		onSortingChange: setSorting,
 		onGlobalFilterChange: setFilterText,
@@ -331,11 +339,9 @@ export function MessageList({
 				{table.getHeaderGroups()[0].headers.map((header) => {
 					const sorted = header.column.getIsSorted();
 					return (
-						<button
+						<div
 							key={header.id}
-							type="button"
-							className={styles.headerCell}
-							onClick={header.column.getToggleSortingHandler()}
+							role="columnheader"
 							aria-sort={
 								sorted === "asc"
 									? "ascending"
@@ -344,9 +350,18 @@ export function MessageList({
 										: "none"
 							}
 						>
-							{flexRender(header.column.columnDef.header, header.getContext())}
-							{sorted === "asc" ? " ▲" : sorted === "desc" ? " ▼" : null}
-						</button>
+							<button
+								type="button"
+								className={styles.headerCell}
+								onClick={header.column.getToggleSortingHandler()}
+							>
+								{flexRender(
+									header.column.columnDef.header,
+									header.getContext(),
+								)}
+								{sorted === "asc" ? " ▲" : sorted === "desc" ? " ▼" : null}
+							</button>
+						</div>
 					);
 				})}
 				<span className={styles.headerCell} aria-hidden="true" />
@@ -597,13 +612,15 @@ async function replyTo(
 ): Promise<void> {
 	const [context, body] = await Promise.all([
 		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
-		hub.invoke<{ html: string | null; text: string | null }>(
-			"GetMessageBody",
-			message.id,
-		),
+		hub.invoke<{
+			html: string | null;
+			text: string | null;
+			isFetched: boolean;
+			isFailed: boolean;
+		}>("GetMessageBody", message.id),
 	]);
 	onCompose(
-		buildReplySeed(mode, context, body.html ?? body.text ?? "", ownAddress),
+		buildReplySeed(mode, context, resolveOriginalHtml(body), ownAddress),
 	);
 }
 
@@ -618,15 +635,15 @@ async function forward(
 ): Promise<void> {
 	const [context, body, attachments] = await Promise.all([
 		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
-		hub.invoke<{ html: string | null; text: string | null }>(
-			"GetMessageBody",
-			message.id,
-		),
+		hub.invoke<{
+			html: string | null;
+			text: string | null;
+			isFetched: boolean;
+			isFailed: boolean;
+		}>("GetMessageBody", message.id),
 		hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", message.id),
 	]);
-	onCompose(
-		buildForwardSeed(context, body.html ?? body.text ?? "", attachments),
-	);
+	onCompose(buildForwardSeed(context, resolveOriginalHtml(body), attachments));
 }
 
 /**

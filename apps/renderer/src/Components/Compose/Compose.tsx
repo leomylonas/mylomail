@@ -83,6 +83,7 @@ export function Compose({
 	const [attachments, setAttachments] = useState<DraftAttachment[]>(
 		draft?.attachments ?? [],
 	);
+	const [forwardCopyError, setForwardCopyError] = useState<string | null>(null);
 	// Send-later's own picker, distinct from "sent" state below: choosing a date/time does
 	// not commit to anything until "Schedule" is pressed, same as a plain "Send" click does
 	// not commit until it resolves.
@@ -180,15 +181,28 @@ export function Compose({
 			setBusy(true);
 			try {
 				const id = await save();
+				const failed: string[] = [];
+				// Each attachment copied independently: one failing (a since-deleted
+				// attachment, a network blip) must not silently drop the rest of a
+				// multi-attachment forward.
 				for (const attachment of toCopy.attachments) {
-					const response = await fetch(
-						`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
-					);
-					if (!response.ok) continue;
-					await uploadAttachment(
-						id,
-						await response.blob(),
-						attachment.filename,
+					try {
+						const response = await fetch(
+							`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
+						);
+						if (!response.ok) throw new Error("fetch failed");
+						await uploadAttachment(
+							id,
+							await response.blob(),
+							attachment.filename,
+						);
+					} catch {
+						failed.push(attachment.filename);
+					}
+				}
+				if (failed.length > 0) {
+					setForwardCopyError(
+						`Couldn't copy ${failed.length === 1 ? "this attachment" : "these attachments"} from the original message: ${failed.join(", ")}.`,
 					);
 				}
 			} finally {
@@ -384,6 +398,11 @@ export function Compose({
 					event.target.files && void addFiles(event.target.files)
 				}
 			/>
+			{forwardCopyError ? (
+				<p className={styles.forwardCopyError} role="alert">
+					{forwardCopyError}
+				</p>
+			) : null}
 			{attachments.length ? (
 				<ul className={styles.attachments} aria-label="Attached files">
 					{attachments.map((attachment) => (

@@ -194,12 +194,32 @@ export type AttachmentDto = {
     isInline: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.MessageReplyContextDto */
+export type MessageReplyContextDto = {
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    from: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    to: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    cc: Address[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
+    replyTo: Address[];
+    /** Transpiled from string */
+    subject: string;
+    /** Transpiled from System.DateTimeOffset */
+    receivedAt: (Date | string);
+}
+
 /** Transpiled from MyloMail.Api.Contracts.DraftDto */
 export type DraftDto = {
     /** Transpiled from System.Guid */
     id: string;
     /** Transpiled from System.Guid */
     accountId: string;
+    /** Transpiled from System.Guid */
+    inReplyToMessageId?: string;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
     to: Address[];
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
