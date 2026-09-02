@@ -32,6 +32,14 @@ public record MailboxSummaryDto(
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>
+/// <remarks>
+/// <paramref name="MutationFailure"/> is the category of the message's most recent mutation,
+/// if that mutation ended terminally-failed or cancelled — never a stale, superseded failure,
+/// since it always reflects the highest-<c>Sequence</c> <see cref="MutationItem"/> for the
+/// message, not "ever failed." §13 Epic 4 requires a failure be shown via a durable indicator
+/// on the affected message, not just the one-shot <c>MessageSyncFailed</c> toast, which is
+/// missed once dismissed or if no window was open to see it.
+/// </remarks>
 [TranspilationSource]
 public record MessageSummaryDto(
 	Guid Id,
@@ -42,7 +50,8 @@ public record MessageSummaryDto(
 	DateTimeOffset ReceivedAt,
 	bool IsRead,
 	bool IsFlagged,
-	bool HasNonInlineAttachments
+	bool HasNonInlineAttachments,
+	ErrorCategory? MutationFailure
 );
 
 /// <summary>

@@ -293,23 +293,26 @@ public class MailHub(
 			.Join(context.Messages, o => o.MessageId, m => m.Id, (_, m) => m)
 			.ToListAsync();
 
+		var shown = messages.OrderByDescending(m => m.ReceivedAt).Take(take).ToList();
+		var failures = await MessageMutationFailures.ForMessagesAsync(
+			context,
+			shown.Select(m => m.Id).ToList()
+		);
+
 		return
 		[
-			.. messages
-				// Ordered here because SQLite cannot ORDER BY a DateTimeOffset.
-				.OrderByDescending(m => m.ReceivedAt)
-				.Take(take)
-				.Select(m => new MessageSummaryDto(
-					m.Id,
-					m.AccountId,
-					m.Subject,
-					m.Snippet,
-					m.From,
-					m.ReceivedAt,
-					m.IsRead,
-					m.IsFlagged,
-					m.HasNonInlineAttachments
-				)),
+			.. shown.Select(m => new MessageSummaryDto(
+				m.Id,
+				m.AccountId,
+				m.Subject,
+				m.Snippet,
+				m.From,
+				m.ReceivedAt,
+				m.IsRead,
+				m.IsFlagged,
+				m.HasNonInlineAttachments,
+				failures.TryGetValue(m.Id, out var category) ? category : null
+			)),
 		];
 	}
 

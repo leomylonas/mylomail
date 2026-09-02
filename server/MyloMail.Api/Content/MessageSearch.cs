@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Contracts;
+using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Content;
@@ -52,23 +53,28 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			)
 			.ToListAsync(ct);
 
+		// Ordered here: SQLite cannot ORDER BY a DateTimeOffset.
+		var shown = messages.OrderByDescending(m => m.ReceivedAt).Take(take).ToList();
+		var failures = await MessageMutationFailures.ForMessagesAsync(
+			context,
+			shown.Select(m => m.Id).ToList(),
+			ct
+		);
+
 		return
 		[
-			.. messages
-				// Ordered here: SQLite cannot ORDER BY a DateTimeOffset.
-				.OrderByDescending(m => m.ReceivedAt)
-				.Take(take)
-				.Select(m => new MessageSummaryDto(
-					m.Id,
-					m.AccountId,
-					m.Subject,
-					m.Snippet,
-					m.From,
-					m.ReceivedAt,
-					m.IsRead,
-					m.IsFlagged,
-					m.HasNonInlineAttachments
-				)),
+			.. shown.Select(m => new MessageSummaryDto(
+				m.Id,
+				m.AccountId,
+				m.Subject,
+				m.Snippet,
+				m.From,
+				m.ReceivedAt,
+				m.IsRead,
+				m.IsFlagged,
+				m.HasNonInlineAttachments,
+				failures.TryGetValue(m.Id, out var category) ? category : null
+			)),
 		];
 	}
 

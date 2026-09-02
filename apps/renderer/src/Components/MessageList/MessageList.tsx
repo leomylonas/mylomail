@@ -42,6 +42,8 @@ import {
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -53,6 +55,12 @@ interface MessageSummary {
 	isRead: boolean;
 	isFlagged: boolean;
 	hasNonInlineAttachments: boolean;
+	/**
+	 * The category of the message's most recent mutation, if it ended terminally failed or
+	 * cancelled (§13 Epic 4) — never stale, since it always reflects the highest-sequence
+	 * mutation, not "ever failed." Absent once a later mutation succeeds.
+	 */
+	mutationFailure: ErrorCategory | null;
 }
 
 interface PendingChange {
@@ -503,9 +511,24 @@ export function MessageList({
 										<span className={styles.cell}>
 											{new Date(message.receivedAt).toLocaleString()}
 										</span>
-										<span className={styles.indicators} aria-hidden="true">
-											{message.isFlagged ? "🚩" : null}
-											{message.hasNonInlineAttachments ? "📎" : null}
+										<span className={styles.indicators}>
+											{message.isFlagged ? (
+												<span aria-hidden="true">🚩</span>
+											) : null}
+											{message.hasNonInlineAttachments ? (
+												<span aria-hidden="true">📎</span>
+											) : null}
+											{message.mutationFailure !== null ? (
+												<span
+													role="img"
+													aria-label={
+														present(message.mutationFailure, null).title
+													}
+													title={present(message.mutationFailure, null).title}
+												>
+													⚠️
+												</span>
+											) : null}
 										</span>
 									</button>
 								</div>

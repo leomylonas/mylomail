@@ -16,6 +16,11 @@ internal static class MessageEventMapper
 			message.ReceivedAt,
 			message.IsRead,
 			message.IsFlagged,
-			message.HasNonInlineAttachments
+			message.HasNonInlineAttachments,
+			// A sync-observed message has no mutation-failure context at this moment — that's
+			// a user-initiated-action fact, unrelated to a provider sync page landing. The
+			// renderer's own MessageReceived/Updated handler invalidates ["messages"] anyway,
+			// which re-fetches the accurate value from GetMessages right after this.
+			null
 		);
 }

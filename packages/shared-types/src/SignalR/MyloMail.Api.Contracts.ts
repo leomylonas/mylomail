@@ -170,6 +170,8 @@ export type MessageSummaryDto = {
     isFlagged: boolean;
     /** Transpiled from bool */
     hasNonInlineAttachments: boolean;
+    /** Transpiled from MyloMail.Api.Errors.ErrorCategory */
+    mutationFailure?: ErrorCategory;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.SyncProgressDto */
