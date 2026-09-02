@@ -879,6 +879,33 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   failure domain (local SignalR connection, not mail-provider reachability) so the two can't
   contradict each other. `dotnet test` 298 passed/0 failed (unchanged). `pnpm check` clean
   under Node 22.
+- **Thirty-second pass — no new gap; strong signal of near-exhaustion.** Reverse SignalR/query-
+  key cross-check (every renderer query key against push coverage) and a full §2/§4 read-through
+  both came up clean — `["shell-settings",...]`/`["credential-store-status"]`/
+  `["remote-content-trusted-senders"]` flagged as a weak, undecided lead (see next entry); §2's
+  `GoogleCalendarProvider`/`GraphCalendarProvider` gap is pre-acknowledged deferred work per
+  `CalendarProviderFactory.cs`'s own doc comment, not undiscovered. Combined with passes 20, 21,
+  23, 25, 26, 27 also finding nothing, systematic-technique review is likely near its ceiling.
+- **Thirty-third pass — resolved two loose ends to firm conclusions, per explicit instruction
+  not to leave anything as a vague "worth investigating later."** (1) `OutboxStatusChanged` (a
+  SignalR event with zero renderer consumers, flagged by pass 30): confirmed legitimate dead
+  code — no doc anywhere promises a live pending-sends indicator, and both real UI needs
+  (Compose.tsx's local-RPC-driven "Undo send", the Electron quit dialog's on-demand REST poll)
+  are already fully satisfied without it. (2) Cross-window settings sync (pass 32's weak lead):
+  `credential-store-status` is a genuine process-lifetime constant, correctly fetch-once — but
+  `shell-settings` and `remote-content-trusted-senders` are shared backend state with no
+  carve-out, unlike panel-layout/window-bounds (a pre-existing, doc-attested deliberate
+  exception), and §13 Epic 10 unambiguously requires "all actions reflected live across all
+  open windows." Fixed: added `ShellSettingsChanged`/`TrustedSendersChanged` SignalR events,
+  fired from the theme/close-behaviour/mailto-prompt endpoints and from `Trust`/`Untrust` only
+  when a row actually changed (idempotent no-ops don't double-broadcast). `invariant-review`
+  confirmed the panel-layout carve-out is genuinely doc-attested (not an oversight this fix
+  should have also closed), the idempotent-broadcast logic is correctly scoped, and nothing
+  under `Mutations/` is touched. 6 new tests, including one proving the panel-layout carve-out
+  doesn't broadcast. `dotnet test` 304 passed/0 failed (up from 298). `pnpm check` clean under
+  Node 22 (`pnpm check` needed several retries this pass due to background `dotnet watch`/VS
+  Code process contention in the sandbox — each individual check step verified clean in
+  isolation before the full aggregate finally succeeded cleanly).
 
 ## Next task
 
