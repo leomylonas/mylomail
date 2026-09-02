@@ -714,6 +714,29 @@ This is a snapshot of the current state, not a history; use Git for history.
   not a UI-wiring gap like the other findings this pass and the last two — raised with the user
   for a scope decision before starting it, per the same pattern used for send-as identity
   management in the fourteenth pass.
+- **Eighteenth pass — built the received-invite RSVP gap raised at the end of the
+  seventeenth.** User chose "build it now." The open design question was what an account with
+  no CalDAV/native calendar configured should do: `ICalendarProviderFactory` throws
+  `ProviderNotConfiguredException` for it, so there was nowhere to materialize an invite or
+  route an RSVP. Raised for a decision; user chose a local-only pseudo-calendar
+  (`Calendar.IsLocalOnly`), lazily created per account, with RSVP against it sending the iTIP
+  `REPLY` directly via mail (`ItipReplySender`, extracted verbatim from
+  `CalDavCalendarProvider`) rather than through a calendar provider. `MailInviteMaterializer`
+  parses a `METHOD:REQUEST` `text/calendar` part after `ContentAcquisition.StoreAsync` commits
+  — deliberately outside that transaction, in its own try/catch that only logs, so a
+  materialisation bug can never fail or retry the underlying message fetch. `GetMessageInvite`
+  independently re-parses the stored raw MIME so the reading pane can show a pending invite
+  before materialisation has necessarily run. Found and fixed two real bugs in
+  `CalendarSyncService` along the way: `SynchronizeAsync` was still handing local-only
+  calendars to the real provider's `SyncCalendarAsync` (which has no way to sync something it
+  never reported) — caught live by a new adoption test that failed with "must carry a provider
+  cursor" before the fix — and `ApplyPageAsync` needed an adoption path so a later real sync
+  reporting the same `ICalUid` reassigns the mail-materialised row instead of duplicating it.
+  Two independent `invariant-review` passes over the full diff found no violations: the
+  adoption fallback participates in the existing `SyncConflict` detect-don't-merge check rather
+  than bypassing it, is scoped to the syncing account, equal-sequence redelivery overwrites
+  harmlessly, and nothing in the message-mutation coordination domain (§6) was touched. 6 new
+  backend tests; full suite 292 passed/0 failed (up from 286). `pnpm check` clean under Node 22.
 
 ## Next task
 
