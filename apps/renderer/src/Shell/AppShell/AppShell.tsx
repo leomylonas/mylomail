@@ -160,7 +160,9 @@ export function AppShell() {
 		<div className={styles.shell}>
 			<header className={styles.header}>
 				<h1 className={styles.title}>MyloMail</h1>
-				<span className={styles.status}>{describe(status, accounts.data)}</span>
+				<span className={styles.status}>
+					{describe(status, accounts.data, accounts.isError)}
+				</span>
 				<Button
 					size="sm"
 					disabled={!selectedAccountId}
@@ -448,9 +450,14 @@ function toSettings(
 	};
 }
 
-function describe(status: string, accounts: Account[] | undefined): string {
+function describe(
+	status: string,
+	accounts: Account[] | undefined,
+	accountsErrored: boolean,
+): string {
 	if (status === "failed") return "Disconnected from the backend.";
 	if (status === "connecting") return "Connecting…";
+	if (accountsErrored) return "Could not load accounts.";
 	if (!accounts?.length) return "No accounts yet.";
 	return accounts[0].emailAddress;
 }

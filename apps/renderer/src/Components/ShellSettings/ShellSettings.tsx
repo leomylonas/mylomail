@@ -9,6 +9,8 @@ import {
 	StructuredListRow,
 	StructuredListWrapper,
 } from "@carbon/react";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
 
 /** Mirrors server/MyloMail.Api/Domain/AppSettings.cs's CloseBehavior/ThemePreference enum
@@ -34,6 +36,14 @@ interface TrustedSender {
  */
 export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
+
+	const reportFailure = (title: string) => (error: unknown) =>
+		notify(notifications, {
+			kind: "error",
+			title,
+			detail: error instanceof Error ? error.message : String(error),
+		});
 
 	const settings = useQuery({
 		queryKey: ["shell-settings", "app-settings"],
@@ -50,7 +60,11 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 		queryKey: ["credential-store-status"],
 		queryFn: async (): Promise<{ usingNativeStore: boolean }> => {
 			const response = await fetch("/credential-store/status");
-			if (!response.ok) return { usingNativeStore: true };
+			// Not defaulted to "native store, all fine" on failure: this section exists
+			// specifically to warn about the fallback store, so a query failure must not
+			// assert the one claim it would otherwise exist to contradict.
+			if (!response.ok)
+				throw new Error(`credential-store/status responded ${response.status}`);
 			return (await response.json()) as { usingNativeStore: boolean };
 		},
 	});
@@ -71,33 +85,50 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 		void queryClient.invalidateQueries({ queryKey: ["shell-settings"] });
 
 	const setCloseBehavior = async (value: number) => {
-		await fetch("/shell-settings/close-behavior", {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ closeBehavior: value }),
-		});
-		invalidateShellSettings();
+		try {
+			const response = await fetch("/shell-settings/close-behavior", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ closeBehavior: value }),
+			});
+			if (!response.ok)
+				throw new Error(`close-behavior responded ${response.status}`);
+			invalidateShellSettings();
+		} catch (error) {
+			reportFailure("The close behaviour could not be saved")(error);
+		}
 	};
 
 	const setTheme = async (value: number) => {
-		await fetch("/shell-settings/theme", {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ theme: value }),
-		});
-		invalidateShellSettings();
+		try {
+			const response = await fetch("/shell-settings/theme", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ theme: value }),
+			});
+			if (!response.ok) throw new Error(`theme responded ${response.status}`);
+			invalidateShellSettings();
+		} catch (error) {
+			reportFailure("The theme could not be saved")(error);
+		}
 	};
 
 	const untrustSender = async (address: string) => {
-		await fetch(
-			`/remote-content/trusted-senders/${encodeURIComponent(address)}`,
-			{
-				method: "DELETE",
-			},
-		);
-		void queryClient.invalidateQueries({
-			queryKey: ["remote-content-trusted-senders"],
-		});
+		try {
+			const response = await fetch(
+				`/remote-content/trusted-senders/${encodeURIComponent(address)}`,
+				{
+					method: "DELETE",
+				},
+			);
+			if (!response.ok)
+				throw new Error(`trusted-senders responded ${response.status}`);
+			void queryClient.invalidateQueries({
+				queryKey: ["remote-content-trusted-senders"],
+			});
+		} catch (error) {
+			reportFailure("The sender could not be removed")(error);
+		}
 	};
 
 	return (
@@ -155,7 +186,15 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 			<section>
 				<h4>Credential storage</h4>
-				{credentialStore.data && !credentialStore.data.usingNativeStore ? (
+				{credentialStore.isError ? (
+					<InlineNotification
+						kind="error"
+						title="Could not determine credential storage"
+						subtitle="This section could not be checked. Reopen settings to try again."
+						lowContrast
+						hideCloseButton
+					/>
+				) : credentialStore.data && !credentialStore.data.usingNativeStore ? (
 					<InlineNotification
 						kind="warning"
 						title="Using the fallback credential store"

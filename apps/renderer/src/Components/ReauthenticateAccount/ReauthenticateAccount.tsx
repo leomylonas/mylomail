@@ -12,6 +12,8 @@ import {
 	present,
 	type ErrorPresentation,
 } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 
 /** The subset of RFC 7807 this endpoint's failures actually carry (§15). */
 interface ProblemResponse {
@@ -45,6 +47,7 @@ export function ReauthenticateAccount({
 }) {
 	const [secret, setSecret] = useState("");
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
 
 	const attempt = useMutation({
 		mutationFn: async () => {
@@ -91,6 +94,17 @@ export function ReauthenticateAccount({
 				certificate.sha256Fingerprint,
 			);
 			await attempt.mutateAsync();
+		},
+		// A rejection of attempt.mutateAsync() already surfaces through attempt's own
+		// isError/error state below — this only catches TrustCertificate itself failing,
+		// which nothing else reads.
+		onError: (error: unknown) => {
+			if (error instanceof ReauthenticateError) return;
+			notify(notifications, {
+				kind: "error",
+				title: "The certificate could not be trusted",
+				detail: error instanceof Error ? error.message : String(error),
+			});
 		},
 	});
 
