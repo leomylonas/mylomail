@@ -918,6 +918,22 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   completely silently. Fixed both, reusing the established patterns exactly.
   `invariant-review` confirmed both fixes are correct and scoped to just the two renderer
   files touched. `pnpm check` clean under Node 22.
+- **Thirty-sixth pass — six more silent-failure UI gaps, same shape, found by a full sweep.**
+  Continued the thirty-fifth pass's technique across every `useQuery`/`useMutation` in the
+  renderer instead of stopping at the first two: `ExportAccount.tsx`'s `start`/`cancel`,
+  `EventModal.tsx`'s and `ReadingPane.tsx`'s RSVP mutation (the same gap duplicated across both
+  RSVP surfaces), `MessageList.tsx`'s `setFlags`/`trash`/`deletePermanently` (had `onSettled`
+  but no `onError`), `AttachmentList.tsx`'s attachments query (failed fetch rendered nothing,
+  indistinguishable from no attachments), and `MessageHtml.tsx`'s `useTrustSender` — which also
+  had a more fundamental related bug found while there: its raw `fetch` never checked
+  `response.ok`, so it wouldn't have thrown even with `onError` added, since `fetch` only
+  rejects on a network-level failure. Fixed all six reusing the two established patterns
+  (`reportFailure`/`notify` for mutations, an `isError` branch for queries).
+  `invariant-review` confirmed every fix is correctly wired, the `response.ok` fix is a strict
+  improvement with `useIsTrustedSender`'s sibling fail-closed-security-default query correctly
+  left untouched, `onError`/`onSettled` both still fire correctly in `MessageList.tsx`, no new
+  error string surfaces message content, and nothing under `Mutations/` is touched. `pnpm
+check` clean under Node 22.
 
 ## Next task
 
