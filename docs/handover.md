@@ -737,6 +737,21 @@ This is a snapshot of the current state, not a history; use Git for history.
   than bypassing it, is scoped to the syncing account, equal-sequence redelivery overwrites
   harmlessly, and nothing in the message-mutation coordination domain (§6) was touched. 6 new
   backend tests; full suite 292 passed/0 failed (up from 286). `pnpm check` clean under Node 22.
+- **Nineteenth pass — attachment size limits (§15) never enforced anywhere.**
+  `IMailProvider.GetAttachmentConstraintsAsync` was correctly implemented by all three
+  providers (IMAP, Gmail, Graph) but had zero callers outside the providers themselves — no
+  hub method, no compose-time check — despite the doc requiring the check be "applied before
+  send is attempted." Small UI-wiring fix, no scope decision needed: added
+  `MailHub.GetAttachmentConstraints` (read-only) and a new `AttachmentConstraintsDto`, wired
+  into `Compose.tsx`'s `send()`. Blocks on a known per-file limit (raw-byte comparison, matching
+  `DraftAttachment.size`'s raw-byte source) or a known total-message limit
+  (`configuredOverride ?? knownMessageSizeLimit`, compared against the base64-inflated total per
+  the doc's explicit "base64 overhead on total message size, not just per-file raw size"); warns
+  rather than blocks when the limit is genuinely unknown. `invariant-review` confirmed no frozen
+  invariant touched, `SendDraft` itself unchanged, and a pending/errored constraints query
+  degrades to no enforcement (same as before this fix) rather than blocking or throwing. `dotnet
+test` 292 passed/0 failed (unchanged — read-only accessor, no new backend logic). `pnpm check`
+  clean under Node 22.
 
 ## Next task
 
