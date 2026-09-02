@@ -861,6 +861,24 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   of any kind (no outbox pane, no connectivity UI exists) rather than a stale-cache bug —
   flagged as a separate, lower-severity finding for a future pass, not fixed here since there's
   no existing query key to invalidate. `pnpm check` clean under Node 22.
+- **Thirty-first pass — built `ConnectivityChanged`'s "one calm offline state," the real half
+  of the thirtieth pass's lead.** §7/§15 explicitly document its purpose: replace per-mailbox
+  error noise with one calm banner. Investigated first (not built blind): `OutboxStatusChanged`
+  had no doc-backed UI requirement and no existing query key to attach to, so left alone;
+  `ConnectivityChanged` did, and the per-failure "You appear to be offline" toast it's meant to
+  replace was still firing per `MessageSyncFailed`/`ErrorCategory.Network` — the exact noise
+  the doc calls out. Added `MailHub.GetConnectivity()` (needed because the push event only
+  fires on a transition, not on connect), wired the event into `HubConnection.ts` via
+  `setQueryData` matching the existing `SyncProgress` cache-only pattern, and added
+  `ConnectivityBanner`, mounted per-window in `AppShell.tsx`. Deliberately left the existing
+  per-failure toast untouched — additive, not a replacement, since suppressing it wasn't part
+  of the identified gap. `invariant-review` confirmed `GetConnectivity` is genuinely necessary,
+  `ConnectivityMonitor.IsOnline` defaults `true` (no false banner on fresh launch), each
+  window's banner is correctly self-scoped per the established per-window `HubConnection`/
+  `QueryClient` pattern, and the existing header status text observes a genuinely distinct
+  failure domain (local SignalR connection, not mail-provider reachability) so the two can't
+  contradict each other. `dotnet test` 298 passed/0 failed (unchanged). `pnpm check` clean
+  under Node 22.
 
 ## Next task
 
