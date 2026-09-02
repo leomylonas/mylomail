@@ -967,6 +967,17 @@ check` clean under Node 22.
   caught one more real gap in the same file (`GetSendIdentities`'s effect had no catch either) —
   fixed the same way. Four consecutive increasingly-thorough sweeps (passes 35-38) now confirm
   this bug class is closed across the renderer. `pnpm check` clean under Node 22.
+- **Thirty-ninth pass — electron-shell's main process is clean; one more small renderer gap
+  found while checking.** Investigated a flagged lead: `Main.ts`'s ~7 `fetch` call sites and
+  the IPC boundary. All clean — `ipcRenderer.invoke` correctly propagates a main-process throw
+  as a renderer-side rejection (Electron's own error forwarding, no custom convention needed),
+  and every other main-process fetch is a deliberate, documented read-with-safe-default or
+  best-effort-write for a genuinely low-stakes preference. That check surfaced one concrete
+  instance of the same passes-35-38 bug shape, missed by those sweeps because it's a plain
+  async function call rather than `useQuery`/`useMutation`/write-`fetch`:
+  `AttachmentList.tsx`'s "Open" button had no `.catch()`, even though its `open()` call can
+  genuinely throw from the main-process rejection path just confirmed clean. Fixed the same
+  way. `pnpm check` clean under Node 22.
 
 ## Next task
 
