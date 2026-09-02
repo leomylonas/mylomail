@@ -635,6 +635,24 @@ This is a snapshot of the current state, not a history; use Git for history.
   scope is architecturally unreachable through the app as it stands) is real but is feature-sized
   work, not a bug fix, and is being raised with the user for a scope decision rather than built
   unprompted.
+- **Send-as identity management, built after the user confirmed scope.** New
+  `SendIdentityService` (add/update/set-default/delete) plus four `MailHub` methods and a
+  `SendIdentityManager` component in `AccountSettings`. A failing test caught a real bug in
+  `SetDefaultAsync`'s first draft: demoting the old default and promoting the new one in one
+  `SaveChangesAsync` relied on EF Core applying the two `UPDATE`s in assignment order, which
+  isn't guaranteed — `SendIdentities`' database-level unique partial index (exactly one default
+  per account) is checked per-statement in SQLite, not deferred to commit, so promoting before
+  the demote flushed transiently violated it. Fixed by splitting into two sequential saves;
+  `invariant-review` confirmed wrapping both in an explicit transaction would not have helped,
+  since the per-statement check applies regardless of transaction boundaries. `DeleteAsync`
+  rejects deleting the account's default identity, or one a saved draft still references
+  (`Draft`'s FK to `SendIdentity` is `Restrict`, not `Cascade`, precisely to prevent a draft
+  silently losing the identity it was written from). 5 new tests; `dotnet test` 282 passed/0
+  failed (up from 277). `invariant-review` found no invariant violations and flagged three
+  lower-risk items left as-is, consistent with existing codebase convention: no
+  `accountId`-existence check before inserting an identity, no email-address format validation,
+  and a TOCTOU window in the draft-reference check that the `Restrict` FK backstops into a clean
+  error rather than data corruption if ever actually hit.
 
 ## Next task
 
