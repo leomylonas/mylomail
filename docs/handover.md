@@ -676,6 +676,28 @@ This is a snapshot of the current state, not a history; use Git for history.
   near-duplicates, not consolidated here to keep the diff to the actual gap), so the account list
   the settings form is seeded from now genuinely carries what was last saved. 4 new tests total;
   `dotnet test` 286 passed/0 failed (up from 282). `pnpm check` clean under Node 22.
+- **Sixteenth architecture.md pass — backfill progress and per-mailbox initial-sync override,
+  same shape as the fifteenth pass's findings.** §13 Epic 3's "visible progress
+  (fetched/estimated total)" during backfill had zero UI despite `SyncProgressDto` already being
+  broadcast on every coverage page — a mailbox mid-backfill was indistinguishable from one fully
+  synced. `HubConnection.ts`'s `SyncProgress` handler now also writes the payload into a
+  cache-only react-query key, read by a new `BackfillProgress` component in `MailboxTree.tsx`
+  whenever a mailbox's `coverage` is `Backfilling`. `invariant-review` independently verified
+  the load-bearing claim this relies on — that a `useQuery` with `enabled: false` still
+  re-renders on `setQueryData` for its key — against the actual installed
+  `@tanstack/react-query` version, not just the code comment's claim. Also: §13 Epic 3's
+  per-account/**mailbox** bounded-sync choice only had the account-level half built (fifteenth
+  pass); `Mailbox.InitialSyncModeOverride`/`InitialSyncBoundValueOverride` was already read by
+  `CoverageService` but had no hub method or UI to set it. Added
+  `MailHub.SetMailboxInitialSyncOverride` and a "Sync settings…" context-menu entry in
+  `MailboxTree.tsx`, offered only while a mailbox's coverage is `NotStarted`. `invariant-review`
+  traced `CoverageService.RunPageAsync` and confirmed it re-reads the override fresh on every
+  page — no race where a save silently has no effect — so the `NotStarted` gate is a
+  conservative UX choice (avoiding confusing mid-backfill re-bounding), not a correctness
+  requirement. No new backend tests for the hub method (no existing MailHub-level test harness
+  to extend cheaply; a plain two-column write structurally identical to the already-untested
+  `SetMailboxCollapsed`). `dotnet test` 286 passed/0 failed (unchanged). `pnpm check` clean under
+  Node 22.
 
 ## Next task
 
