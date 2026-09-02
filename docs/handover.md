@@ -752,6 +752,32 @@ This is a snapshot of the current state, not a history; use Git for history.
   degrades to no enforcement (same as before this fix) rather than blocking or throwing. `dotnet
 test` 292 passed/0 failed (unchanged — read-only accessor, no new backend logic). `pnpm check`
   clean under Node 22.
+- **Twentieth/twenty-first passes — no gap found.** Checked the compose→calendar round-trip
+  lead flagged by the nineteenth pass (not a real gap: no doc requirement ties Compose to
+  calendar-part detection on send) and did a full §15 sweep (rate-limiting, undo/delayed send,
+  sent-mail append, signatures, rules/filters, export, error taxonomy) plus a thorough
+  accessibility audit (colour-contrast floor from the fourteenth pass still wired in;
+  `MessageList.tsx`/`CalendarGrid.tsx`/resizable panels/`InviteBanner`/`EventModal` all
+  confirmed keyboard-operable by reading their source, not just grepping). Nothing wrong found
+  in either pass — reported honestly as clean rather than manufacturing a low-confidence
+  finding.
+- **Twenty-second pass — draft push silently duplicates a remote draft on a mid-batch crash.**
+  `DraftSyncService.PushAsync` batched every pending draft's provider-push result under one
+  `SaveChangesAsync` called after the whole loop, rather than per draft — exactly the kind of
+  "mid draft creation" boundary §16 names as where this system's worst bugs live. If an earlier
+  draft's provider call succeeded (a real remote draft now exists) but a later draft in the same
+  batch then threw an uncaught exception, the trailing save never ran, silently losing the
+  earlier draft's `ProviderDraftId` from local state; on restart it looked unpushed and was
+  pushed again, creating a permanently orphaned duplicate on the server (every provider mints a
+  fresh remote draft whenever `ProviderDraftId` is null). Fixed by saving each draft immediately
+  after its own provider-call outcome; also named the boundary as a fault-injection kill point
+  (`FaultPoints.DraftPushAfterProviderCallBeforeCommit`) for future tests. The new regression
+  test was manually confirmed to be a genuine discriminator — stashing just the fix and rerunning
+  it reproduced the failure before restoring the fix and confirming it passes, per this session's
+  standing "a passing fault-injection test is not evidence" discipline. `invariant-review`
+  confirmed every code path is covered and nothing under `Mutations/` or any other frozen
+  invariant is touched. `dotnet test` 293 passed/0 failed (up from 292). `pnpm check` clean under
+  Node 22.
 
 ## Next task
 
