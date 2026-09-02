@@ -5,7 +5,7 @@
 import type { IStreamResult, Subject } from '@microsoft/signalr';
 import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
-import type { InviteResponse } from '../MyloMail.Api.Domain';
+import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
 
 /**
 * The renderer's connection to the backend (§7).
@@ -157,6 +157,17 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     setMailboxCollapsed(mailboxId: string, collapsed: boolean): Promise<void>;
+    /**
+    * Bounds this one mailbox's initial sync differently from the account's own choice —
+    * e.g. a large "All Mail" label discovered after account setup (§3, §13 Epic 3). Null
+    * mode clears the override, reverting to the account's default. Only meaningful before
+    * this mailbox's own backfill has started; the caller decides whether to offer it.
+    * @param mailboxId Transpiled from System.Guid
+    * @param mode Transpiled from MyloMail.Api.Domain.InitialSyncMode?
+    * @param boundValue Transpiled from int?
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setMailboxInitialSyncOverride(mailboxId: string, mode: (InitialSyncMode | undefined), boundValue: (number | undefined)): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountCapabilitiesDto>

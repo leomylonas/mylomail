@@ -24,7 +24,15 @@ export const queryKeys = {
 	calendars: (accountId: string) => ["calendars", accountId] as const,
 	calendarEvents: (calendarId: string, from: string, to: string) =>
 		["calendar-events", calendarId, from, to] as const,
+	/** Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3). */
+	syncProgress: (mailboxId: string) => ["sync-progress", mailboxId] as const,
 };
+
+export interface SyncProgress {
+	mailboxId: string;
+	messagesFetched: number;
+	estimatedTotal: number | null;
+}
 
 /**
  * Opens the hub and points its events at the query cache.
@@ -46,10 +54,17 @@ export function connectHub(
 		.configureLogging(LogLevel.Warning)
 		.build();
 
-	hub.on("SyncProgress", (progress: { mailboxId: string }) => {
+	hub.on("SyncProgress", (progress: SyncProgress) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.messages(progress.mailboxId),
 		});
+		// Cache-only write, never fetched: the mailbox tree's progress indicator reads this
+		// key with `enabled: false`, so it renders whatever this last wrote and nothing more
+		// (§13 Epic 3) — there is no request that would ever produce this value on its own.
+		queryClient.setQueryData(
+			queryKeys.syncProgress(progress.mailboxId),
+			progress,
+		);
 	});
 
 	// Adding or removing an account changes what every window can show, and the account list

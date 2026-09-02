@@ -12,6 +12,9 @@ namespace MyloMail.Api.Contracts;
 /// <paramref name="LocalCount"/> is carried separately and used only where it is the right
 /// answer, such as how many messages this view is showing.
 /// </remarks>
+/// <param name="InitialSyncModeOverride">
+/// Null when this mailbox uses the account's own initial-sync choice (§3, §13 Epic 3).
+/// </param>
 [TranspilationSource]
 public record MailboxSummaryDto(
 	Guid Id,
@@ -23,7 +26,9 @@ public record MailboxSummaryDto(
 	int? ProviderUnreadCount,
 	int LocalCount,
 	CoverageStatus Coverage,
-	bool IsCollapsed
+	bool IsCollapsed,
+	InitialSyncMode? InitialSyncModeOverride,
+	int? InitialSyncBoundValueOverride
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>

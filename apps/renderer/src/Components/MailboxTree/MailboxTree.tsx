@@ -1,8 +1,21 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
-import { Modal, SkeletonText } from "@carbon/react";
-import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	Modal,
+	NumberInput,
+	RadioButton,
+	RadioButtonGroup,
+	SkeletonText,
+} from "@carbon/react";
+import {
+	queryKeys,
+	type SyncProgress,
+} from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	CoverageStatus,
+	InitialSyncMode,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
@@ -23,6 +36,9 @@ interface Mailbox {
 	providerUnreadCount: number | null;
 	localCount: number;
 	isCollapsed: boolean;
+	coverage: CoverageStatus;
+	initialSyncModeOverride: InitialSyncMode | null;
+	initialSyncBoundValueOverride: number | null;
 }
 
 interface Capabilities {
@@ -32,7 +48,8 @@ interface Capabilities {
 type Dialog =
 	| { kind: "create"; parent: Mailbox | null }
 	| { kind: "rename"; mailbox: Mailbox }
-	| { kind: "delete"; mailbox: Mailbox };
+	| { kind: "delete"; mailbox: Mailbox }
+	| { kind: "sync"; mailbox: Mailbox };
 
 export function MailboxTree({
 	hub,
@@ -140,6 +157,22 @@ export function MailboxTree({
 		mutationFn: (input: { mailboxId: string; collapsed: boolean }) =>
 			hub.invoke("SetMailboxCollapsed", input.mailboxId, input.collapsed),
 		onSuccess: refresh,
+	});
+
+	const setSyncOverride = useMutation({
+		mutationFn: (input: {
+			mailboxId: string;
+			mode: InitialSyncMode | null;
+			boundValue: number | null;
+		}) =>
+			hub.invoke(
+				"SetMailboxInitialSyncOverride",
+				input.mailboxId,
+				input.mode,
+				input.boundValue,
+			),
+		onSuccess: refresh,
+		onError: reportFailure("The sync setting could not be saved"),
 	});
 
 	const remove = useMutation({
@@ -287,7 +320,11 @@ export function MailboxTree({
 								}}
 							>
 								<span>{mailbox.name}</span>
-								<span className={styles.count}>{describeCount(mailbox)}</span>
+								{mailbox.coverage === CoverageStatus.Backfilling ? (
+									<BackfillProgress mailboxId={mailbox.id} />
+								) : (
+									<span className={styles.count}>{describeCount(mailbox)}</span>
+								)}
 							</button>
 						</div>
 						{hasChildren && !mailbox.isCollapsed
@@ -323,6 +360,14 @@ export function MailboxTree({
 						{
 							label: "Rename",
 							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
+						},
+						{
+							label: "Sync settings…",
+							run: () => setDialog({ kind: "sync", mailbox: menu.mailbox }),
+							unavailable:
+								menu.mailbox.coverage === CoverageStatus.NotStarted
+									? undefined
+									: "Only available before this folder's initial sync has started.",
 						},
 						{
 							label: "Delete",
@@ -370,7 +415,104 @@ export function MailboxTree({
 					<p>{describeDeletion(capabilities.data)}</p>
 				</Modal>
 			) : null}
+			{dialog?.kind === "sync" ? (
+				<SyncOverrideModal
+					mailbox={dialog.mailbox}
+					onSubmit={(mode, boundValue) =>
+						setSyncOverride.mutate({
+							mailboxId: dialog.mailbox.id,
+							mode,
+							boundValue,
+						})
+					}
+					onClose={close}
+				/>
+			) : null}
 		</>
+	);
+}
+
+/**
+ * Bounds one mailbox's initial sync differently from the account's own choice (§3, §13 Epic 3)
+ * — offered only before this mailbox's own backfill has started, since changing it afterward
+ * has nothing left to bound.
+ */
+function SyncOverrideModal({
+	mailbox,
+	onSubmit,
+	onClose,
+}: {
+	mailbox: Mailbox;
+	onSubmit: (mode: InitialSyncMode | null, boundValue: number | null) => void;
+	onClose: () => void;
+}) {
+	const [mode, setMode] = useState<InitialSyncMode | "account-default">(
+		mailbox.initialSyncModeOverride ?? "account-default",
+	);
+	const [boundValue, setBoundValue] = useState(
+		mailbox.initialSyncBoundValueOverride ?? 3,
+	);
+
+	return (
+		<Modal
+			open
+			modalHeading={`Sync settings for "${mailbox.name}"`}
+			primaryButtonText="Save"
+			secondaryButtonText="Cancel"
+			onRequestSubmit={() =>
+				onSubmit(
+					mode === "account-default" ? null : mode,
+					mode === "account-default" || mode === InitialSyncMode.Full
+						? null
+						: boundValue,
+				)
+			}
+			onRequestClose={onClose}
+		>
+			<RadioButtonGroup
+				legendText="Initial sync for this folder"
+				name="mailbox-sync-mode"
+				valueSelected={String(mode)}
+				onChange={(value) =>
+					setMode(
+						value === "account-default"
+							? "account-default"
+							: (Number(value) as InitialSyncMode),
+					)
+				}
+			>
+				<RadioButton
+					id="mailbox-sync-default"
+					labelText="Use the account's own setting"
+					value="account-default"
+				/>
+				<RadioButton
+					id="mailbox-sync-full"
+					labelText="Full history"
+					value={String(InitialSyncMode.Full)}
+				/>
+				<RadioButton
+					id="mailbox-sync-months"
+					labelText="Last N months"
+					value={String(InitialSyncMode.LastNMonths)}
+				/>
+				<RadioButton
+					id="mailbox-sync-messages"
+					labelText="Last N messages"
+					value={String(InitialSyncMode.LastNMessages)}
+				/>
+			</RadioButtonGroup>
+			{mode === InitialSyncMode.LastNMonths ||
+			mode === InitialSyncMode.LastNMessages ? (
+				<NumberInput
+					id="mailbox-sync-bound"
+					label={mode === InitialSyncMode.LastNMonths ? "Months" : "Messages"}
+					min={1}
+					value={boundValue}
+					onChange={(_, { value }) => setBoundValue(Number(value))}
+				/>
+			) : null}
+		</Modal>
 	);
 }
 
@@ -418,6 +560,32 @@ function describeDeletion(capabilities: Capabilities | undefined): string {
  * of a large inbox holds a fraction of it — so where the server tells us, that is what the
  * sidebar shows. Where it cannot, the local count is shown as what it is (§1).
  */
+/**
+ * "Fetched of estimated" while a mailbox is still backfilling (§13 Epic 3).
+ *
+ * Reads a cache entry `SyncProgress` events write directly, never fetches one itself: there is
+ * no request that would ever produce this value on its own, only the push from the hub. Still
+ * a real `useQuery` subscription (`enabled: false` only suppresses fetching, not the observer),
+ * so this re-renders on every `SyncProgress` event for this mailbox without any prop drilling.
+ */
+function BackfillProgress({ mailboxId }: { mailboxId: string }) {
+	const { data: progress } = useQuery({
+		queryKey: queryKeys.syncProgress(mailboxId),
+		queryFn: () => undefined as SyncProgress | undefined,
+		enabled: false,
+	});
+
+	if (!progress) return <span className={styles.count}>Syncing…</span>;
+
+	return (
+		<span className={styles.count}>
+			{progress.estimatedTotal
+				? `${progress.messagesFetched} of ${progress.estimatedTotal}`
+				: `${progress.messagesFetched} synced`}
+		</span>
+	);
+}
+
 function describeCount(mailbox: Mailbox): string {
 	if (mailbox.providerUnreadCount !== null && mailbox.providerUnreadCount > 0) {
 		return `${mailbox.providerUnreadCount}`;

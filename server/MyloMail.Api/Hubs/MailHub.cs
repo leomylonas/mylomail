@@ -112,6 +112,15 @@ public interface IMailHub
 	/// — purely local, the same as <see cref="ReorderMailboxes"/>.</summary>
 	Task SetMailboxCollapsed(Guid mailboxId, bool collapsed);
 
+	/// <summary>
+	/// Bounds this one mailbox's initial sync differently from the account's own choice —
+	/// e.g. a large "All Mail" label discovered after account setup (§3, §13 Epic 3). Null
+	/// mode clears the override, reverting to the account's default. Only meaningful before
+	/// this mailbox's own backfill has started; the caller decides whether to offer it.
+	/// </summary>
+	/// <exception cref="HubException">A non-null, non-Full mode with no positive bound value.</exception>
+	Task SetMailboxInitialSyncOverride(Guid mailboxId, InitialSyncMode? mode, int? boundValue);
+
 	Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId);
 
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
@@ -245,7 +254,9 @@ public class MailHub(
 					row.Mailbox.ProviderUnreadCount,
 					row.LocalCount,
 					row.Coverage ?? CoverageStatus.NotStarted,
-					row.Mailbox.IsCollapsed
+					row.Mailbox.IsCollapsed,
+					row.Mailbox.InitialSyncModeOverride,
+					row.Mailbox.InitialSyncBoundValueOverride
 				)),
 		];
 	}
@@ -477,6 +488,19 @@ public class MailHub(
 	{
 		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
 		mailbox.IsCollapsed = collapsed;
+		await context.SaveChangesAsync();
+	}
+
+	public async Task SetMailboxInitialSyncOverride(Guid mailboxId, InitialSyncMode? mode, int? boundValue)
+	{
+		if (mode is not null and not InitialSyncMode.Full && boundValue is not > 0)
+		{
+			throw new HubException("A bounded initial sync needs a positive month/message count.");
+		}
+
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		mailbox.InitialSyncModeOverride = mode;
+		mailbox.InitialSyncBoundValueOverride = mode == InitialSyncMode.Full ? null : boundValue;
 		await context.SaveChangesAsync();
 	}
 

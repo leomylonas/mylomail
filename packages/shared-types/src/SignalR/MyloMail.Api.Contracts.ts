@@ -144,6 +144,10 @@ export type MailboxSummaryDto = {
     coverage: CoverageStatus;
     /** Transpiled from bool */
     isCollapsed: boolean;
+    /** Transpiled from MyloMail.Api.Domain.InitialSyncMode */
+    initialSyncModeOverride?: InitialSyncMode;
+    /** Transpiled from int */
+    initialSyncBoundValueOverride?: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageSummaryDto */
