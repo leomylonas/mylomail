@@ -906,6 +906,18 @@ test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
   Node 22 (`pnpm check` needed several retries this pass due to background `dotnet watch`/VS
   Code process contention in the sandbox — each individual check step verified clean in
   isolation before the full aggregate finally succeeded cleanly).
+- **Thirty-fourth pass — no gap found.** Fresh technique (error-path correctness: every broad
+  `catch` clause in `server/MyloMail.Api/` across mutation/outbox/export/content paths) came up
+  clean — every one checked was intentional, correctly scoped, and logged.
+- **Thirty-fifth pass — two silent-failure UI gaps.** Fresh technique (renderer error
+  boundaries/loading states). `DraftList.tsx` had no `isError` branch: on a genuine fetch
+  failure it fell through to the empty-state check and showed "No drafts." exactly as if the
+  user legitimately had none. `Sidebar.tsx`'s `reorder`/`toggleCollapsed` mutations had no
+  `onError` at all, unlike every one of `MailboxTree.tsx`'s five sibling mutations (a shared
+  `reportFailure`/`notify` helper) — a failed drag-to-reorder or collapse-toggle failed
+  completely silently. Fixed both, reusing the established patterns exactly.
+  `invariant-review` confirmed both fixes are correct and scoped to just the two renderer
+  files touched. `pnpm check` clean under Node 22.
 
 ## Next task
 
