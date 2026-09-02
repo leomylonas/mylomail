@@ -95,6 +95,13 @@ export function connectHub(
 		});
 	}
 
+	// A draft created, saved, deleted, pushed to the server, or materialised locally by sync
+	// (§7) — the event only carries draftId, not accountId, so this invalidates by prefix
+	// like the message events above rather than trying to scope it.
+	hub.on("DraftUpdated", () => {
+		void queryClient.invalidateQueries({ queryKey: ["drafts"] });
+	});
+
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic
 	// state has already been reverted, so without this the flag springs back with no
 	// explanation and the user is left believing the app is simply unreliable.
