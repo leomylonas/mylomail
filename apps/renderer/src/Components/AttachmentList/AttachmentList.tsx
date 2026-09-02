@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/AttachmentList/AttachmentList.module.css";
 
 interface Attachment {
@@ -19,6 +21,7 @@ export function AttachmentList({
 	hub: HubConnection;
 	messageId: string;
 }) {
+	const { store: notifications } = useWindowNotifications();
 	const attachments = useQuery({
 		queryKey: ["attachments", messageId],
 		queryFn: () => hub.invoke<Attachment[]>("GetAttachmentMetadata", messageId),
@@ -54,7 +57,16 @@ export function AttachmentList({
 						<Button
 							size="sm"
 							kind="tertiary"
-							onClick={() => void open(messageId, attachment)}
+							onClick={() =>
+								void open(messageId, attachment).catch((error: unknown) =>
+									notify(notifications, {
+										kind: "error",
+										title: "This attachment could not be opened",
+										detail:
+											error instanceof Error ? error.message : String(error),
+									}),
+								)
+							}
 						>
 							Open
 						</Button>
