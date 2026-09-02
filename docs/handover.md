@@ -507,6 +507,18 @@ This is a snapshot of the current state, not a history; use Git for history.
   No `Main.test.ts` exists for this file — verified by code review + `pnpm check` (clean, under
   Node 22), consistent with how this session's other `Main.ts` work (quit-confirm, mailto-prompt)
   was verified.
+- **Tenth architecture.md pass — three gaps found, one fixed, two are real but substantial
+  enough to leave for dedicated feature work.** Fixed: the Delete key wasn't bound to move-to-trash
+  despite the feature being fully working everywhere else (§13's "keyboard shortcuts follow
+  standard Outlook/Gmail conventions" standing rule) — added to `MessageList.tsx`'s
+  `useShortcuts` call. Left open, both noted below under "Next task": (a) Reply/Reply
+  all/Forward are still stubbed ("Compose is not built yet.") in `messageActions`, so no
+  shortcut was bound to them — wire both together once that flow exists; (b) true scheduled
+  send (§15 describes sending at an arbitrary future time, not just the already-implemented
+  undo-send delay) has no backend hub method or renderer UI at all; (c) the message list has
+  neither TanStack Table (sortable/filterable columns, §12) nor TanStack Virtual
+  (virtualisation, §12) — it's a plain `<ul>` with no sort/filter state, and
+  `@tanstack/react-table` isn't even a dependency yet.
 
 ## Next task
 
@@ -532,6 +544,21 @@ This is a snapshot of the current state, not a history; use Git for history.
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
+5. **Reply/Reply all/Forward are unimplemented** — `MessageList.tsx`'s `messageActions` stubs
+   all three with `unavailable: "Compose is not built yet."`. Needs a real compose-reply flow
+   (quoted body, To/Cc population, `Draft.InReplyToMessageId`/`In-Reply-To` header threading)
+   before a keyboard shortcut for any of them is worth adding.
+6. **True scheduled send is unimplemented.** §15 describes sending at an arbitrary future time
+   as the same mechanism as the already-working undo-send delay, with a worked "message
+   scheduled for 09:00" example — but `MailHub.SendDraft` takes no target time, there's no
+   `ScheduleSend`-style hub method, and `Compose.tsx` has no time picker. Only the fixed-delay
+   undo-send half of this feature exists.
+7. **Message list has no TanStack Table or TanStack Virtual.** §12 calls for
+   "Outlook-style sortable/filterable message list columns" (Table) and virtualisation (Virtual)
+   for the message list and calendar agenda view. `@tanstack/react-virtual` is used in
+   `CalendarAgenda.tsx` but never in `MessageList.tsx`, which is a plain `<ul>` with no sort or
+   filter state; `@tanstack/react-table` isn't a dependency at all yet. Real UI work, not a
+   wiring gap.
 
 ## Read first
 
