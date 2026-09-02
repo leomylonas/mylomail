@@ -834,6 +834,19 @@ test` 292 passed/0 failed (unchanged — read-only accessor, no new backend logi
   and correct middleware placement. Manually smoke-tested the built app starting, migrating,
   and writing a real log file end-to-end. 2 new tests against a real Serilog `Logger`. `dotnet
 test` 298 passed/0 failed (up from 296). `pnpm check` clean under Node 22.
+- **Twenty-ninth pass — a calendar event's RSVP status could go stale indefinitely on an
+  already-open surface.** This app's TanStack Query client never auto-refetches
+  (`refetchOnWindowFocus: false, staleTime: Infinity`), so a query key only refreshes via
+  explicit invalidation. A `CalendarEvent`'s invite-response status is shown under three
+  different query keys (the calendar grid, `EventModal`'s detail view, and a message's
+  `InviteBanner`), but the SignalR push handler for `CalendarEventUpdated` only invalidated the
+  calendar grid's key — responding to an invite from the reading pane never updated an
+  already-open `EventModal` for the same event, or vice versa, and closing/reopening didn't
+  help either since nothing was ever considered stale. Fixed by broadening the handler to also
+  invalidate `["calendar-event-detail"]` and `["invite"]`, matching the existing pattern.
+  `invariant-review` confirmed both query key strings match their components exactly, nothing
+  else in the renderer shares either prefix (no over-invalidation), and the fix closes the bug
+  end-to-end in both directions. `pnpm check` clean under Node 22.
 
 ## Next task
 
