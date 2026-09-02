@@ -185,6 +185,11 @@ export function MessageList({
 				});
 			},
 		},
+		{
+			key: "Delete",
+			description: "Move to trash",
+			run: () => selectedMessages.length > 0 && trash.mutate(selectedMessages),
+		},
 	]);
 
 	if (messages.isPending) return <SkeletonText paragraph lineCount={6} />;
