@@ -30,6 +30,13 @@ import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextM
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
 import { messageDragType } from "@mylomail/renderer/Lib/DragTypes";
+import {
+	buildForwardSeed,
+	buildReplySeed,
+	type ComposeSeed,
+	type ForwardAttachment,
+	type MessageReplyContext,
+} from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -105,13 +112,17 @@ const columns = [
 export function MessageList({
 	hub,
 	accountId,
+	ownAddress,
 	mailboxId,
 	query,
 	onSelect,
 	onPrint,
+	onCompose,
 }: {
 	hub: HubConnection;
 	accountId: string;
+	/** This account's own address, so reply-all can exclude replying to yourself (§13). */
+	ownAddress: string;
 	mailboxId: string;
 	query: string;
 	onSelect: (message: { id: string; subject: string; from: string }) => void;
@@ -122,6 +133,8 @@ export function MessageList({
 	 * content (§13).
 	 */
 	onPrint: (message: { id: string; subject: string; from: string }) => void;
+	/** Opens compose prefilled as a reply/reply-all/forward (§13). */
+	onCompose: (seed: ComposeSeed) => void;
 }) {
 	const queryClient = useQueryClient();
 	const searching = query.trim().length > 0;
@@ -474,6 +487,8 @@ export function MessageList({
 						hub,
 						queryClient,
 						onPrint,
+						onCompose,
+						ownAddress,
 					)}
 				/>
 			) : null}
@@ -500,6 +515,8 @@ function messageActions(
 	hub: HubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
+	onCompose: (seed: ComposeSeed) => void,
+	ownAddress: string,
 ): MenuAction[] {
 	const single = targets.length === 1 ? targets[0] : undefined;
 	const suffix = targets.length > 1 ? ` (${targets.length})` : "";
@@ -516,18 +533,20 @@ function messageActions(
 	return [
 		{
 			label: "Reply",
-			run: () => undefined,
-			unavailable: "Compose is not built yet.",
+			run: () =>
+				single && void replyTo(hub, single, "reply", ownAddress, onCompose),
+			unavailable: singleUnavailable,
 		},
 		{
 			label: "Reply all",
-			run: () => undefined,
-			unavailable: "Compose is not built yet.",
+			run: () =>
+				single && void replyTo(hub, single, "replyAll", ownAddress, onCompose),
+			unavailable: singleUnavailable,
 		},
 		{
 			label: "Forward",
-			run: () => undefined,
-			unavailable: "Compose is not built yet.",
+			run: () => single && void forward(hub, single, onCompose),
+			unavailable: singleUnavailable,
 		},
 		{ label: "-", run: () => undefined },
 		{
@@ -562,6 +581,52 @@ function messageActions(
 			unavailable: singleUnavailable,
 		},
 	];
+}
+
+/**
+ * Fetches the address/subject/date context and body a reply needs, then opens compose seeded
+ * from it. Fetched fresh on every click rather than reused from the row's own summary data:
+ * `MessageSummary` carries only `from`, not the `to`/`cc`/reply-to a reply actually needs (§13).
+ */
+async function replyTo(
+	hub: HubConnection,
+	message: MessageSummary,
+	mode: "reply" | "replyAll",
+	ownAddress: string,
+	onCompose: (seed: ComposeSeed) => void,
+): Promise<void> {
+	const [context, body] = await Promise.all([
+		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
+		hub.invoke<{ html: string | null; text: string | null }>(
+			"GetMessageBody",
+			message.id,
+		),
+	]);
+	onCompose(
+		buildReplySeed(mode, context, body.html ?? body.text ?? "", ownAddress),
+	);
+}
+
+/**
+ * As {@link replyTo}, plus the original message's own non-inline attachments — copied onto
+ * the new draft by `Compose` itself once it exists, not fetched here (§13).
+ */
+async function forward(
+	hub: HubConnection,
+	message: MessageSummary,
+	onCompose: (seed: ComposeSeed) => void,
+): Promise<void> {
+	const [context, body, attachments] = await Promise.all([
+		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
+		hub.invoke<{ html: string | null; text: string | null }>(
+			"GetMessageBody",
+			message.id,
+		),
+		hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", message.id),
+	]);
+	onCompose(
+		buildForwardSeed(context, body.html ?? body.text ?? "", attachments),
+	);
 }
 
 /**

@@ -86,6 +86,24 @@ public record AttachmentDto(
 );
 
 /// <summary>
+/// Enough of a message to build a reply or forward from (§13) — the address/subject/date
+/// fields a compose window needs to prefill recipients and quote/forward headers, kept
+/// separate from <see cref="MessageBodyDto"/> since building a reply also needs the body,
+/// fetched independently through the existing content path rather than duplicated here.
+/// </summary>
+/// <param name="ReplyTo">Reply routing prefers this over <paramref name="From"/> when present (§1).</param>
+[TranspilationSource]
+public record MessageReplyContextDto(
+	Guid MessageId,
+	IReadOnlyList<Address> From,
+	IReadOnlyList<Address> To,
+	IReadOnlyList<Address> Cc,
+	IReadOnlyList<Address> ReplyTo,
+	string Subject,
+	DateTimeOffset ReceivedAt
+);
+
+/// <summary>
 /// A change the user asked for that will not happen (§6, §7).
 /// </summary>
 /// <remarks>
@@ -94,10 +112,16 @@ public record AttachmentDto(
 /// nothing at all, and a bare string would leave every screen guessing from prose.
 /// </remarks>
 /// <summary>A draft as the compose window holds it (§1).</summary>
+/// <param name="InReplyToMessageId">
+/// Round-tripped so re-saving an existing reply draft keeps pointing at the message it replies
+/// to — previously discarded on every save by the compose window always sending <c>null</c>
+/// back, silently un-threading any reply draft the moment it autosaved (§13).
+/// </param>
 [TranspilationSource]
 public record DraftDto(
 	Guid Id,
 	Guid AccountId,
+	Guid? InReplyToMessageId,
 	IReadOnlyList<Address> To,
 	IReadOnlyList<Address> Cc,
 	IReadOnlyList<Address> Bcc,

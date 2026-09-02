@@ -13,6 +13,7 @@ import {
 	Compose,
 	type OpenDraft,
 } from "@mylomail/renderer/Components/Compose/Compose";
+import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { DraftList } from "@mylomail/renderer/Components/DraftList/DraftList";
 import {
 	AccountSettings,
@@ -70,6 +71,10 @@ export function AppShell() {
 		| "calendar"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
+	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
+	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
+	// "New message" — the two are mutually exclusive seeds for the same compose pane.
+	const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>();
 	const [reauthenticating, setReauthenticating] = useState(false);
 	const store = useWindowStore();
 	const { store: notifications } = useWindowNotifications();
@@ -158,6 +163,7 @@ export function AppShell() {
 					disabled={!selectedAccountId}
 					onClick={() => {
 						setOpenDraft(undefined);
+						setComposeSeed(undefined);
 						setPane("compose");
 					}}
 				>
@@ -290,6 +296,7 @@ export function AppShell() {
 								<MessageList
 									hub={hub}
 									accountId={selectedAccountId}
+									ownAddress={selectedAccount?.emailAddress ?? ""}
 									mailboxId={selectedMailboxId}
 									query={query}
 									onSelect={(message) => {
@@ -309,6 +316,11 @@ export function AppShell() {
 										);
 										setPane("reading");
 									}}
+									onCompose={(seed) => {
+										setOpenDraft(undefined);
+										setComposeSeed(seed);
+										setPane("compose");
+									}}
 								/>
 							) : (
 								<p style={{ padding: "1rem" }}>Select a mailbox.</p>
@@ -325,10 +337,11 @@ export function AppShell() {
 					>
 						{hub && selectedAccountId && effectivePane === "compose" ? (
 							<Compose
-								key={openDraft?.id ?? "new"}
+								key={openDraft?.id ?? composeSeed?.key ?? "new"}
 								hub={hub}
 								accountId={selectedAccountId}
 								draft={openDraft}
+								seed={composeSeed}
 								onClose={() => setPane("reading")}
 								onDetach={
 									window.windows
@@ -349,6 +362,7 @@ export function AppShell() {
 									accountId={selectedAccountId}
 									onOpen={(draft) => {
 										setOpenDraft(draft);
+										setComposeSeed(undefined);
 										setPane("compose");
 									}}
 								/>

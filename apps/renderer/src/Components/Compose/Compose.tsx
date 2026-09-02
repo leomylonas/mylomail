@@ -10,6 +10,7 @@ import {
 } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
+import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
 interface Sent {
@@ -28,6 +29,7 @@ interface DraftAttachment {
 
 export interface OpenDraft {
 	id: string;
+	inReplyToMessageId?: string | null;
 	to: { name: string | null; email: string }[];
 	cc: { name: string | null; email: string }[];
 	bcc: { name: string | null; email: string }[];
@@ -49,6 +51,7 @@ export function Compose({
 	onClose,
 	onDetach,
 	draft,
+	seed,
 }: {
 	hub: HubConnection;
 	accountId: string;
@@ -59,12 +62,20 @@ export function Compose({
 	 */
 	onDetach?: (draftId: string) => void;
 	draft?: OpenDraft;
+	/**
+	 * Prefill for a reply/reply-all/forward that has no saved draft yet (§13). Ignored once
+	 * `draft` is given — an existing draft's own saved fields always win, since reopening one
+	 * must show what was actually saved, not the seed it may once have started from.
+	 */
+	seed?: ComposeSeed;
 }) {
-	const [to, setTo] = useState(() => formatAddresses(draft?.to));
-	const [cc, setCc] = useState(() => formatAddresses(draft?.cc));
-	const [bcc, setBcc] = useState(() => formatAddresses(draft?.bcc));
-	const [subject, setSubject] = useState(draft?.subject ?? "");
-	const [body, setBody] = useState(draft?.bodyHtml ?? "");
+	const [to, setTo] = useState(() => formatAddresses(draft?.to ?? seed?.to));
+	const [cc, setCc] = useState(() => formatAddresses(draft?.cc ?? seed?.cc));
+	const [bcc, setBcc] = useState(() =>
+		formatAddresses(draft?.bcc ?? seed?.bcc),
+	);
+	const [subject, setSubject] = useState(draft?.subject ?? seed?.subject ?? "");
+	const [body, setBody] = useState(draft?.bodyHtml ?? seed?.bodyHtml ?? "");
 	const [sent, setSent] = useState<Sent | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
@@ -80,11 +91,33 @@ export function Compose({
 	const [scheduleTime, setScheduleTime] = useState("");
 	const fileInput = useRef<HTMLInputElement>(null);
 
+	// Threaded through to every save rather than fixed at construction: a reply/forward's
+	// destination-message linkage must survive every subsequent autosave, not just the first
+	// one, or re-editing an existing reply draft would silently un-thread it (§13).
+	const inReplyToMessageId =
+		draft?.inReplyToMessageId ?? seed?.inReplyToMessageId ?? null;
+
 	// `save` always reads the latest field values through this ref rather than closing over
 	// state, because a queued save (below) can run well after the render that scheduled it.
-	const fieldsRef = useRef({ to, cc, bcc, subject, body, draftId });
+	const fieldsRef = useRef({
+		to,
+		cc,
+		bcc,
+		subject,
+		body,
+		draftId,
+		inReplyToMessageId,
+	});
 	useEffect(() => {
-		fieldsRef.current = { to, cc, bcc, subject, body, draftId };
+		fieldsRef.current = {
+			to,
+			cc,
+			bcc,
+			subject,
+			body,
+			draftId,
+			inReplyToMessageId,
+		};
 	});
 
 	// Autosave, the manual "Save draft" button, "Send" and "Open in new window" all call
@@ -102,7 +135,7 @@ export function Compose({
 			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
 				draftId: fields.draftId,
 				accountId,
-				inReplyToMessageId: null,
+				inReplyToMessageId: fields.inReplyToMessageId,
 				to: parseAddresses(fields.to),
 				cc: parseAddresses(fields.cc),
 				bcc: parseAddresses(fields.bcc),
@@ -130,6 +163,40 @@ export function Compose({
 		return () => clearTimeout(timer);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- `save` reads fieldsRef, not these values, at run time
 	}, [to, cc, bcc, subject, body]);
+
+	// A forward's own attachments have to be copied onto the new draft server-side — there is
+	// no "attach this other message's attachment" concept, only "upload bytes" — so this reads
+	// each one back from the original message and re-uploads it the same way a dropped file
+	// would be. Runs once, guarded by the ref: `seed` is stable for this component's lifetime
+	// (a new reply/forward always gets a fresh `key`, remounting rather than re-running this),
+	// but effects still re-fire on unrelated re-renders without a guard.
+	const forwardAttachmentsCopied = useRef(false);
+	useEffect(() => {
+		const toCopy = seed?.forwardAttachments;
+		if (!toCopy || forwardAttachmentsCopied.current) return;
+		forwardAttachmentsCopied.current = true;
+
+		void (async () => {
+			setBusy(true);
+			try {
+				const id = await save();
+				for (const attachment of toCopy.attachments) {
+					const response = await fetch(
+						`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
+					);
+					if (!response.ok) continue;
+					await uploadAttachment(
+						id,
+						await response.blob(),
+						attachment.filename,
+					);
+				}
+			} finally {
+				setBusy(false);
+			}
+		})();
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per mount, guarded above
+	}, []);
 
 	const detach = async () => {
 		if (!onDetach) return;
@@ -190,20 +257,29 @@ export function Compose({
 		void send(target);
 	};
 
+	/** Shared by manual/dropped file uploads and forward's copy-from-original-message path. */
+	const uploadAttachment = async (
+		id: string,
+		content: Blob,
+		filename: string,
+	): Promise<void> => {
+		const form = new FormData();
+		form.append("file", content, filename);
+		const response = await fetch(`/drafts/${id}/attachments`, {
+			method: "POST",
+			body: form,
+		});
+		if (!response.ok) throw new Error(`Could not attach ${filename}.`);
+		const attachment = (await response.json()) as DraftAttachment;
+		setAttachments((current) => [...current, attachment]);
+	};
+
 	const addFiles = async (files: FileList | File[]) => {
 		setBusy(true);
 		try {
 			const id = await save();
 			for (const file of Array.from(files)) {
-				const form = new FormData();
-				form.append("file", file);
-				const response = await fetch(`/drafts/${id}/attachments`, {
-					method: "POST",
-					body: form,
-				});
-				if (!response.ok) throw new Error(`Could not attach ${file.name}.`);
-				const attachment = (await response.json()) as DraftAttachment;
-				setAttachments((current) => [...current, attachment]);
+				await uploadAttachment(id, file, file.name);
 			}
 		} finally {
 			setBusy(false);
@@ -295,7 +371,10 @@ export function Compose({
 				value={subject}
 				onChange={(event) => setSubject(event.target.value)}
 			/>
-			<Editor onChange={setBody} initialHtml={draft?.bodyHtml} />
+			<Editor
+				onChange={setBody}
+				initialHtml={draft?.bodyHtml ?? seed?.bodyHtml}
+			/>
 			<input
 				className={styles.fileInput}
 				ref={fileInput}

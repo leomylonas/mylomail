@@ -43,6 +43,9 @@ public interface IMailHub
 
 	Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId);
 
+	/// <summary>The address/subject/date fields a reply or forward is built from (§13).</summary>
+	Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId);
+
 	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
 
 	/// <summary>Structured drafts, including drafts discovered from the server's Drafts mailbox.</summary>
@@ -283,6 +286,20 @@ public class MailHub(
 			.Select(a => new AttachmentDto(a.Id, a.MessageId, a.Filename, a.MimeType, a.Size, a.IsInline))
 			.ToListAsync();
 
+	public async Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId)
+	{
+		var message = await context.Messages.FirstAsync(m => m.Id == messageId);
+		return new MessageReplyContextDto(
+			message.Id,
+			message.From,
+			message.To,
+			message.Cc,
+			message.ReplyToAddresses,
+			message.Subject,
+			message.ReceivedAt
+		);
+	}
+
 	/// <summary>
 	/// Full-text search, optionally within one mailbox.
 	/// </summary>
@@ -321,6 +338,7 @@ public class MailHub(
 		new(
 			draft.Id,
 			draft.AccountId,
+			draft.InReplyToMessageId,
 			draft.To,
 			draft.Cc,
 			draft.Bcc,
