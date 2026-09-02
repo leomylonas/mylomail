@@ -978,6 +978,21 @@ check` clean under Node 22.
   `AttachmentList.tsx`'s "Open" button had no `.catch()`, even though its `open()` call can
   genuinely throw from the main-process rejection path just confirmed clean. Fixed the same
   way. `pnpm check` clean under Node 22.
+- **Fortieth pass — a failed mutation had no durable indicator on the affected message, only
+  a one-shot toast.** A fresh full re-read of §13's Epic list (not systematically swept since
+  around pass 15) found Epic 4 explicitly requires a failure be shown "via a visible indicator
+  on the affected message, never silent" — `MutationItem.LastError`/`FailureCategory` were
+  already persisted on terminal failure, but nothing queryable tied a message back to that
+  state, and the only user-facing signal was `MessageSyncFailed`'s transient toast. Added
+  `MessageMutationFailures.ForMessagesAsync`, a self-clearing read-side lookup (the highest-
+  sequence _resolved_ mutation per message; a later success simply outranks an earlier failure
+  once it too resolves, no flag to write or clear), wired into `MessageSummaryDto` and shown
+  as a ⚠️ in `MessageList.tsx` alongside the existing flag/attachment icons. `invariant-review`
+  caught a real logic bug before it shipped: the first version picked the highest-sequence
+  item regardless of state, so a newer mutation merely being _queued_ (not yet executed) made
+  an unresolved failure vanish immediately — fixed by skipping non-terminal rows, with a
+  regression test confirmed to fail against the pre-fix logic. `dotnet test` 308 passed/0
+  failed (up from 304). `pnpm check` clean under Node 22.
 
 ## Next task
 
