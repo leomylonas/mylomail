@@ -615,6 +615,26 @@ This is a snapshot of the current state, not a history; use Git for history.
   group of sort buttons instead. `dotnet test` 277 passed/0 failed (up from 274 — two new tests
   cover keep-mine/keep-theirs, plus the routine-sync-preserves-conflict case
   `invariant-review`'s finding was about). `pnpm check` clean under Node 22.
+- **Fourteenth architecture.md pass — no real contrast floor on the account colour picker.**
+  §13 Accessibility: "colour contrast (including per-account sidebar colours — needs a contrast
+  floor, not arbitrary user-picked colour) must meet accessible standards" — the picker was a
+  bare `<input type="color">` with no validation at all. New `AccentContrast.ts` computes real
+  WCAG relative-luminance contrast ratios against Carbon's light/dark theme background tokens
+  and adjusts a failing pick to the closest passing colour (lightness first, then saturation).
+  `invariant-review` caught that a first-draft lightness-only clamp didn't actually deliver this:
+  a desaturated grey clamped into the "safe" band still measured 1.43:1/1.67:1 against the two
+  real backgrounds, well under the 3:1 WCAG floor — hue/saturation, not lightness, are what
+  separate a colour from a grey background, so a lightness-only clamp can't fix a grey. Fixed
+  with the real contrast-ratio computation instead. Applies prospectively only (an
+  already-saved colour is untouched until the picker is reopened) — no backend/migration
+  involved, and the diff doesn't claim otherwise. This pass's audit also flagged two other
+  candidate gaps: one (missing-attachment-language detection) turned out to be a false positive
+  on direct verification — it's already implemented (`Compose.tsx:270-273`, confirmed by the
+  thirteenth pass too); the other (`SendIdentity` has no create/update/delete path — only ever
+  one identity per account is reachable, so the "alias address" scenario §1/§15 describes as in
+  scope is architecturally unreachable through the app as it stands) is real but is feature-sized
+  work, not a bug fix, and is being raised with the user for a scope decision rather than built
+  unprompted.
 
 ## Next task
 
