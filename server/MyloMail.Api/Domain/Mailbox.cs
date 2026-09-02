@@ -22,6 +22,16 @@ public class Mailbox
 	public string Name { get; set; } = string.Empty;
 
 	public SpecialUse SpecialUse { get; set; }
+
+	/// <summary>
+	/// User-set, highest precedence over both a real server-reported RFC 6154 SPECIAL-USE
+	/// attribute and the IMAP provider's own name-based fallback guess (§13 Epic 2) — for a
+	/// server that doesn't advertise the extension and whose folder names the fallback
+	/// doesn't recognise, or guesses wrong. Never written by sync, the same convention as
+	/// <see cref="InitialSyncModeOverride"/>: an override column sync logic must not clobber.
+	/// </summary>
+	public SpecialUse? SpecialUseOverride { get; set; }
+
 	public bool IsSubscribed { get; set; }
 
 	/// <summary>Local sidebar ordering only. No provider supports arbitrary folder ordering, so this is never pushed upstream.</summary>
@@ -49,6 +59,11 @@ public class Mailbox
 	public int TopologyGeneration { get; set; }
 
 	public ImapMailboxMetadata? ImapMetadata { get; set; }
+
+	/// <summary>What every caller should actually treat as this mailbox's role — the one
+	/// place the override-precedence rule is expressed, rather than each call site
+	/// remembering to check <see cref="SpecialUseOverride"/> first.</summary>
+	public SpecialUse EffectiveSpecialUse => SpecialUseOverride ?? SpecialUse;
 }
 
 /// <summary>

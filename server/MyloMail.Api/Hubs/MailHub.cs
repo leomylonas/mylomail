@@ -144,6 +144,15 @@ public interface IMailHub
 	/// <exception cref="HubException">A non-null, non-Full mode with no positive bound value.</exception>
 	Task SetMailboxInitialSyncOverride(Guid mailboxId, InitialSyncMode? mode, int? boundValue);
 
+	/// <summary>
+	/// Corrects a mailbox's special-use role (Sent/Trash/Drafts/Archive/Junk) by hand — for a
+	/// server that doesn't advertise RFC 6154 SPECIAL-USE, whose folder names the provider's
+	/// own name-based fallback guessed wrong or didn't recognise (§13 Epic 2). Highest
+	/// precedence over both a real server attribute and the fallback guess; null clears it,
+	/// reverting to whatever the provider itself reports.
+	/// </summary>
+	Task SetMailboxSpecialUseOverride(Guid mailboxId, SpecialUse? specialUse);
+
 	Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId);
 
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
@@ -282,7 +291,8 @@ public class MailHub(
 					row.Mailbox.IsCollapsed,
 					row.Mailbox.InitialSyncModeOverride,
 					row.Mailbox.InitialSyncBoundValueOverride,
-					row.Mailbox.ProviderMailboxId is null
+					row.Mailbox.ProviderMailboxId is null,
+					row.Mailbox.SpecialUseOverride
 				)),
 		];
 	}
@@ -589,6 +599,13 @@ public class MailHub(
 		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
 		mailbox.InitialSyncModeOverride = mode;
 		mailbox.InitialSyncBoundValueOverride = mode == InitialSyncMode.Full ? null : boundValue;
+		await context.SaveChangesAsync();
+	}
+
+	public async Task SetMailboxSpecialUseOverride(Guid mailboxId, SpecialUse? specialUse)
+	{
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		mailbox.SpecialUseOverride = specialUse;
 		await context.SaveChangesAsync();
 	}
 

@@ -136,7 +136,8 @@ public sealed class ChangeStreamService(
 				current.IsCollapsed,
 				current.InitialSyncModeOverride,
 				current.InitialSyncBoundValueOverride,
-				current.ProviderMailboxId is null
+				current.ProviderMailboxId is null,
+				current.SpecialUseOverride
 			)
 		);
 	}

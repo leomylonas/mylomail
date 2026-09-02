@@ -100,7 +100,10 @@ public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock
 			.Messages.Where(m => m.AccountId == accountId && m.MessageIdHeader == stableMessageId)
 			.Join(context.MessageMailboxes, m => m.Id, o => o.MessageId, (m, o) => o.MailboxId)
 			.Join(
-				context.Mailboxes.Where(mb => mb.SpecialUse == SpecialUse.Sent),
+				// (SpecialUseOverride ?? SpecialUse), spelled out rather than via the
+				// EffectiveSpecialUse property: EF Core translates this simple property
+				// access to SQL COALESCE, but would not translate a C# computed property.
+				context.Mailboxes.Where(mb => (mb.SpecialUseOverride ?? mb.SpecialUse) == SpecialUse.Sent),
 				mailboxId => mailboxId,
 				mailbox => mailbox.Id,
 				(_, mailbox) => mailbox.Id

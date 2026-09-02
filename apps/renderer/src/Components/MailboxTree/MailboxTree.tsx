@@ -15,6 +15,7 @@ import {
 import {
 	CoverageStatus,
 	InitialSyncMode,
+	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
@@ -45,6 +46,12 @@ interface Mailbox {
 	 * act on, so neither is offered (§13 Epic 2).
 	 */
 	isSynthesized: boolean;
+	/** The server-reported attribute, or the provider's own name-based fallback guess for a
+	 * server that didn't advertise one — before any user correction below is applied. */
+	specialUse: SpecialUse;
+	/** A user correction of {@link specialUse} (§13 Epic 2), for when the automatic guess is
+	 * wrong or the server names things this fallback doesn't recognise. */
+	specialUseOverride: SpecialUse | null;
 }
 
 interface Capabilities {
@@ -55,7 +62,8 @@ type Dialog =
 	| { kind: "create"; parent: Mailbox | null }
 	| { kind: "rename"; mailbox: Mailbox }
 	| { kind: "delete"; mailbox: Mailbox }
-	| { kind: "sync"; mailbox: Mailbox };
+	| { kind: "sync"; mailbox: Mailbox }
+	| { kind: "special-use"; mailbox: Mailbox };
 
 export function MailboxTree({
 	hub,
@@ -179,6 +187,17 @@ export function MailboxTree({
 			),
 		onSuccess: refresh,
 		onError: reportFailure("The sync setting could not be saved"),
+	});
+
+	const setSpecialUseOverride = useMutation({
+		mutationFn: (input: { mailboxId: string; specialUse: SpecialUse | null }) =>
+			hub.invoke(
+				"SetMailboxSpecialUseOverride",
+				input.mailboxId,
+				input.specialUse,
+			),
+		onSuccess: refresh,
+		onError: reportFailure("The folder role could not be saved"),
 	});
 
 	const remove = useMutation({
@@ -398,6 +417,14 @@ export function MailboxTree({
 								? "Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail."
 								: undefined,
 						},
+						{
+							label: "Folder role…",
+							run: () =>
+								setDialog({ kind: "special-use", mailbox: menu.mailbox }),
+							unavailable: menu.mailbox.isSynthesized
+								? "A nested label group has no role of its own — set it on the label itself."
+								: undefined,
+						},
 					]}
 				/>
 			) : null}
@@ -452,8 +479,117 @@ export function MailboxTree({
 					onClose={close}
 				/>
 			) : null}
+			{dialog?.kind === "special-use" ? (
+				<SpecialUseOverrideModal
+					mailbox={dialog.mailbox}
+					onSubmit={(specialUse) =>
+						setSpecialUseOverride.mutate({
+							mailboxId: dialog.mailbox.id,
+							specialUse,
+						})
+					}
+					onClose={close}
+				/>
+			) : null}
 		</>
 	);
+}
+
+/**
+ * Corrects a mailbox's role by hand (§13 Epic 2) — for a server that didn't advertise RFC
+ * 6154 SPECIAL-USE, whose folder name the provider's own fallback guessed wrong or didn't
+ * recognise. "Detect automatically" clears the override, reverting to whatever the provider
+ * itself reports.
+ */
+function SpecialUseOverrideModal({
+	mailbox,
+	onSubmit,
+	onClose,
+}: {
+	mailbox: Mailbox;
+	onSubmit: (specialUse: SpecialUse | null) => void;
+	onClose: () => void;
+}) {
+	const [choice, setChoice] = useState<SpecialUse | "automatic">(
+		mailbox.specialUseOverride ?? "automatic",
+	);
+
+	return (
+		<Modal
+			open
+			modalHeading={`Folder role for "${mailbox.name}"`}
+			primaryButtonText="Save"
+			secondaryButtonText="Cancel"
+			onRequestSubmit={() => onSubmit(choice === "automatic" ? null : choice)}
+			onRequestClose={onClose}
+		>
+			<RadioButtonGroup
+				legendText="What this folder is"
+				name="mailbox-special-use"
+				valueSelected={String(choice)}
+				onChange={(value) =>
+					setChoice(
+						value === "automatic" ? "automatic" : (Number(value) as SpecialUse),
+					)
+				}
+			>
+				<RadioButton
+					id="special-use-automatic"
+					labelText={`Detect automatically (currently: ${describeSpecialUse(mailbox.specialUse)})`}
+					value="automatic"
+				/>
+				<RadioButton
+					id="special-use-sent"
+					labelText="Sent"
+					value={String(SpecialUse.Sent)}
+				/>
+				<RadioButton
+					id="special-use-drafts"
+					labelText="Drafts"
+					value={String(SpecialUse.Drafts)}
+				/>
+				<RadioButton
+					id="special-use-trash"
+					labelText="Trash"
+					value={String(SpecialUse.Trash)}
+				/>
+				<RadioButton
+					id="special-use-archive"
+					labelText="Archive"
+					value={String(SpecialUse.Archive)}
+				/>
+				<RadioButton
+					id="special-use-junk"
+					labelText="Junk"
+					value={String(SpecialUse.Junk)}
+				/>
+				<RadioButton
+					id="special-use-none"
+					labelText="None of these — an ordinary folder"
+					value={String(SpecialUse.None)}
+				/>
+			</RadioButtonGroup>
+		</Modal>
+	);
+}
+
+function describeSpecialUse(specialUse: SpecialUse): string {
+	switch (specialUse) {
+		case SpecialUse.Inbox:
+			return "Inbox";
+		case SpecialUse.Sent:
+			return "Sent";
+		case SpecialUse.Drafts:
+			return "Drafts";
+		case SpecialUse.Trash:
+			return "Trash";
+		case SpecialUse.Archive:
+			return "Archive";
+		case SpecialUse.Junk:
+			return "Junk";
+		default:
+			return "an ordinary folder";
+	}
 }
 
 /**

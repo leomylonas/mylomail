@@ -6,7 +6,7 @@ import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
 import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
-import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
+import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
 
 // components
@@ -188,6 +188,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly setMailboxInitialSyncOverride = async (mailboxId: string, mode: (InitialSyncMode | undefined), boundValue: (number | undefined)): Promise<void> => {
         return await this.connection.invoke("SetMailboxInitialSyncOverride", mailboxId, mode, boundValue);
+    }
+
+    public readonly setMailboxSpecialUseOverride = async (mailboxId: string, specialUse: (SpecialUse | undefined)): Promise<void> => {
+        return await this.connection.invoke("SetMailboxSpecialUseOverride", mailboxId, specialUse);
     }
 
     public readonly getAccountCapabilities = async (accountId: string): Promise<AccountCapabilitiesDto> => {

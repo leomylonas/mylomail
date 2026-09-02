@@ -217,6 +217,29 @@ public sealed partial class ImapMailProvider : IMailProvider
 			_ when folder.Attributes.HasFlag(FolderAttributes.Trash) => SpecialUse.Trash,
 			_ when folder.Attributes.HasFlag(FolderAttributes.Junk) => SpecialUse.Junk,
 			_ when folder.Attributes.HasFlag(FolderAttributes.Archive) => SpecialUse.Archive,
+			// Only reached when the server advertised none of RFC 6154's SPECIAL-USE
+			// attributes for this folder — never overrides a real one. A server that simply
+			// doesn't support the extension would otherwise report every folder as None,
+			// silently breaking anything that depends on finding Sent/Trash/Drafts (send
+			// reconciliation among them). A user whose server names things this heuristic
+			// doesn't recognise (or guesses wrong) can still correct it explicitly via
+			// Mailbox.SpecialUseOverride (§13 Epic 2).
+			_ => SpecialUseFromName(folder.Name),
+		};
+
+	/// <summary>
+	/// A modest, English-centric name heuristic — not exhaustive i18n, which is out of scope
+	/// for a fallback whose whole purpose is "better than nothing," not "as good as the
+	/// server telling us."
+	/// </summary>
+	internal static SpecialUse SpecialUseFromName(string name) =>
+		name.Trim().ToUpperInvariant() switch
+		{
+			"SENT" or "SENT ITEMS" or "SENT MAIL" => SpecialUse.Sent,
+			"TRASH" or "DELETED ITEMS" or "DELETED MESSAGES" or "BIN" => SpecialUse.Trash,
+			"DRAFTS" => SpecialUse.Drafts,
+			"ARCHIVE" or "ALL MAIL" => SpecialUse.Archive,
+			"JUNK" or "JUNK E-MAIL" or "SPAM" => SpecialUse.Junk,
 			_ => SpecialUse.None,
 		};
 

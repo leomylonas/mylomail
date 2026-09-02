@@ -21,6 +21,12 @@ namespace MyloMail.Api.Contracts;
 /// deleting one is a no-op with nothing to act on, so the renderer must not offer either
 /// (§13 Epic 2's "sensible handling... where a provider doesn't support an operation").
 /// </param>
+/// <param name="SpecialUseOverride">
+/// A user correction of <paramref name="SpecialUse"/> (§13 Epic 2) — for a server that didn't
+/// advertise RFC 6154 SPECIAL-USE, whose folder name the provider's own fallback guessed
+/// wrong or didn't recognise. <paramref name="SpecialUse"/> already reflects the
+/// server-attribute-or-fallback-guess value; this is only the override on top of it.
+/// </param>
 [TranspilationSource]
 public record MailboxSummaryDto(
 	Guid Id,
@@ -35,7 +41,8 @@ public record MailboxSummaryDto(
 	bool IsCollapsed,
 	InitialSyncMode? InitialSyncModeOverride,
 	int? InitialSyncBoundValueOverride,
-	bool IsSynthesized
+	bool IsSynthesized,
+	SpecialUse? SpecialUseOverride
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>

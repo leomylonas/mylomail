@@ -5,7 +5,7 @@
 import type { IStreamResult, Subject } from '@microsoft/signalr';
 import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
-import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
+import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
 /**
 * The renderer's connection to the backend (§7).
@@ -191,6 +191,17 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     setMailboxInitialSyncOverride(mailboxId: string, mode: (InitialSyncMode | undefined), boundValue: (number | undefined)): Promise<void>;
+    /**
+    * Corrects a mailbox's special-use role (Sent/Trash/Drafts/Archive/Junk) by hand — for a
+    * server that doesn't advertise RFC 6154 SPECIAL-USE, whose folder names the provider's
+    * own name-based fallback guessed wrong or didn't recognise (§13 Epic 2). Highest
+    * precedence over both a real server attribute and the fallback guess; null clears it,
+    * reverting to whatever the provider itself reports.
+    * @param mailboxId Transpiled from System.Guid
+    * @param specialUse Transpiled from MyloMail.Api.Domain.SpecialUse?
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setMailboxSpecialUseOverride(mailboxId: string, specialUse: (SpecialUse | undefined)): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountCapabilitiesDto>

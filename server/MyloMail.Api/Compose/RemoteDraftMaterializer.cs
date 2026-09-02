@@ -35,7 +35,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		{
 			var occurrence = message.Occurrences.FirstOrDefault(o =>
 				mailboxesByProviderId.TryGetValue(o.ProviderMailboxId, out var mailbox)
-				&& mailbox.SpecialUse == SpecialUse.Drafts
+				&& mailbox.EffectiveSpecialUse == SpecialUse.Drafts
 			);
 			if (occurrence is null || !mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox))
 			{
@@ -141,7 +141,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		foreach (var removal in removals)
 		{
 			if (!mailboxesByProviderId.TryGetValue(removal.ProviderMailboxId, out var mailbox)
-				|| mailbox.SpecialUse != SpecialUse.Drafts
+				|| mailbox.EffectiveSpecialUse != SpecialUse.Drafts
 				|| !generations.StillCurrent(removal.ProviderMailboxId, mailbox))
 			{
 				continue;

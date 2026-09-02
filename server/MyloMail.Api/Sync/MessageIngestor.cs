@@ -75,7 +75,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 			if (
 				dto.Occurrences.Any(occurrence =>
 					mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox)
-					&& mailbox.SpecialUse == SpecialUse.Drafts
+					&& mailbox.EffectiveSpecialUse == SpecialUse.Drafts
 				)
 			)
 			{

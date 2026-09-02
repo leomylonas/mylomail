@@ -136,7 +136,7 @@ public sealed class MutationReconciler(
 				return item.TargetMailboxId is Guid target && locations.ContainsKey(target);
 			case MutationOperationKind.MoveToTrash:
 				var trashId = await context.Mailboxes
-					.Where(m => m.AccountId == account.Id && m.SpecialUse == SpecialUse.Trash)
+					.Where(m => m.AccountId == account.Id && (m.SpecialUseOverride ?? m.SpecialUse) == SpecialUse.Trash)
 					.Select(m => (Guid?)m.Id)
 					.FirstOrDefaultAsync(ct);
 				return trashId is Guid trash && locations.ContainsKey(trash);
