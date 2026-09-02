@@ -110,6 +110,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetAttachmentConstraints", accountId);
     }
 
+    public readonly getConnectivity = async (): Promise<boolean> => {
+        return await this.connection.invoke("GetConnectivity");
+    }
+
     public readonly getMessageReplyContext = async (messageId: string): Promise<MessageReplyContextDto> => {
         return await this.connection.invoke("GetMessageReplyContext", messageId);
     }

@@ -23,6 +23,7 @@ import { ShellSettings } from "@mylomail/renderer/Components/ShellSettings/Shell
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
+import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBanner/ConnectivityBanner";
 import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
@@ -237,6 +238,8 @@ export function AppShell() {
 					</>
 				) : null}
 			</header>
+
+			{hub ? <ConnectivityBanner hub={hub} /> : null}
 
 			{needsAttention ? (
 				<ActionableNotification

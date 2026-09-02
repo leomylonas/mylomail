@@ -54,6 +54,13 @@ export type IMailHub = {
     */
     getAttachmentConstraints(accountId: string): Promise<AttachmentConstraintsDto>;
     /**
+    * The connectivity-aware pause logic's current state (§7, §15), so a window opened while
+    * already offline shows the calm banner immediately rather than waiting for the next
+    * transition — ConnectivityChanged only fires on a change, not on connect.
+    * @returns Transpiled from System.Threading.Tasks.Task<bool>
+    */
+    getConnectivity(): Promise<boolean>;
+    /**
     * The address/subject/date fields a reply or forward is built from (§13).
     * @param messageId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageReplyContextDto>

@@ -59,6 +59,13 @@ public interface IMailHub
 	/// </summary>
 	Task<AttachmentConstraintsDto> GetAttachmentConstraints(Guid accountId);
 
+	/// <summary>
+	/// The connectivity-aware pause logic's current state (§7, §15), so a window opened while
+	/// already offline shows the calm banner immediately rather than waiting for the next
+	/// transition — <c>ConnectivityChanged</c> only fires on a change, not on connect.
+	/// </summary>
+	Task<bool> GetConnectivity();
+
 	/// <summary>The address/subject/date fields a reply or forward is built from (§13).</summary>
 	Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId);
 
@@ -239,7 +246,8 @@ public class MailHub(
 	IMailProviderFactory providers,
 	Scheduling.ExportJobs export,
 	ITrustedCertificateStore certificates,
-	IBackgroundJobClient jobs
+	IBackgroundJobClient jobs,
+	Scheduling.ConnectivityMonitor connectivity
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -609,6 +617,9 @@ public class MailHub(
 			constraints.IsUnknown
 		);
 	}
+
+	/// <inheritdoc cref="IMailHub.GetConnectivity" />
+	public Task<bool> GetConnectivity() => Task.FromResult(connectivity.IsOnline);
 
 	/// <summary>
 	/// Updates the settings a user can change.

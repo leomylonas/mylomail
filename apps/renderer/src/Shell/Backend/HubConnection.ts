@@ -26,6 +26,12 @@ export const queryKeys = {
 		["calendar-events", calendarId, from, to] as const,
 	/** Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3). */
 	syncProgress: (mailboxId: string) => ["sync-progress", mailboxId] as const,
+	/**
+	 * Seeded by `GetConnectivity` on mount (so a window opened while already offline shows
+	 * the calm banner immediately), then kept current by the `ConnectivityChanged` event
+	 * below, which only fires on a transition (§7, §15).
+	 */
+	connectivity: () => ["connectivity"] as const,
 };
 
 export interface SyncProgress {
@@ -100,6 +106,13 @@ export function connectHub(
 	// like the message events above rather than trying to scope it.
 	hub.on("DraftUpdated", () => {
 		void queryClient.invalidateQueries({ queryKey: ["drafts"] });
+	});
+
+	// One calm offline state rather than per-mailbox error noise (§7, §15) — written
+	// directly rather than invalidated, the same cache-only pattern SyncProgress uses above,
+	// since there is nothing to refetch: the event already carries the new value.
+	hub.on("ConnectivityChanged", (online: boolean) => {
+		queryClient.setQueryData(queryKeys.connectivity(), online);
 	});
 
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic
