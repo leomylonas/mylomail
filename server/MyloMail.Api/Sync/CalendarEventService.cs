@@ -35,7 +35,8 @@ public sealed record CalendarEventInput(
 public sealed class CalendarEventService(
 	MyloMailDbContext context,
 	ICalendarProviderFactory providers,
-	IHubEvents events
+	IHubEvents events,
+	CalendarSyncService calendarSync
 )
 {
 	public async Task<CalendarEvent> SaveAsync(CalendarEventInput input, CancellationToken ct = default)
@@ -134,6 +135,59 @@ public sealed class CalendarEventService(
 			await events.CalendarConflictDetectedAsync(existing.Id);
 		}
 		return existing;
+	}
+
+	/// <summary>
+	/// "Keep mine / keep theirs" for a flagged conflict (§15) — the only two ways out of
+	/// <see cref="CalendarEvent.SyncConflict"/> besides a routine sync pass happening to pull
+	/// the same server state anyway.
+	/// </summary>
+	/// <param name="keepMine">
+	/// True forces an unconditional overwrite of the server's copy with what is held locally
+	/// (no <c>If-Match</c> precondition, since the user has explicitly chosen to overwrite
+	/// whatever is there now, not what was last read). False discards the local edit and pulls
+	/// the server's current version via an ordinary account sync — there is no
+	/// single-event-fetch method on <see cref="ICalendarProvider"/> (§2), and reusing the
+	/// already-correct sync path is safer than inventing a second, narrower one.
+	/// </param>
+	public async Task<CalendarEvent> ResolveConflictAsync(
+		Guid eventId,
+		bool keepMine,
+		CancellationToken ct = default
+	)
+	{
+		var existing = await context.CalendarEvents.FirstAsync(e => e.Id == eventId, ct);
+		if (!existing.SyncConflict)
+		{
+			return existing;
+		}
+
+		var calendar = await context.Calendars.FirstAsync(c => c.Id == existing.CalendarId, ct);
+		var account = await context.Accounts.FirstAsync(a => a.Id == calendar.AccountId, ct);
+
+		if (keepMine)
+		{
+			var provider = providers.For(account);
+			using var disposable = provider as IDisposable;
+			await provider.UpdateEventAsync(account, existing, expectedETag: null, ct);
+			existing.SyncConflict = false;
+			await context.SaveChangesAsync(ct);
+			await events.CalendarEventUpdatedAsync(existing.Id);
+			return existing;
+		}
+
+		// Looked up again afterward by (CalendarId, ProviderEventId), not by the local `Id`
+		// captured above: a rejected sync cursor forces `CalendarSyncService` to discard and
+		// re-create every local row for that calendar under fresh ids (§3), which would
+		// otherwise make the plain `FirstAsync(e => e.Id == eventId, ...)` this used to end
+		// with throw, having nothing left to find.
+		var calendarId = existing.CalendarId;
+		var providerEventId = existing.ProviderEventId;
+		await calendarSync.SynchronizeAsync(account, existing.Id, ct);
+		return await context.CalendarEvents.FirstAsync(
+			e => e.CalendarId == calendarId && e.ProviderEventId == providerEventId,
+			ct
+		);
 	}
 
 	/// <summary>

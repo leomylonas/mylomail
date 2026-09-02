@@ -23,7 +23,20 @@ public sealed class CalendarSyncService(
 	IFaultInjector faults
 )
 {
-	public async Task SynchronizeAsync(Account account, CancellationToken ct = default)
+	/// <param name="resolvingEventId">
+	/// Null for every ordinary sync pass — routine polling must never silently pick a side on
+	/// a flagged conflict, so a conflicted event's upsert is skipped, leaving the local edit
+	/// and the flag both intact until the user explicitly resolves it. Set only by
+	/// <see cref="CalendarEventService.ResolveConflictAsync"/>'s "keep theirs" path, naming
+	/// the one event the user has just explicitly chosen to overwrite with the server's
+	/// version — every other conflicted event this sync happens to also touch is still left
+	/// alone (§15).
+	/// </param>
+	public async Task SynchronizeAsync(
+		Account account,
+		Guid? resolvingEventId = null,
+		CancellationToken ct = default
+	)
 	{
 		var provider = providers.For(account);
 		// CalDAV hands back a fresh HttpClient per resolution (§15 — certificate trust is a
@@ -43,7 +56,7 @@ public sealed class CalendarSyncService(
 			.ToListAsync(ct);
 		foreach (var calendarId in calendarIds)
 		{
-			await SynchronizeCalendarAsync(account, calendarId, provider, ct);
+			await SynchronizeCalendarAsync(account, calendarId, provider, resolvingEventId, ct);
 		}
 	}
 
@@ -99,6 +112,7 @@ public sealed class CalendarSyncService(
 		Account account,
 		Guid calendarId,
 		ICalendarProvider provider,
+		Guid? resolvingEventId,
 		CancellationToken ct
 	)
 	{
@@ -121,7 +135,7 @@ public sealed class CalendarSyncService(
 				resetForInvalidCursor = true;
 				continue;
 			}
-			await ApplyPageAsync(calendarId, page, commitCursor: !page.HasMore, ct);
+			await ApplyPageAsync(calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
 			continuation = page.Continuation;
 			if (continuation is null)
 			{
@@ -153,6 +167,7 @@ public sealed class CalendarSyncService(
 		Guid calendarId,
 		CalendarSyncResult page,
 		bool commitCursor,
+		Guid? resolvingEventId,
 		CancellationToken ct
 	)
 	{
@@ -195,6 +210,18 @@ public sealed class CalendarSyncService(
 				e => e.CalendarId == calendarId && e.ProviderEventId == dto.ProviderEventId,
 				ct
 			);
+
+			// A still-unresolved conflict is left alone during ordinary sync — the local edit
+			// and the flag both survive, exactly as they did the moment the conflict was
+			// detected, until the user explicitly resolves it (§15). The one exception is the
+			// event named by `resolvingEventId`: that is this call's whole reason for
+			// running, from `ResolveConflictAsync`'s "keep theirs" path, and applying the
+			// server's version to it is the entire point.
+			if (existing is { SyncConflict: true } && existing.Id != resolvingEventId)
+			{
+				continue;
+			}
+
 			var ev = existing ?? new CalendarEvent { Id = Guid.NewGuid(), CalendarId = calendarId };
 			Apply(ev, dto);
 			if (existing is null)
@@ -280,5 +307,12 @@ public sealed class CalendarSyncService(
 		target.ExceptionDates = source.ExceptionDates;
 		target.RecurrenceId = source.RecurrenceId;
 		target.RecurrenceMasterProviderEventId = source.RecurrenceMasterProviderEventId;
+
+		// The server's own current copy just landed on top of whatever was here — by
+		// definition nothing is unresolved about that any more, whether this upsert came from
+		// ordinary polling or a user's explicit "keep theirs" conflict resolution (§15).
+		// Without this, a conflict flagged during a local edit stayed stuck true forever once
+		// the next routine sync pass silently pulled the same server version over it anyway.
+		target.SyncConflict = false;
 	}
 }

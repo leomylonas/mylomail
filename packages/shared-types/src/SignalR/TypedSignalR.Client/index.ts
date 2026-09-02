@@ -222,6 +222,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("RespondToInvite", eventId, response, comment);
     }
 
+    public readonly resolveEventConflict = async (eventId: string, keepMine: boolean): Promise<CalendarEventSummaryDto> => {
+        return await this.connection.invoke("ResolveEventConflict", eventId, keepMine);
+    }
+
     public readonly markNotificationDelivered = async (notificationId: string): Promise<void> => {
         return await this.connection.invoke("MarkNotificationDelivered", notificationId);
     }

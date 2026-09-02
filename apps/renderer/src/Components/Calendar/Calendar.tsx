@@ -157,6 +157,29 @@ export function Calendar({
 			}),
 	});
 
+	// "Keep mine" / "keep theirs" for a flagged conflict (§15). Either way the conflict is
+	// settled server-side, so the modal closes the same as a normal save — there is nothing
+	// left in it for the user to decide once this resolves.
+	const resolveConflict = useMutation({
+		mutationFn: ({
+			eventId,
+			keepMine,
+		}: {
+			eventId: string;
+			keepMine: boolean;
+		}) => hub.invoke("ResolveEventConflict", eventId, keepMine),
+		onSuccess: () => {
+			setModal(null);
+			void invalidate();
+		},
+		onError: (error: unknown) =>
+			notify(notifications, {
+				kind: "error",
+				title: "The conflict could not be resolved",
+				detail: error instanceof Error ? error.message : String(error),
+			}),
+	});
+
 	const defaultCalendarId =
 		calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id;
 	const calendarsSettled = calendarQueries.every((query) => !query.isPending);
@@ -244,6 +267,15 @@ export function Calendar({
 					onDelete={
 						modal.mode === "edit"
 							? () => remove.mutate(modal.event.id)
+							: undefined
+					}
+					onResolveConflict={
+						modal.mode === "edit"
+							? (keepMine) =>
+									resolveConflict.mutate({
+										eventId: modal.event.id,
+										keepMine,
+									})
 							: undefined
 					}
 					onClose={() => setModal(null)}

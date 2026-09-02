@@ -62,6 +62,138 @@ public sealed class CalendarEventServiceTests
 	}
 
 	[Fact]
+	public async Task Resolving_a_conflict_by_keeping_mine_force_overwrites_and_clears_the_flag()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var created = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+		provider.RejectNextUpdate = true;
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(created.Id, harness.CalendarId, "Standup (moved)", "Room 2", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+
+		var resolved = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().ResolveConflictAsync(created.Id, keepMine: true)
+		);
+
+		Assert.False(resolved.SyncConflict);
+		Assert.Equal("Standup (moved)", resolved.Title);
+		// No precondition on the forced overwrite — the user chose this explicitly.
+		Assert.Null(provider.LastUpdateETag);
+	}
+
+	[Fact]
+	public async Task Resolving_a_conflict_by_keeping_theirs_pulls_the_servers_version_and_clears_the_flag()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var created = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+		provider.RejectNextUpdate = true;
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(created.Id, harness.CalendarId, "Standup (moved)", "Room 2", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+
+		// What the "server" now holds, as scripted for the sync this triggers.
+		provider.ScriptSync(
+			new CalendarSyncResult(
+				"cursor-1",
+				null,
+				[
+					new CalendarEventDto
+					{
+						ProviderEventId = created.ProviderEventId,
+						ICalUid = created.ICalUid,
+						ProviderRevision = "etag-2",
+						Title = "Standup (server title)",
+						Start = DateTimeOffset.UnixEpoch,
+						End = DateTimeOffset.UnixEpoch.AddHours(1),
+					},
+				],
+				[]
+			)
+		);
+
+		var resolved = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().ResolveConflictAsync(created.Id, keepMine: false)
+		);
+
+		Assert.False(resolved.SyncConflict);
+		Assert.Equal("Standup (server title)", resolved.Title);
+		Assert.Null(resolved.Location);
+	}
+
+	[Fact]
+	public async Task A_routine_sync_pass_leaves_a_still_unresolved_conflict_untouched()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var created = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+		provider.RejectNextUpdate = true;
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(created.Id, harness.CalendarId, "Standup (moved)", "Room 2", null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+
+		// Exactly what would arrive on an ordinary background poll, reporting the same
+		// server-side change that caused the conflict in the first place.
+		provider.ScriptSync(
+			new CalendarSyncResult(
+				"cursor-1",
+				null,
+				[
+					new CalendarEventDto
+					{
+						ProviderEventId = created.ProviderEventId,
+						ICalUid = created.ICalUid,
+						ProviderRevision = "etag-2",
+						Title = "Standup (server title)",
+						Start = DateTimeOffset.UnixEpoch,
+						End = DateTimeOffset.UnixEpoch.AddHours(1),
+					},
+				],
+				[]
+			)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			// No resolvingEventId: this is routine polling, not a user-requested resolution.
+			await scope.GetRequiredService<CalendarSyncService>().SynchronizeAsync(account);
+		});
+
+		await harness.UsingAsync(async scope =>
+		{
+			var row = await scope
+				.GetRequiredService<MyloMailDbContext>()
+				.CalendarEvents.SingleAsync(e => e.Id == created.Id);
+			// The local edit and the flag both survive — routine sync must never silently
+			// pick a side (§15).
+			Assert.True(row.SyncConflict);
+			Assert.Equal("Standup (moved)", row.Title);
+			Assert.Equal("Room 2", row.Location);
+		});
+	}
+
+	[Fact]
 	public async Task Deleting_a_recurring_master_removes_its_overrides_too()
 	{
 		var provider = new ScriptedCalendarProvider();
@@ -192,18 +324,30 @@ public sealed class CalendarEventServiceTests
 
 	private sealed class ScriptedCalendarProvider : ICalendarProvider
 	{
+		private CalendarSyncResult? scriptedSync;
+
 		public int CreateCalls { get; private set; }
 		public int DeleteCalls { get; private set; }
 		public bool RejectNextUpdate { get; set; }
 		public bool RejectNextDelete { get; set; }
 
+		/// <summary>The <c>expectedETag</c> the most recent <see cref="UpdateEventAsync"/> call received.</summary>
+		public string? LastUpdateETag { get; private set; }
+
 		public ProviderType Type => ProviderType.Imap;
 
-		public Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct) =>
-			throw new NotSupportedException();
+		/// <summary>What <see cref="SyncCalendarAsync"/> returns on its next call — "the server's" state.</summary>
+		public void ScriptSync(CalendarSyncResult result) => scriptedSync = result;
 
-		public Task<CalendarSyncResult> SyncCalendarAsync(Account account, Calendar calendar, string? cursor, string? continuation, CancellationToken ct) =>
-			throw new NotSupportedException();
+		public Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct) =>
+			Task.FromResult<IReadOnlyList<CalendarDto>>([new CalendarDto("cal", "Calendar", null, true)]);
+
+		public Task<CalendarSyncResult> SyncCalendarAsync(Account account, Calendar calendar, string? cursor, string? continuation, CancellationToken ct)
+		{
+			var result = scriptedSync ?? new CalendarSyncResult(cursor, null, [], []);
+			scriptedSync = null;
+			return Task.FromResult(result);
+		}
 
 		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
 		{
@@ -213,6 +357,7 @@ public sealed class CalendarEventServiceTests
 
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 		{
+			LastUpdateETag = expectedETag;
 			if (RejectNextUpdate)
 			{
 				RejectNextUpdate = false;

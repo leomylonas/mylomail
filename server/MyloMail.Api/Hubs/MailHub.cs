@@ -149,6 +149,13 @@ public interface IMailHub
 	/// <summary>Accept/Decline/Tentative on an invite (§13 Epic 7).</summary>
 	Task RespondToInvite(Guid eventId, InviteResponse response, string? comment);
 
+	/// <summary>
+	/// "Keep mine" (<paramref name="keepMine"/> true, force-overwrite the server) or "keep
+	/// theirs" (false, discard the local edit and pull the server's current version) for a
+	/// flagged calendar conflict (§15). A no-op if the event is not currently flagged.
+	/// </summary>
+	Task<CalendarEventSummaryDto> ResolveEventConflict(Guid eventId, bool keepMine);
+
 	/// <summary>Confirms the shell showed a notification at least once (§13 Epic 9).</summary>
 	Task MarkNotificationDelivered(Guid notificationId);
 
@@ -560,22 +567,28 @@ public class MailHub(
 				request.IsAllDay
 			)
 		);
-		return new CalendarEventSummaryDto(
-			saved.Id,
-			saved.CalendarId,
-			saved.Title,
-			saved.Location,
-			saved.Description,
-			saved.Start,
-			saved.End,
-			saved.IsAllDay,
-			saved.Status,
-			saved.RecurrenceRules.Count > 0 || saved.RecurrenceMasterId != null,
-			saved.SyncConflict
-		);
+		return ToSummaryDto(saved);
 	}
 
 	public Task DeleteCalendarEvent(Guid eventId) => calendarEvents.DeleteAsync(eventId);
+
+	public async Task<CalendarEventSummaryDto> ResolveEventConflict(Guid eventId, bool keepMine) =>
+		ToSummaryDto(await calendarEvents.ResolveConflictAsync(eventId, keepMine));
+
+	private static CalendarEventSummaryDto ToSummaryDto(CalendarEvent ev) =>
+		new(
+			ev.Id,
+			ev.CalendarId,
+			ev.Title,
+			ev.Location,
+			ev.Description,
+			ev.Start,
+			ev.End,
+			ev.IsAllDay,
+			ev.Status,
+			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
+			ev.SyncConflict
+		);
 
 	public async Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId)
 	{

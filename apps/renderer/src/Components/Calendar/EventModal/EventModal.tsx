@@ -52,6 +52,7 @@ export function EventModal({
 	syncConflict,
 	onSave,
 	onDelete,
+	onResolveConflict,
 	onClose,
 }: {
 	hub: HubConnection;
@@ -59,6 +60,12 @@ export function EventModal({
 	syncConflict?: boolean;
 	onSave: (values: EventFormValues) => void;
 	onDelete?: () => void;
+	/**
+	 * "Keep mine" (`true`) force-overwrites the server; "keep theirs" (`false`) discards the
+	 * local edit shown here and pulls the server's current version instead (§15). Absent for
+	 * a new, unsaved event — there is nothing to conflict with yet.
+	 */
+	onResolveConflict?: (keepMine: boolean) => void;
 	onClose: () => void;
 }) {
 	const [values, setValues] = useState(initial);
@@ -96,10 +103,31 @@ export function EventModal({
 		>
 			<div className={styles.form}>
 				{syncConflict ? (
-					<p className={styles.conflict}>
-						The server&apos;s copy changed since this was last read. Saving will
-						overwrite it with what you see here.
-					</p>
+					<div className={styles.conflict}>
+						<p>
+							The server&apos;s copy changed since this was last read. Keep your
+							changes and overwrite it, or discard them and take the
+							server&apos;s version instead.
+						</p>
+						{onResolveConflict ? (
+							<div className={styles.conflictActions}>
+								<Button
+									size="sm"
+									kind="tertiary"
+									onClick={() => onResolveConflict(true)}
+								>
+									Keep mine
+								</Button>
+								<Button
+									size="sm"
+									kind="tertiary"
+									onClick={() => onResolveConflict(false)}
+								>
+									Keep theirs
+								</Button>
+							</div>
+						) : null}
+					</div>
 				) : null}
 				<TextInput
 					id="event-title"

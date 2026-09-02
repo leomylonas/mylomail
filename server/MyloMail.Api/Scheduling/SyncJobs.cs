@@ -106,7 +106,7 @@ public sealed class SyncJobs(
 
 		try
 		{
-			await GuardAsync(account, () => calendar.SynchronizeAsync(account, ct), ct);
+			await GuardAsync(account, () => calendar.SynchronizeAsync(account, ct: ct), ct);
 		}
 		catch (ProviderThrottledException ex)
 		{

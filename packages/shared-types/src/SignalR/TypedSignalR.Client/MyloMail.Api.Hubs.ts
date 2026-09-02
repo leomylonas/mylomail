@@ -240,6 +240,15 @@ export type IMailHub = {
     */
     respondToInvite(eventId: string, response: InviteResponse, comment: string): Promise<void>;
     /**
+    * "Keep mine" ( true, force-overwrite the server) or "keep
+    * theirs" (false, discard the local edit and pull the server's current version) for a
+    * flagged calendar conflict (§15). A no-op if the event is not currently flagged.
+    * @param eventId Transpiled from System.Guid
+    * @param keepMine Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.CalendarEventSummaryDto>
+    */
+    resolveEventConflict(eventId: string, keepMine: boolean): Promise<CalendarEventSummaryDto>;
+    /**
     * Confirms the shell showed a notification at least once (§13 Epic 9).
     * @param notificationId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task

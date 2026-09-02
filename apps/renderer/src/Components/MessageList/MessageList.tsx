@@ -335,33 +335,43 @@ export function MessageList({
 					onChange={(event) => setFilterText(event.target.value)}
 				/>
 			</div>
-			<div className={styles.headerRow} role="row">
+			{/*
+				This is a selectable list of composite rows (whole-row click/select, à la a
+				listbox), not a cell-navigable data grid — `row`/`columnheader` roles require a
+				`table`/`grid` ancestor to be exposed correctly by assistive tech, which nothing
+				here provides or is structured for (each row is one `<button>`, not per-column
+				cells). A plain labelled group of sort toggle buttons matches what this actually
+				is, and stays consistent with the body's own `list`/`listitem` roles below.
+			*/}
+			<div
+				className={styles.headerRow}
+				role="group"
+				aria-label="Sort messages by"
+			>
 				{table.getHeaderGroups()[0].headers.map((header) => {
 					const sorted = header.column.getIsSorted();
+					const label = flexRender(
+						header.column.columnDef.header,
+						header.getContext(),
+					);
 					return (
-						<div
+						<button
 							key={header.id}
-							role="columnheader"
-							aria-sort={
+							type="button"
+							className={styles.headerCell}
+							onClick={header.column.getToggleSortingHandler()}
+							aria-pressed={sorted !== false}
+							aria-label={`Sort by ${String(label)}${
 								sorted === "asc"
-									? "ascending"
+									? ", ascending"
 									: sorted === "desc"
-										? "descending"
-										: "none"
-							}
+										? ", descending"
+										: ""
+							}`}
 						>
-							<button
-								type="button"
-								className={styles.headerCell}
-								onClick={header.column.getToggleSortingHandler()}
-							>
-								{flexRender(
-									header.column.columnDef.header,
-									header.getContext(),
-								)}
-								{sorted === "asc" ? " ▲" : sorted === "desc" ? " ▼" : null}
-							</button>
-						</div>
+							{label}
+							{sorted === "asc" ? " ▲" : sorted === "desc" ? " ▼" : null}
+						</button>
 					);
 				})}
 				<span className={styles.headerCell} aria-hidden="true" />
