@@ -22,7 +22,8 @@ public record MailboxSummaryDto(
 	int? ProviderTotalCount,
 	int? ProviderUnreadCount,
 	int LocalCount,
-	CoverageStatus Coverage
+	CoverageStatus Coverage,
+	bool IsCollapsed
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>
@@ -173,6 +174,27 @@ public record CalendarEventSummaryDto(
 	EventStatus Status,
 	bool IsRecurring,
 	bool SyncConflict
+);
+
+/// <summary>One attendee as an event's own detail view needs it (§13 Epic 7) — not carried on
+/// <see cref="CalendarEventSummaryDto"/>, since a month grid never renders it.</summary>
+[TranspilationSource]
+public record AttendeeDto(string? Name, string Email, AttendeeRole Role, ResponseStatus ResponseStatus);
+
+/// <summary>
+/// The invite-handling detail a month grid does not need but the event modal does: who else is
+/// on this event and, for an event the account did not organise, whether — and how — it has
+/// already replied (§13 Epic 7). Fetched lazily per event rather than folded into
+/// <see cref="CalendarEventSummaryDto"/> for the same reason the doc comment above gives for
+/// leaving recurrence detail out of it.
+/// </summary>
+[TranspilationSource]
+public record CalendarEventDetailDto(
+	Guid Id,
+	Address? Organizer,
+	IReadOnlyList<AttendeeDto> Attendees,
+	bool IsOrganizer,
+	InviteResponse? MyResponseStatus
 );
 
 /// <summary>

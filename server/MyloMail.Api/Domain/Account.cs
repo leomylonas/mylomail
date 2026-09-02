@@ -24,6 +24,10 @@ public class Account
 	public string Color { get; set; } = string.Empty;
 	public int SortOrder { get; set; }
 
+	/// <summary>Sidebar section collapse (§13 Epic 2). Local UI preference only — never
+	/// pushed upstream, the same as <see cref="Mailbox.IsCollapsed"/>.</summary>
+	public bool SidebarCollapsed { get; set; }
+
 	/// <summary>Non-secret configuration only — host/port, tenant id, IMAP auth method.</summary>
 	public ProviderConfig? ProviderConfig { get; set; }
 

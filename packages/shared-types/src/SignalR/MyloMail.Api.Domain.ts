@@ -10,6 +10,21 @@ export type Address = {
     email: string;
 }
 
+/** Transpiled from MyloMail.Api.Domain.AttendeeRole */
+export enum AttendeeRole {
+    Required = 0,
+    Optional = 1,
+    Resource = 2,
+}
+
+/** Transpiled from MyloMail.Api.Domain.ResponseStatus */
+export enum ResponseStatus {
+    NeedsAction = 0,
+    Accepted = 1,
+    Declined = 2,
+    Tentative = 3,
+}
+
 /** Transpiled from MyloMail.Api.Domain.EventStatus */
 export enum EventStatus {
     Confirmed = 0,

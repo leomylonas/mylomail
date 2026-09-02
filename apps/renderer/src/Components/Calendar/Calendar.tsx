@@ -235,6 +235,7 @@ export function Calendar({
 
 			{modal ? (
 				<EventModal
+					hub={hub}
 					initial={toFormValues(modal)}
 					syncConflict={
 						modal.mode === "edit" ? modal.event.syncConflict : false

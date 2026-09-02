@@ -172,6 +172,26 @@ public sealed class CalendarEventService(
 			new Address(identity.DisplayName, identity.EmailAddress),
 			ct
 		);
+
+		// The REPLY only reaches the organiser's inbox — nothing about sending it changes this
+		// event's own stored attendee list, and a synced-back PARTSTAT update from the
+		// organiser's server is not guaranteed to arrive promptly, if at all, for every
+		// provider. Recording the just-taken response locally is what lets the UI show it
+		// immediately rather than only after some future sync happens to reflect it back.
+		var status = response switch
+		{
+			InviteResponse.Accept => ResponseStatus.Accepted,
+			InviteResponse.Decline => ResponseStatus.Declined,
+			_ => ResponseStatus.Tentative,
+		};
+		var updated = ev.Attendees.Select(a =>
+			string.Equals(a.Email, identity.EmailAddress, StringComparison.OrdinalIgnoreCase)
+				? a with { ResponseStatus = status }
+				: a
+		);
+		ev.Attendees = [.. updated];
+		await context.SaveChangesAsync(ct);
+		await events.CalendarEventUpdatedAsync(eventId);
 	}
 
 	public async Task DeleteAsync(Guid eventId, CancellationToken ct = default)

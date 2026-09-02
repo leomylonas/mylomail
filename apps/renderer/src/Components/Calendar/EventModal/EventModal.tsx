@@ -1,7 +1,32 @@
 import { useState } from "react";
-import { Modal, TextArea, TextInput, Toggle } from "@carbon/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, Modal, Tag, TextArea, TextInput, Toggle } from "@carbon/react";
+import type { HubConnection } from "@microsoft/signalr";
+import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import styles from "@mylomail/renderer/Components/Calendar/EventModal/EventModal.module.css";
+
+interface Attendee {
+	name: string | null;
+	email: string;
+	role: number;
+	responseStatus: number;
+}
+
+interface EventDetail {
+	id: string;
+	organizer: { name: string | null; email: string } | null;
+	attendees: Attendee[];
+	isOrganizer: boolean;
+	myResponseStatus: InviteResponse | null;
+}
+
+const responseStatusLabel = [
+	"Awaiting response",
+	"Accepted",
+	"Declined",
+	"Tentative",
+];
 
 export interface EventFormValues {
 	eventId?: string;
@@ -22,12 +47,14 @@ export interface EventFormValues {
  * that is calendar-invite handling's problem, not calendar CRUD's (§13 Epic 7).
  */
 export function EventModal({
+	hub,
 	initial,
 	syncConflict,
 	onSave,
 	onDelete,
 	onClose,
 }: {
+	hub: HubConnection;
 	initial: EventFormValues;
 	syncConflict?: boolean;
 	onSave: (values: EventFormValues) => void;
@@ -35,7 +62,27 @@ export function EventModal({
 	onClose: () => void;
 }) {
 	const [values, setValues] = useState(initial);
+	const [comment, setComment] = useState("");
 	const isNew = !initial.eventId;
+	const queryClient = useQueryClient();
+
+	const detail = useQuery({
+		queryKey: ["calendar-event-detail", initial.eventId],
+		queryFn: () =>
+			hub.invoke<EventDetail>("GetCalendarEventDetail", initial.eventId),
+		enabled: !isNew,
+	});
+
+	const respond = useMutation({
+		mutationFn: (response: InviteResponse) =>
+			hub.invoke("RespondToInvite", initial.eventId, response, comment || null),
+		onSuccess: () => {
+			setComment("");
+			void queryClient.invalidateQueries({
+				queryKey: ["calendar-event-detail", initial.eventId],
+			});
+		},
+	});
 
 	return (
 		<Modal
@@ -110,6 +157,75 @@ export function EventModal({
 						setValues({ ...values, description: event.target.value })
 					}
 				/>
+				{detail.data && detail.data.attendees.length > 0 ? (
+					<div className={styles.attendees}>
+						<h4>Attendees</h4>
+						<ul>
+							{detail.data.organizer ? (
+								<li>
+									{detail.data.organizer.name ?? detail.data.organizer.email}
+									<Tag type="blue" size="sm">
+										Organiser
+									</Tag>
+								</li>
+							) : null}
+							{detail.data.attendees.map((attendee) => (
+								<li key={attendee.email}>
+									{attendee.name ?? attendee.email}
+									<Tag size="sm">
+										{responseStatusLabel[attendee.responseStatus]}
+									</Tag>
+								</li>
+							))}
+						</ul>
+						{!detail.data.isOrganizer ? (
+							<div className={styles.rsvp}>
+								<p>
+									{detail.data.myResponseStatus === InviteResponse.Accept
+										? "You accepted this invitation."
+										: detail.data.myResponseStatus === InviteResponse.Decline
+											? "You declined this invitation."
+											: detail.data.myResponseStatus ===
+												  InviteResponse.Tentative
+												? "You responded tentatively."
+												: "Respond to this invitation:"}
+								</p>
+								<TextInput
+									id="event-rsvp-comment"
+									labelText="Comment (optional)"
+									value={comment}
+									onChange={(event) => setComment(event.target.value)}
+								/>
+								<div className={styles.rsvpButtons}>
+									<Button
+										size="sm"
+										kind="primary"
+										disabled={respond.isPending}
+										onClick={() => respond.mutate(InviteResponse.Accept)}
+									>
+										Accept
+									</Button>
+									<Button
+										size="sm"
+										kind="tertiary"
+										disabled={respond.isPending}
+										onClick={() => respond.mutate(InviteResponse.Tentative)}
+									>
+										Tentative
+									</Button>
+									<Button
+										size="sm"
+										kind="danger--tertiary"
+										disabled={respond.isPending}
+										onClick={() => respond.mutate(InviteResponse.Decline)}
+									>
+										Decline
+									</Button>
+								</div>
+							</div>
+						) : null}
+					</div>
+				) : null}
 				{onDelete ? (
 					<button type="button" className={styles.delete} onClick={onDelete}>
 						Delete event

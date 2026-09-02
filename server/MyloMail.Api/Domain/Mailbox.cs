@@ -27,6 +27,10 @@ public class Mailbox
 	/// <summary>Local sidebar ordering only. No provider supports arbitrary folder ordering, so this is never pushed upstream.</summary>
 	public int LocalSortOrder { get; set; }
 
+	/// <summary>Sidebar expand/collapse (§13 Epic 2). Local UI preference only, the same as
+	/// <see cref="LocalSortOrder"/> — persisted so it survives a restart, never pushed upstream.</summary>
+	public bool IsCollapsed { get; set; }
+
 	public InitialSyncMode? InitialSyncModeOverride { get; set; }
 	public int? InitialSyncBoundValueOverride { get; set; }
 

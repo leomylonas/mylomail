@@ -275,7 +275,8 @@ internal static class AccountDtoFactory
 			account.IsEnabled,
 			account.LastAuthError,
 			account.Color,
-			account.SortOrder
+			account.SortOrder,
+			account.SidebarCollapsed
 		);
 }
 

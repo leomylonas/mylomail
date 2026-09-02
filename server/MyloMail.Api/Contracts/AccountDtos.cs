@@ -18,7 +18,8 @@ public record AccountDto(
 	bool IsEnabled,
 	string? LastAuthError,
 	string Color,
-	int SortOrder
+	int SortOrder,
+	bool SidebarCollapsed
 );
 
 /// <summary>

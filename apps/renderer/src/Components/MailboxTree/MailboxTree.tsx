@@ -22,6 +22,7 @@ interface Mailbox {
 	providerTotalCount: number | null;
 	providerUnreadCount: number | null;
 	localCount: number;
+	isCollapsed: boolean;
 }
 
 interface Capabilities {
@@ -132,6 +133,15 @@ export function MailboxTree({
 		onError: reportFailure("The folders could not be reordered"),
 	});
 
+	// Server-persisted, not component state (§13 Epic 2: "expand/collapse state persists...
+	// across restarts") — a query refetch is what shows the toggle rather than an optimistic
+	// local flag, the same choice Sidebar's account-level toggle makes for the same reason.
+	const toggleCollapsed = useMutation({
+		mutationFn: (input: { mailboxId: string; collapsed: boolean }) =>
+			hub.invoke("SetMailboxCollapsed", input.mailboxId, input.collapsed),
+		onSuccess: refresh,
+	});
+
 	const remove = useMutation({
 		mutationFn: (mailbox: Mailbox) =>
 			hub.invoke<boolean>("DeleteMailbox", mailbox.id),
@@ -215,50 +225,77 @@ export function MailboxTree({
 
 	const renderLevel = (parentId: string | null, depth: number) => (
 		<ul>
-			{children(parentId).map((mailbox) => (
-				<li key={mailbox.id}>
-					<button
-						type="button"
-						draggable
-						className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""} ${dropTarget === mailbox.id ? styles.dropTarget : ""}`}
-						style={{
-							paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
-						}}
-						aria-current={mailbox.id === selectedMailboxId}
-						onClick={() => {
-							// Every account's tree is visible at once now (§13 Epic 2), so
-							// selecting a mailbox has to say which account it belongs to too —
-							// there is no longer a separately-chosen "current account" this
-							// tree can assume it already is.
-							store.setState("selectedAccountId", accountId);
-							store.setState("selectedMailboxId", mailbox.id);
-						}}
-						onContextMenu={(event) => {
-							event.preventDefault();
-							setMenu({ x: event.clientX, y: event.clientY, mailbox });
-						}}
-						onDragStart={(event) => {
-							event.dataTransfer.setData(mailboxDragType, mailbox.id);
-							event.dataTransfer.effectAllowed = "move";
-						}}
-						onDragOver={(event) => {
-							event.preventDefault();
-							event.dataTransfer.dropEffect = "move";
-						}}
-						onDragEnter={() => setDropTarget(mailbox.id)}
-						onDragLeave={() =>
-							setDropTarget((current) =>
-								current === mailbox.id ? null : current,
-							)
-						}
-						onDrop={(event) => dropOnMailbox(event, mailbox)}
-					>
-						<span>{mailbox.name}</span>
-						<span className={styles.count}>{describeCount(mailbox)}</span>
-					</button>
-					{renderLevel(mailbox.id, depth + 1)}
-				</li>
-			))}
+			{children(parentId).map((mailbox) => {
+				const hasChildren = children(mailbox.id).length > 0;
+				return (
+					<li key={mailbox.id}>
+						<div
+							className={`${styles.row} ${dropTarget === mailbox.id ? styles.dropTarget : ""}`}
+							style={{
+								paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
+							}}
+							onDragOver={(event) => {
+								event.preventDefault();
+								event.dataTransfer.dropEffect = "move";
+							}}
+							onDragEnter={() => setDropTarget(mailbox.id)}
+							onDragLeave={() =>
+								setDropTarget((current) =>
+									current === mailbox.id ? null : current,
+								)
+							}
+							onDrop={(event) => dropOnMailbox(event, mailbox)}
+						>
+							{hasChildren ? (
+								<button
+									type="button"
+									className={styles.chevron}
+									aria-label={mailbox.isCollapsed ? "Expand" : "Collapse"}
+									aria-expanded={!mailbox.isCollapsed}
+									onClick={() =>
+										toggleCollapsed.mutate({
+											mailboxId: mailbox.id,
+											collapsed: !mailbox.isCollapsed,
+										})
+									}
+								>
+									{mailbox.isCollapsed ? "▸" : "▾"}
+								</button>
+							) : (
+								<span className={styles.chevronSpacer} aria-hidden />
+							)}
+							<button
+								type="button"
+								draggable
+								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
+								aria-current={mailbox.id === selectedMailboxId}
+								onClick={() => {
+									// Every account's tree is visible at once now (§13 Epic 2), so
+									// selecting a mailbox has to say which account it belongs to
+									// too — there is no longer a separately-chosen "current
+									// account" this tree can assume it already is.
+									store.setState("selectedAccountId", accountId);
+									store.setState("selectedMailboxId", mailbox.id);
+								}}
+								onContextMenu={(event) => {
+									event.preventDefault();
+									setMenu({ x: event.clientX, y: event.clientY, mailbox });
+								}}
+								onDragStart={(event) => {
+									event.dataTransfer.setData(mailboxDragType, mailbox.id);
+									event.dataTransfer.effectAllowed = "move";
+								}}
+							>
+								<span>{mailbox.name}</span>
+								<span className={styles.count}>{describeCount(mailbox)}</span>
+							</button>
+						</div>
+						{hasChildren && !mailbox.isCollapsed
+							? renderLevel(mailbox.id, depth + 1)
+							: null}
+					</li>
+				);
+			})}
 		</ul>
 	);
 

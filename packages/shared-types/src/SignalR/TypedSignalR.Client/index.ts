@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -146,6 +146,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("ReorderMailboxes", accountId, parentId, orderedMailboxIds);
     }
 
+    public readonly setMailboxCollapsed = async (mailboxId: string, collapsed: boolean): Promise<void> => {
+        return await this.connection.invoke("SetMailboxCollapsed", mailboxId, collapsed);
+    }
+
     public readonly getAccountCapabilities = async (accountId: string): Promise<AccountCapabilitiesDto> => {
         return await this.connection.invoke("GetAccountCapabilities", accountId);
     }
@@ -156,6 +160,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly reorderAccounts = async (orderedAccountIds: string[]): Promise<void> => {
         return await this.connection.invoke("ReorderAccounts", orderedAccountIds);
+    }
+
+    public readonly setAccountSidebarCollapsed = async (accountId: string, collapsed: boolean): Promise<void> => {
+        return await this.connection.invoke("SetAccountSidebarCollapsed", accountId, collapsed);
     }
 
     public readonly trustCertificate = async (accountId: string, hostname: string, sha256Fingerprint: string): Promise<void> => {
@@ -188,6 +196,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly deleteCalendarEvent = async (eventId: string): Promise<void> => {
         return await this.connection.invoke("DeleteCalendarEvent", eventId);
+    }
+
+    public readonly getCalendarEventDetail = async (eventId: string): Promise<CalendarEventDetailDto> => {
+        return await this.connection.invoke("GetCalendarEventDetail", eventId);
     }
 
     public readonly respondToInvite = async (eventId: string, response: InviteResponse, comment: string): Promise<void> => {

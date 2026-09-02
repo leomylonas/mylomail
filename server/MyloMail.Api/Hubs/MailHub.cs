@@ -71,6 +71,10 @@ public interface IMailHub
 	/// </summary>
 	Task ReorderMailboxes(Guid accountId, Guid? parentId, IReadOnlyList<Guid> orderedMailboxIds);
 
+	/// <summary>Sidebar expand/collapse for one folder, persisted across restarts (§13 Epic 2)
+	/// — purely local, the same as <see cref="ReorderMailboxes"/>.</summary>
+	Task SetMailboxCollapsed(Guid mailboxId, bool collapsed);
+
 	Task<AccountCapabilitiesDto> GetAccountCapabilities(Guid accountId);
 
 	Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings);
@@ -80,6 +84,10 @@ public interface IMailHub
 	/// <see cref="ReorderMailboxes"/>: no provider has a concept of account ordering.
 	/// </summary>
 	Task ReorderAccounts(IReadOnlyList<Guid> orderedAccountIds);
+
+	/// <summary>Sidebar section expand/collapse for one account, persisted across restarts
+	/// (§13 Epic 2) — purely local, the same as <see cref="ReorderAccounts"/>.</summary>
+	Task SetAccountSidebarCollapsed(Guid accountId, bool collapsed);
 
 	/// <summary>
 	/// Pins a certificate for this account and hostname (§15) — offered only after normal TLS
@@ -101,6 +109,10 @@ public interface IMailHub
 	Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request);
 
 	Task DeleteCalendarEvent(Guid eventId);
+
+	/// <summary>Organiser, attendees and this account's own response, for the event detail
+	/// view (§13 Epic 7) — not carried on <see cref="GetCalendarEvents"/>'s summary DTO.</summary>
+	Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId);
 
 	/// <summary>Accept/Decline/Tentative on an invite (§13 Epic 7).</summary>
 	Task RespondToInvite(Guid eventId, InviteResponse response, string? comment);
@@ -169,7 +181,8 @@ public class MailHub(
 					row.Mailbox.ProviderTotalCount,
 					row.Mailbox.ProviderUnreadCount,
 					row.LocalCount,
-					row.Coverage ?? CoverageStatus.NotStarted
+					row.Coverage ?? CoverageStatus.NotStarted,
+					row.Mailbox.IsCollapsed
 				)),
 		];
 	}
@@ -320,6 +333,13 @@ public class MailHub(
 	public Task ReorderMailboxes(Guid accountId, Guid? parentId, IReadOnlyList<Guid> orderedMailboxIds) =>
 		mailboxes.ReorderAsync(accountId, parentId, orderedMailboxIds);
 
+	public async Task SetMailboxCollapsed(Guid mailboxId, bool collapsed)
+	{
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		mailbox.IsCollapsed = collapsed;
+		await context.SaveChangesAsync();
+	}
+
 	/// <summary>
 	/// What the provider does, for the questions the UI has to ask before acting.
 	/// </summary>
@@ -376,6 +396,13 @@ public class MailHub(
 			}
 		}
 
+		await context.SaveChangesAsync();
+	}
+
+	public async Task SetAccountSidebarCollapsed(Guid accountId, bool collapsed)
+	{
+		var account = await context.Accounts.FirstAsync(a => a.Id == accountId);
+		account.SidebarCollapsed = collapsed;
 		await context.SaveChangesAsync();
 	}
 
@@ -467,8 +494,40 @@ public class MailHub(
 
 	public Task DeleteCalendarEvent(Guid eventId) => calendarEvents.DeleteAsync(eventId);
 
+	public async Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId)
+	{
+		var ev = await context.CalendarEvents.FirstAsync(e => e.Id == eventId);
+		var calendar = await context.Calendars.FirstAsync(c => c.Id == ev.CalendarId);
+		var myEmail = await context
+			.SendIdentities.Where(i => i.AccountId == calendar.AccountId && i.IsDefault)
+			.Select(i => i.EmailAddress)
+			.FirstAsync();
+
+		var isOrganizer = string.Equals(ev.Organizer?.Email, myEmail, StringComparison.OrdinalIgnoreCase);
+		var mine = ev.Attendees.FirstOrDefault(a =>
+			string.Equals(a.Email, myEmail, StringComparison.OrdinalIgnoreCase)
+		);
+
+		return new CalendarEventDetailDto(
+			ev.Id,
+			ev.Organizer,
+			[.. ev.Attendees.Select(a => new AttendeeDto(a.Name, a.Email, a.Role, a.ResponseStatus))],
+			isOrganizer,
+			mine is null ? null : ToInviteResponse(mine.ResponseStatus)
+		);
+	}
+
 	public Task RespondToInvite(Guid eventId, InviteResponse response, string? comment) =>
 		calendarEvents.RespondToInviteAsync(eventId, response, comment);
+
+	private static InviteResponse? ToInviteResponse(Domain.ResponseStatus status) =>
+		status switch
+		{
+			Domain.ResponseStatus.Accepted => InviteResponse.Accept,
+			Domain.ResponseStatus.Declined => InviteResponse.Decline,
+			Domain.ResponseStatus.Tentative => InviteResponse.Tentative,
+			_ => null,
+		};
 
 	public Task MarkNotificationDelivered(Guid notificationId) =>
 		notifications.MarkDeliveredAsync(notificationId);

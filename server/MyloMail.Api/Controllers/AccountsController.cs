@@ -183,7 +183,8 @@ public class AccountsController(
 			account.IsEnabled,
 			account.LastAuthError,
 			account.Color,
-			account.SortOrder
+			account.SortOrder,
+			account.SidebarCollapsed
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>

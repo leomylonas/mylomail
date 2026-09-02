@@ -132,7 +132,8 @@ public sealed class ChangeStreamService(
 				current.ProviderTotalCount,
 				current.ProviderUnreadCount,
 				localCount,
-				coverage ?? CoverageStatus.NotStarted
+				coverage ?? CoverageStatus.NotStarted,
+				current.IsCollapsed
 			)
 		);
 	}

@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, DraftDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -105,6 +105,14 @@ export type IMailHub = {
     */
     reorderMailboxes(accountId: string, parentId: (string | undefined), orderedMailboxIds: string[]): Promise<void>;
     /**
+    * Sidebar expand/collapse for one folder, persisted across restarts (§13 Epic 2)
+    * — purely local, the same as .
+    * @param mailboxId Transpiled from System.Guid
+    * @param collapsed Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setMailboxCollapsed(mailboxId: string, collapsed: boolean): Promise<void>;
+    /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.AccountCapabilitiesDto>
     */
@@ -121,6 +129,14 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     reorderAccounts(orderedAccountIds: string[]): Promise<void>;
+    /**
+    * Sidebar section expand/collapse for one account, persisted across restarts
+    * (§13 Epic 2) — purely local, the same as .
+    * @param accountId Transpiled from System.Guid
+    * @param collapsed Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setAccountSidebarCollapsed(accountId: string, collapsed: boolean): Promise<void>;
     /**
     * Pins a certificate for this account and hostname (§15) — offered only after normal TLS
     * validation has already failed and the user has seen the fingerprint/issuer this rejected
@@ -174,6 +190,13 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     deleteCalendarEvent(eventId: string): Promise<void>;
+    /**
+    * Organiser, attendees and this account's own response, for the event detail
+    * view (§13 Epic 7) — not carried on 's summary DTO.
+    * @param eventId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.CalendarEventDetailDto>
+    */
+    getCalendarEventDetail(eventId: string): Promise<CalendarEventDetailDto>;
     /**
     * Accept/Decline/Tentative on an invite (§13 Epic 7).
     * @param eventId Transpiled from System.Guid

@@ -9,13 +9,17 @@ interface SidebarAccount {
 	id: string;
 	displayName: string;
 	color: string;
+	sidebarCollapsed?: boolean;
 }
 
 /**
  * Every account's mailboxes, visible at once — no switching that hides other accounts (§13
  * Epic 2). Each account is a top-level, collapsible tree section with its own `MailboxTree`
  * nested beneath it, the same shape Outlook's folder pane uses. Account order is a drag on the
- * section header, persisted the same way `MailboxTree`'s own folder reorder is.
+ * section header, persisted the same way `MailboxTree`'s own folder reorder is. Collapse state
+ * is server-persisted too (§13 Epic 2: "expand/collapse state persists... across restarts"),
+ * not component state — the account list already round-trips through the accounts query, so
+ * that's the one source of truth rather than a second, locally-forgotten copy.
  */
 export function Sidebar({
 	hub,
@@ -25,7 +29,6 @@ export function Sidebar({
 	accounts: SidebarAccount[];
 }) {
 	const queryClient = useQueryClient();
-	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
 
 	const reorder = useMutation({
@@ -35,10 +38,21 @@ export function Sidebar({
 			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
 	});
 
+	const toggleCollapsed = useMutation({
+		mutationFn: (input: { accountId: string; collapsed: boolean }) =>
+			hub.invoke(
+				"SetAccountSidebarCollapsed",
+				input.accountId,
+				input.collapsed,
+			),
+		onSuccess: () =>
+			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+	});
+
 	return (
 		<nav className={styles.sidebar} aria-label="Accounts and mailboxes">
 			{accounts.map((account) => {
-				const isCollapsed = collapsed.has(account.id);
+				const isCollapsed = account.sidebarCollapsed ?? false;
 				return (
 					<section key={account.id} className={styles.section}>
 						<button
@@ -47,11 +61,9 @@ export function Sidebar({
 							className={`${styles.header} ${dropTarget === account.id ? styles.dropTarget : ""}`}
 							aria-expanded={!isCollapsed}
 							onClick={() =>
-								setCollapsed((current) => {
-									const next = new Set(current);
-									if (next.has(account.id)) next.delete(account.id);
-									else next.add(account.id);
-									return next;
+								toggleCollapsed.mutate({
+									accountId: account.id,
+									collapsed: !isCollapsed,
 								})
 							}
 							onDragStart={(event) => {

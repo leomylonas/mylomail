@@ -78,6 +78,7 @@ public class CalendarEvent
 
 public record Attendee(string? Name, string Email, AttendeeRole Role, ResponseStatus ResponseStatus);
 
+[TranspilationSource]
 public enum AttendeeRole
 {
 	Required,
@@ -85,6 +86,7 @@ public enum AttendeeRole
 	Resource,
 }
 
+[TranspilationSource]
 public enum ResponseStatus
 {
 	NeedsAction,

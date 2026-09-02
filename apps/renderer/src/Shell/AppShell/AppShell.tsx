@@ -47,6 +47,7 @@ interface Account {
 	notificationsEnabled?: boolean;
 	authState?: AuthState;
 	lastAuthError?: string | null;
+	sidebarCollapsed?: boolean;
 }
 
 /**

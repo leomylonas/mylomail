@@ -17,6 +17,7 @@ export interface AccountDto {
   lastAuthError?: string;
   color: string;
   sortOrder: number;
+  sidebarCollapsed: boolean;
 }
 
 export const AccountDtoSchema = z.object({
@@ -29,4 +30,5 @@ export const AccountDtoSchema = z.object({
   lastAuthError: z.string().nullable(),
   color: z.string(),
   sortOrder: z.number(),
+  sidebarCollapsed: z.boolean(),
 });
