@@ -126,9 +126,18 @@ export function connectHub(
 
 	// Neither event names the calendar it belongs to, only the event id, so this invalidates
 	// broadly rather than trying to scope it — calendar volume is nowhere near mail volume.
+	// Three surfaces can each show one event's current state (the calendar grid/agenda, the
+	// EventModal detail view, and a message's InviteBanner) under three different query key
+	// prefixes; staleTime: Infinity means none of them ever refetch on their own, so a change
+	// from any one surface — an RSVP, a conflict, an organiser's update arriving via sync —
+	// has to be pushed to all three explicitly, not just the one that triggered it.
 	for (const event of ["CalendarEventUpdated", "CalendarConflictDetected"]) {
 		hub.on(event, () => {
 			void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+			void queryClient.invalidateQueries({
+				queryKey: ["calendar-event-detail"],
+			});
+			void queryClient.invalidateQueries({ queryKey: ["invite"] });
 		});
 	}
 
