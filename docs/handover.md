@@ -519,6 +519,29 @@ This is a snapshot of the current state, not a history; use Git for history.
   neither TanStack Table (sortable/filterable columns, §12) nor TanStack Virtual
   (virtualisation, §12) — it's a plain `<ul>` with no sort/filter state, and
   `@tanstack/react-table` isn't even a dependency yet.
+- **Eleventh architecture.md pass — two gaps fixed; audit itself recommends stopping full
+  sweeps here.** (1) Content-fetch failures (`ContentAcquisition.AcquireAsync`) were a silent,
+  permanent dead end — any exception during fetch or parse/store marked the message `Failed`
+  forever, with nothing to requeue it and `ReadingPane.tsx` polling every 2 seconds indefinitely
+  showing "Downloading this message…" with no way to distinguish "still downloading" from "never
+  will," contradicting Epic 4's "failed sync shown via a visible indicator, never silent." Added a
+  bounded retry (`MaxAttempts = 5`, requeues to `Queued` while attempts remain) and a new
+  `MessageBodyDto.IsFailed` field so the reading pane stops polling and shows an explicit failure
+  message once attempts are exhausted. `invariant-review` confirmed the mechanics are correct and
+  flagged two accepted, non-blocking gaps: a fast-failing message can monopolize the queue head for
+  up to 5 rapid iterations (bounded, not unbounded), and a message that exhausts its attempts
+  during a genuinely transient outage has no path back to retry. (2)
+  `AppSettings.AttachmentTempCleanupOnStartup` was dead — the field existed but nothing read it,
+  so `Program.cs` always swept temp attachments at startup regardless of its value. Gated it
+  behind the setting — but the first draft read `AppSettings` _before_
+  `DatabaseBootstrapper.MigrateAsync()`, which is what creates the database on a fresh install;
+  `invariant-review` caught this before it shipped (would have crashed first launch). Fixed by
+  moving the read into the existing post-migration scope; manually verified against a fresh, empty
+  data directory that migrations now apply cleanly before that read runs. The audit's own
+  conclusion after this pass: further full-doc sweeps have hit diminishing returns (two small
+  fixes this round vs. new-feature-sized findings in most prior passes) — the real remaining work
+  is the three items already tracked below (reply/forward, scheduled send, TanStack Table/Virtual),
+  and effort should shift there rather than continuing to search for new gaps.
 
 ## Next task
 
