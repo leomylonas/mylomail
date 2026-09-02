@@ -193,6 +193,84 @@ public sealed class CalendarEventServiceTests
 		});
 	}
 
+	/// <summary>
+	/// A mailed invite (§13 Epic 7) may materialise an event under an account's local-only
+	/// pseudo-calendar before that account has ever had a real calendar synced. Once a real
+	/// sync does happen and reports the same invite by UID, it must adopt the existing row —
+	/// not create a duplicate the mail-materialised one now sits orphaned next to.
+	/// </summary>
+	[Fact]
+	public async Task A_routine_sync_adopts_a_mail_materialised_event_sharing_its_uid()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var materialisedId = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			var localCalendar = new Calendar
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				ProviderCalendarId = "local-invites",
+				Name = "Invites",
+				IsLocalOnly = true,
+			};
+			context.Calendars.Add(localCalendar);
+			var ev = new CalendarEvent
+			{
+				Id = Guid.NewGuid(),
+				CalendarId = localCalendar.Id,
+				ProviderEventId = "mail:1",
+				ICalUid = "shared-uid",
+				Title = "Standup",
+				Start = DateTimeOffset.UnixEpoch,
+				End = DateTimeOffset.UnixEpoch.AddHours(1),
+			};
+			context.CalendarEvents.Add(ev);
+			await context.SaveChangesAsync();
+			return ev.Id;
+		});
+
+		provider.ScriptSync(
+			new CalendarSyncResult(
+				"cursor-1",
+				null,
+				[
+					new CalendarEventDto
+					{
+						ProviderEventId = "real-1",
+						ICalUid = "shared-uid",
+						ProviderRevision = "etag-1",
+						Title = "Standup",
+						Start = DateTimeOffset.UnixEpoch,
+						End = DateTimeOffset.UnixEpoch.AddHours(1),
+					},
+				],
+				[]
+			)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			await scope.GetRequiredService<CalendarSyncService>().SynchronizeAsync(account);
+			return true;
+		});
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(1, await context.CalendarEvents.CountAsync(e => e.ICalUid == "shared-uid"));
+			var adopted = await context.CalendarEvents.SingleAsync(e => e.ICalUid == "shared-uid");
+			Assert.Equal(materialisedId, adopted.Id);
+			Assert.Equal(harness.CalendarId, adopted.CalendarId);
+			Assert.Equal("real-1", adopted.ProviderEventId);
+			return true;
+		});
+	}
+
 	[Fact]
 	public async Task Deleting_a_recurring_master_removes_its_overrides_too()
 	{

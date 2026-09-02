@@ -430,6 +430,22 @@ export type CalendarEventDetailDto = {
     reminders: (Date | string)[];
 }
 
+/** Transpiled from MyloMail.Api.Contracts.MessageInviteDto */
+export type MessageInviteDto = {
+    /** Transpiled from System.Guid */
+    eventId?: string;
+    /** Transpiled from string */
+    title: string;
+    /** Transpiled from System.DateTimeOffset */
+    start: (Date | string);
+    /** Transpiled from System.DateTimeOffset */
+    end: (Date | string);
+    /** Transpiled from MyloMail.Api.Domain.Address? */
+    organizer?: Address;
+    /** Transpiled from MyloMail.Api.Domain.InviteResponse */
+    myResponseStatus?: InviteResponse;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.NotificationDto */
 export type NotificationDto = {
     /** Transpiled from System.Guid */

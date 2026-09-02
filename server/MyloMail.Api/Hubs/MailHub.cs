@@ -7,6 +7,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
@@ -40,6 +41,14 @@ public interface IMailHub
 	Task<IReadOnlyList<PendingChangeDto>> GetPendingSyncState(Guid accountId);
 
 	Task<MessageBodyDto> GetMessageBody(Guid messageId);
+
+	/// <summary>
+	/// The meeting invite this message carries, if any (§13 Epic 7) — null for an ordinary
+	/// message, and also null until the message's raw content has been fetched (this reads the
+	/// same stored bytes <see cref="GetMessageBody"/> derives its content from, not a live
+	/// re-fetch).
+	/// </summary>
+	Task<MessageInviteDto?> GetMessageInvite(Guid messageId);
 
 	Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId);
 
@@ -325,6 +334,65 @@ public class MailHub(
 			state?.Status == ContentStatus.Indexed,
 			state?.Status == ContentStatus.Failed
 		);
+	}
+
+	public async Task<MessageInviteDto?> GetMessageInvite(Guid messageId)
+	{
+		var raw = await context.MessageRaws.FirstOrDefaultAsync(r => r.MessageId == messageId);
+		if (raw is null)
+		{
+			return null;
+		}
+
+		using var stream = new MemoryStream(raw.Content);
+		var mime = await MimeKit.MimeMessage.LoadAsync(stream);
+		var part = mime.BodyParts
+			.OfType<MimeKit.MimePart>()
+			.FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
+		if (part?.Content is null)
+		{
+			return null;
+		}
+
+		using var decoded = new MemoryStream();
+		await part.Content.DecodeToAsync(decoded);
+		var ics = System.Text.Encoding.UTF8.GetString(decoded.ToArray());
+		if (!string.Equals(CalDavIcs.ParseMethod(ics), "REQUEST", StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+
+		var parsed = CalDavIcs
+			.ParseEvents(ics, $"mail:{messageId}", string.Empty)
+			.FirstOrDefault(e => e.RecurrenceId is null);
+		if (parsed is null)
+		{
+			return null;
+		}
+
+		var message = await context.Messages.FirstAsync(m => m.Id == messageId);
+		var calendarIds = await context
+			.Calendars.Where(c => c.AccountId == message.AccountId)
+			.Select(c => c.Id)
+			.ToListAsync();
+		var ev = await context.CalendarEvents.FirstOrDefaultAsync(e =>
+			e.ICalUid == parsed.ICalUid && calendarIds.Contains(e.CalendarId)
+		);
+
+		InviteResponse? myResponse = null;
+		if (ev is not null)
+		{
+			var myEmail = await context
+				.SendIdentities.Where(i => i.AccountId == message.AccountId && i.IsDefault)
+				.Select(i => i.EmailAddress)
+				.FirstAsync();
+			var mine = ev.Attendees.FirstOrDefault(a =>
+				string.Equals(a.Email, myEmail, StringComparison.OrdinalIgnoreCase)
+			);
+			myResponse = mine is null ? null : ToInviteResponse(mine.ResponseStatus);
+		}
+
+		return new MessageInviteDto(ev?.Id, parsed.Title, parsed.Start, parsed.End, parsed.Organizer, myResponse);
 	}
 
 	public async Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId) =>

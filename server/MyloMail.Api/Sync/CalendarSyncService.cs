@@ -50,8 +50,10 @@ public sealed class CalendarSyncService(
 			await events.CalendarEventUpdatedAsync(eventId);
 		}
 
+		// A local-only calendar has no provider backing at all (§1, §13 Epic 7) — nothing to
+		// ask `provider.SyncCalendarAsync` for, and no cursor for it to ever advance.
 		var calendarIds = await context
-			.Calendars.Where(c => c.AccountId == account.Id)
+			.Calendars.Where(c => c.AccountId == account.Id && !c.IsLocalOnly)
 			.Select(c => c.Id)
 			.ToListAsync(ct);
 		foreach (var calendarId in calendarIds)
@@ -96,7 +98,9 @@ public sealed class CalendarSyncService(
 
 		var observedIds = observed.Select(c => c.ProviderCalendarId).ToHashSet(StringComparer.Ordinal);
 		var removed = await context
-			.Calendars.Where(c => c.AccountId == accountId && !observedIds.Contains(c.ProviderCalendarId))
+			.Calendars.Where(c =>
+				c.AccountId == accountId && !c.IsLocalOnly && !observedIds.Contains(c.ProviderCalendarId)
+			)
 			.ToListAsync(ct);
 		var removedIds = await context
 			.CalendarEvents.Where(e => removed.Select(c => c.Id).Contains(e.CalendarId))
@@ -135,7 +139,7 @@ public sealed class CalendarSyncService(
 				resetForInvalidCursor = true;
 				continue;
 			}
-			await ApplyPageAsync(calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
+			await ApplyPageAsync(account.Id, calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
 			continuation = page.Continuation;
 			if (continuation is null)
 			{
@@ -164,6 +168,7 @@ public sealed class CalendarSyncService(
 	}
 
 	private async Task ApplyPageAsync(
+		Guid accountId,
 		Guid calendarId,
 		CalendarSyncResult page,
 		bool commitCursor,
@@ -210,6 +215,29 @@ public sealed class CalendarSyncService(
 				e => e.CalendarId == calendarId && e.ProviderEventId == dto.ProviderEventId,
 				ct
 			);
+
+			// A mailed invite (§13 Epic 7) may already have materialised this same event, by
+			// UID, under the account's local-only pseudo-calendar before this account ever had
+			// a real calendar synced against it. Adopted here rather than left to become a
+			// duplicate: the mail-materialised row keeps its id (and so keeps working as the
+			// target of any RSVP already sent against it) but moves onto the real calendar and
+			// gains a real provider identity, same as any other upsert from here on.
+			if (existing is null)
+			{
+				var localCalendarIds = await context
+					.Calendars.Where(c => c.AccountId == accountId && c.IsLocalOnly)
+					.Select(c => c.Id)
+					.ToListAsync(ct);
+				var materialised = await context.CalendarEvents.SingleOrDefaultAsync(
+					e => e.ICalUid == dto.ICalUid && localCalendarIds.Contains(e.CalendarId),
+					ct
+				);
+				if (materialised is not null)
+				{
+					materialised.CalendarId = calendarId;
+					existing = materialised;
+				}
+			}
 
 			// A still-unresolved conflict is left alone during ordinary sync — the local edit
 			// and the flag both survive, exactly as they did the moment the conflict was

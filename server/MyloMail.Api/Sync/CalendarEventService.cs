@@ -3,6 +3,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
 
 namespace MyloMail.Api.Sync;
@@ -36,7 +37,8 @@ public sealed class CalendarEventService(
 	MyloMailDbContext context,
 	ICalendarProviderFactory providers,
 	IHubEvents events,
-	CalendarSyncService calendarSync
+	CalendarSyncService calendarSync,
+	ItipReplySender itipReply
 )
 {
 	public async Task<CalendarEvent> SaveAsync(CalendarEventInput input, CancellationToken ct = default)
@@ -216,16 +218,20 @@ public sealed class CalendarEventService(
 			.SendIdentities.Where(i => i.AccountId == account.Id && i.IsDefault)
 			.FirstAsync(ct);
 
-		var provider = providers.For(account);
-		using var disposable = provider as IDisposable;
-		await provider.RespondToInviteAsync(
-			account,
-			ev,
-			response,
-			comment,
-			new Address(identity.DisplayName, identity.EmailAddress),
-			ct
-		);
+		var replyingAs = new Address(identity.DisplayName, identity.EmailAddress);
+		if (calendar.IsLocalOnly)
+		{
+			// No provider configured at all for this account — there is nothing to ask via
+			// ICalendarProviderFactory, which would throw ProviderNotConfiguredException. The
+			// reply is mail either way, so send it directly (§13 Epic 7).
+			await itipReply.SendAsync(account, ev, response, comment, replyingAs, ct);
+		}
+		else
+		{
+			var provider = providers.For(account);
+			using var disposable = provider as IDisposable;
+			await provider.RespondToInviteAsync(account, ev, response, comment, replyingAs, ct);
+		}
 
 		// The REPLY only reaches the organiser's inbox — nothing about sending it changes this
 		// event's own stored attendee list, and a synced-back PARTSTAT update from the

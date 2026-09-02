@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -96,6 +96,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getMessageBody = async (messageId: string): Promise<MessageBodyDto> => {
         return await this.connection.invoke("GetMessageBody", messageId);
+    }
+
+    public readonly getMessageInvite = async (messageId: string): Promise<MessageInviteDto> => {
+        return await this.connection.invoke("GetMessageInvite", messageId);
     }
 
     public readonly getAttachmentMetadata = async (messageId: string): Promise<AttachmentDto[]> => {

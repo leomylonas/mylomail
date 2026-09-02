@@ -10,6 +10,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
@@ -91,6 +92,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddScoped<ITrustedCertificateStore, TrustedCertificateStore>();
 		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
 		services.TryAddScoped<ICalendarProviderFactory, CalendarProviderFactory>();
+		services.TryAddScoped<ItipReplySender>();
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
 		services.TryAddSingleton<IOutboxDispatcher, NoOutboxDispatcher>();
@@ -117,6 +119,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MessageIngestor>();
 		services.AddScoped<CalendarSyncService>();
 		services.AddScoped<CalendarEventService>();
+		services.AddScoped<MailInviteMaterializer>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();
 		services.AddScoped<MessageSearch>();

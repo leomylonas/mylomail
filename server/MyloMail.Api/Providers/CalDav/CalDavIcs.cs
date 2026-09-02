@@ -49,6 +49,31 @@ internal static partial class CalDavIcs
 		return events;
 	}
 
+	/// <summary>
+	/// The iTIP <c>METHOD</c> from a full <c>VCALENDAR</c> document's own top-level property —
+	/// <c>REQUEST</c>, <c>CANCEL</c>, <c>REPLY</c>, etc. (RFC 5546) — distinguishing an invite
+	/// from a cancellation or someone else's reply landing as mail (§13 Epic 7). Not present on
+	/// a CalDAV resource, which is why <see cref="ParseEvents"/> never needed this: that always
+	/// reads a stored event, never a message someone sent.
+	/// </summary>
+	public static string? ParseMethod(string ics)
+	{
+		foreach (var line in Unfold(ics))
+		{
+			if (line.Equals("BEGIN:VEVENT", StringComparison.OrdinalIgnoreCase))
+			{
+				// METHOD is a VCALENDAR-level property; once VEVENT starts it cannot appear.
+				return null;
+			}
+			var (name, _, value) = ParseLine(line);
+			if (name.Equals("METHOD", StringComparison.OrdinalIgnoreCase))
+			{
+				return value;
+			}
+		}
+		return null;
+	}
+
 	public static string ToIcs(string uid, CalendarEventDto ev) =>
 		$"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//MyloMail//CalDAV//EN\r\n{RenderVEvent(uid, ev)}END:VCALENDAR\r\n";
 

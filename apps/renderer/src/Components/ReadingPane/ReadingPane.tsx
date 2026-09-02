@@ -1,9 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { Button, SkeletonText } from "@carbon/react";
+import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
+
+interface MessageInvite {
+	eventId: string | null;
+	title: string;
+	start: string;
+	end: string;
+	organizer: { name: string | null; email: string } | null;
+	myResponseStatus: InviteResponse | null;
+}
 
 interface MessageBody {
 	messageId: string;
@@ -103,6 +113,7 @@ function Body({
 	if (body.html)
 		return (
 			<>
+				<InviteBanner hub={hub} messageId={messageId} />
 				<MessageHtml
 					// Remounts per message: the "load remote content" override is local state
 					// that must never survive a message switch (§13 Epic 5) — a click on a
@@ -120,6 +131,7 @@ function Body({
 	if (body.text)
 		return (
 			<>
+				<InviteBanner hub={hub} messageId={messageId} />
 				<div className={styles.body}>{body.text}</div>
 				<AttachmentList hub={hub} messageId={messageId} />
 			</>
@@ -127,8 +139,102 @@ function Body({
 
 	return (
 		<>
+			<InviteBanner hub={hub} messageId={messageId} />
 			<p className={styles.waiting}>This message has no body.</p>
 			<AttachmentList hub={hub} messageId={messageId} />
 		</>
+	);
+}
+
+const responseStatusLabel = [
+	"",
+	"accepted",
+	"declined",
+	"responded tentatively to",
+];
+
+/**
+ * The reading pane's RSVP surface (§13 Epic 7) — the other half of Epic 7's Accept/Decline/
+ * Tentative requirement, alongside the calendar view's own `EventModal`. Absent entirely for
+ * an ordinary message: `GetMessageInvite` returns null for anything without a
+ * `text/calendar; METHOD=REQUEST` part.
+ */
+function InviteBanner({
+	hub,
+	messageId,
+}: {
+	hub: HubConnection;
+	messageId: string;
+}) {
+	const queryClient = useQueryClient();
+	const invite = useQuery({
+		queryKey: ["invite", messageId],
+		queryFn: () =>
+			hub.invoke<MessageInvite | null>("GetMessageInvite", messageId),
+	});
+
+	const respond = useMutation({
+		mutationFn: (response: InviteResponse) =>
+			hub.invoke("RespondToInvite", invite.data?.eventId, response, null),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: ["invite", messageId] }),
+	});
+
+	if (!invite.data) return null;
+
+	const when = `${new Date(invite.data.start).toLocaleString()} – ${new Date(
+		invite.data.end,
+	).toLocaleTimeString()}`;
+
+	return (
+		<div className={styles.invite}>
+			<p className={styles.inviteTitle}>{invite.data.title}</p>
+			<p className={styles.inviteWhen}>{when}</p>
+			{invite.data.organizer ? (
+				<p className={styles.inviteFrom}>
+					{invite.data.organizer.name ?? invite.data.organizer.email} invited
+					you
+				</p>
+			) : null}
+			{invite.data.eventId ? (
+				invite.data.myResponseStatus !== null ? (
+					<p>
+						You {responseStatusLabel[invite.data.myResponseStatus]} this
+						invitation.
+					</p>
+				) : (
+					<div className={styles.inviteActions}>
+						<Button
+							size="sm"
+							kind="primary"
+							disabled={respond.isPending}
+							onClick={() => respond.mutate(InviteResponse.Accept)}
+						>
+							Accept
+						</Button>
+						<Button
+							size="sm"
+							kind="tertiary"
+							disabled={respond.isPending}
+							onClick={() => respond.mutate(InviteResponse.Tentative)}
+						>
+							Tentative
+						</Button>
+						<Button
+							size="sm"
+							kind="danger--tertiary"
+							disabled={respond.isPending}
+							onClick={() => respond.mutate(InviteResponse.Decline)}
+						>
+							Decline
+						</Button>
+					</div>
+				)
+			) : (
+				<p className={styles.waiting}>
+					Preparing this invitation for a response…
+				</p>
+			)}
+		</div>
 	);
 }

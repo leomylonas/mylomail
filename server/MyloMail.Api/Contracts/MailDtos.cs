@@ -266,6 +266,25 @@ public record CalendarEventDetailDto(
 );
 
 /// <summary>
+/// A meeting invite parsed from a received message's own <c>text/calendar</c> part (§1, §13
+/// Epic 7) — the reading pane's RSVP surface, distinct from <see cref="CalendarEventDetailDto"/>
+/// which is the calendar view's.
+/// </summary>
+/// <param name="EventId">
+/// Null if this invite has not been materialised into a <see cref="CalendarEventDetailDto"/>
+/// yet — RSVP is unavailable until it has (normally by the time content finishes fetching).
+/// </param>
+[TranspilationSource]
+public record MessageInviteDto(
+	Guid? EventId,
+	string Title,
+	DateTimeOffset Start,
+	DateTimeOffset End,
+	Address? Organizer,
+	InviteResponse? MyResponseStatus
+);
+
+/// <summary>
 /// One OS notification the shell owes the user (§13 Epic 9). Carries enough to render it
 /// without a round trip: the renderer relays this straight to the preload bridge.
 /// </summary>

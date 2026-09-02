@@ -16,6 +16,16 @@ public class Calendar
 	/// as the event page it covers; replaying a page is safe, skipping one is not.
 	/// </summary>
 	public string? SyncCursor { get; set; }
+
+	/// <summary>
+	/// No provider backing at all — holds events materialised from a mailed invite on an
+	/// account with no configured calendar (§1, §13 Epic 7). Never touched by
+	/// <c>CalendarSyncService.ReconcileCalendarsAsync</c>'s remove-what-the-provider-no-longer-
+	/// reports logic, since no provider has ever reported it. RSVP against an event here still
+	/// works: it sends an iTIP <c>REPLY</c> as mail via the account's own send path, the same
+	/// mechanism CalDAV/IMAP accounts already use — no calendar-provider API call is needed.
+	/// </summary>
+	public bool IsLocalOnly { get; set; }
 }
 
 public class CalendarEvent

@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -32,6 +32,15 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageBodyDto>
     */
     getMessageBody(messageId: string): Promise<MessageBodyDto>;
+    /**
+    * The meeting invite this message carries, if any (§13 Epic 7) — null for an ordinary
+    * message, and also null until the message's raw content has been fetched (this reads the
+    * same stored bytes  derives its content from, not a live
+    * re-fetch).
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageInviteDto?>
+    */
+    getMessageInvite(messageId: string): Promise<MessageInviteDto>;
     /**
     * @param messageId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.AttachmentDto>>

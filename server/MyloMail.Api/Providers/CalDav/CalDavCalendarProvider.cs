@@ -272,59 +272,14 @@ public sealed class CalDavCalendarProvider(
 	/// this account already sends mail with. Nothing calendar-specific about delivery: the
 	/// organiser's calendar client is what interprets the attachment.
 	/// </summary>
-	public async Task RespondToInviteAsync(
+	public Task RespondToInviteAsync(
 		Account account,
 		CalendarEvent ev,
 		InviteResponse response,
 		string? comment,
 		Address replyingAs,
 		CancellationToken ct
-	)
-	{
-		if (ev.Organizer is not { } organizer)
-		{
-			throw new InvalidOperationException("This event has no organiser to reply to.");
-		}
-
-		var status = response switch
-		{
-			InviteResponse.Accept => ResponseStatus.Accepted,
-			InviteResponse.Decline => ResponseStatus.Declined,
-			_ => ResponseStatus.Tentative,
-		};
-		var ics = CalDavIcs.ToReplyIcs(ev, replyingAs, status);
-		var verb = response switch
-		{
-			InviteResponse.Accept => "Accepted",
-			InviteResponse.Decline => "Declined",
-			_ => "Tentative",
-		};
-
-		var draft = new Draft
-		{
-			AccountId = account.Id,
-			FromAddress = replyingAs.Email,
-			To = [new Address(organizer.Name, organizer.Email)],
-			Subject = $"{verb}: {ev.Title}",
-			BodyHtml = System.Net.WebUtility.HtmlEncode(comment ?? $"{DisplayName(replyingAs)} has {verb.ToLowerInvariant()} this invitation."),
-			Attachments =
-			[
-				new DraftAttachment
-				{
-					Filename = "invite.ics",
-					Content = System.Text.Encoding.UTF8.GetBytes(ics),
-					MimeType = "text/calendar; method=REPLY; charset=UTF-8",
-				},
-			],
-		};
-
-		// A reply is not a draft anyone edits or revisits — a fresh Message-ID is exactly
-		// right here, unlike a user's own send (§15), which reuses one generated before the
-		// first attempt so a crash mid-send can still be reconciled against the Sent mailbox.
-		await mail.For(account).SendAsync(account, draft, $"<{Guid.NewGuid()}@mylomail.local>", ct);
-	}
-
-	private static string DisplayName(Address address) => address.Name is { Length: > 0 } name ? name : address.Email;
+	) => new ItipReplySender(mail).SendAsync(account, ev, response, comment, replyingAs, ct);
 
 	private static Uri Endpoint(Account account) =>
 		account.ProviderConfig is ImapProviderConfig { CalDav: { } config }

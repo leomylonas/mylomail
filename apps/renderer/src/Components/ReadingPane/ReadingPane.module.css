@@ -26,3 +26,30 @@
 .waiting {
 	color: var(--cds-text-secondary);
 }
+
+.invite {
+	display: flex;
+	flex-direction: column;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-04);
+	margin-bottom: var(--cds-spacing-04);
+	border: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer-accent);
+}
+
+.inviteTitle {
+	margin: 0;
+	font-weight: 600;
+}
+
+.inviteWhen,
+.inviteFrom {
+	margin: 0;
+	color: var(--cds-text-secondary);
+}
+
+.inviteActions {
+	display: flex;
+	gap: var(--cds-spacing-03);
+	margin-top: var(--cds-spacing-02);
+}

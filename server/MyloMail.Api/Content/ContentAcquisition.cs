@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Content;
 
@@ -28,6 +29,7 @@ public sealed class ContentAcquisition(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	SearchIndexer search,
+	MailInviteMaterializer invites,
 	ILogger<ContentAcquisition> logger
 )
 {
@@ -85,9 +87,10 @@ public sealed class ContentAcquisition(
 			throw;
 		}
 
+		MimeMessage mime;
 		try
 		{
-			await StoreAsync(state, messageId, raw.RawBytes, ct);
+			mime = await StoreAsync(state, messageId, raw.RawBytes, ct);
 		}
 		catch (Exception ex)
 		{
@@ -96,6 +99,20 @@ public sealed class ContentAcquisition(
 			// thousands of times on one malformed write, logging a warning each pass.
 			await MarkFailedAsync(state, ex, ct);
 			throw;
+		}
+
+		// Deliberately after the content transaction has committed, not inside it: calendar
+		// materialisation is a different coordination domain (§6), and a hiccup there must
+		// never roll back an otherwise-successful, precious content fetch (retries are capped
+		// at MaxAttempts). A failure here is logged and swallowed — the message body is still
+		// usable even if its invite never gets picked up this pass.
+		try
+		{
+			await invites.MaterializeFromMessageAsync(account, messageId, mime, ct);
+		}
+		catch (Exception ex)
+		{
+			logger.LogWarning(ex, "Invite materialisation failed for message {MessageId}.", messageId);
 		}
 	}
 
@@ -125,7 +142,7 @@ public sealed class ContentAcquisition(
 	/// content it describes: a committed body with no index entry is invisible to search
 	/// forever, and an index entry with no body is a hit pointing at nothing (§8).
 	/// </remarks>
-	private async Task StoreAsync(
+	private async Task<MimeMessage> StoreAsync(
 		MessageContentState state,
 		Guid messageId,
 		byte[] rawBytes,
@@ -161,6 +178,8 @@ public sealed class ContentAcquisition(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		return mime;
 	}
 
 	private async Task UpsertRawAsync(Guid messageId, byte[] rawBytes, CancellationToken ct)
