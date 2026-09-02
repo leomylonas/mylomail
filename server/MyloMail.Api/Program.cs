@@ -6,11 +6,13 @@ using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Hubs;
+using MyloMail.Api.Logging;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -18,6 +20,34 @@ builder.WebHost.UseUrls("http://127.0.0.1:0");
 // Resolved before the database path is known, and therefore before anything in AppSettings
 // can be read (§15).
 var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOverride);
+
+// Async sink, and never message bodies/subjects/credentials — MessageId/AccountId/operation/
+// exception only (§10). That discipline is enforced by what call sites choose to log, not by
+// this policy; EmailMaskingDestructuringPolicy only covers the one identifying-field case §10
+// calls out as worth partially keeping (an @-destructured Address).
+builder.Host.UseSerilog(
+	(context, services, configuration) =>
+		configuration
+			.MinimumLevel.Information()
+			// EF Core's own query/migration diagnostics are noisy at Information (one line
+			// per SQL statement) and add nothing over the exception/operation logging our own
+			// code does — §10 wants MessageId/AccountId/operation/exception, not a SQL trace.
+			.MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+			.MinimumLevel.Override("System", Serilog.Events.LogEventLevel.Warning)
+			.Enrich.FromLogContext()
+			.Enrich.WithThreadId()
+			.Destructure.With<EmailMaskingDestructuringPolicy>()
+			.WriteTo.Async(sink =>
+				sink.File(
+					Path.Combine(dataDirectory, "logs", "mylomail-.log"),
+					rollingInterval: RollingInterval.Day,
+					retainedFileCountLimit: 14,
+					outputTemplate:
+						"{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{ThreadId}] {Message:lj}{NewLine}{Exception}"
+				)
+			)
+);
+
 builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddSingleton<CredentialStoreSelector>(_ => new CredentialStoreSelector(dataDirectory));
 builder.Services.AddScoped<ICredentialStore>(provider =>
@@ -58,6 +88,10 @@ if (telemetryEnabled && !string.IsNullOrEmpty(otelEndpoint))
 
 var app = builder.Build();
 app.UseLaunchToken();
+
+// Method, path, status code and duration only — never headers or bodies (§10's no-PII rule,
+// the same one AddOtlpExporter's own auto-instrumentation follows below).
+app.UseSerilogRequestLogging();
 
 var attachmentTemp = app.Services.GetRequiredService<AttachmentTempDirectory>();
 app.Lifetime.ApplicationStopping.Register(attachmentTemp.Cleanup);
