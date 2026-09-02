@@ -55,6 +55,22 @@ export function present(
 		};
 	}
 
+	// A tenant blocking user consent is a Validation failure like any other, but the generic
+	// "refused, try again" reading is actively wrong here — retrying doesn't fix an admin
+	// consent block. Distinguished the same way the certificate case above is (§5).
+	if (
+		category === ErrorCategory.Validation &&
+		extensions?.adminConsentRequired === true
+	) {
+		return {
+			title: "Administrator approval required",
+			detail:
+				detail ??
+				"This Microsoft 365 organisation has restricted user consent. Ask an administrator to approve MyloMail.",
+			transient: false,
+		};
+	}
+
 	switch (category) {
 		case ErrorCategory.Network:
 			// Not the user's problem to solve, and not worth a persistent alarm: connectivity

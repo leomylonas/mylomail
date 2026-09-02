@@ -7,11 +7,13 @@ using GraphMessage = Microsoft.Graph.Models.Message;
 namespace MyloMail.Api.Providers.Graph;
 
 /// <summary>
-/// Sending (§1). Graph's <c>/sendMail</c> only accepts attachments inline as base64, and only
-/// up to ~3MB each — above that the interface's own contract calls for the chunked
-/// upload-session flow, which needs a real draft message id to attach the session to, so a
-/// large attachment forces the create-draft-then-send path even for a message that would
-/// otherwise go straight out via <c>/sendMail</c> (§1).
+/// Sending (§1, §15). Always draft-then-send, never the direct <c>/sendMail</c> shortcut:
+/// creating a draft first and sending by its immutable id is what makes post-crash
+/// reconciliation deterministic — a message dispatched via <c>/sendMail</c> returns no id at
+/// all, leaving nothing but the <c>internetMessageId</c> heuristic to reconcile against, which
+/// is exactly the gap the doc's own reconciliation story says this path exists to close (§15).
+/// Attachments above Graph's ~3MB inline limit additionally need the persisted draft's id to
+/// upload chunks against, but that is a second reason to draft first, not the only one.
 /// </summary>
 public sealed partial class GraphMailProvider
 {
@@ -35,17 +37,6 @@ public sealed partial class GraphMailProvider
 		var message = ToOutgoingMessage(draft, stableMessageId);
 		message.Attachments = [.. small.Select(ToFileAttachment)];
 
-		if (large.Count == 0)
-		{
-			await client.Me.SendMail.PostAsync(
-				new Microsoft.Graph.Me.SendMail.SendMailPostRequestBody { Message = message, SaveToSentItems = true },
-				cancellationToken: ct
-			);
-			return;
-		}
-
-		// Attachments above the inline limit need a persisted draft to upload chunks against —
-		// there is no equivalent session for a message that has not been created yet.
 		var created =
 			await client.Me.Messages.PostAsync(message, cancellationToken: ct)
 			?? throw new InvalidOperationException("Graph did not return the created draft.");

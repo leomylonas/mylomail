@@ -46,6 +46,28 @@ public sealed class GraphOAuthAuthenticator
 				.ExecuteAsync(ct);
 			return new AuthResult(true, AuthState.Connected, null);
 		}
+		catch (MsalException ex) when (IsAdminConsentRequired(ex))
+		{
+			// Not an authentication failure — the credentials are fine, and sending the
+			// user to re-enter them would ask for something that was never the problem
+			// (§5). Validation, not Auth: the central error mapping shows Detail verbatim
+			// for Validation rather than the Auth category's re-authentication prompt,
+			// which is exactly the wrong UX for "an administrator has to approve this app".
+			var problem = new MutationProblemDetails
+			{
+				Title = "Administrator approval required",
+				Detail =
+					"This Microsoft 365 organisation has restricted user consent. Ask an "
+					+ "administrator to approve MyloMail for your organisation, then try "
+					+ "adding this account again.",
+				Category = ErrorCategory.Validation,
+			};
+			// Distinguishes this from the generic Validation/ProviderRejected case in the
+			// renderer's central mapping (§13), the same way a certificate rejection does via
+			// its own extension fields — see CertificateTrust.Problem.
+			problem.Extensions["adminConsentRequired"] = true;
+			return new AuthResult(false, AuthState.Error, problem);
+		}
 		catch (MsalException ex)
 		{
 			return Failure(ErrorCategory.Auth, "Microsoft authentication failed", ex.Message);
@@ -55,6 +77,20 @@ public sealed class GraphOAuthAuthenticator
 			return Failure(ErrorCategory.Network, "Could not reach Microsoft", ex.Message);
 		}
 	}
+
+	/// <summary>
+	/// A tenant blocking ordinary user consent surfaces either as MSAL's own
+	/// <see cref="UiRequiredExceptionClassification.ConsentRequired"/> classification, or —
+	/// for the interactive flow this method actually uses — as a raw Entra STS error code in
+	/// a <see cref="MsalServiceException"/>: <c>AADSTS65001</c> (user consent required) or
+	/// <c>AADSTS90094</c> (admin consent required for this specific app), neither of which
+	/// MSAL itself further classifies (§5).
+	/// </summary>
+	private static bool IsAdminConsentRequired(MsalException ex) =>
+		ex is MsalUiRequiredException { Classification: UiRequiredExceptionClassification.ConsentRequired }
+		|| (ex is MsalServiceException { Message: var message }
+			&& (message.Contains("AADSTS65001", StringComparison.Ordinal)
+				|| message.Contains("AADSTS90094", StringComparison.Ordinal)));
 
 	public async Task<AccessToken> AcquireTokenAsync(Account account, CancellationToken ct)
 	{
