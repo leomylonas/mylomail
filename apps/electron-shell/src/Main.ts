@@ -64,6 +64,18 @@ export async function startShell(): Promise<void> {
 		process.stderr.write(`[backend] ${chunk.toString("utf8")}`),
 	);
 
+	// §9: "Electron detects unexpected backend process exit and offers restart." `quitting`
+	// is set before the deliberate SIGTERM this process itself sends on before-quit, so this
+	// only fires for an exit nobody here asked for — the backend crashing, or being killed by
+	// something outside the app. The whole app relaunches rather than re-plumbing a fresh
+	// backend into the windows that already exist: a stale connection token, an origin whose
+	// port just changed, and mid-flight SignalR state all become simply irrelevant on restart
+	// rather than needing to be reconciled one at a time.
+	backend.child.on("exit", (code) => {
+		if (quitting) return;
+		void offerBackendRestart(code);
+	});
+
 	const origin = `http://127.0.0.1:${backend.port}`;
 	const connection: BackendConnection = { origin };
 
@@ -229,6 +241,38 @@ export async function startShell(): Promise<void> {
 			}
 		});
 	});
+}
+
+/**
+ * The unexpected-backend-exit path from §9, distinct from the deliberate credential-store
+ * restart `startBackend` already handles during startup: this fires only once a session is
+ * already underway, so there is a user to tell rather than a launch sequence still deciding
+ * what to do.
+ */
+async function offerBackendRestart(code: number | null): Promise<void> {
+	const [window] = BrowserWindow.getAllWindows();
+	const options: Electron.MessageBoxOptions = {
+		type: "error",
+		buttons: ["Restart", "Quit"],
+		defaultId: 0,
+		cancelId: 1,
+		title: "MyloMail stopped unexpectedly",
+		message: "MyloMail's background process stopped unexpectedly.",
+		detail:
+			code === null
+				? "Restarting will reopen the app fresh. Nothing sent or saved is lost."
+				: `It exited with code ${code}. Restarting will reopen the app fresh. Nothing sent or saved is lost.`,
+	};
+	const result =
+		window && !window.isDestroyed()
+			? await dialog.showMessageBox(window, options)
+			: await dialog.showMessageBox(options);
+
+	if (result.response === 0) {
+		app.relaunch();
+	}
+	quitting = true;
+	app.exit(0);
 }
 
 /**
@@ -463,9 +507,16 @@ async function createWindow(
 
 	// Minimise-to-tray intercepts the window's own close, not window-all-closed: by the time
 	// window-all-closed fires the window is already destroyed, too late to hide it instead
-	// (§8, §13 Epic 10).
+	// (§8, §13 Epic 10). Only the *last* window minimises — §13 Epic 10 is explicit that this
+	// setting governs what happens when the last window closes, not every window along the
+	// way. Closing one of several open windows (a popped-out compose window, say) while others
+	// remain is an ordinary close and must behave like one.
 	window.on("close", (event) => {
-		if (closeBehavior === "MinimizeToTray" && !quitting) {
+		if (
+			closeBehavior === "MinimizeToTray" &&
+			!quitting &&
+			BrowserWindow.getAllWindows().length === 1
+		) {
 			event.preventDefault();
 			window.hide();
 			ensureTray();
