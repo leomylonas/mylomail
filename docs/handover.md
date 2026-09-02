@@ -413,6 +413,28 @@ This is a snapshot of the current state, not a history; use Git for history.
   simultaneously with independent trees. `invariant-review`: no findings, presentational/
   selection-state only.
 
+- **Fifth architecture.md pass — calendar RSVP UI (Epic 7) and sidebar/mailbox collapse
+  persistence (Epic 2):** both flatly required by the doc, both previously missing entirely.
+  RSVP: the CalDAV iTIP REPLY backend already existed with zero renderer UI; added attendee
+  display and Accept/Tentative/Decline to `EventModal`, plus a real bug fix — `RespondToInviteAsync`
+  only ever sent the reply email and never updated the local event's own attendee list, so the
+  UI would show "awaiting response" forever absent a lucky future sync. Collapse persistence:
+  the account-section toggle from the previous item was plain React state; now a real
+  `Account.SidebarCollapsed`/`Mailbox.IsCollapsed` column pair, and `MailboxTree` gained
+  per-mailbox collapse (previously nonexistent) alongside it.
+  `invariant-review` found no invariant violations; it did catch a real UX regression from the
+  mailbox-row restructuring (drop-target hit area shrank to exclude the new chevron column),
+  fixed by moving the drag handlers to the row wrapper. Verified with `pnpm check`, full
+  `dotnet test` (267 passed), and the full Playwright e2e suite (7/7) — run both individually
+  and together against a freshly rebuilt renderer, after tracking down an unrelated full-suite
+  flakiness (a single, rotating spec occasionally hanging for the full 2-minute ceiling) to a
+  long-lived local IMAP fixture container needing a restart after days of reuse, not a code
+  regression — confirmed by every spec passing individually and the hang moving to a different,
+  unrelated spec on repeat runs. RSVP's actual send/response flow was verified via code review,
+  the conformance suite, and a direct backend check of the new hub method rather than a live
+  click-through, since the local test matrix has no CalDAV server that can stage a real invite
+  with attendees.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
