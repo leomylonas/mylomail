@@ -281,7 +281,8 @@ public class MailHub(
 					row.Coverage ?? CoverageStatus.NotStarted,
 					row.Mailbox.IsCollapsed,
 					row.Mailbox.InitialSyncModeOverride,
-					row.Mailbox.InitialSyncBoundValueOverride
+					row.Mailbox.InitialSyncBoundValueOverride,
+					row.Mailbox.ProviderMailboxId is null
 				)),
 		];
 	}

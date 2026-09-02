@@ -135,7 +135,8 @@ public sealed class ChangeStreamService(
 				coverage ?? CoverageStatus.NotStarted,
 				current.IsCollapsed,
 				current.InitialSyncModeOverride,
-				current.InitialSyncBoundValueOverride
+				current.InitialSyncBoundValueOverride,
+				current.ProviderMailboxId is null
 			)
 		);
 	}

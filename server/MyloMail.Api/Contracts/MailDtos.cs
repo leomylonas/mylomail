@@ -15,6 +15,12 @@ namespace MyloMail.Api.Contracts;
 /// <param name="InitialSyncModeOverride">
 /// Null when this mailbox uses the account's own initial-sync choice (§3, §13 Epic 3).
 /// </param>
+/// <param name="IsSynthesized">
+/// True for a row with no real provider object backing it — a Gmail nested-label
+/// intermediate the sidebar derived by splitting a label name on <c>/</c> (§1). Renaming or
+/// deleting one is a no-op with nothing to act on, so the renderer must not offer either
+/// (§13 Epic 2's "sensible handling... where a provider doesn't support an operation").
+/// </param>
 [TranspilationSource]
 public record MailboxSummaryDto(
 	Guid Id,
@@ -28,7 +34,8 @@ public record MailboxSummaryDto(
 	CoverageStatus Coverage,
 	bool IsCollapsed,
 	InitialSyncMode? InitialSyncModeOverride,
-	int? InitialSyncBoundValueOverride
+	int? InitialSyncBoundValueOverride,
+	bool IsSynthesized
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>

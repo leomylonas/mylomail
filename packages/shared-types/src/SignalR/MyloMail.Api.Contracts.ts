@@ -148,6 +148,8 @@ export type MailboxSummaryDto = {
     initialSyncModeOverride?: InitialSyncMode;
     /** Transpiled from int */
     initialSyncBoundValueOverride?: number;
+    /** Transpiled from bool */
+    isSynthesized: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageSummaryDto */

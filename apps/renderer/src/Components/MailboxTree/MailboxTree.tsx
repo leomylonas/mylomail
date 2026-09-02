@@ -39,6 +39,12 @@ interface Mailbox {
 	coverage: CoverageStatus;
 	initialSyncModeOverride: InitialSyncMode | null;
 	initialSyncBoundValueOverride: number | null;
+	/**
+	 * No real provider object backs this row — a Gmail nested-label intermediate the sidebar
+	 * derived by splitting a label name on `/` (§1). Renaming or deleting it has nothing to
+	 * act on, so neither is offered (§13 Epic 2).
+	 */
+	isSynthesized: boolean;
 }
 
 interface Capabilities {
@@ -224,6 +230,18 @@ export function MailboxTree({
 
 		const messageIds = event.dataTransfer.getData(messageDragType);
 		if (messageIds) {
+			// A synthesized intermediate has no real label to add — the same reason
+			// Rename/Delete are unavailable on it (§13 Epic 2). Caught here, before the
+			// mutation, rather than left to fail with a raw provider error.
+			if (target.isSynthesized) {
+				notify(notifications, {
+					kind: "error",
+					title: "Can't move a message here",
+					detail:
+						"This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead.",
+				});
+				return;
+			}
 			moveMessages.mutate({
 				messageIds: messageIds.split(","),
 				targetMailboxId: target.id,
@@ -360,6 +378,9 @@ export function MailboxTree({
 						{
 							label: "Rename",
 							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
+							unavailable: menu.mailbox.isSynthesized
+								? "Gmail doesn't support renaming a nested label group directly — rename the label itself in Gmail."
+								: undefined,
 						},
 						{
 							label: "Sync settings…",
@@ -373,6 +394,9 @@ export function MailboxTree({
 							label: "Delete",
 							run: () => setDialog({ kind: "delete", mailbox: menu.mailbox }),
 							danger: true,
+							unavailable: menu.mailbox.isSynthesized
+								? "Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail."
+								: undefined,
 						},
 					]}
 				/>
