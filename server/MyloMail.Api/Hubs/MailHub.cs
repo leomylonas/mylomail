@@ -1,3 +1,4 @@
+using Hangfire;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Compose;
@@ -237,7 +238,8 @@ public class MailHub(
 	ChangeStreamService changeStream,
 	IMailProviderFactory providers,
 	Scheduling.ExportJobs export,
-	ITrustedCertificateStore certificates
+	ITrustedCertificateStore certificates,
+	IBackgroundJobClient jobs
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -619,6 +621,7 @@ public class MailHub(
 	public async Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings)
 	{
 		var account = await context.Accounts.FirstAsync(a => a.Id == settings.Id);
+		var resumingPolling = settings.PollingEnabled && !account.PollingEnabled;
 
 		account.DisplayName = settings.DisplayName;
 		account.Color = settings.Color;
@@ -631,6 +634,22 @@ public class MailHub(
 			settings.AttachmentSizeLimitOverride is > 0 ? settings.AttachmentSizeLimitOverride : null;
 
 		await context.SaveChangesAsync();
+
+		if (resumingPolling)
+		{
+			// Deliberately no polls.StopAll(account.Id) here (unlike
+			// StartupScheduler.ResumeAccountAsync, which is safe to clear unconditionally
+			// because a job that hit ProviderAuthenticationException already stopped and
+			// released its own slot before that path runs). A loop disabled and re-enabled
+			// fast enough may not have ticked yet, so it may still hold its registry slot
+			// without having stopped — force-clearing it here would let TopologyAsync's
+			// TryStart claim a second, concurrent loop for the same scope, doubling the poll
+			// rate. Leaving the slot alone means: if the old loop already noticed and
+			// stopped, TryStart below claims it correctly; if it hasn't yet, TryStart simply
+			// no-ops and the still-alive loop resumes itself on its own next tick, since
+			// PollingEnabled is true again by then.
+			jobs.Enqueue<Scheduling.SyncJobs>(j => j.TopologyAsync(account.Id, default));
+		}
 		return settings with
 		{
 			PollIntervalSeconds = account.PollIntervalSeconds,

@@ -62,15 +62,18 @@ internal sealed class SyncHarness : IAsyncDisposable
 		new ServiceCollection()
 			.AddLogging()
 			.AddPersistence(Database.Directory)
+			.AddMutations()
+			.AddSync()
+			.AddScheduling()
+			// These override AddScheduling's own registrations (order matters: last wins),
+			// so SyncJobs — which AddScheduling registers — resolves the fake/recording
+			// implementations rather than the real provider factories or Hangfire client.
 			.AddSingleton<TimeProvider>(Clock)
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubFactory(Provider))
 			.AddSingleton<ICalendarProviderFactory>(new StubCalendarFactory(CalendarProvider))
 			.AddSingleton<IHubEvents>(Events)
 			.AddSingleton<IBackgroundJobClient>(new RecordingJobClient())
-			.AddMutations()
-			.AddSync()
-			.AddScoped<ExportJobs>()
 			.BuildServiceProvider();
 
 	public async Task RestartAsync()

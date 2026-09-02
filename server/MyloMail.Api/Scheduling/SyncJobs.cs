@@ -354,7 +354,7 @@ public sealed class SyncJobs(
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 
-		if (account is null || !account.IsEnabled)
+		if (account is null || !account.IsEnabled || !account.PollingEnabled)
 		{
 			return null;
 		}
@@ -428,7 +428,10 @@ public sealed class SyncJobs(
 	private async Task<bool> StillRunnableAsync(Guid accountId, CancellationToken ct)
 	{
 		var runnable = await context
-			.Accounts.AnyAsync(a => a.Id == accountId && a.IsEnabled && a.AuthState != AuthState.NeedsReauth, ct);
+			.Accounts.AnyAsync(
+				a => a.Id == accountId && a.IsEnabled && a.PollingEnabled && a.AuthState != AuthState.NeedsReauth,
+				ct
+			);
 
 		if (!runnable)
 		{
