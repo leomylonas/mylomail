@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
@@ -313,13 +314,46 @@ public sealed class CalendarEventServiceTests
 			)
 		);
 
-		await Assert.ThrowsAsync<ProviderConflictException>(
+		// The raw ProviderConflictException is rethrown as a HubException with the same message
+		// (sixty-sixth pass): SignalR's default EnableDetailedErrors=false replaces anything
+		// that isn't a HubException with a generic "unexpected error", which would otherwise
+		// silently defeat EventModal.tsx's error banner.
+		var thrown = await Assert.ThrowsAsync<HubException>(
 			() => harness.UsingAsync(scope => scope.GetRequiredService<CalendarEventService>().DeleteAsync(created.Id))
 		);
+		Assert.Equal("stale", thrown.Message);
 
 		await harness.UsingAsync(async scope =>
 		{
 			Assert.Equal(1, await scope.GetRequiredService<MyloMailDbContext>().CalendarEvents.CountAsync());
+		});
+	}
+
+	/// <summary>
+	/// Sixty-sixth pass: same bug shape as the sixty-fifth pass's mailbox fix, here for
+	/// calendar events — a provider rejection on create/update/delete/RSVP-reply was left to
+	/// propagate raw, so SignalR's default "An unexpected error occurred" (detailed errors are
+	/// off) reached the user instead of the provider's real message, silently defeating
+	/// EventModal.tsx's and ReadingPane.tsx's InviteBanner's error reporting.
+	/// </summary>
+	[Fact]
+	public async Task A_provider_rejection_on_create_reaches_the_caller_as_a_HubException_with_the_real_message()
+	{
+		var provider = new ScriptedCalendarProvider { RejectNextCreateWith = new InvalidOperationException("Quota exceeded.") };
+		await using var harness = await Harness.CreateAsync(provider);
+
+		var ex = await Assert.ThrowsAsync<HubException>(
+			() => harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+				)
+			)
+		);
+		Assert.Equal("Quota exceeded.", ex.Message);
+
+		await harness.UsingAsync(async scope =>
+		{
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().CalendarEvents.ToListAsync());
 		});
 	}
 
@@ -408,6 +442,7 @@ public sealed class CalendarEventServiceTests
 		public int DeleteCalls { get; private set; }
 		public bool RejectNextUpdate { get; set; }
 		public bool RejectNextDelete { get; set; }
+		public Exception? RejectNextCreateWith { get; set; }
 
 		/// <summary>The <c>expectedETag</c> the most recent <see cref="UpdateEventAsync"/> call received.</summary>
 		public string? LastUpdateETag { get; private set; }
@@ -429,6 +464,11 @@ public sealed class CalendarEventServiceTests
 
 		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
 		{
+			if (RejectNextCreateWith is Exception ex)
+			{
+				RejectNextCreateWith = null;
+				throw ex;
+			}
 			CreateCalls++;
 			return Task.FromResult($"created-{CreateCalls}");
 		}

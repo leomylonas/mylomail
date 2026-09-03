@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
@@ -38,7 +39,8 @@ public sealed class CalendarEventService(
 	ICalendarProviderFactory providers,
 	IHubEvents events,
 	CalendarSyncService calendarSync,
-	ItipReplySender itipReply
+	ItipReplySender itipReply,
+	ILogger<CalendarEventService> logger
 )
 {
 	public async Task<CalendarEvent> SaveAsync(CalendarEventInput input, CancellationToken ct = default)
@@ -80,7 +82,7 @@ public sealed class CalendarEventService(
 		// The provider is asked first: it assigns the resource identity (an href, for CalDAV),
 		// and a local row with no provider identity would be a canonical event this account
 		// cannot ever sync, update or delete again (§1).
-		var providerEventId = await provider.CreateEventAsync(account, calendar, dto, ct);
+		var providerEventId = await RunProviderCallAsync(() => provider.CreateEventAsync(account, calendar, dto, ct));
 
 		var created = new CalendarEvent
 		{
@@ -129,6 +131,11 @@ public sealed class CalendarEventService(
 		{
 			existing.SyncConflict = true;
 		}
+		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
+		{
+			logger.LogWarning(ex, "A calendar provider call was rejected.");
+			throw new HubException(ex.Message);
+		}
 
 		await context.SaveChangesAsync(ct);
 		await events.CalendarEventUpdatedAsync(existing.Id);
@@ -171,7 +178,7 @@ public sealed class CalendarEventService(
 		{
 			var provider = providers.For(account);
 			using var disposable = provider as IDisposable;
-			await provider.UpdateEventAsync(account, existing, expectedETag: null, ct);
+			await RunProviderCallAsync(() => provider.UpdateEventAsync(account, existing, expectedETag: null, ct));
 			existing.SyncConflict = false;
 			await context.SaveChangesAsync(ct);
 			await events.CalendarEventUpdatedAsync(existing.Id);
@@ -224,13 +231,15 @@ public sealed class CalendarEventService(
 			// No provider configured at all for this account — there is nothing to ask via
 			// ICalendarProviderFactory, which would throw ProviderNotConfiguredException. The
 			// reply is mail either way, so send it directly (§13 Epic 7).
-			await itipReply.SendAsync(account, ev, response, comment, replyingAs, ct);
+			await RunProviderCallAsync(() => itipReply.SendAsync(account, ev, response, comment, replyingAs, ct));
 		}
 		else
 		{
 			var provider = providers.For(account);
 			using var disposable = provider as IDisposable;
-			await provider.RespondToInviteAsync(account, ev, response, comment, replyingAs, ct);
+			await RunProviderCallAsync(() =>
+				provider.RespondToInviteAsync(account, ev, response, comment, replyingAs, ct)
+			);
 		}
 
 		// The REPLY only reaches the organiser's inbox — nothing about sending it changes this
@@ -267,7 +276,7 @@ public sealed class CalendarEventService(
 		var provider = providers.For(account);
 		using var disposable = provider as IDisposable;
 
-		await provider.DeleteEventAsync(account, ev, ct);
+		await RunProviderCallAsync(() => provider.DeleteEventAsync(account, ev, ct));
 
 		var children = await context.CalendarEvents.Where(e => e.RecurrenceMasterId == ev.Id).ToListAsync(ct);
 		context.CalendarEvents.RemoveRange(children);
@@ -278,6 +287,41 @@ public sealed class CalendarEventService(
 		foreach (var child in children)
 		{
 			await events.CalendarEventUpdatedAsync(child.Id);
+		}
+	}
+
+	/// <summary>
+	/// Surfaces a provider's rejection of a calendar call to the caller with its real message,
+	/// instead of SignalR's default "An unexpected error occurred" (detailed errors are off,
+	/// matching every other hub method). EventModal.tsx and ReadingPane.tsx's InviteBanner both
+	/// exist specifically to show the user why a save, delete, or RSVP reply was rejected, which
+	/// is silently defeated unless the failure is rethrown as a <see cref="HubException"/>, the
+	/// one exception type SignalR forwards verbatim. Mirrors <c>MailboxManagement</c>'s helper of
+	/// the same name and shape.
+	/// </summary>
+	private async Task RunProviderCallAsync(Func<Task> call)
+	{
+		try
+		{
+			await call();
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
+		{
+			logger.LogWarning(ex, "A calendar provider call was rejected.");
+			throw new HubException(ex.Message);
+		}
+	}
+
+	private async Task<T> RunProviderCallAsync<T>(Func<Task<T>> call)
+	{
+		try
+		{
+			return await call();
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
+		{
+			logger.LogWarning(ex, "A calendar provider call was rejected.");
+			throw new HubException(ex.Message);
 		}
 	}
 }
