@@ -1150,6 +1150,26 @@ check` clean under Node 22.
   genuine discriminator (reverting the fix reproduces `Expected: <guid>, Actual: null`). A
   second invariant-review pass confirmed both findings resolved. `dotnet test` 347 passed/0
   failed (up from 344). `pnpm check` clean.
+- **Fifty-fifth pass — `MessageIngestor.IngestAsync`'s per-message matching was the same N+1
+  shape as the fifty-fourth pass's calendar fix, on a much hotter path.** Its three-tier match
+  precedence (§1: provider stable id, then per-mailbox occurrence identity, then Message-ID
+  header + `ReceivedAt`) issued up to ~3 EF Core queries per message, plus one more per
+  occurrence in `UpsertOccurrenceAsync` — and this runs on every poll page for every mailbox,
+  not just backfill; the code's own comment notes IMAP returns the whole mailbox on every poll,
+  so an established mailbox's steady-state sync paid full per-message query cost every time.
+  Batched all three tiers into three total queries per page (`LoadMatchCandidatesAsync`), moved
+  matching itself into a synchronous, static `Match` method resolving purely from those
+  in-memory dictionaries, and preloaded existing `MessageMailbox` rows for matched (non-new)
+  messages so the occurrence-upsert query only runs as a safety-net fallback. The occurrence
+  tier deliberately over-fetches (the full mailboxIds × occurrenceIds cross-product) then keys
+  results by the exact `(MailboxId, ProviderOccurrenceId)` tuple, since an IMAP UID is only
+  unique within its folder and merging two distinct messages is the unrecoverable direction
+  (§1). Added a same-page cross-mailbox-collision regression test, manually confirmed as a
+  genuine discriminator by temporarily dropping `MailboxId` from the dictionary key and
+  reproducing a `UNIQUE constraint failed` violation. `invariant-review` confirmed match
+  precedence, in-page duplicate-creation behavior, and `UpsertOccurrenceAsync`'s ChangeTracker-
+  vs-preload ordering are all preserved exactly, with no frozen-invariant hit. `dotnet test` 348
+  passed/0 failed (up from 347). `pnpm check` clean, 257 dotnet tests, vitest 43.
 
 ## Next task
 
