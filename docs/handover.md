@@ -1479,6 +1479,21 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   `SendIdentityId` is silently accepted rather than rejected) left as-is. Two new regression
   tests manually confirmed as genuine discriminators via revert-and-reproduce. `dotnet test` 373
   passed/0 failed (up from 371). `pnpm check` clean, 276 dotnet tests, vitest 55.
+- **Seventy-fifth pass — closed pass 74's flagged-but-unfixed observation: a nonexistent
+  `SendIdentityId` wasn't actually silently accepted, just rejected badly.** Pass 74's
+  invariant-review had described it as "silently accepted rather than rejected," but
+  `Draft.SendIdentityId` has a real FK constraint to `SendIdentity`
+  (`OnDelete(DeleteBehavior.Restrict)`) — a nonexistent id was already rejected, just as a raw,
+  unhandled `SqliteException` from `SaveChangesAsync`'s constraint violation rather than a clean
+  message. Same raw-exception-propagation bug class passes 65-67 fixed elsewhere: SignalR's
+  `EnableDetailedErrors` is off, so the raw exception reaches the renderer as a generic error.
+  Split the existing ownership check into two: a nonexistent identity now throws a clean
+  `HubException` naming the id, distinct from the existing cross-account-mismatch message.
+  `invariant-review` confirmed the FK claim, that the split is behaviorally equivalent for the
+  already-covered case, and no caller catches `SqliteException` around this call site. New
+  regression test manually confirmed as a genuine discriminator via revert-and-reproduce
+  (reverting reproduces the raw `SqliteException` instead of the expected `HubException`).
+  `dotnet test` 374 passed/0 failed (up from 373). `pnpm check` clean, 277 dotnet tests, vitest 55.
 
 ## Next task
 
