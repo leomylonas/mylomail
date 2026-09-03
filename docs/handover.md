@@ -1463,6 +1463,22 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   second `Account`+`Mailbox` row) and manually confirmed as a genuine discriminator via
   revert-and-reproduce. `dotnet test` 371 passed/0 failed (up from 370). `pnpm check` clean, 274
   dotnet tests, vitest 55.
+- **Seventy-fourth pass — the same gap in `DraftService.SaveAsync`: a client-supplied
+  `SendIdentityId`, and a client-supplied `AccountId` for an existing draft, were both trusted
+  with no ownership check.** `SendExecutor` resolves the From address from `SendIdentityId`
+  alone with no `AccountId` filter, so a mismatched identity would let a draft send under
+  another account's address while authenticating and dispatching as this account. Separately,
+  an existing draft's real `AccountId` was never checked against the caller-supplied one, so
+  editing another account's draft (or a stale/mismatched save) surfaced as a confusing
+  `InvalidOperationException` from `DefaultIdentityAsync`'s `Sequence contains no elements`
+  rather than a clear rejection. Added two `HubException` checks in `SaveAsync`, phrased to
+  match `MutationQueue.cs`'s precedent exactly. `invariant-review` confirmed correct ordering
+  for both the new-draft and existing-draft paths, no false-positive risk (`MailHub.SaveDraft`
+  always passes the same `AccountId` a draft was created with), and no frozen-invariant table
+  entry touched — it flagged one pre-existing, out-of-scope observation (a nonexistent
+  `SendIdentityId` is silently accepted rather than rejected) left as-is. Two new regression
+  tests manually confirmed as genuine discriminators via revert-and-reproduce. `dotnet test` 373
+  passed/0 failed (up from 371). `pnpm check` clean, 276 dotnet tests, vitest 55.
 
 ## Next task
 
