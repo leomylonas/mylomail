@@ -1494,6 +1494,22 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   regression test manually confirmed as a genuine discriminator via revert-and-reproduce
   (reverting reproduces the raw `SqliteException` instead of the expected `HubException`).
   `dotnet test` 374 passed/0 failed (up from 373). `pnpm check` clean, 277 dotnet tests, vitest 55.
+- **Seventy-sixth pass — closed a sixth instance of the cross-account-ownership bug class:
+  `CalendarEventService.SaveAsync`'s client-supplied `EventId` wasn't checked against its
+  client-supplied `CalendarId`.** `SaveAsync` resolves `calendar`/`account` from
+  `input.CalendarId`, then separately loads `existing` from `input.EventId`, with no check that
+  `existing.CalendarId == input.CalendarId`. A mismatched pair would let `UpdateAsync` mutate a
+  foreign calendar's event and push the edit through the wrong account's provider credentials —
+  authenticating as the account derived from `input.CalendarId` while writing to a
+  `ProviderEventId` that actually belongs to a different account entirely. Added a check right
+  after loading `existing`, before either `CreateAsync` or `UpdateAsync` runs. A
+  dangling/nonexistent `EventId` still falls through to `CreateAsync` unchanged, matching pass
+  74's precedent that only a definite mismatch against something real is rejected.
+  `invariant-review` confirmed no legitimate code path (`CalendarSyncService`, `ItipReplySender`,
+  `EventModal.tsx`) ever relies on moving an event between calendars via `SaveAsync`, and no
+  frozen-invariant table entry is touched. New regression test seeds a real second
+  Account+Calendar and manually confirmed as a genuine discriminator via revert-and-reproduce.
+  `dotnet test` 375 passed/0 failed (up from 374). `pnpm check` clean, 278 dotnet tests, vitest 55.
 
 ## Next task
 
