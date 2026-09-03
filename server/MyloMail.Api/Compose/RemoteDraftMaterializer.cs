@@ -187,6 +187,24 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		return await context.SendIdentities.Where(i => i.AccountId == accountId && i.IsDefault).Select(i => i.Id).FirstAsync(ct);
 	}
 
+	/// <summary>
+	/// The same MIME-to-<see cref="Draft"/> field-copying an ordinary sync observation uses,
+	/// exposed for a conflict resolution's "keep theirs" (§1, §15) to reuse rather than
+	/// re-implement — one parser for what a remote draft's bytes mean, not two.
+	/// </summary>
+	internal static void ApplyRawBytes(
+		Draft draft,
+		string providerDraftId,
+		string? providerRevision,
+		DateTimeOffset savedAt,
+		byte[] rawBytes
+	)
+	{
+		using var stream = new MemoryStream(rawBytes);
+		var mime = MimeMessage.Load(stream);
+		Apply(mime, new RemoteDraftPayload(string.Empty, providerDraftId, providerRevision, savedAt, rawBytes), draft);
+	}
+
 	private static void Apply(MimeMessage mime, RemoteDraftPayload payload, Draft draft)
 	{
 		draft.To = Addresses(mime.To);

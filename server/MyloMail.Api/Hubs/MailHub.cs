@@ -105,6 +105,14 @@ public interface IMailHub
 
 	Task<DraftDto> SaveDraft(SaveDraftRequest request);
 
+	/// <summary>
+	/// Resolves a draft flagged <c>SyncConflict</c> (§1, §15): the server's copy changed
+	/// while this one was being edited locally. <paramref name="keepMine"/> true keeps the
+	/// local version (abandoning the conflicting remote draft and pushing a fresh one); false
+	/// discards the local edit and pulls the server's actual current content instead.
+	/// </summary>
+	Task<DraftDto> ResolveDraftConflict(Guid draftId, bool keepMine);
+
 	Task DeleteDraft(Guid draftId);
 
 	/// <summary>
@@ -550,8 +558,12 @@ public class MailHub(
 			draft.Bcc,
 			draft.Subject,
 			draft.BodyHtml,
-			[.. draft.Attachments.Select(a => new DraftAttachmentDto(a.Id, a.Filename, a.MimeType, a.Size, a.IsInline))]
+			[.. draft.Attachments.Select(a => new DraftAttachmentDto(a.Id, a.Filename, a.MimeType, a.Size, a.IsInline))],
+			draft.SyncConflict
 		);
+
+	public async Task<DraftDto> ResolveDraftConflict(Guid draftId, bool keepMine) =>
+		ToDto(await drafts.ResolveConflictAsync(draftId, keepMine));
 
 	public Task DeleteDraft(Guid draftId) => drafts.DeleteAsync(draftId);
 

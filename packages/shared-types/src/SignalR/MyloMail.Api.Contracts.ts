@@ -260,6 +260,8 @@ export type DraftDto = {
     bodyHtml: string;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.DraftAttachmentDto> */
     attachments: DraftAttachmentDto[];
+    /** Transpiled from bool */
+    syncConflict: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.DraftAttachmentDto */

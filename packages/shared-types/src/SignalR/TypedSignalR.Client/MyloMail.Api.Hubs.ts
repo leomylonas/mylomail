@@ -120,6 +120,16 @@ export type IMailHub = {
     */
     saveDraft(request: SaveDraftRequest): Promise<DraftDto>;
     /**
+    * Resolves a draft flagged SyncConflict (§1, §15): the server's copy changed
+    * while this one was being edited locally.  true keeps the
+    * local version (abandoning the conflicting remote draft and pushing a fresh one); false
+    * discards the local edit and pulls the server's actual current content instead.
+    * @param draftId Transpiled from System.Guid
+    * @param keepMine Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.DraftDto>
+    */
+    resolveDraftConflict(draftId: string, keepMine: boolean): Promise<DraftDto>;
+    /**
     * @param draftId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task
     */

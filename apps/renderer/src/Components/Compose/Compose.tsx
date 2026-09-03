@@ -47,6 +47,9 @@ export interface OpenDraft {
 	subject: string;
 	bodyHtml: string;
 	attachments: DraftAttachment[];
+	/** The server's copy changed while this was being edited locally (§1, §15) — both are
+	 * kept until the user resolves it, never silently overwritten either direction. */
+	syncConflict?: boolean;
 }
 
 /**
@@ -103,6 +106,9 @@ export function Compose({
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
 	const [savedAt, setSavedAt] = useState<string | null>(null);
+	const [syncConflict, setSyncConflict] = useState(
+		draft?.syncConflict ?? false,
+	);
 	// Checked before send (§15) — reported honestly rather than as a single number, since a
 	// tenant's real Exchange message-size cap frequently isn't discoverable at all.
 	const attachmentConstraints = useQuery({
@@ -306,6 +312,31 @@ export function Compose({
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per mount, guarded above
 	}, []);
 
+	// "Keep mine" (true) abandons the conflicting remote draft and pushes this content fresh;
+	// "keep theirs" (false) discards local edits and adopts the server's actual current
+	// content — both go through the same ResolveDraftConflict hub method (§1, §15).
+	const resolveConflict = async (keepMine: boolean) => {
+		if (!draftId) return;
+		try {
+			const resolved = await hub.invoke<OpenDraft>(
+				"ResolveDraftConflict",
+				draftId,
+				keepMine,
+			);
+			setSyncConflict(resolved.syncConflict ?? false);
+			if (!keepMine) {
+				setTo(formatAddresses(resolved.to));
+				setCc(formatAddresses(resolved.cc));
+				setBcc(formatAddresses(resolved.bcc));
+				setSubject(resolved.subject);
+				setBody(resolved.bodyHtml);
+				setAttachments(resolved.attachments);
+			}
+		} catch (error) {
+			reportFailure("This conflict could not be resolved")(error);
+		}
+	};
+
 	const detach = async () => {
 		if (!onDetach) return;
 		try {
@@ -490,6 +521,31 @@ export function Compose({
 				void addFiles(event.dataTransfer.files);
 			}}
 		>
+			{syncConflict ? (
+				<div className={styles.conflict}>
+					<p>
+						The server&apos;s copy of this draft changed since it was last read.
+						Keep your changes and overwrite it, or discard them and take the
+						server&apos;s version instead.
+					</p>
+					<div className={styles.conflictActions}>
+						<Button
+							size="sm"
+							kind="tertiary"
+							onClick={() => void resolveConflict(true)}
+						>
+							Keep mine
+						</Button>
+						<Button
+							size="sm"
+							kind="tertiary"
+							onClick={() => void resolveConflict(false)}
+						>
+							Keep theirs
+						</Button>
+					</div>
+				</div>
+			) : null}
 			{identities.length > 1 ? (
 				<Select
 					id="compose-from"

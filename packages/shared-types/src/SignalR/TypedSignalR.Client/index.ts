@@ -150,6 +150,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("SaveDraft", request);
     }
 
+    public readonly resolveDraftConflict = async (draftId: string, keepMine: boolean): Promise<DraftDto> => {
+        return await this.connection.invoke("ResolveDraftConflict", draftId, keepMine);
+    }
+
     public readonly deleteDraft = async (draftId: string): Promise<void> => {
         return await this.connection.invoke("DeleteDraft", draftId);
     }

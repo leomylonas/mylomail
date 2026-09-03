@@ -145,6 +145,11 @@ public record MessageReplyContextDto(
 /// to — previously discarded on every save by the compose window always sending <c>null</c>
 /// back, silently un-threading any reply draft the moment it autosaved (§13).
 /// </param>
+/// <param name="SyncConflict">
+/// The server's copy changed since this one was read (§1, §15) — both are kept until the
+/// user resolves it via <c>ResolveDraftConflict</c> rather than either silently overwriting
+/// the other.
+/// </param>
 [TranspilationSource]
 public record DraftDto(
 	Guid Id,
@@ -156,7 +161,8 @@ public record DraftDto(
 	IReadOnlyList<Address> Bcc,
 	string Subject,
 	string BodyHtml,
-	IReadOnlyList<DraftAttachmentDto> Attachments
+	IReadOnlyList<DraftAttachmentDto> Attachments,
+	bool SyncConflict
 );
 
 [TranspilationSource]

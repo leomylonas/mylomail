@@ -3,6 +3,8 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 
 namespace MyloMail.Api.Compose;
 
@@ -26,6 +28,7 @@ public sealed class DraftService(
 	MyloMailDbContext context,
 	OutboxService outbox,
 	DraftSyncService remote,
+	IMailProviderFactory providers,
 	IDraftDispatcher dispatcher,
 	TimeProvider clock,
 	IHubEvents events
@@ -68,6 +71,92 @@ public sealed class DraftService(
 
 		// After the commit, so the push sends what was stored rather than racing it.
 		dispatcher.RequestPush(draft.AccountId);
+
+		await events.DraftUpdatedAsync(draft.Id);
+		return draft;
+	}
+
+	/// <summary>
+	/// Resolves a draft flagged <see cref="Draft.SyncConflict"/> — the server's copy changed
+	/// since this one was read, and both are kept until the user chooses (§1, §15).
+	/// </summary>
+	/// <param name="keepMine">
+	/// True force-keeps the local version; false discards the local edit and pulls the
+	/// server's actual current content instead — mirrors <c>CalendarEventService.ResolveConflictAsync</c>'s
+	/// shape, diverging only where a draft's actual mechanics require it.
+	/// </param>
+	/// <remarks>
+	/// "Keep mine" cannot simply retry the push with no expected revision: every provider's
+	/// <c>CreateOrUpdateDraftAsync</c> treats a null revision as "create," not "force-update"
+	/// — passing one against an existing <see cref="Draft.ProviderDraftId"/> would create a
+	/// second, orphaned draft rather than overwrite the conflicting one. Abandoning the old
+	/// remote draft and letting the next ordinary push create a fresh one from local content
+	/// is the only way to make the local version win without ending up with two.
+	/// </remarks>
+	public async Task<Draft> ResolveConflictAsync(Guid draftId, bool keepMine, CancellationToken ct = default)
+	{
+		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
+		if (!draft.SyncConflict)
+		{
+			return draft;
+		}
+
+		if (keepMine)
+		{
+			if (draft.ProviderDraftId is string remoteId)
+			{
+				await remote.RemoveRemoteAsync(draft.AccountId, remoteId, ct);
+			}
+			draft.ProviderDraftId = null;
+			draft.ProviderRevision = null;
+			draft.PushedAt = null;
+			draft.SyncConflict = false;
+			await context.SaveChangesAsync(ct);
+			dispatcher.RequestPush(draft.AccountId);
+		}
+		else if (draft.ProviderDraftId is string providerDraftId)
+		{
+			var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
+			// Deliberately not FirstAsync: nothing enforces that at most one mailbox per
+			// account has effective SpecialUse.Drafts (a manual override — §13 Epic 2 — has
+			// no uniqueness check against other mailboxes already holding that use). Picking
+			// an arbitrary one of several candidates would address the raw-message fetch
+			// below against the wrong mailbox's id-space, silently materialising a different
+			// message's content into this draft. Failing loudly here is safer than that.
+			var draftsMailboxes = await context
+				.Mailboxes.Where(m => m.AccountId == draft.AccountId && (m.SpecialUseOverride ?? m.SpecialUse) == SpecialUse.Drafts)
+				.ToListAsync(ct);
+			if (draftsMailboxes.Count != 1)
+			{
+				throw new InvalidOperationException(
+					$"Expected exactly one Drafts mailbox for account {draft.AccountId}, found {draftsMailboxes.Count}."
+				);
+			}
+			var draftsMailbox = draftsMailboxes[0];
+			var raw = await providers
+				.For(account)
+				.FetchRawMessageAsync(
+					account,
+					new MessageOccurrenceRef(Guid.Empty, draftsMailbox.Id, providerDraftId),
+					ct
+				);
+			// The stored ProviderRevision is carried through unchanged rather than refreshed:
+			// FetchRawMessageAsync's contract is content-only, with no provider-agnostic way to
+			// also read the current revision without a second, targeted request no provider
+			// here exposes. Known consequence: it is now stale relative to the copy this just
+			// pulled, so if the user edits again, the very next push will report ANOTHER
+			// conflict against a copy that is actually already applied. That routes back
+			// through this same method rather than silently overwriting anything — an extra
+			// round trip, not a correctness or data-loss problem.
+			RemoteDraftMaterializer.ApplyRawBytes(draft, providerDraftId, draft.ProviderRevision, clock.GetUtcNow(), raw.RawBytes);
+			await context.SaveChangesAsync(ct);
+		}
+		else
+		{
+			// No remote copy ever existed to prefer — nothing to pull, just clear the flag.
+			draft.SyncConflict = false;
+			await context.SaveChangesAsync(ct);
+		}
 
 		await events.DraftUpdatedAsync(draft.Id);
 		return draft;

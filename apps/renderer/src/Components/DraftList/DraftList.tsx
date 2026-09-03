@@ -39,6 +39,16 @@ export function DraftList({
 				<li key={draft.id}>
 					<Button kind="ghost" onClick={() => onOpen(draft)}>
 						{draft.subject || "(No subject)"}
+						{draft.syncConflict ? (
+							<span
+								role="img"
+								aria-label="This draft changed on the server — open it to resolve"
+								title="This draft changed on the server — open it to resolve"
+							>
+								{" "}
+								⚠️
+							</span>
+						) : null}
 					</Button>
 				</li>
 			))}
