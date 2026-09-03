@@ -1378,6 +1378,22 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   genuinely expired `AmbiguousOutcome` from an in-window one without a dedicated DTO signal —
   both gaps in richness, not correctness. `dotnet test` 364 passed/0 failed (up from 362).
   `pnpm check` clean, 271 dotnet tests, vitest 52.
+- **Sixty-ninth pass — closed pass 68's documented follow-up: `SendExecutor` never announced its
+  own terminal transitions.** Pass 68 fixed `Compose.tsx` to subscribe to `OutboxStatusChanged`
+  and fixed `SendReconciler.ReconcileAsync` to announce its resolutions, but `SendExecutor
+.SendAsync`'s own three terminal write paths — a throttled/categorised rejection returning the
+  item to `Scheduled`, an ambiguous outcome, and a genuine successful `Sent` — never called
+  `outbox.AnnounceStatusAsync` themselves. An already-open compose window heard about none of
+  these until `SendReconciler`'s next reconciliation pass, or never for `Scheduled`/`Sent`,
+  which `SendReconciler` doesn't reconcile at all. Added the announcement call right after each
+  of the three `SaveChangesAsync`/`CommitAsync` calls (the `Sent`-path call sits outside the
+  retryable execution-strategy delegate, after the transaction actually commits, so it can't
+  fire on an attempt that later rolls back). `invariant-review` confirmed correct ordering, no
+  double-announcement (the account-gating catches in `OutboxJobs.cs` only announce the `Account`
+  DTO, a separate event), and no frozen-invariant table entry touched. Three new regression
+  tests, one per terminal path, manually confirmed as genuine discriminators via
+  revert-and-reproduce. `dotnet test` 367 passed/0 failed (up from 364). `pnpm check` clean, 271
+  dotnet tests, vitest 52.
 
 ## Next task
 
