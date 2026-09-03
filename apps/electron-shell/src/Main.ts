@@ -26,6 +26,7 @@ import {
 } from "@mylomail/electron-shell/BackendConnection";
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 import { destroyTray, ensureTray } from "@mylomail/electron-shell/Tray";
+import { closeBehaviorFromValue } from "@mylomail/electron-shell/CloseBehavior";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -339,15 +340,6 @@ async function confirmQuit(origin: string): Promise<boolean> {
 		: await dialog.showMessageBox(options);
 
 	return result.response === 0;
-}
-
-// CloseBehavior.MinimizeToTray = 1 (server/MyloMail.Api/Domain/AppSettings.cs) —
-// System.Text.Json serialises enums as their numeric ordinal by default here, since
-// AppSettingsController has no JsonStringEnumConverter registered.
-export function closeBehaviorFromValue(
-	value: unknown,
-): "QuitApp" | "MinimizeToTray" {
-	return value === 1 ? "MinimizeToTray" : "QuitApp";
 }
 
 async function loadCloseBehavior(
