@@ -33,8 +33,8 @@ export const backendMode =
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Read once at startup, same as window bounds and the mailto-prompt flag (§13): there is no
- * settings surface yet that could change it mid-session.
+ * Read once at startup, same as window bounds and the mailto-prompt flag (§13), then kept in
+ * sync by `updateCloseBehaviorChannel` when ShellSettings saves a change mid-session.
  */
 let closeBehavior: "QuitApp" | "MinimizeToTray" = "QuitApp";
 
@@ -181,10 +181,9 @@ export async function startShell(): Promise<void> {
 	// would keep acting on whatever was true when this window opened, silently ignoring a
 	// setting the user just changed and saw succeed with no error (§8, §13 Epic 10).
 	ipcMain.handle(updateCloseBehaviorChannel, (_event, value: unknown): void => {
-		// Mirrors loadCloseBehavior's own mapping (CloseBehavior.MinimizeToTray = 1 in
-		// server/MyloMail.Api/Domain/AppSettings.cs) — the renderer already confirmed the
-		// write succeeded, so this trusts the value it hands back rather than re-fetching.
-		closeBehavior = value === 1 ? "MinimizeToTray" : "QuitApp";
+		// The renderer already confirmed the write succeeded, so this trusts the value it
+		// hands back rather than re-fetching.
+		closeBehavior = closeBehaviorFromValue(value);
 	});
 
 	// The port, never the token: this line is diagnostics, and the token is the backend's
