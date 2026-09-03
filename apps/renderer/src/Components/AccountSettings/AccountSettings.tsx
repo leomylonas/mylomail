@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
 	Button,
 	InlineNotification,
+	Modal,
 	NumberInput,
 	TextInput,
 	Toggle,
@@ -39,13 +40,22 @@ export function AccountSettings({
 	hub,
 	initial,
 	onClose,
+	onRemoved,
 }: {
 	hub: HubConnection;
 	initial: AccountSettingsValues;
 	onClose: () => void;
+	/**
+	 * Called after the account is actually removed server-side, separately from `onClose`:
+	 * the shell needs to know to stop treating this account as selected (and pick another, or
+	 * fall back to "add an account"), not just close this settings pane.
+	 */
+	onRemoved: () => void;
 }) {
 	const [values, setValues] = useState(initial);
 	const [saved, setSaved] = useState(false);
+	const [confirmingRemove, setConfirmingRemove] = useState(false);
+	const [removing, setRemoving] = useState(false);
 	const { store: notifications } = useWindowNotifications();
 
 	const save = async () => {
@@ -64,6 +74,27 @@ export function AccountSettings({
 				title: "These settings could not be saved",
 				detail: error instanceof Error ? error.message : String(error),
 			});
+		}
+	};
+
+	const remove = async () => {
+		setRemoving(true);
+		try {
+			const response = await fetch(`/accounts/${values.id}`, {
+				method: "DELETE",
+			});
+			if (!response.ok)
+				throw new Error(`accounts responded ${response.status}`);
+			setConfirmingRemove(false);
+			onRemoved();
+		} catch (error) {
+			notify(notifications, {
+				kind: "error",
+				title: "This account could not be removed",
+				detail: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			setRemoving(false);
 		}
 	};
 
@@ -179,6 +210,42 @@ export function AccountSettings({
 			/>
 			<SendIdentityManager hub={hub} accountId={values.id} />
 			<ExportAccount hub={hub} accountId={values.id} />
+			<section className={styles.dangerZone}>
+				<h4>Remove account</h4>
+				<p>
+					Removes this account from MyloMail: its local messages, mailboxes and
+					settings are deleted, and its stored credentials are removed. This
+					does not delete anything from the mail server itself.
+				</p>
+				<Button
+					size="sm"
+					kind="danger--tertiary"
+					onClick={() => setConfirmingRemove(true)}
+				>
+					Remove account…
+				</Button>
+			</section>
+			{confirmingRemove ? (
+				<Modal
+					open
+					danger
+					modalHeading={`Remove "${values.displayName || "this account"}"?`}
+					primaryButtonText="Remove"
+					secondaryButtonText="Cancel"
+					primaryButtonDisabled={removing}
+					onRequestSubmit={() => void remove()}
+					onRequestClose={() => setConfirmingRemove(false)}
+					onSecondarySubmit={() => setConfirmingRemove(false)}
+				>
+					<p>
+						This removes the account and its local data from MyloMail and cannot
+						be undone here. Anything already in flight when you remove it — a
+						message already being sent, or a move or delete already under way —
+						may still complete on the server even after the account is gone from
+						MyloMail; removing the account does not reliably cancel it.
+					</p>
+				</Modal>
+			) : null}
 			<div>
 				<Button size="sm" onClick={() => void save()}>
 					Save

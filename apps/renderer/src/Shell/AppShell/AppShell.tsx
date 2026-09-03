@@ -400,6 +400,17 @@ export function AppShell() {
 								hub={hub}
 								initial={toSettings(accounts.data, selectedAccountId)}
 								onClose={() => setPane("reading")}
+								onRemoved={() => {
+									// Cleared, not left pointing at a now-gone account: the
+									// existing "select the first account" effect only fires
+									// when this is falsy, and a removed account's id would
+									// otherwise linger as a selection nothing can resolve.
+									store.setState("selectedAccountId", null);
+									void queryClient.invalidateQueries({
+										queryKey: ["accounts"],
+									});
+									setPane("reading");
+								}}
 							/>
 						) : null}
 						{effectivePane === "app-settings" ? (
