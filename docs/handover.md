@@ -1510,6 +1510,37 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   frozen-invariant table entry is touched. New regression test seeds a real second
   Account+Calendar and manually confirmed as a genuine discriminator via revert-and-reproduce.
   `dotnet test` 375 passed/0 failed (up from 374). `pnpm check` clean, 278 dotnet tests, vitest 55.
+- **Seventy-seventh pass — confirmed the cross-account-ownership sweep exhausted; found one
+  unrelated feature-sized gap instead.** Checked every remaining candidate: `SendIdentityService`'s
+  CRUD, `OutboxService.TryCancelAsync`/`DraftService.CancelSendAsync`, `NotificationService`,
+  `ExportJobs`, `MailboxManagement.ReorderAsync`, `MessageSearch.SearchAsync`, and the rest of
+  `MailHub`'s client-id-taking methods — all either single-id (nothing to mismatch) or already
+  filter by the caller's own `AccountId` first, so a foreign id yields a safe no-op/empty result
+  rather than a leak. This bug class (passes 71-76) is genuinely closed. Separately found that
+  `AccountProvisioningService.RemoveAsync` — a fully-built, carefully-ordered account-removal
+  feature reachable via `DELETE /accounts/{accountId}`, with a documented remote-completion
+  caveat in `docs/architecture.md` — had zero UI entry point anywhere in the renderer. Raised to
+  the user as a feature-sized decision; they chose to build it now (see the seventy-eighth pass
+  below).
+- **Seventy-eighth pass — built the missing account-removal UI, per the user's decision on pass
+  77's finding.** Added a "Remove account" section to `AccountSettings.tsx`, mirroring
+  `MailboxTree.tsx`'s existing danger `Modal` confirmation pattern and calling
+  `DELETE /accounts/{id}` directly via `fetch` — the same REST-call pattern `ShellSettings.tsx`
+  already uses for other REST-controller endpoints. The confirmation copy states the actual
+  caveat from `docs/architecture.md` (already-dispatched provider operations may still complete
+  remotely) rather than a generic "cannot be undone." On success, `AppShell.tsx`'s new
+  `onRemoved` callback clears `selectedAccountId` to `null`, letting the existing
+  auto-select-the-first-account effect pick a replacement or fall through to the empty-state
+  add-account pane, and invalidates the accounts query. A stale `selectedMessageId` from the
+  removed account isn't separately cleared: `ReadingPane` already handles a message that becomes
+  unavailable the same way any ordinary message deletion produces, so nothing new is introduced.
+  `invariant-review` confirmed no frozen-invariant table entry is touched, but its scope is
+  architectural invariants only and it explicitly declined the confirmation-copy accuracy,
+  double-submission safety, and dangling-state questions — verified those directly instead:
+  `RemoveAsync` no-ops safely on a second call (an already-removed account just returns early),
+  so a double-click races harmlessly, and the Remove button also disables while in flight. No
+  backend change was needed (the endpoint was already complete); `dotnet test` unaffected (278
+  dotnet tests unchanged). `pnpm check` clean, vitest 55.
 
 ## Next task
 
