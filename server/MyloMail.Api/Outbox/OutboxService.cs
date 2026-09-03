@@ -162,7 +162,14 @@ public sealed class OutboxService(
 		if (item is not null)
 		{
 			await events.OutboxStatusChangedAsync(
-				new OutboxItemDto(item.Id, item.AccountId, item.Status, item.ScheduledSendAt, item.LastError)
+				new OutboxItemDto(
+					item.Id,
+					item.AccountId,
+					item.Status,
+					item.ScheduledSendAt,
+					item.LastError,
+					item.ReconcilingSince
+				)
 			);
 		}
 	}

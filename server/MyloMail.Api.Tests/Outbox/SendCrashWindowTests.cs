@@ -205,6 +205,27 @@ public sealed class SendCrashWindowTests
 		Assert.Equal(item.Id, announced.Id);
 	}
 
+	/// <summary>
+	/// Seventieth pass: <see cref="OutboxItemDto.ReconcilingSince"/> lets a viewer tell a fresh
+	/// <see cref="OutboxStatus.AmbiguousOutcome"/> apart from one that has already outlived
+	/// <see cref="SendReconciler.ReconciliationWindow"/>, rather than guessing from
+	/// <c>LastError</c>'s mere presence (populated immediately, not only once the window
+	/// expires).
+	/// </summary>
+	[Fact]
+	public async Task An_ambiguous_send_announces_when_its_reconciliation_window_started()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.Provider.FailSendWith(new InvalidOperationException("connection reset"));
+		harness.Events.Clear();
+
+		await SendAsync(harness, item.Id);
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.AmbiguousOutcome);
+		Assert.Equal(harness.Clock.GetUtcNow(), announced.ReconcilingSince);
+	}
+
 	/// <summary>Same gap again, on the categorised-rejection path that returns the item to the queue.</summary>
 	[Fact]
 	public async Task A_throttled_send_announces_its_scheduled_status()

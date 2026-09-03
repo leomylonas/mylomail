@@ -39,6 +39,7 @@ interface Sent {
 	 */
 	status?: OutboxStatus;
 	lastError?: string;
+	reconcilingSince?: Date;
 }
 
 interface DraftAttachment {
@@ -511,6 +512,9 @@ export function Compose({
 							...current,
 							status: item.status,
 							lastError: item.lastError ?? undefined,
+							reconcilingSince: item.reconcilingSince
+								? new Date(item.reconcilingSince)
+								: undefined,
 						}
 					: current,
 			);

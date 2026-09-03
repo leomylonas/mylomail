@@ -5,7 +5,16 @@ export interface SentState {
 	scheduledFor?: Date;
 	status?: OutboxStatus;
 	lastError?: string;
+	reconcilingSince?: Date;
 }
+
+/**
+ * Mirrors `SendReconciler.ReconciliationWindow` server-side — how long an
+ * `AmbiguousOutcome` stays genuinely open before the server's own reconciliation pass would
+ * have resolved or expired it. Duplicated rather than sent over the wire because it is a fixed
+ * constant, not per-account configuration (unlike, say, `UndoSendDelaySeconds`).
+ */
+const RECONCILIATION_WINDOW_MS = 10 * 60 * 1000;
 
 export interface SentDisplay {
 	message: string;
@@ -20,7 +29,10 @@ export interface SentDisplay {
  * so the mapping from a live `OutboxStatusChanged` update to on-screen text is unit-testable
  * without a React/SignalR harness this repo doesn't otherwise have (§7, §15).
  */
-export function describeSentState(sent: SentState): SentDisplay {
+export function describeSentState(
+	sent: SentState,
+	now: Date = new Date(),
+): SentDisplay {
 	if (sent.cancelled || sent.status === OutboxStatus.Cancelled) {
 		return {
 			message: "Sending cancelled. Your message was not sent.",
@@ -39,18 +51,22 @@ export function describeSentState(sent: SentState): SentDisplay {
 		};
 	}
 	if (sent.status === OutboxStatus.AmbiguousOutcome) {
-		// Deliberately ignores `lastError` here, unlike Failed: it is populated on the very
-		// first AmbiguousOutcome announcement by SendExecutor's catch-all (the raw exception
-		// message from whatever provider call failed), not only once SendReconciler's
-		// ReconciliationWindow actually expires — the DTO carries no separate signal (e.g. a
-		// ReconcilingSince timestamp) this UI could use to tell the two apart. Showing that
-		// raw, possibly seconds-old exception text as a firm failure would misrepresent an
-		// outcome that is still open for up to ReconciliationWindow (10 minutes) — the
-		// invariant this whole status exists to protect (§6, §15: an ambiguous/thrown outcome
-		// is not evidence of failure). A neutral, non-alert message is the safe choice either
-		// way, until the server exposes something this can key off instead.
+		// `lastError` alone can't distinguish "seconds-old raw exception from SendExecutor's
+		// catch-all" from "SendReconciler's final verdict once its ReconciliationWindow
+		// expires" — both populate the same field. `reconcilingSince` can: once the window has
+		// genuinely elapsed, SendReconciler either resolved the item away from AmbiguousOutcome
+		// entirely or is holding it exactly because reconciliation itself failed, so a raw
+		// error surviving past the window is worth surfacing. Still never a hard failure
+		// (§6, §15: an ambiguous/thrown outcome is not evidence of failure) — only whether to
+		// keep the neutral in-window message or start showing the reconciler's own text.
+		const expired =
+			sent.reconcilingSince !== undefined &&
+			now.getTime() - sent.reconcilingSince.getTime() >=
+				RECONCILIATION_WINDOW_MS;
 		return {
-			message: "Confirming this was sent…",
+			message: expired
+				? (sent.lastError ?? "This message's delivery could not be confirmed.")
+				: "Confirming this was sent…",
 			failed: false,
 			canUndo: false,
 		};

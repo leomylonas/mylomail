@@ -80,6 +80,58 @@ describe("describeSentState", () => {
 		});
 	});
 
+	it("still shows AmbiguousOutcome as confirming, ignoring LastError, while reconcilingSince is within the reconciliation window", () => {
+		const now = new Date("2026-01-01T00:09:00.000Z");
+		const display = describeSentState(
+			{
+				cancelled: false,
+				status: OutboxStatus.AmbiguousOutcome,
+				lastError: "The operation has timed out.",
+				reconcilingSince: new Date("2026-01-01T00:00:00.000Z"),
+			},
+			now,
+		);
+		expect(display).toEqual({
+			message: "Confirming this was sent…",
+			failed: false,
+			canUndo: false,
+		});
+	});
+
+	it("surfaces LastError on AmbiguousOutcome once reconcilingSince has outlived the reconciliation window", () => {
+		const now = new Date("2026-01-01T00:10:00.001Z");
+		const display = describeSentState(
+			{
+				cancelled: false,
+				status: OutboxStatus.AmbiguousOutcome,
+				lastError: "The operation has timed out.",
+				reconcilingSince: new Date("2026-01-01T00:00:00.000Z"),
+			},
+			now,
+		);
+		expect(display).toEqual({
+			message: "The operation has timed out.",
+			failed: false,
+			canUndo: false,
+		});
+	});
+
+	it("falls back to a neutral message once expired if LastError never arrived", () => {
+		const now = new Date("2026-01-01T00:10:00.001Z");
+		const display = describeSentState(
+			{
+				cancelled: false,
+				status: OutboxStatus.AmbiguousOutcome,
+				reconcilingSince: new Date("2026-01-01T00:00:00.000Z"),
+			},
+			now,
+		);
+		expect(display.message).toBe(
+			"This message's delivery could not be confirmed.",
+		);
+		expect(display.failed).toBe(false);
+	});
+
 	it("prefers the locally-set cancelled flag over a not-yet-arrived status", () => {
 		const display = describeSentState({ cancelled: true });
 		expect(display.message).toBe(

@@ -235,13 +235,21 @@ public record AccountSettingsDto(
 [TranspilationSource]
 public record MutationFailureDto(Guid MessageId, ErrorCategory Category, string? Detail);
 
+/// <param name="ReconcilingSince">
+/// When an <see cref="OutboxStatus.AmbiguousOutcome"/> reconciliation window started, if any
+/// (§6, §15) — lets a viewer tell a fresh ambiguous outcome apart from one that has already
+/// outlived <c>SendReconciler.ReconciliationWindow</c> without guessing from <c>LastError</c>'s
+/// presence, which is populated immediately on the first announcement and does not by itself
+/// distinguish "seconds-old raw exception" from "reconciler's final verdict."
+/// </param>
 [TranspilationSource]
 public record OutboxItemDto(
 	Guid Id,
 	Guid AccountId,
 	OutboxStatus Status,
 	DateTimeOffset ScheduledSendAt,
-	string? LastError
+	string? LastError,
+	DateTimeOffset? ReconcilingSince
 );
 
 /// <summary>A calendar as the calendar view renders it (§1).</summary>

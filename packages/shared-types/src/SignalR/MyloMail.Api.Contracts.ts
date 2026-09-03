@@ -368,6 +368,8 @@ export type OutboxItemDto = {
     scheduledSendAt: (Date | string);
     /** Transpiled from string? */
     lastError?: string;
+    /** Transpiled from System.DateTimeOffset */
+    reconcilingSince?: (Date | string);
 }
 
 /** Transpiled from MyloMail.Api.Contracts.CalendarSummaryDto */
