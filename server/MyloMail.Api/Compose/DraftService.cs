@@ -74,7 +74,14 @@ public sealed class DraftService(
 				.SendIdentities.Where(i => i.Id == sendIdentityId)
 				.Select(i => (Guid?)i.AccountId)
 				.FirstOrDefaultAsync(ct);
-			if (identityAccountId is Guid identityFound && identityFound != draft.AccountId)
+			if (identityAccountId is not Guid identityFound)
+			{
+				// Draft.SendIdentityId has a real FK to SendIdentity — a nonexistent id was
+				// already rejected before this check existed, just as a raw SqliteException
+				// from SaveChangesAsync's constraint violation instead of a clear message.
+				throw new HubException($"Send identity {sendIdentityId} does not exist.");
+			}
+			if (identityFound != draft.AccountId)
 			{
 				// SendExecutor resolves the From address from SendIdentityId alone (no
 				// AccountId filter) — an unchecked mismatch here would let a draft send under

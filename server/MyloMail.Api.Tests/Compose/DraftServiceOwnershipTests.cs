@@ -78,6 +78,40 @@ public sealed class DraftServiceOwnershipTests
 	}
 
 	[Fact]
+	public async Task Saving_with_a_nonexistent_send_identity_is_rejected_cleanly()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var nonexistentIdentityId = Guid.NewGuid();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var ex = await Assert.ThrowsAsync<HubException>(
+				() =>
+					scope
+						.GetRequiredService<DraftService>()
+						.SaveAsync(
+							new DraftInput(
+								DraftId: null,
+								AccountId: harness.Account.Id,
+								SendIdentityId: nonexistentIdentityId,
+								InReplyToMessageId: null,
+								To: [],
+								Cc: [],
+								Bcc: [],
+								Subject: "Test",
+								BodyHtml: "<p>Test</p>"
+							)
+						)
+			);
+			Assert.Contains(nonexistentIdentityId.ToString(), ex.Message);
+		});
+
+		await harness.UsingAsync(async scope =>
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().Drafts.ToListAsync())
+		);
+	}
+
+	[Fact]
 	public async Task Saving_an_existing_draft_under_a_mismatched_account_is_rejected()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
