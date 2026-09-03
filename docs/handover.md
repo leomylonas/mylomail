@@ -1410,6 +1410,21 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   own rendering, not a hand-edit. New C# and vitest regression tests (both sides of the
   10-minute boundary) manually confirmed as genuine discriminators. `dotnet test` 368 passed/0
   failed (up from 367). `pnpm check` clean, 271 dotnet tests, vitest 55.
+- **Seventy-first pass — `Create`/`MoveMailbox` trusted a client-supplied parent id without
+  checking it belonged to the same account.** `MoveAsync` already guards against a cyclic
+  `ParentId` chain with a comment explicitly noting the client's own guard can't be trusted from
+  a hub method — the same reasoning was missing for a cross-account parent id, even though
+  `MailboxTree.tsx` only ever offers folders from the same account's tree. Left unfixed, a
+  cross-account id would carry through reconciliation into a persisted `Mailbox.ParentId`
+  pointing outside the child's own account, corrupting the per-account tree every reader
+  assumes it can walk within one account's rows alone. Added `ResolveParentAsync`, used by both
+  `CreateAsync` and `MoveAsync`, which resolves the parent and throws `HubException` if it
+  belongs to a different account — a nonexistent parent id still resolves to `null` exactly as
+  before. `invariant-review` confirmed no legitimate cross-account parent usage exists anywhere,
+  the dangling-id behavior is preserved, the cycle guard still runs safely first (it walks by
+  globally-unique mailbox id with no account filter and persists nothing before the new check),
+  and independently ran its own stash-and-reproduce check on the new test. `dotnet test` 369
+  passed/0 failed (up from 368). `pnpm check` clean, 272 dotnet tests, vitest 55.
 
 ## Next task
 
