@@ -1170,6 +1170,24 @@ check` clean under Node 22.
   precedence, in-page duplicate-creation behavior, and `UpsertOccurrenceAsync`'s ChangeTracker-
   vs-preload ordering are all preserved exactly, with no frozen-invariant hit. `dotnet test` 348
   passed/0 failed (up from 347). `pnpm check` clean, 257 dotnet tests, vitest 43.
+- **Fifty-sixth pass — the same N+1 shape in two more sync paths.** `IntegrityReconciliationService`'s
+  periodic degraded-IMAP reconciliation and `ChangeStreamService`'s live incremental sync both
+  looped over every flag change and removal a page reported, issuing 1-2 EF queries per item —
+  the dominant cost on a large mailbox's full integrity pass, or a busy live sync page. Replaced
+  `MessageIngestor`'s single-item `RemoveOccurrenceAsync`/`ApplyFlagChangeAsync` with batched
+  `RemoveOccurrencesAsync`/`ApplyFlagChangesAsync`, one preload query per batch, scoped to one
+  mailbox (provider ids are folder-scoped and can repeat across mailboxes, per AGENTS.md's own
+  reasoning for why they live on `MessageMailbox` rather than `Message`). `ChangeStreamService`
+  groups its flag changes and removals by `ProviderMailboxId` before calling, since one page can
+  span mailboxes but each batched call must stay scoped to one; changes within a batch apply in
+  list order, unmodified, so a provider reporting the same occurrence twice still lets the later
+  change win. `invariant-review` confirmed generation-guard equivalence, ordering, unchanged
+  transaction scope, and no frozen-invariant hit — and caught a real test-coverage gap: the
+  first regression test covered only the flag-change path's cross-mailbox isolation, not the
+  removal path's identical risk. Added a symmetric removal test; both were manually confirmed as
+  genuine discriminators by temporarily dropping each method's `MailboxId` filter and
+  reproducing the failure, then restoring. `dotnet test` 350 passed/0 failed (up from 348).
+  `pnpm check` clean, 259 dotnet tests, vitest 43.
 
 ## Next task
 
