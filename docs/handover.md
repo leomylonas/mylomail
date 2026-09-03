@@ -1445,6 +1445,24 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   check could — so it was rewritten to seed a real second `Account` row, and manually confirmed
   as a genuine discriminator against that: the pre-fix code silently succeeded with no exception.
   `dotnet test` 370 passed/0 failed (up from 369). `pnpm check` clean, 273 dotnet tests, vitest 55.
+- **Seventy-third pass — the same gap, one level further in: a MoveMessage mutation's
+  `TargetMailboxId` was never checked against the caller's account either.**
+  `MutationExecutor.CallAsync`'s MoveMessage branch resolves the destination via
+  `context.Mailboxes.FirstAsync(m => m.Id == exemplar.TargetMailboxId, ct)` with no `AccountId`
+  filter, so a mismatched pair would hand a foreign account's `Mailbox` — and its
+  provider-specific folder id — to this account's authenticated provider call. Added a second
+  ownership check in `EnqueueAsync`, right after pass 72's messageId check, guarded by
+  `if (item.TargetMailboxId is Guid targetMailboxId)` so it only fires for MoveMessage (the only
+  operation kind that ever sets it). `ScopeMailboxId` (`RemoveFromMailbox`) doesn't need the same
+  fix: `MutationExecutor.ResolveAsync`'s query starts from `MessageMailboxes` filtered by
+  `MessageId` before filtering by `ScopeMailboxId`, and a `MessageMailboxes` row only exists for
+  mailboxes that actually contain that message — a `ScopeMailboxId` from a different account
+  simply matches zero rows, a no-op rather than a cross-account action. `invariant-review`
+  confirmed the guard fires exclusively for MoveMessage, the `ScopeMailboxId` reasoning holds, and
+  no frozen-invariant table entry is touched. New regression test mirrors pass 72's shape (a real
+  second `Account`+`Mailbox` row) and manually confirmed as a genuine discriminator via
+  revert-and-reproduce. `dotnet test` 371 passed/0 failed (up from 370). `pnpm check` clean, 274
+  dotnet tests, vitest 55.
 
 ## Next task
 
