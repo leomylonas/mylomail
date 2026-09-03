@@ -1425,6 +1425,26 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   globally-unique mailbox id with no account filter and persists nothing before the new check),
   and independently ran its own stash-and-reproduce check on the new test. `dotnet test` 369
   passed/0 failed (up from 368). `pnpm check` clean, 272 dotnet tests, vitest 55.
+- **Seventy-second pass — the same missing cross-account check as pass 71, one layer down:
+  `MutationQueue.EnqueueAsync` trusted a client-supplied messageId against a client-supplied
+  accountId with no check they actually belong together.** `MailHub`'s `SetFlags`/`MoveMessages`/
+  `RemoveFromMailbox`/`MoveToTrash`/`DeletePermanently` all take an `accountId` and a batch of
+  `messageIds` from the client; `MutationExecutor` later resolves a message's provider occurrence
+  by `MessageId` alone, with no `AccountId` filter, so a mismatched pair would enqueue a
+  `MutationItem` tagged for the wrong account and go on to authenticate as that account while
+  acting on a message that actually belongs to a different one. Added a check at the top of
+  `EnqueueAsync`, before the transaction begins, throwing `HubException` on a definite mismatch —
+  a dangling/nonexistent messageId is deliberately left unrejected, since
+  `MyloMailDbContext.ConfigureMutations` already documents no FK to `Message` for exactly that
+  reason (a message can become a tombstone while mutation state still references it).
+  `invariant-review` confirmed the check is read-only and sits before the sequence-assignment
+  transaction, all five `MailHub` call sites pass one constant `accountId` for a whole batch with
+  none intentionally crossing accounts, and no frozen-invariant table entry is touched. The new
+  regression test's first version (an unrelated random Guid as the accountId) turned out to be a
+  false-positive discriminator — SQLite's own foreign-key constraint caught it before the new
+  check could — so it was rewritten to seed a real second `Account` row, and manually confirmed
+  as a genuine discriminator against that: the pre-fix code silently succeeded with no exception.
+  `dotnet test` 370 passed/0 failed (up from 369). `pnpm check` clean, 273 dotnet tests, vitest 55.
 
 ## Next task
 
