@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
@@ -54,10 +55,33 @@ public sealed class DraftService(
 			draft = new Draft { Id = input.DraftId ?? Guid.NewGuid(), AccountId = input.AccountId };
 			context.Drafts.Add(draft);
 		}
+		else if (draft.AccountId != input.AccountId)
+		{
+			// Same gap passes 71-73 closed elsewhere: a client-supplied accountId is never
+			// trusted against a client-supplied entity id without checking they actually agree.
+			// Without this, a stale or mismatched accountId would look up the *wrong* account's
+			// default send identity below for an *existing* draft that already belongs to
+			// someone else.
+			throw new HubException($"Draft {draft.Id} does not belong to account {input.AccountId}.");
+		}
 
 		// The caller round-trips whatever identity a previous save reported, the same way
 		// InReplyToMessageId is round-tripped — only a brand-new draft that has never had one
 		// chosen falls back to the account's default (§15).
+		if (input.SendIdentityId is Guid sendIdentityId)
+		{
+			var identityAccountId = await context
+				.SendIdentities.Where(i => i.Id == sendIdentityId)
+				.Select(i => (Guid?)i.AccountId)
+				.FirstOrDefaultAsync(ct);
+			if (identityAccountId is Guid identityFound && identityFound != draft.AccountId)
+			{
+				// SendExecutor resolves the From address from SendIdentityId alone (no
+				// AccountId filter) — an unchecked mismatch here would let a draft send under
+				// another account's address while authenticating and dispatching as this one.
+				throw new HubException($"Send identity {sendIdentityId} does not belong to account {draft.AccountId}.");
+			}
+		}
 		draft.SendIdentityId = input.SendIdentityId ?? await DefaultIdentityAsync(input.AccountId, ct);
 		draft.InReplyToMessageId = input.InReplyToMessageId;
 		draft.To = input.To;
