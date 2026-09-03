@@ -1245,6 +1245,54 @@ check` clean under Node 22.
   further issues. Two new regression tests confirmed as genuine discriminators via
   revert-and-reproduce. `dotnet test` 354 passed/0 failed (up from 352). `pnpm check` clean, 263
   dotnet tests, vitest 43.
+- **Sixtieth through sixty-second passes — clean.** Swept the whole backend for other instances
+  of pass 59's stale-entity-after-`ChangeTracker.Clear()` bug shape (found none — every other
+  caller either reloads fresh after the claim CAS or only reads already-materialised fields),
+  attachment handling/notification dedup/CalDAV-IMAP RSVP reply ordering (all already correct
+  by design), and concurrent-SignalR-hub-call races plus silent catch blocks (also clean,
+  though this pass surfaced a real but design-ambiguous gap it deliberately did not fix:
+  `ExportJobs.StartAsync` has no guard against two windows starting a bulk export
+  simultaneously — reject the second, cancel the first, or allow both is a genuine product
+  decision with no strong precedent settling it either way, confirmed by the next pass).
+- **Sixty-third pass — confirmed the export race has no strong precedent, found a real gap
+  instead.** Checked whether `SendIdentity`'s unique-index pattern or the mutation-claim CAS
+  pattern settle pass 62's `ExportJobs` question by precedent — neither does (one enforces a
+  business invariant, the other prevents double-executing the _same_ mutation, not two
+  independent bulk jobs), so it stayed unfixed and ambiguous. FTS5 index staleness
+  (`SearchIndexer.IsIntactAsync`/`RebuildAsync`) checked clean, already wired into
+  `StartupScheduler`. Found a genuine, feature-sized gap: a mid-session OS credential-store
+  failure (locked keyring, denied Keychain prompt) falls through every background job's generic
+  `catch (Exception)` with no `AuthState` change, no `LastAuthError`, no live announcement — the
+  account silently stops syncing, the same bug shape passes 40/57/58/59 exist to close, but for
+  a different root cause where `NeedsReauth` would be actively misleading (the stored credential
+  may be fine; the fix is unlocking the OS keychain, not reauthenticating). Raised to the user as
+  a design decision.
+- **Sixty-fourth pass — built credential-store failure surfacing, per the user's decision.** The
+  user chose: a new `AuthState.CredentialStoreUnavailable` value, extending the existing
+  `CredentialStoreUnavailableException` (previously startup-only, triggering Electron's exit-78
+  restart-and-prompt protocol — confirmed by `invariant-review` to be unreachable from a
+  background job) to also apply mid-session, and a distinct "Unlock your keychain" banner with
+  no Reauthenticate action, announced live via pass 59's `AccountDtoFactory.AnnounceStatusAsync`.
+  `NativeCredentialStore.RetrieveAsync` now wraps any non-cancellation OS-store exception in the
+  new type; `SendExecutor` classifies it as non-ambiguous (nothing was dispatched); `SyncJobs`,
+  `MutationJobs`, `OutboxJobs`, `ContentJobs`, and `DraftSyncService.PushAsync` each catch it,
+  set the new state, and self-clear back to `Connected` on their next successful run — unlike
+  `NeedsReauth`, deliberately not gated off from retrying, since the store commonly becomes
+  reachable again on its own. `invariant-review` ran three rounds and found a real, in-scope gap
+  each time: `LinuxSecretServiceCredentialStore.FindItemAsync` could return null (no exception)
+  for an item that stayed locked with no interactive prompt offered — the primary scenario this
+  diff exists to catch — misclassifying it as "never stored," now fixed to throw; `ContentJobs`
+  and `DraftSyncService.PushAsync` were initially missed entirely, reproducing the original bug
+  on two more code paths; `ContentAcquisition.AcquireAsync`'s existing fetch-failure catch
+  counted the new exception against its 5-attempt retry budget the same as genuinely malformed
+  content, now left uncounted. A known, deliberately accepted limitation remains: the
+  self-clearing logic across five independent job types has no cross-job synchronization, so a
+  job succeeding on its own can in principle clear a state another job just set from an actual
+  ongoing failure — lower-severity and self-correcting (the next failing job re-sets it within
+  its own cadence), and fixing it properly would need synchronization this codebase has nowhere
+  else for independent job types. New regression tests confirmed as genuine discriminators via
+  revert-and-reproduce. `dotnet test` 359 passed/0 failed (up from 354). `pnpm check` clean, 268
+  dotnet tests, vitest 43.
 
 ## Next task
 
