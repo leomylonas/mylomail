@@ -1108,6 +1108,22 @@ check` clean under Node 22.
   `InvalidOperationException` when it isn't exactly 1, plus a regression test seeding a second
   `SpecialUseOverride = Drafts` mailbox and asserting the throw. `dotnet test` 344 passed/0
   failed (up from 343). `pnpm check` clean under Node 22.
+- **Fifty-third pass — a changed close-behavior setting silently required a relaunch to take
+  effect.** §13 Epic 10's minimize-to-tray-vs-quit setting is read once at startup into a
+  main-process-local variable (`Main.ts`'s `closeBehavior`) and acted on when the window's
+  close event fires. `ShellSettings.tsx` lets the user change it at runtime and genuinely
+  persists the change via a `PATCH`-style fetch — but nothing told the already-running main
+  process, so the window kept acting on its stale startup value until the whole app was
+  relaunched, with no error surfaced to explain why closing didn't do what was just chosen.
+  Added an IPC channel (`shell-settings:close-behavior-changed`) mirroring the existing
+  `showNotificationChannel`/`pickExportFolderChannel` pattern: the renderer calls
+  `window.shellSettings.closeBehaviorChanged(value)` right after its save succeeds, and
+  `Main.ts` reassigns the shared `closeBehavior` variable directly from that value.
+  `invariant-review` found no frozen-invariant hit (shell/IPC plumbing, not mutation/sync/
+  persistence) and confirmed the process-global variable is correct by design (this setting is
+  a fact about the installation, like window bounds, not per-window state). No changes
+  requested. `dotnet test` unaffected at 344 passed/0 failed (renderer/shell-only change).
+  `pnpm check` clean under Node 22.
 
 ## Next task
 
