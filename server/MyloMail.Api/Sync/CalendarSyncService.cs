@@ -267,33 +267,72 @@ public sealed class CalendarSyncService(
 		// A recurrence relation refers to the local canonical event id, while providers carry
 		// the master's volatile id. Resolve it inside this transaction after all page upserts,
 		// so either page order is safe and no provider id leaks into persisted intent.
+		//
+		// Batched rather than one SingleAsync/SingleOrDefaultAsync pair per upserted event: a
+		// page can hold hundreds of occurrences, and the per-item version issued two queries
+		// for every single one of them — including every non-recurring event, whose
+		// RecurrenceMasterProviderEventId is null and so was still spending a query looking
+		// for a row that could never match.
+		// Loaded in two passes rather than guessing every referenced master id up front: an
+		// event skipped above because it's an unresolved conflict never had Apply() run, so
+		// its stored RecurrenceMasterProviderEventId can differ from what this page's dto
+		// reports, and the old per-item lookup always read that stored value fresh from the
+		// DB. Only the first pass's actual rows can say what the real referenced master ids
+		// are.
+		var pageProviderIds = page.Upserted.Select(dto => dto.ProviderEventId).Distinct().ToList();
+		var byProviderId = await context
+			.CalendarEvents.Where(e => e.CalendarId == calendarId && pageProviderIds.Contains(e.ProviderEventId))
+			.ToDictionaryAsync(e => e.ProviderEventId!, ct);
+
+		var masterProviderIds = byProviderId
+			.Values.Select(e => e.RecurrenceMasterProviderEventId)
+			.Where(id => id is not null && !byProviderId.ContainsKey(id))
+			.Distinct()
+			.ToList();
+		if (masterProviderIds.Count > 0)
+		{
+			var masters = await context
+				.CalendarEvents.Where(e => e.CalendarId == calendarId && masterProviderIds.Contains(e.ProviderEventId))
+				.ToListAsync(ct);
+			foreach (var master in masters)
+			{
+				byProviderId[master.ProviderEventId!] = master;
+			}
+		}
+
 		foreach (var dto in page.Upserted)
 		{
-			var occurrence = await context.CalendarEvents.SingleAsync(
-				e => e.CalendarId == calendarId && e.ProviderEventId == dto.ProviderEventId,
-				ct
-			);
-			var master = await context.CalendarEvents.SingleOrDefaultAsync(
-				e => e.CalendarId == calendarId && e.ProviderEventId == occurrence.RecurrenceMasterProviderEventId,
-				ct
-			);
+			var occurrence = byProviderId[dto.ProviderEventId];
+			var master =
+				occurrence.RecurrenceMasterProviderEventId is string masterId ? byProviderId.GetValueOrDefault(masterId) : null;
 			occurrence.RecurrenceMasterId = master?.Id;
 		}
-		foreach (var master in page.Upserted.Where(e => e.RecurrenceMasterProviderEventId is null))
+
+		var localMasterIds = page
+			.Upserted.Where(dto => dto.RecurrenceMasterProviderEventId is null)
+			.Select(dto => byProviderId[dto.ProviderEventId].Id)
+			.ToList();
+		if (localMasterIds.Count > 0)
 		{
-			var localMaster = await context.CalendarEvents.SingleAsync(
-				e => e.CalendarId == calendarId && e.ProviderEventId == master.ProviderEventId,
-				ct
-			);
+			var masterProviderIdsByLocalMasterId = page
+				.Upserted.Where(dto => dto.RecurrenceMasterProviderEventId is null)
+				.ToDictionary(dto => byProviderId[dto.ProviderEventId].Id, dto => dto.ProviderEventId);
 			var waitingChildren = await context
 				.CalendarEvents.Where(e =>
-					e.CalendarId == calendarId && e.RecurrenceMasterProviderEventId == master.ProviderEventId
+					e.CalendarId == calendarId
+					&& e.RecurrenceMasterProviderEventId != null
+					&& masterProviderIdsByLocalMasterId.Values.Contains(e.RecurrenceMasterProviderEventId)
 				)
 				.ToListAsync(ct);
-			foreach (var child in waitingChildren)
+			var childrenByMasterProviderId = waitingChildren.ToLookup(e => e.RecurrenceMasterProviderEventId);
+			foreach (var localMasterId in localMasterIds)
 			{
-				child.RecurrenceMasterId = localMaster.Id;
-				changed.Add(child.Id);
+				var masterProviderId = masterProviderIdsByLocalMasterId[localMasterId];
+				foreach (var child in childrenByMasterProviderId[masterProviderId])
+				{
+					child.RecurrenceMasterId = localMasterId;
+					changed.Add(child.Id);
+				}
 			}
 		}
 
