@@ -88,6 +88,33 @@ public sealed class DraftConflictResolutionTests
 	}
 
 	/// <summary>
+	/// <see cref="DraftService.SendAsync"/> builds its MIME straight from the draft's local
+	/// fields with no revision check of its own — it never discovers a conflicting remote copy
+	/// on its own account. Without this guard, hitting "Send" on a conflicted draft would
+	/// silently discard whatever the server's copy actually held, exactly the overwrite §1/§15
+	/// promise resolution instead of.
+	/// </summary>
+	[Fact]
+	public async Task Sending_a_conflicted_draft_is_refused_until_the_conflict_is_resolved()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (draftId, _) = await SeedAsync(harness, conflict: true);
+
+		await harness.UsingAsync(async scope =>
+			await Assert.ThrowsAsync<InvalidOperationException>(
+				() => scope.GetRequiredService<DraftService>().SendAsync(draftId)
+			)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			await scope.GetRequiredService<DraftService>().ResolveConflictAsync(draftId, keepMine: true);
+			// No longer refused once the conflict is actually resolved.
+			await scope.GetRequiredService<DraftService>().SendAsync(draftId);
+		});
+	}
+
+	/// <summary>
 	/// Nothing enforces that at most one mailbox per account has effective
 	/// <see cref="SpecialUse.Drafts"/> — a manual override has no uniqueness check against
 	/// other mailboxes already holding that use. Picking an arbitrary one of several

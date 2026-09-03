@@ -642,13 +642,17 @@ export function Compose({
 					Attach files
 				</Button>
 				<div className={styles.sendSplit}>
-					<Button size="sm" disabled={busy || !to} onClick={() => void send()}>
+					<Button
+						size="sm"
+						disabled={busy || !to || syncConflict}
+						onClick={() => void send()}
+					>
 						Send
 					</Button>
 					<OverflowMenu
 						aria-label="Send later"
 						size="sm"
-						disabled={busy || !to}
+						disabled={busy || !to || syncConflict}
 						flipped
 					>
 						<OverflowMenuItem
@@ -687,7 +691,7 @@ export function Compose({
 						/>
 						<Button
 							size="sm"
-							disabled={busy || !scheduleDate || !scheduleTime}
+							disabled={busy || !scheduleDate || !scheduleTime || syncConflict}
 							onClick={scheduleCustom}
 						>
 							Schedule

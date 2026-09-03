@@ -233,6 +233,13 @@ public sealed class DraftService(
 	/// and a user whose cancelled message had already been destroyed would have lost their
 	/// work (§15).
 	/// </remarks>
+	/// <exception cref="InvalidOperationException">
+	/// The draft has an unresolved <see cref="Draft.SyncConflict"/>. Send builds its MIME
+	/// straight from this editor's local fields with no revision check of its own (§1, §15) —
+	/// it never discovers a conflicting remote copy on its own account. Refusing here is what
+	/// makes "prompts resolution rather than overwriting" actually true for send, not just for
+	/// the ordinary background push <see cref="ResolveConflictAsync"/> already guards.
+	/// </exception>
 	public async Task<OutboxItem> SendAsync(
 		Guid draftId,
 		DateTimeOffset? scheduledFor = null,
@@ -240,6 +247,12 @@ public sealed class DraftService(
 	)
 	{
 		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
+		if (draft.SyncConflict)
+		{
+			throw new InvalidOperationException(
+				"This draft has an unresolved sync conflict. Resolve it before sending."
+			);
+		}
 		var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
 
 		return await outbox.QueueAsync(account, draft.Id, scheduledFor, ct: ct);
