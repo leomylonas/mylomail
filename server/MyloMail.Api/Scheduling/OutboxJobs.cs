@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -45,6 +46,7 @@ public sealed class OutboxJobs(
 	SendReconciler reconciler,
 	AccountGate gate,
 	IBackgroundJobClient jobs,
+	IHubEvents events,
 	ILogger<OutboxJobs> logger
 )
 {
@@ -86,9 +88,17 @@ public sealed class OutboxJobs(
 			}
 			catch (ProviderAuthenticationException ex)
 			{
-				account.AuthState = AuthState.NeedsReauth;
-				account.LastAuthError = ex.Message;
+				// Not the `account` loaded above: OutboxService's claim CAS runs a raw SQL
+				// UPDATE and clears the whole context's change tracker afterward so its own
+				// tracked copy can't go stale (see its own comment) — which detaches this one
+				// too. Writing through it here would silently affect zero rows: it looks
+				// attached (EF gives no error), but SaveChangesAsync has nothing queued for
+				// it. A fresh, newly-tracked load is required.
+				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+				reloaded.AuthState = AuthState.NeedsReauth;
+				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
 				return;
 			}
 			catch (Exception ex)

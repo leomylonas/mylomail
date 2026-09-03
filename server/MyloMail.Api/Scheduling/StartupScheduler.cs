@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 
@@ -23,6 +24,7 @@ public sealed class StartupScheduler(
 	PollRegistry polls,
 	Notifications.NotificationService notifications,
 	IBackgroundJobClient jobs,
+	IHubEvents events,
 	ILogger<StartupScheduler> logger
 )
 {
@@ -128,6 +130,7 @@ public sealed class StartupScheduler(
 		account.AuthState = AuthState.Connected;
 		account.LastAuthError = null;
 		await context.SaveChangesAsync(ct);
+		await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 
 		// The poll loops stopped when the account was paused, so their slots are released and
 		// topology may start them again.

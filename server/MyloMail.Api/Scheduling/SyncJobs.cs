@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -41,6 +42,7 @@ public sealed class SyncJobs(
 	IntegrityRegistry integrityLoops,
 	IMailProviderFactory providers,
 	IBackgroundJobClient jobs,
+	IHubEvents events,
 	ILogger<SyncJobs> logger
 )
 {
@@ -398,6 +400,7 @@ public sealed class SyncJobs(
 			account.AuthState = AuthState.NeedsReauth;
 			account.LastAuthError = ex.Message;
 			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 
 			logger.LogWarning("Account {AccountId} needs reauthentication; its jobs are paused.", account.Id);
 			throw;

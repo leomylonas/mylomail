@@ -4,6 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -11,6 +12,7 @@ using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Persistence;
+using MyloMail.Api.Tests.Sync;
 
 namespace MyloMail.Api.Tests.Mutations;
 
@@ -47,6 +49,9 @@ internal sealed class MutationHarness : IAsyncDisposable
 	/// <summary>Records outbox dispatch requests instead of sending.</summary>
 	public RecordingOutboxDispatcher OutboxDispatcher { get; } = new();
 
+	/// <summary>Records the §7 events raised, so a test can assert which one fired.</summary>
+	public RecordingHubEvents Events { get; } = new();
+
 	public FakeTimeProvider Clock { get; }
 
 	public Account Account { get; private set; } = null!;
@@ -67,6 +72,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubProviderFactory(Provider))
 			.AddSingleton<ICredentialStore, InMemoryCredentialStore>()
+			.AddSingleton<IHubEvents>(Events)
 			.AddMutations()
 			.AddSync()
 			.AddScheduling()

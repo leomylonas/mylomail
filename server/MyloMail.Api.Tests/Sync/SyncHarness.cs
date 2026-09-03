@@ -207,6 +207,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public List<NotificationDto> Notifications { get; } = [];
 
+	public List<AccountDto> AccountStatuses { get; } = [];
+
 	public void Clear()
 	{
 		Received.Clear();
@@ -218,6 +220,7 @@ internal sealed class RecordingHubEvents : IHubEvents
 		CalendarEvents.Clear();
 		CalendarConflicts.Clear();
 		Notifications.Clear();
+		AccountStatuses.Clear();
 	}
 
 	public Task MessageReceivedAsync(MessageSummaryDto message)
@@ -274,7 +277,11 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
 
-	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
+	public Task AccountStatusChangedAsync(AccountDto account)
+	{
+		AccountStatuses.Add(account);
+		return Task.CompletedTask;
+	}
 
 	public Task NotificationReadyAsync(NotificationDto notification)
 	{

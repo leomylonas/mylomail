@@ -289,6 +289,28 @@ internal static class AccountDtoFactory
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride
 		);
+
+	/// <summary>
+	/// Announces an <see cref="Account.AuthState"/> transition the same way
+	/// <see cref="AccountProvisioningService"/>'s own transitions do (§7), for the background
+	/// jobs that also flip it — entering <see cref="AuthState.NeedsReauth"/> on an auth failure,
+	/// or <see cref="StartupScheduler.ResumeAccountAsync"/> clearing it back to
+	/// <see cref="AuthState.Connected"/>. Looks up the default send identity's address itself so
+	/// every call site doesn't have to, mirroring <c>AccountsController.List</c>'s query.
+	/// </summary>
+	public static async Task AnnounceStatusAsync(
+		MyloMailDbContext context,
+		Hubs.IHubEvents events,
+		Account account,
+		CancellationToken ct
+	)
+	{
+		var address = await context
+			.SendIdentities.Where(i => i.AccountId == account.Id && i.IsDefault)
+			.Select(i => i.EmailAddress)
+			.FirstOrDefaultAsync(ct);
+		await events.AccountStatusChangedAsync(ToDto(account, address));
+	}
 }
 
 /// <summary>
