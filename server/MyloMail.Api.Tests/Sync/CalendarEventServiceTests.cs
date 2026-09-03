@@ -357,6 +357,58 @@ public sealed class CalendarEventServiceTests
 		});
 	}
 
+	/// <summary>
+	/// Seventy-sixth pass: same bug shape as passes 71-75 — a client-supplied EventId was
+	/// resolved with no check it belongs to the client-supplied CalendarId. Left unchecked,
+	/// SaveAsync would mutate a foreign calendar's event and push the edit through the wrong
+	/// account's provider credentials, since it resolves <c>account</c>/<c>provider</c> from
+	/// <c>input.CalendarId</c> but the mutated row from <c>input.EventId</c> alone.
+	/// </summary>
+	[Fact]
+	public async Task Saving_an_event_id_that_belongs_to_a_different_calendar_is_rejected()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var created = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+
+		var otherCalendarId = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var otherAccount = new Account { Id = Guid.NewGuid(), ProviderType = ProviderType.Imap };
+			var otherCalendar = new Calendar
+			{
+				Id = Guid.NewGuid(),
+				AccountId = otherAccount.Id,
+				ProviderCalendarId = "other-cal",
+				Name = "Other Calendar",
+			};
+			context.Accounts.Add(otherAccount);
+			context.Calendars.Add(otherCalendar);
+			await context.SaveChangesAsync();
+			return otherCalendar.Id;
+		});
+
+		var ex = await Assert.ThrowsAsync<HubException>(
+			() => harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(created.Id, otherCalendarId, "Hijacked", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+				)
+			)
+		);
+		Assert.Contains(created.Id.ToString(), ex.Message);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var row = await scope.GetRequiredService<MyloMailDbContext>().CalendarEvents.SingleAsync(e => e.Id == created.Id);
+			Assert.Equal("Standup", row.Title);
+			Assert.Equal(harness.CalendarId, row.CalendarId);
+		});
+	}
+
 	private sealed class Harness : IAsyncDisposable
 	{
 		private readonly TestDatabase database;

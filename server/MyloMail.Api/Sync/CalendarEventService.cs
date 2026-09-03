@@ -54,6 +54,18 @@ public sealed class CalendarEventService(
 			? await context.CalendarEvents.FirstOrDefaultAsync(e => e.Id == id, ct)
 			: null;
 
+		// A dangling EventId (already deleted elsewhere) falls through to CreateAsync just like
+		// no EventId at all — only a definite mismatch against another calendar is rejected.
+		// Left unchecked, UpdateAsync would mutate `existing` and push the edit through
+		// `account`'s provider credentials — a different account than the one `existing`
+		// actually belongs to, corrupting a foreign event with this account's authentication.
+		if (existing is not null && existing.CalendarId != input.CalendarId)
+		{
+			throw new HubException(
+				$"Calendar event {existing.Id} does not belong to calendar {input.CalendarId}."
+			);
+		}
+
 		return existing is null
 			? await CreateAsync(account, calendar, input, provider, ct)
 			: await UpdateAsync(account, existing, input, provider, ct);
