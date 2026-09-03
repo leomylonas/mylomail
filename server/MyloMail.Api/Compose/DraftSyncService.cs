@@ -132,10 +132,15 @@ public sealed class DraftSyncService(
 		{
 			await providers.For(account).DeleteDraftAsync(account, providerDraftId, ct);
 		}
-		catch (Exception ex) when (ex is NotSupportedException or ProviderConflictException)
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			// Already gone, or never supported. Either way there is nothing to remove and
-			// failing here would block the local deletion the user asked for.
+			// Best-effort by design (see the summary above): a network blip, an auth failure, a
+			// locked credential store, or any other provider rejection here must not surface as
+			// though the delete/resolve/send the caller asked for had failed — DeleteAsync has
+			// already committed the local removal by the time this runs, and ResolveConflictAsync's
+			// keepMine already made its decision. Narrowly catching only NotSupportedException/
+			// ProviderConflictException let every other exception type still block the caller,
+			// contradicting this method's own stated contract.
 			logger.LogInformation(ex, "Remote draft {ProviderDraftId} was not removed.", providerDraftId);
 		}
 	}

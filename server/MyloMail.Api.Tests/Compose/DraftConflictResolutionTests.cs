@@ -152,6 +152,31 @@ public sealed class DraftConflictResolutionTests
 		);
 	}
 
+	/// <summary>
+	/// Sixty-seventh architecture-review pass: <see cref="DraftSyncService.RemoveRemoteAsync"/>'s
+	/// own doc comment says a failure here "would block the local deletion the user asked for"
+	/// — but it only swallowed <see cref="NotSupportedException"/>/<see cref="ProviderConflictException"/>,
+	/// so any other provider exception (a network blip, an auth failure) still propagated and
+	/// blocked <see cref="DraftService.DeleteAsync"/> even though the local row was already gone.
+	/// </summary>
+	[Fact]
+	public async Task Deleting_a_draft_succeeds_even_when_the_remote_cleanup_fails()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (draftId, _) = await SeedAsync(harness, conflict: false);
+		harness.Provider.FailDeleteDraftWith(new InvalidOperationException("mailbox temporarily unavailable"));
+
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<DraftService>().DeleteAsync(draftId)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.False(await context.Drafts.AnyAsync(d => d.Id == draftId));
+		});
+	}
+
 	private static async Task<(Guid DraftId, string ProviderDraftId)> SeedAsync(SyncHarness harness, bool conflict)
 	{
 		var draftsMailbox = harness.Provider.AddMailbox("DRAFT", SpecialUse.Drafts);

@@ -32,6 +32,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private Exception? fetchRawMessageFailure;
 	private Exception? draftPushFailure;
 	private Exception? mailboxOperationFailure;
+	private Exception? deleteDraftFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
 	private MutationProblemDetails? authFailureProblem;
@@ -85,6 +86,10 @@ public sealed class FakeMailProvider : IMailProvider
 		draftPushFailure = failure;
 		draftPushSuccessesBeforeFailure = successesBeforeFailure;
 	}
+
+	/// <summary>Makes the next remote-draft delete throw, so a best-effort cleanup failure
+	/// path can be exercised without it blocking the caller.</summary>
+	public void FailDeleteDraftWith(Exception failure) => deleteDraftFailure = failure;
 
 	/// <summary>Removes a mailbox behind the client's back, as another client would.</summary>
 	public void RemoveMailbox(string providerMailboxId) => mailboxes.Remove(providerMailboxId);
@@ -505,8 +510,15 @@ public sealed class FakeMailProvider : IMailProvider
 		return Task.FromResult(new DraftResult(providerId, "rev-1"));
 	}
 
-	public Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct) =>
-		Task.CompletedTask;
+	public Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct)
+	{
+		if (deleteDraftFailure is Exception failure)
+		{
+			deleteDraftFailure = null;
+			throw failure;
+		}
+		return Task.CompletedTask;
+	}
 
 	public Task<MailboxDto> CreateMailboxAsync(
 		Account account,
