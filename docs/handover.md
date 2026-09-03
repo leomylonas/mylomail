@@ -1064,6 +1064,15 @@ check` clean under Node 22.
   CalDAV) — clicking one today routes to editing the whole series, the same behaviour a
   recurring master already had. 9 new tests. `dotnet test` 339 passed/0 failed (up from 330).
   `pnpm check` clean under Node 22.
+- **Fiftieth pass — no gap found.** Checked undo-send timing (no countdown is actually shown
+  in `Compose.tsx`, just a static "Undo send" button, so there's nothing that could drift from
+  the server's real `ScheduledSendAt` window) and bulk export completeness (`ExportJobs.cs`
+  enumerates every mailbox with no `SpecialUse` filtering — Drafts/Sent/Trash/Archive/Junk are
+  all included, and `RawBytesAsync` writes full raw MIME bytes, preserving attachments). Both
+  clean after reading the actual implementation.
+- **Fifty-first pass — search result ordering flagged as an open decision, not resolved.** See
+  item 5 under "Next task" below — asked the user, no answer yet, left undecided rather than
+  built unilaterally.
 
 ## Next task
 
@@ -1089,6 +1098,15 @@ check` clean under Node 22.
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
+5. **Search result ordering is an open decision (fifty-first pass, unanswered).**
+   `MessageSearch.cs`'s `MatchAsync` genuinely computes FTS5 relevance ranking (SQL
+   `ORDER BY rank`; its own doc comment says it returns "ids FTS5 matches, in relevance
+   order") — but `SearchAsync` discards that order entirely and re-sorts by `ReceivedAt`
+   instead. `docs/architecture.md` §8 doesn't explicitly promise relevance ranking, so this
+   isn't a strict doc violation, but the unused rank computation looks like either vestigial
+   code or an oversight. Asked the user whether to switch to relevance order or remove the
+   now-pointless rank computation and simplify to a plain match; no answer was given yet — not
+   built either direction, left as a genuine open decision rather than resolved unilaterally.
 
 ## Read first
 
