@@ -1541,6 +1541,27 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   so a double-click races harmlessly, and the Remove button also disables while in flight. No
   backend change was needed (the endpoint was already complete); `dotnet test` unaffected (278
   dotnet tests unchanged). `pnpm check` clean, vitest 55.
+- **Seventy-ninth pass — a reading pane left open on a deleted message polled forever with no
+  indication anything was wrong.** While independently verifying pass 78's dangling-state claim,
+  found the underlying gap it was relying on: `MailHub.GetMessageBody` returned the same all-null
+  `MessageBodyDto` shape for "content not yet fetched" and "this message no longer exists at all"
+  (deleted, or its whole account removed). `ReadingPane`'s `refetchInterval` only stops once
+  `isFetched` or `isFailed` is true, neither of which a permanently-gone message ever reaches, so
+  it would poll every two seconds forever, showing a blank body under a stale subject line.
+  Pre-existing, not introduced by pass 78 — ordinary single-message deletion via `MessageList`
+  never clears `selectedMessageId` either, so this was already reachable before account removal
+  existed as a second path to it. Fixed by having `GetMessageBody` check the `Message` row itself
+  exists before falling through to the body/state lookup, throwing `HubException` when it
+  doesn't — distinct from the "exists but unfetched" case, where a `Message` row is present
+  before its `MessageBodies`/`MessageContentStates` rows would ever be. `ReadingPane` now also
+  stops polling on a query error and shows "This message is no longer available." `invariant-review`
+  confirmed `Message` rows are hard-deleted (never soft-tombstoned in place), so the existence
+  check can't misfire against a legitimately unfetched-but-real message, and that `HubException`
+  surfaces to TanStack Query the same way `MessageList.tsx`'s existing error handling already
+  relies on. New regression test — the first in this repo to resolve `MailHub` directly rather
+  than through SignalR's own invocation pipeline — confirmed as a genuine discriminator via
+  revert-and-reproduce. `dotnet test` 376 passed/0 failed (up from 375). `pnpm check` clean, 279
+  dotnet tests, vitest 55.
 
 ## Next task
 
