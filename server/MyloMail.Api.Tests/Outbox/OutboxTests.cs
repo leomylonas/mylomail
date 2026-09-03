@@ -154,6 +154,48 @@ public sealed class OutboxTests
 		});
 	}
 
+	/// <summary>
+	/// Pass 57 guarded <c>DraftService.SendAsync</c> against sending an already-conflicted
+	/// draft, but an item queued before a concurrent sync flips <see cref="Draft.SyncConflict"/>
+	/// on its draft is never re-checked by that guard — it is already in the queue, not being
+	/// queued. Dispatch time must catch it instead, or the send would build MIME straight from
+	/// the stale local copy and silently discard whatever the server's copy actually holds.
+	/// </summary>
+	[Fact]
+	public async Task A_send_whose_draft_became_conflicted_after_queueing_fails_instead_of_overwriting_the_server()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await QueueAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			draft.SyncConflict = true;
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			await services.GetRequiredService<SendExecutor>().SendAsync(account, item.Id);
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var stored = await context.OutboxItems.SingleAsync(o => o.Id == item.Id);
+			Assert.Equal(OutboxStatus.Failed, stored.Status);
+			Assert.NotNull(stored.LastError);
+
+			// Untouched: this is a refusal to send, not a send attempt, so the draft must
+			// survive for the user to actually resolve the conflict.
+			Assert.True(await context.Drafts.AnyAsync());
+			Assert.Null(harness.Provider.LastSentDraft);
+		});
+	}
+
 	internal static async Task<OutboxItem> QueueAsync(MutationHarness harness, DateTimeOffset? at = null) =>
 		await harness.UsingAsync(async services =>
 		{

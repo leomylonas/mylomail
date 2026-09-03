@@ -145,6 +145,17 @@ public sealed class OutboxService(
 		return rows == 1;
 	}
 
+	/// <summary>
+	/// Fires <see cref="IHubEvents.OutboxStatusChangedAsync"/> for a status write made outside
+	/// this service's own CAS transitions — used by <see cref="SendExecutor"/> when it fails an
+	/// item directly (a vanished draft, or one with an unresolved <see cref="Draft.SyncConflict"/>)
+	/// rather than racing cancellation for it. Every <see cref="OutboxItem.Status"/> transition
+	/// is announced (§7); a write that skips this leaves the renderer showing a stale status
+	/// with no explanation until the next full resync.
+	/// </summary>
+	public Task AnnounceStatusAsync(Guid outboxItemId, CancellationToken ct = default) =>
+		AnnounceAsync(outboxItemId, ct);
+
 	private async Task AnnounceAsync(Guid outboxItemId, CancellationToken ct)
 	{
 		var item = await context.OutboxItems.AsNoTracking().FirstOrDefaultAsync(o => o.Id == outboxItemId, ct);

@@ -43,6 +43,26 @@ public sealed class SendExecutor(
 			item.Status = OutboxStatus.Failed;
 			item.LastError = "The draft this send refers to no longer exists.";
 			await context.SaveChangesAsync(ct);
+			// The CAS claim above already announced Scheduled -> Sending (§7); this write must
+			// announce the terminal state too, or the renderer is left showing a stuck "Sending"
+			// item with no explanation.
+			await outbox.AnnounceStatusAsync(item.Id, ct);
+			return;
+		}
+
+		// The item may have been queued before a concurrent sync flipped SyncConflict on its
+		// draft (§1, §15) — DraftService.SendAsync only guards queueing itself, not an item
+		// already sitting in the queue. Sending now would build MIME straight from the local
+		// copy and silently discard whatever the server's copy actually holds, the same
+		// overwrite the conflict flag exists to prevent. Failing here, the same way a
+		// vanished draft already does, routes the user back through
+		// DraftService.ResolveConflictAsync instead.
+		if (draft.SyncConflict)
+		{
+			item.Status = OutboxStatus.Failed;
+			item.LastError = "This draft has an unresolved sync conflict. Resolve it, then send again.";
+			await context.SaveChangesAsync(ct);
+			await outbox.AnnounceStatusAsync(item.Id, ct);
 			return;
 		}
 
