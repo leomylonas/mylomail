@@ -219,4 +219,55 @@ public sealed class MutationQueueTests
 			Assert.Empty(await services.GetRequiredService<MyloMailDbContext>().MutationItems.ToListAsync())
 		);
 	}
+
+	/// <summary>
+	/// Seventy-third pass: the same gap, one level further in. <see cref="MutationExecutor"/>'s
+	/// MoveMessage branch resolves the destination by <see cref="MutationItem.TargetMailboxId"/>
+	/// alone (no AccountId filter), so a mismatched pair would hand a foreign account's
+	/// <see cref="Mailbox"/> — and its provider-specific folder id — to this account's
+	/// authenticated provider call.
+	/// </summary>
+	[Fact]
+	public async Task Enqueueing_a_move_to_a_mailbox_that_belongs_to_a_different_account_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var otherAccountId = Guid.NewGuid();
+		var otherMailboxId = Guid.NewGuid();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Accounts.Add(
+				new Account
+				{
+					Id = otherAccountId,
+					DisplayName = "Other",
+					ProviderType = ProviderType.Gmail,
+				}
+			);
+			context.Mailboxes.Add(
+				new Mailbox
+				{
+					Id = otherMailboxId,
+					AccountId = otherAccountId,
+					ProviderMailboxId = "OTHER-ARCHIVE",
+					Name = "Archive",
+					SpecialUse = SpecialUse.Archive,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var ex = await Assert.ThrowsAsync<HubException>(
+				() => services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, otherMailboxId)
+			);
+			Assert.Contains(otherMailboxId.ToString(), ex.Message);
+		});
+
+		await harness.UsingAsync(async services =>
+			Assert.Empty(await services.GetRequiredService<MyloMailDbContext>().MutationItems.ToListAsync())
+		);
+	}
 }

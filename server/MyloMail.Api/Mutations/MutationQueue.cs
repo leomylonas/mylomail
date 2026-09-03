@@ -123,6 +123,22 @@ public sealed class MutationQueue(
 			throw new HubException($"Message {item.MessageId} does not belong to account {item.AccountId}.");
 		}
 
+		// Same gap, one level further in: MutationExecutor resolves MoveMessage's destination
+		// by TargetMailboxId alone too (no AccountId filter, `CallAsync`'s MoveMessage branch),
+		// so a mismatched pair here would hand a foreign account's Mailbox — and its
+		// provider-specific folder id — to this account's authenticated provider call.
+		if (item.TargetMailboxId is Guid targetMailboxId)
+		{
+			var targetAccountId = await context
+				.Mailboxes.Where(m => m.Id == targetMailboxId)
+				.Select(m => (Guid?)m.AccountId)
+				.FirstOrDefaultAsync(ct);
+			if (targetAccountId is Guid targetFound && targetFound != item.AccountId)
+			{
+				throw new HubException($"Mailbox {targetMailboxId} does not belong to account {item.AccountId}.");
+			}
+		}
+
 		var strategy = context.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(async () =>
 		{
