@@ -1352,6 +1352,32 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   `FakeMailProvider.FailDeleteDraftWith` injector) confirmed as a genuine discriminator via
   revert-and-reproduce. `dotnet test` 362 passed/0 failed (up from 361). `pnpm check` clean, 271
   dotnet tests, vitest 43.
+- **Sixty-eighth pass — a sent message's compose window never learned what actually happened
+  to it.** `Compose.tsx`'s post-send view never subscribed to `OutboxStatusChanged` at all —
+  zero renderer consumers anywhere — so it showed a static "Sending…" (or a live "Undo send"
+  button) forever regardless of whether the send actually succeeded, failed, or landed
+  ambiguous, even though the backend (since pass 58) already announces every transition
+  specifically to prevent this. Subscribed and extracted the state-to-display mapping into a
+  pure `describeSentState` (`SentStatus.ts`), mirroring pass 53's `CloseBehavior.ts` precedent
+  for logic that needs a real test but has no React/SignalR harness to exercise it through.
+  Three rounds of `invariant-review` reshaped this: round 1 flagged the `AmbiguousOutcome`
+  copy needed a closer look; reading `SendReconciler.cs` directly showed its `LastError` is
+  only set once its 10-minute `ReconciliationWindow` expires — but round 2 caught that
+  `SendExecutor.cs`'s generic catch actually sets `LastError` immediately, with the raw
+  provider exception text, on the very first `AmbiguousOutcome` announcement, so
+  `lastError`-presence can't safely distinguish "seconds-old raw exception" from "reconciler's
+  10-minutes-later verdict" — fixed by having that branch ignore `lastError` entirely and
+  always show a neutral "Confirming this was sent…," never a false failure. Verifying that
+  tradeoff surfaced a second, separate bug: `SendReconciler.ReconcileAsync` never called
+  `IHubEvents.OutboxStatusChangedAsync` at all, so an open window wouldn't even learn a send
+  was finally resolved — fixed by injecting `OutboxService` and announcing each changed item
+  after a single batched `SaveChangesAsync`. Round 3 confirmed no remaining invariant
+  violations and flagged two legitimate, out-of-scope follow-ups for later: the
+  `Sending → AmbiguousOutcome` transition itself isn't announced unless the same
+  reconciliation pass also resolves or expires it, and the renderer still can't distinguish a
+  genuinely expired `AmbiguousOutcome` from an in-window one without a dedicated DTO signal —
+  both gaps in richness, not correctness. `dotnet test` 364 passed/0 failed (up from 362).
+  `pnpm check` clean, 271 dotnet tests, vitest 52.
 
 ## Next task
 
