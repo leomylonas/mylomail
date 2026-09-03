@@ -53,8 +53,12 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			)
 			.ToListAsync(ct);
 
-		// Ordered here: SQLite cannot ORDER BY a DateTimeOffset.
-		var shown = messages.OrderByDescending(m => m.ReceivedAt).Take(take).ToList();
+		// Relevance order, not recency: `matched` already carries FTS5's own `rank` order,
+		// but the EF `Contains` query above doesn't preserve it, so it's reapplied here
+		// in-memory (SQLite cannot ORDER BY a DateTimeOffset either, which ruled out doing
+		// this as part of the query in the first place).
+		var rank = matched.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
+		var shown = messages.OrderBy(m => rank[m.Id]).Take(take).ToList();
 		var failures = await MessageMutationFailures.ForMessagesAsync(
 			context,
 			shown.Select(m => m.Id).ToList(),

@@ -96,6 +96,47 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		Assert.Empty(await SearchAsync("\"unbalanced"));
 	}
 
+	/// <summary>
+	/// Results come back in FTS5's own relevance order, not recency — a stronger match must
+	/// outrank a weaker, more recent one, which recency-first ordering would get backwards.
+	/// </summary>
+	[Fact]
+	public async Task Results_are_ordered_by_relevance_not_recency()
+	{
+		var strongMatchId = Guid.NewGuid();
+		var weakMatchId = Guid.NewGuid();
+
+		await using (var scope = services.CreateAsyncScope())
+		{
+			// Older, but "zephyr" repeated many times — a stronger FTS5 match. A term not
+			// used by any fixture message elsewhere in this test class, so bm25's corpus
+			// statistics aren't diluted by unrelated documents.
+			await AddAsync(
+				scope.ServiceProvider,
+				strongMatchId,
+				inboxId,
+				"Zephyr zephyr zephyr",
+				"zephyr zephyr zephyr zephyr zephyr",
+				DateTimeOffset.UnixEpoch
+			);
+			// Newer, but "zephyr" appears only once — a weaker match, would win under
+			// recency-first ordering despite being the worse relevance match.
+			await AddAsync(
+				scope.ServiceProvider,
+				weakMatchId,
+				inboxId,
+				"Unrelated subject",
+				"mentions zephyr once",
+				DateTimeOffset.UnixEpoch.AddDays(1)
+			);
+		}
+
+		var results = await SearchAsync("zephyr", inboxId);
+
+		Assert.Equal(strongMatchId, results[0].Id);
+		Assert.Equal(weakMatchId, results[1].Id);
+	}
+
 	private async Task<IReadOnlyList<Api.Contracts.MessageSummaryDto>> SearchAsync(
 		string query,
 		Guid? mailboxId = null
@@ -122,7 +163,8 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		Guid messageId,
 		Guid mailboxId,
 		string subject,
-		string body
+		string body,
+		DateTimeOffset? receivedAt = null
 	)
 	{
 		var context = scope.GetRequiredService<MyloMailDbContext>();
@@ -132,7 +174,7 @@ public sealed class MessageSearchTests : IAsyncLifetime
 				Id = messageId,
 				AccountId = accountId,
 				Subject = subject,
-				ReceivedAt = DateTimeOffset.UnixEpoch,
+				ReceivedAt = receivedAt ?? DateTimeOffset.UnixEpoch,
 				Occurrences =
 				[
 					new MessageMailbox
