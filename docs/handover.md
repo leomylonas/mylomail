@@ -1334,6 +1334,24 @@ leaves_it_in_place` previously asserted the raw `ProviderConflictException` type
   in the file is now wrapped. New/modified tests confirmed as genuine discriminators via
   revert-and-reproduce. `dotnet test` 361 passed/0 failed (up from 360). `pnpm check` clean, 270
   dotnet tests, vitest 43.
+- **Sixty-seventh pass — `DraftSyncService.RemoveRemoteAsync` wasn't as best-effort as its own
+  comment claimed.** Its inline comment already said a failure here "would block the local
+  deletion the user asked for," but the catch only swallowed `NotSupportedException` and
+  `ProviderConflictException` — every other exception (a network blip, a provider auth failure,
+  a locked credential store) still propagated through `DraftService.DeleteAsync`, even though
+  the local `Drafts` row was already removed and committed by the time this runs, so a
+  transient remote-cleanup failure surfaced to the user as a failed delete that had actually
+  already succeeded. The same exception also propagated through `ResolveConflictAsync`'s
+  keepMine branch, leaving `SyncConflict` uncleared over a failure unrelated to whether
+  keepMine's own decision was sound. Widened the catch to `catch (Exception ex) when (ex is not
+OperationCanceledException)`, matching the method's own stated contract. `invariant-review`
+  confirmed correctness for both call sites and flagged one pre-existing, non-blocking gap: a
+  locked-keychain failure during cleanup specifically skips pass 64's live `AuthState`
+  announcement here, but the next `PushAsync` cycle already catches and announces the same
+  condition, so nothing is left permanently unsignaled. New regression test (with a new
+  `FakeMailProvider.FailDeleteDraftWith` injector) confirmed as a genuine discriminator via
+  revert-and-reproduce. `dotnet test` 362 passed/0 failed (up from 361). `pnpm check` clean, 271
+  dotnet tests, vitest 43.
 
 ## Next task
 
