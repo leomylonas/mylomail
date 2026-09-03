@@ -98,12 +98,37 @@ public sealed class MutationJobs(
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
 				return;
 			}
+			catch (Credentials.CredentialStoreUnavailableException ex)
+			{
+				// Same detached-`account` hazard as the ProviderAuthenticationException branch
+				// above — a fresh load is required. Not gated off like NeedsReauth: the next
+				// scheduled drain retrying on its own, once the OS store is reachable again, is
+				// the recovery path (see SyncJobs.GuardAsync's matching comment).
+				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+				reloaded.AuthState = AuthState.CredentialStoreUnavailable;
+				reloaded.LastAuthError = ex.Message;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				return;
+			}
 			catch (Exception ex)
 			{
 				// The attempt is already marked ambiguous by the executor. One batch failing
 				// must not abandon the others: they are separate user intentions.
 				logger.LogError(ex, "A mutation batch for account {AccountId} failed.", accountId);
 			}
+		}
+
+		// A full drain with no credential-store failure means it's reachable again if it
+		// wasn't before — self-clearing here avoids leaving a stale banner up once the real
+		// problem is gone (mirrors SyncJobs.GuardAsync's success-path clear).
+		var afterDrain = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+		if (afterDrain.AuthState == AuthState.CredentialStoreUnavailable)
+		{
+			afterDrain.AuthState = AuthState.Connected;
+			afterDrain.LastAuthError = null;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, afterDrain, ct);
 		}
 
 		// More chains may have become eligible now that these heads are terminal.

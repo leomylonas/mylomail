@@ -55,19 +55,36 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 	public async Task<CredentialPayload?> RetrieveAsync(Guid accountId, CancellationToken ct)
 	{
 		string? encoded;
-		if (OperatingSystem.IsWindows())
+		try
 		{
-			var path = Path.Combine(windowsDirectory, accountId.ToString("N"));
-			if (!File.Exists(path)) return null;
-			encoded = Encoding.UTF8.GetString(ProtectedData.Unprotect(await File.ReadAllBytesAsync(path, ct), null, DataProtectionScope.CurrentUser));
+			if (OperatingSystem.IsWindows())
+			{
+				var path = Path.Combine(windowsDirectory, accountId.ToString("N"));
+				if (!File.Exists(path)) return null;
+				encoded = Encoding.UTF8.GetString(ProtectedData.Unprotect(await File.ReadAllBytesAsync(path, ct), null, DataProtectionScope.CurrentUser));
+			}
+			else if (OperatingSystem.IsMacOS())
+			{
+				encoded = MacKeychainCredentialStore.Retrieve(Service, accountId, ct);
+			}
+			else
+			{
+				encoded = await LinuxSecretServiceCredentialStore.RetrieveAsync(Service, accountId, ct);
+			}
 		}
-		else if (OperatingSystem.IsMacOS())
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			encoded = MacKeychainCredentialStore.Retrieve(Service, accountId, ct);
-		}
-		else
-		{
-			encoded = await LinuxSecretServiceCredentialStore.RetrieveAsync(Service, accountId, ct);
+			// Not "no credential stored" — every implementation above already returns null for
+			// that (a missing file, ItemNotFound, an empty Secret Service search result). An
+			// exception here means the store itself couldn't be reached: a locked keyring
+			// needing an interactive unlock (LinuxSecretServiceCredentialStore.EnsureNoPrompt),
+			// a denied Keychain prompt, no D-Bus session. Reauthenticating cannot fix any of
+			// these — the stored credential may well be fine — so this is reported distinctly
+			// from ProviderAuthenticationException (§4).
+			throw new CredentialStoreUnavailableException(
+				$"The OS credential store could not be reached: {ex.Message}",
+				ex
+			);
 		}
 
 		return string.IsNullOrWhiteSpace(encoded)

@@ -101,12 +101,37 @@ public sealed class OutboxJobs(
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
 				return;
 			}
+			catch (Credentials.CredentialStoreUnavailableException ex)
+			{
+				// Same detached-`account` hazard as the ProviderAuthenticationException branch
+				// above — a fresh load is required. Not gated off like NeedsReauth: the next
+				// scheduled run retrying on its own, once the OS store is reachable again, is
+				// the recovery path (see SyncJobs.GuardAsync's matching comment).
+				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+				reloaded.AuthState = AuthState.CredentialStoreUnavailable;
+				reloaded.LastAuthError = ex.Message;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				return;
+			}
 			catch (Exception ex)
 			{
 				// SendExecutor has already recorded the ambiguity. One send failing must not
 				// stop the others: they are separate messages the user asked to send.
 				logger.LogError(ex, "Send for outbox item {OutboxItemId} failed.", item.Id);
 			}
+		}
+
+		// A full run with no credential-store failure means it's reachable again if it
+		// wasn't before — self-clearing here avoids leaving a stale banner up once the real
+		// problem is gone (mirrors SyncJobs.GuardAsync's success-path clear).
+		var afterRun = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+		if (afterRun.AuthState == AuthState.CredentialStoreUnavailable)
+		{
+			afterRun.AuthState = AuthState.Connected;
+			afterRun.LastAuthError = null;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, afterRun, ct);
 		}
 	}
 

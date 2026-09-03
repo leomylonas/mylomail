@@ -75,6 +75,21 @@ public sealed class ContentAcquisition(
 					ct
 				);
 		}
+		catch (Credentials.CredentialStoreUnavailableException ex)
+		{
+			// Not evidence the content is unreadable -- nothing about this message was even
+			// attempted, providers.For(account) failed before it could dial out. Left uncounted
+			// against MaxAttempts (undoing the increment above) so a sustained local
+			// credential-store outage can never exhaust the retry budget and mislabel readable
+			// content as permanently Failed; SendExecutor treats the same exception as "nothing
+			// dispatched" for the identical reason.
+			state.Attempts--;
+			state.Status = ContentStatus.Queued;
+			state.LastError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			logger.LogWarning(ex, "Content fetch for message {MessageId} could not reach the credential store.", messageId);
+			throw;
+		}
 		catch (Exception ex)
 		{
 			// Requeued rather than failed outright while attempts remain: a transient network

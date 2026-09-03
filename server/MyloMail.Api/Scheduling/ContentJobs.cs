@@ -1,7 +1,9 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 
@@ -27,6 +29,7 @@ public sealed class ContentJobs(
 	ContentAcquisition acquisition,
 	AccountGate gate,
 	IBackgroundJobClient jobs,
+	IHubEvents events,
 	ILogger<ContentJobs> logger
 )
 {
@@ -62,11 +65,33 @@ public sealed class ContentJobs(
 			jobs.Schedule<ContentJobs>(job => job.FetchNextAsync(accountId, default), ex.RetryAfter);
 			return;
 		}
+		catch (CredentialStoreUnavailableException ex)
+		{
+			// No claim CAS runs ahead of this fetch (unlike MutationJobs/OutboxJobs), so
+			// `account` is still the tracked, attached instance — no reload needed.
+			account.AuthState = AuthState.CredentialStoreUnavailable;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+
+			logger.LogWarning("Account {AccountId}'s credential store could not be reached.", accountId);
+			return;
+		}
 		catch (Exception ex)
 		{
 			// The message is marked Failed by the acquisition itself. One unreadable message
 			// must not stop the queue behind it.
 			logger.LogWarning(ex, "Skipping content for message {MessageId}.", pending.Value);
+		}
+
+		if (account.AuthState == AuthState.CredentialStoreUnavailable)
+		{
+			// Not gated off from retrying (see the catch above) — a fetch reaching this far
+			// without hitting that exception again means the store is reachable now.
+			account.AuthState = AuthState.Connected;
+			account.LastAuthError = null;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 		}
 
 		jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));

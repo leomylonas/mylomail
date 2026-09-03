@@ -51,6 +51,7 @@ export enum AuthState {
     Connected = 0,
     NeedsReauth = 1,
     Error = 2,
+    CredentialStoreUnavailable = 3,
 }
 
 /** Transpiled from MyloMail.Api.Domain.SpecialUse */

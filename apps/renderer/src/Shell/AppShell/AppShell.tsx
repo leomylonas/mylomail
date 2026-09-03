@@ -118,10 +118,16 @@ export function AppShell() {
 	const selectedAccount = accounts.data?.find(
 		(a) => a.id === selectedAccountId,
 	);
+	// CredentialStoreUnavailable gets its own banner below: reauthenticating cannot fix a
+	// locked OS keychain, so it must not offer the same "Reauthenticate" action as the other
+	// non-Connected states.
+	const credentialStoreUnavailable =
+		selectedAccount?.authState === AuthState.CredentialStoreUnavailable;
 	const needsAttention =
 		selectedAccount &&
 		selectedAccount.authState !== undefined &&
-		selectedAccount.authState !== AuthState.Connected;
+		selectedAccount.authState !== AuthState.Connected &&
+		!credentialStoreUnavailable;
 
 	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
 	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
@@ -256,6 +262,20 @@ export function AppShell() {
 					inline
 					actionButtonLabel="Reauthenticate"
 					onActionButtonClick={() => setReauthenticating(true)}
+				/>
+			) : null}
+
+			{credentialStoreUnavailable ? (
+				<ActionableNotification
+					kind="warning"
+					title="Unlock your keychain"
+					subtitle={
+						selectedAccount!.lastAuthError ??
+						"MyloMail could not reach your OS credential store. This account's stored password may be fine — nothing to re-enter here, it just needs your keychain unlocked."
+					}
+					lowContrast
+					hideCloseButton
+					inline
 				/>
 			) : null}
 

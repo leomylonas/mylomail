@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
@@ -112,13 +113,17 @@ public sealed class SendExecutor(
 		{
 			await providers.For(account).SendAsync(account, draft, item.StableMessageId, ct);
 		}
-		catch (Exception ex) when (ex is ProviderThrottledException or ProviderAuthenticationException)
+		catch (Exception ex)
+			when (ex is ProviderThrottledException or ProviderAuthenticationException or CredentialStoreUnavailableException)
 		{
 			// An explicit categorised rejection is an *observed* outcome, not an absent one:
 			// the provider answered, and the answer was no. The message was not sent, so the
 			// item returns to the queue rather than becoming ambiguous — otherwise every
 			// throttled send would leave the user with a message they must go and check the
 			// Sent mailbox for, and undo-send would degrade badly under rate limiting.
+			// CredentialStoreUnavailableException belongs here too even though it isn't a
+			// provider rejection: it fails before providers.For(account) can even build a
+			// client to dial out with, so nothing was dispatched either.
 			item.Status = OutboxStatus.Scheduled;
 			item.LastError = ex.Message;
 

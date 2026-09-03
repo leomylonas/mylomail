@@ -385,7 +385,20 @@ public sealed class SyncJobs(
 	{
 		try
 		{
-			return await work();
+			var result = await work();
+			if (account.AuthState == AuthState.CredentialStoreUnavailable)
+			{
+				// Unlike NeedsReauth, this state is never gated off from retrying (see the
+				// catch below) — so a later attempt succeeding, once the OS store is reachable
+				// again, is the recovery path itself, not something the user resolved through
+				// the UI. Self-clearing here avoids leaving a stale banner up after the real
+				// problem is already gone.
+				account.AuthState = AuthState.Connected;
+				account.LastAuthError = null;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			}
+			return result;
 		}
 		catch (ProviderThrottledException ex)
 		{
@@ -403,6 +416,22 @@ public sealed class SyncJobs(
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 
 			logger.LogWarning("Account {AccountId} needs reauthentication; its jobs are paused.", account.Id);
+			throw;
+		}
+		catch (Credentials.CredentialStoreUnavailableException ex)
+		{
+			// Not NeedsReauth: the stored credential is not necessarily wrong, the OS store
+			// itself could not be reached (a locked keyring, a denied Keychain prompt). Jobs
+			// are deliberately left unpaused — this costs nothing against the provider, unlike
+			// a bad-password retry, and the store commonly becomes reachable again on its own
+			// (the user unlocks their session), so the next scheduled attempt is the recovery
+			// path rather than something the user must act on here.
+			account.AuthState = AuthState.CredentialStoreUnavailable;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+
+			logger.LogWarning("Account {AccountId}'s credential store could not be reached.", account.Id);
 			throw;
 		}
 	}

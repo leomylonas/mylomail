@@ -64,7 +64,13 @@ internal static class LinuxSecretServiceCredentialStore
 
 		var unlock = await service.CreateService(RootPath).UnlockAsync(result.Locked);
 		EnsureNoPrompt(unlock.Prompt);
-		return unlock.Unlocked.Length > 0 ? unlock.Unlocked[0] : (ObjectPath?)null;
+		if (unlock.Unlocked.Length > 0) return unlock.Unlocked[0];
+
+		// A matching item exists but stayed locked with no interactive prompt offered — a
+		// locked login keyring in a non-interactive/headless session is exactly this. Distinct
+		// from "no item found": returning null here would let RetrieveAsync report it as no
+		// credential ever stored, when the truth is the store itself is inaccessible right now.
+		throw new InvalidOperationException("The Secret Service left a matching item locked with no unlock prompt offered.");
 	}
 
 	private static DBusConnection Connect(CancellationToken ct)

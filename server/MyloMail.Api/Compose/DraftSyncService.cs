@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
@@ -84,6 +85,20 @@ public sealed class DraftSyncService(
 				// marking the draft pushed would claim something untrue.
 				return pushed;
 			}
+			catch (CredentialStoreUnavailableException ex)
+			{
+				// Nothing claims/detaches `account` ahead of this loop, so it is still the
+				// tracked, attached instance. Not gated off from retrying (see the self-clear
+				// below): the next scheduled push succeeding, once the OS store is reachable
+				// again, is the recovery path (see SyncJobs.GuardAsync's matching comment).
+				account.AuthState = AuthState.CredentialStoreUnavailable;
+				account.LastAuthError = ex.Message;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+
+				logger.LogWarning("Account {AccountId}'s credential store could not be reached.", accountId);
+				return pushed;
+			}
 
 			// Saved per-draft, not batched after the loop (§16): a crash between two drafts'
 			// pushes must not lose the ProviderDraftId a provider call already committed
@@ -91,6 +106,14 @@ public sealed class DraftSyncService(
 			// an orphaned duplicate on retry.
 			await context.SaveChangesAsync(ct);
 			await events.DraftUpdatedAsync(draft.Id);
+		}
+
+		if (account.AuthState == AuthState.CredentialStoreUnavailable)
+		{
+			account.AuthState = AuthState.Connected;
+			account.LastAuthError = null;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 		}
 
 		return pushed;

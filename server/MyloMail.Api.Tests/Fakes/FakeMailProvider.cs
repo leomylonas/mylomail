@@ -29,6 +29,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
 	private Exception? sendFailure;
+	private Exception? fetchRawMessageFailure;
 	private Exception? draftPushFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
@@ -63,6 +64,9 @@ public sealed class FakeMailProvider : IMailProvider
 
 	/// <summary>Makes the next send throw, so a rejection path can be exercised.</summary>
 	public void FailSendWith(Exception failure) => sendFailure = failure;
+
+	/// <summary>Makes the next raw-message fetch throw, so a content-fetch failure path can be exercised.</summary>
+	public void FailFetchRawMessageWith(Exception failure) => fetchRawMessageFailure = failure;
 
 	/// <summary>
 	/// Makes a later draft push throw after minting a provider id (a real remote draft was
@@ -265,6 +269,12 @@ public sealed class FakeMailProvider : IMailProvider
 		CancellationToken ct
 	)
 	{
+		if (fetchRawMessageFailure is Exception failure)
+		{
+			fetchRawMessageFailure = null;
+			throw failure;
+		}
+
 		var found = Locate(occurrence.ProviderOccurrenceId);
 		return found is null
 			? throw new InvalidOperationException("no such occurrence")

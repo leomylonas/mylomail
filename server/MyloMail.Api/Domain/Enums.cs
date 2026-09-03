@@ -18,6 +18,13 @@ public enum AuthState
 	Connected,
 	NeedsReauth,
 	Error,
+	/// <summary>
+	/// A mid-session read from the OS credential store failed (a locked keyring, a denied
+	/// Keychain prompt) — distinct from <see cref="NeedsReauth"/> because the stored
+	/// credentials are not wrong; re-entering them would not help. The fix is to unlock the
+	/// OS store, not to reauthenticate.
+	/// </summary>
+	CredentialStoreUnavailable,
 }
 
 [TranspilationSource]

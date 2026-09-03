@@ -9,7 +9,8 @@ export enum AuthState {
   Connected = 0,
   NeedsReauth = 1,
   Error = 2,
+  CredentialStoreUnavailable = 3,
 }
 
-export const AuthStateEnum = z.enum(["Connected", "NeedsReauth", "Error"]);
+export const AuthStateEnum = z.enum(["Connected", "NeedsReauth", "Error", "CredentialStoreUnavailable"]);
 export type AuthStateEnumType = z.infer<typeof AuthStateEnum>;
