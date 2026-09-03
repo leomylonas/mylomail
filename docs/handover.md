@@ -1226,6 +1226,25 @@ check` clean under Node 22.
   as a genuine discriminator via revert-and-reproduce (item ends `Sent` instead of `Failed`
   against the pre-fix code). `dotnet test` 352 passed/0 failed (up from 351). `pnpm check`
   clean, 261 dotnet tests, vitest 43.
+- **Fifty-ninth pass — background jobs flipped `Account.AuthState` but never announced it live.**
+  `AccountProvisioningService`'s own `AuthState` transitions call
+  `IHubEvents.AccountStatusChangedAsync` (§7), but `MutationJobs`, `OutboxJobs`, and `SyncJobs`
+  entering `NeedsReauth` on a `ProviderAuthenticationException`, and
+  `StartupScheduler.ResumeAccountAsync` clearing it back to `Connected`, never did — the row
+  updated correctly, an already-open window just didn't hear about it until its next full
+  accounts refresh. Added a shared `AccountDtoFactory.AnnounceStatusAsync` helper and called it
+  from all four sites. Along the way, found and fixed a second, more serious bug in
+  `MutationJobs`/`OutboxJobs`: both wrote the transition through the `account` variable loaded
+  _before_ their claim CAS ran, but `MutationClaimService`/`OutboxService`'s claim CAS executes
+  a raw SQL UPDATE and then calls `context.ChangeTracker.Clear()` so their own tracked copy
+  can't go stale — silently detaching every other tracked entity in that context too, `account`
+  included. EF gives no error for writing through a detached entity; `SaveChangesAsync` just had
+  nothing queued for it, so this specific `NeedsReauth` write was silently dropped. Fixed by
+  reloading the account fresh before writing. `invariant-review` confirmed the reload is
+  genuinely necessary (verified `ChangeTracker.Clear()` in both claim services) and found no
+  further issues. Two new regression tests confirmed as genuine discriminators via
+  revert-and-reproduce. `dotnet test` 354 passed/0 failed (up from 352). `pnpm check` clean, 263
+  dotnet tests, vitest 43.
 
 ## Next task
 
