@@ -400,13 +400,18 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	}
 
 	/// <summary>
-	/// Removes one membership. Never the canonical message: under Graph's folder-scoped delta
-	/// a move surfaces as a removal and an addition in either order, so a canonical message
-	/// may transiently have zero memberships (§3).
+	/// Removes a batch of memberships from one mailbox. Never the canonical message: under
+	/// Graph's folder-scoped delta a move surfaces as a removal and an addition in either
+	/// order, so a canonical message may transiently have zero memberships (§3).
 	/// </summary>
-	public async Task RemoveOccurrenceAsync(
+	/// <remarks>
+	/// One query for the whole batch rather than one per occurrence — both callers (periodic
+	/// integrity reconciliation and the live change stream) can report every expunge in a
+	/// mailbox on a single page, and a large mailbox made this the dominant cost.
+	/// </remarks>
+	public async Task RemoveOccurrencesAsync(
 		Mailbox mailbox,
-		string providerOccurrenceId,
+		IReadOnlyList<string> providerOccurrenceIds,
 		GenerationSnapshot generations,
 		CancellationToken ct = default
 	)
@@ -414,54 +419,63 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		// A removal issued against a previous incarnation of this mailbox would delete a real
 		// occurrence belonging to the new one — silently, since the provider occurrence id can
 		// legitimately repeat across incarnations.
-		if (!generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
+		if (providerOccurrenceIds.Count == 0 || !generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
 		{
 			return;
 		}
 
-		var occurrence = await context.MessageMailboxes.FirstOrDefaultAsync(
-			o => o.MailboxId == mailbox.Id && o.ProviderOccurrenceId == providerOccurrenceId,
-			ct
-		);
+		var occurrences = await context
+			.MessageMailboxes.Where(o => o.MailboxId == mailbox.Id && providerOccurrenceIds.Contains(o.ProviderOccurrenceId))
+			.ToListAsync(ct);
 
-		if (occurrence is not null)
-		{
-			context.MessageMailboxes.Remove(occurrence);
-		}
+		context.MessageMailboxes.RemoveRange(occurrences);
 	}
 
-	/// <summary>Applies a server-observed flag change to server-known state.</summary>
-	public async Task<Message?> ApplyFlagChangeAsync(
+	/// <summary>Applies a batch of server-observed flag changes to server-known state.</summary>
+	/// <remarks>
+	/// Batched for the same reason as <see cref="RemoveOccurrencesAsync"/>. Changes are applied
+	/// in the order given, so a provider that reports the same occurrence twice in one page
+	/// still ends up with the later change winning, matching the previous one-at-a-time
+	/// behaviour.
+	/// </remarks>
+	public async Task<IReadOnlyList<Message>> ApplyFlagChangesAsync(
 		Mailbox mailbox,
-		OccurrenceFlagChange change,
+		IReadOnlyList<OccurrenceFlagChange> changes,
 		GenerationSnapshot generations,
 		CancellationToken ct = default
 	)
 	{
-		if (!generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
+		if (changes.Count == 0 || !generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
 		{
-			return null;
+			return [];
 		}
 
-		var occurrence = await context.MessageMailboxes.FirstOrDefaultAsync(
-			o => o.MailboxId == mailbox.Id && o.ProviderOccurrenceId == change.ProviderOccurrenceId,
-			ct
-		);
+		var occurrenceIds = changes.Select(c => c.ProviderOccurrenceId).Distinct().ToList();
+		var occurrences = await context
+			.MessageMailboxes.Where(o => o.MailboxId == mailbox.Id && occurrenceIds.Contains(o.ProviderOccurrenceId))
+			.ToDictionaryAsync(o => o.ProviderOccurrenceId, ct);
 
-		if (occurrence is null)
+		var messageIds = occurrences.Values.Select(o => o.MessageId).Distinct().ToList();
+		var messages = await context.Messages.Where(m => messageIds.Contains(m.Id)).ToDictionaryAsync(m => m.Id, ct);
+
+		var changed = new List<Message>();
+		foreach (var change in changes)
 		{
-			return null;
+			if (!occurrences.TryGetValue(change.ProviderOccurrenceId, out var occurrence))
+			{
+				continue;
+			}
+			if (!messages.TryGetValue(occurrence.MessageId, out var message))
+			{
+				continue;
+			}
+
+			message.IsRead = change.IsRead ?? message.IsRead;
+			message.IsFlagged = change.IsFlagged ?? message.IsFlagged;
+			occurrence.ImapModSeq = change.ImapModSeq ?? occurrence.ImapModSeq;
+			changed.Add(message);
 		}
 
-		var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == occurrence.MessageId, ct);
-		if (message is null)
-		{
-			return null;
-		}
-
-		message.IsRead = change.IsRead ?? message.IsRead;
-		message.IsFlagged = change.IsFlagged ?? message.IsFlagged;
-		occurrence.ImapModSeq = change.ImapModSeq ?? occurrence.ImapModSeq;
-		return message;
+		return changed;
 	}
 }

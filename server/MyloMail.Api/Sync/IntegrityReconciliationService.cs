@@ -50,15 +50,12 @@ public sealed class IntegrityReconciliationService(
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
-			foreach (var missing in known.Where(o => !snapshot.ExistingOccurrenceIds.Contains(o.ProviderOccurrenceId)))
-			{
-				await ingestor.RemoveOccurrenceAsync(mailbox, missing.ProviderOccurrenceId, generations, ct);
-			}
-
-			foreach (var change in snapshot.FlagChanges)
-			{
-				await ingestor.ApplyFlagChangeAsync(mailbox, change, generations, ct);
-			}
+			var missingIds = known
+				.Where(o => !snapshot.ExistingOccurrenceIds.Contains(o.ProviderOccurrenceId))
+				.Select(o => o.ProviderOccurrenceId)
+				.ToList();
+			await ingestor.RemoveOccurrencesAsync(mailbox, missingIds, generations, ct);
+			await ingestor.ApplyFlagChangesAsync(mailbox, snapshot.FlagChanges, generations, ct);
 
 			var state = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(s => s.MailboxId == mailbox.Id, ct);
 			if (state is null)

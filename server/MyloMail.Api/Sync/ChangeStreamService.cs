@@ -258,25 +258,21 @@ public sealed class ChangeStreamService(
 		);
 		var changed = new List<Domain.Message>(ingested.Updated);
 
-		foreach (var change in result.FlagChanges)
+		foreach (var group in result.FlagChanges.GroupBy(c => c.ProviderMailboxId))
 		{
-			if (mailboxes.TryGetValue(change.ProviderMailboxId, out var target))
+			if (mailboxes.TryGetValue(group.Key, out var target))
 			{
-				var message = await ingestor.ApplyFlagChangeAsync(target, change, generations, ct);
-				if (message is not null)
-				{
-					changed.Add(message);
-				}
+				changed.AddRange(await ingestor.ApplyFlagChangesAsync(target, [.. group], generations, ct));
 			}
 		}
 
-		foreach (var removal in result.Removed)
+		foreach (var group in result.Removed.GroupBy(r => r.ProviderMailboxId))
 		{
-			if (mailboxes.TryGetValue(removal.ProviderMailboxId, out var target))
+			if (mailboxes.TryGetValue(group.Key, out var target))
 			{
 				// Removes the occurrence, never the canonical message: a Graph move surfaces
 				// as a removal and an addition in either order.
-				await ingestor.RemoveOccurrenceAsync(target, removal.ProviderOccurrenceId, generations, ct);
+				await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct);
 			}
 		}
 

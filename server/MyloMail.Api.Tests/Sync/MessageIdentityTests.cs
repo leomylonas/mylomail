@@ -214,6 +214,101 @@ public class MessageIdentityTests
 		});
 	}
 
+	/// <summary>
+	/// <see cref="MessageIngestor.ApplyFlagChangesAsync"/> batches a whole mailbox's flag
+	/// changes into one preload query (§3, an N+1 fix over one query per occurrence). The
+	/// preload is keyed by occurrence id within a single mailbox, so if it were ever done
+	/// without also filtering by <see cref="Mailbox.Id"/>, an occurrence id that collides
+	/// across two mailboxes would let a flag change meant for one silently update the other's
+	/// message instead.
+	/// </summary>
+	[Fact]
+	public async Task Flag_changes_batched_in_one_call_do_not_cross_mailboxes_on_a_colliding_occurrence_id()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("Archive", SpecialUse.Archive);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var inbox = await harness.MailboxAsync(scope, "INBOX");
+			var archive = await harness.MailboxAsync(scope, "Archive");
+			var mailboxes = new Dictionary<string, Mailbox> { ["INBOX"] = inbox, ["Archive"] = archive };
+			var ingestor = scope.GetRequiredService<MessageIngestor>();
+
+			// Both messages start unread, each occupying occurrence id "2" in its own mailbox.
+			await ingestor.IngestAsync(
+				account,
+				[Observation("INBOX", "2", "In the inbox"), Observation("Archive", "2", "In the archive")],
+				mailboxes,
+				GenerationSnapshot.Capture(mailboxes.Values)
+			);
+			await context.SaveChangesAsync();
+
+			// Only the inbox's occurrence "2" is reported read — a single batched call against
+			// the inbox mailbox, exactly what ChangeStreamService issues per mailbox group.
+			var changed = await ingestor.ApplyFlagChangesAsync(
+				inbox,
+				[new OccurrenceFlagChange("INBOX", "2", IsRead: true, IsFlagged: null)],
+				GenerationSnapshot.Capture(mailboxes.Values)
+			);
+			await context.SaveChangesAsync();
+
+			Assert.Equal("In the inbox", Assert.Single(changed).Subject);
+			var messages = await context.Messages.ToDictionaryAsync(m => m.Subject);
+			Assert.True(messages["In the inbox"].IsRead);
+			Assert.False(messages["In the archive"].IsRead);
+		});
+	}
+
+	/// <summary>
+	/// The removal-side analog of the flag-change test above: <see cref="MessageIngestor.RemoveOccurrencesAsync"/>
+	/// batches a whole mailbox's expunges into one preload query, keyed by occurrence id within
+	/// a single mailbox. If that preload were ever done without also filtering by
+	/// <see cref="Mailbox.Id"/>, an occurrence id that collides across two mailboxes would let a
+	/// removal meant for one delete the other's membership instead.
+	/// </summary>
+	[Fact]
+	public async Task Removals_batched_in_one_call_do_not_cross_mailboxes_on_a_colliding_occurrence_id()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("Archive", SpecialUse.Archive);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var inbox = await harness.MailboxAsync(scope, "INBOX");
+			var archive = await harness.MailboxAsync(scope, "Archive");
+			var mailboxes = new Dictionary<string, Mailbox> { ["INBOX"] = inbox, ["Archive"] = archive };
+			var ingestor = scope.GetRequiredService<MessageIngestor>();
+
+			// Both messages occupy occurrence id "2", each in its own mailbox.
+			await ingestor.IngestAsync(
+				account,
+				[Observation("INBOX", "2", "In the inbox"), Observation("Archive", "2", "In the archive")],
+				mailboxes,
+				GenerationSnapshot.Capture(mailboxes.Values)
+			);
+			await context.SaveChangesAsync();
+
+			// Only the inbox's occurrence "2" is reported removed — a single batched call
+			// against the inbox mailbox, exactly what ChangeStreamService issues per mailbox
+			// group.
+			await ingestor.RemoveOccurrencesAsync(inbox, ["2"], GenerationSnapshot.Capture(mailboxes.Values));
+			await context.SaveChangesAsync();
+
+			var remaining = await context.MessageMailboxes.SingleAsync();
+			var message = await context.Messages.SingleAsync(m => m.Id == remaining.MessageId);
+			Assert.Equal("In the archive", message.Subject);
+		});
+	}
+
 	private static MessageDto Observation(string mailbox, string occurrenceId, string subject) =>
 		new()
 		{

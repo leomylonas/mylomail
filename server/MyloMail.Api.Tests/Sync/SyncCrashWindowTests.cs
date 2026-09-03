@@ -254,7 +254,7 @@ public sealed class SyncCrashWindowTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			var mailbox = await harness.MailboxAsync(scope, "INBOX");
 
-			await scope.GetRequiredService<MessageIngestor>().RemoveOccurrenceAsync(mailbox, occurrenceId, stale);
+			await scope.GetRequiredService<MessageIngestor>().RemoveOccurrencesAsync(mailbox, [occurrenceId], stale);
 			await context.SaveChangesAsync();
 
 			Assert.Single(await context.MessageMailboxes.ToListAsync());
