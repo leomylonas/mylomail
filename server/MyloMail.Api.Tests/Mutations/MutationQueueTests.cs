@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
@@ -174,5 +175,48 @@ public sealed class MutationQueueTests
 		);
 
 		Assert.Equal(id, item.Id);
+	}
+
+	/// <summary>
+	/// Seventy-second pass: a client-supplied messageId is never trusted against the accountId
+	/// it arrived alongside — the same gap pass 71 closed for a mailbox's parent id.
+	/// <see cref="MutationExecutor"/> resolves a message's provider occurrence by MessageId
+	/// alone, so a mismatched pair would go on to authenticate as one account while acting on
+	/// another's message.
+	/// </summary>
+	[Fact]
+	public async Task Enqueueing_for_a_message_that_belongs_to_a_different_account_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var otherAccountId = Guid.NewGuid();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Accounts.Add(
+				new Account
+				{
+					Id = otherAccountId,
+					DisplayName = "Other",
+					ProviderType = ProviderType.Gmail,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var ex = await Assert.ThrowsAsync<HubException>(
+				() =>
+					services
+						.GetRequiredService<MutationQueue>()
+						.SetFlagsAsync(otherAccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null))
+			);
+			Assert.Contains(harness.MessageId.ToString(), ex.Message);
+		});
+
+		await harness.UsingAsync(async services =>
+			Assert.Empty(await services.GetRequiredService<MyloMailDbContext>().MutationItems.ToListAsync())
+		);
 	}
 }

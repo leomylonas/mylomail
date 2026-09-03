@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
@@ -107,6 +108,21 @@ public sealed class MutationQueue(
 	/// </remarks>
 	public async Task<MutationItem> EnqueueAsync(MutationItem item, CancellationToken ct = default)
 	{
+		// A client-supplied messageId is never trusted against the accountId it arrived
+		// alongside — the same gap pass 71 closed for a mailbox's parent id. Without this, a
+		// mismatched pair would enqueue a MutationItem tagged for the wrong account, and
+		// MutationExecutor resolves the message's provider occurrence by MessageId alone (no
+		// AccountId filter), so it would go on to authenticate as one account while acting on
+		// another's message.
+		var actualAccountId = await context
+			.Messages.Where(m => m.Id == item.MessageId)
+			.Select(m => (Guid?)m.AccountId)
+			.FirstOrDefaultAsync(ct);
+		if (actualAccountId is Guid found && found != item.AccountId)
+		{
+			throw new HubException($"Message {item.MessageId} does not belong to account {item.AccountId}.");
+		}
+
 		var strategy = context.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(async () =>
 		{
