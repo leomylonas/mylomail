@@ -1293,6 +1293,25 @@ check` clean under Node 22.
   else for independent job types. New regression tests confirmed as genuine discriminators via
   revert-and-reproduce. `dotnet test` 359 passed/0 failed (up from 354). `pnpm check` clean, 268
   dotnet tests, vitest 43.
+- **Sixty-fifth pass — a rejected mailbox create/rename/move/delete reached the user as a
+  useless generic error instead of the provider's real message.** Checked pass 64's one
+  deliberately accepted limitation (the cross-job self-clearing race) first and confirmed
+  leaving it is genuinely correct — fixing it would need cross-job synchronization this codebase
+  has nowhere else for independent Hangfire job types, and the race is narrow and self-correcting
+  within one cycle. Moved to a fresh angle instead: `MailboxManagement`'s four provider-calling
+  operations let any provider exception (a duplicate name, a namespace the server won't accept)
+  propagate raw, and this server's `AddSignalR()` uses the default `EnableDetailedErrors=false`,
+  so SignalR replaces anything that isn't a `HubException` with a generic "An unexpected error
+  occurred" — silently defeating `MailboxTree.tsx`'s error banner, whose own comment says its
+  purpose is showing the user exactly why the operation was rejected. Added
+  `RunProviderCallAsync`, wrapping Create/Rename/Move/Delete (not `ReorderAsync`, which never
+  calls a provider) to catch any non-cancellation, non-`HubException` exception and rethrow it as
+  `HubException(ex.Message)`, mirroring `MailHub.DeleteSendIdentity`'s existing narrower version
+  of the same pattern. `invariant-review` confirmed no frozen-invariant hit and suggested logging
+  the original exception before the rethrow so a genuine defect isn't telemetrically
+  indistinguishable from a legitimate rejection once only the bare message survives to the client
+  — applied. New regression test confirmed as a genuine discriminator via revert-and-reproduce.
+  `dotnet test` 360 passed/0 failed (up from 359). `pnpm check` clean, 269 dotnet tests, vitest 43.
 
 ## Next task
 
