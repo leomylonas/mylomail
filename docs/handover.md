@@ -1083,6 +1083,31 @@ check` clean under Node 22.
   "invoice" documents, verified with a standalone SQLite probe of bm25's actual behavior before
   writing the assertion. `dotnet test` 340 passed/0 failed (up from 339). `pnpm check` clean
   under Node 22.
+- **Fifty-second pass — a draft sync conflict, once flagged, could never actually be resolved.**
+  §1/§15 promise a push conflict "prompts resolution rather than overwriting," but nothing ever
+  cleared `Draft.SyncConflict` once `DraftSyncService` set it — a conflicted draft silently
+  stopped syncing forever, both copies frozen. Built `DraftService.ResolveConflictAsync`,
+  mirroring `CalendarEventService.ResolveConflictAsync`'s "keep mine"/"keep theirs" shape but
+  diverging where a draft's push mechanics require it: every provider's
+  `CreateOrUpdateDraftAsync` treats a null expected revision as "create," never "force-update,"
+  so "keep mine" abandons the old remote draft (`RemoveRemoteAsync`) and clears
+  `ProviderDraftId`/`ProviderRevision`/`PushedAt` so the next ordinary push creates a genuinely
+  fresh one; "keep theirs" fetches the server's raw bytes and materializes them via a new
+  `RemoteDraftMaterializer.ApplyRawBytes`, extracted from existing sync-observation logic so
+  both paths share one MIME-to-`Draft` mapping instead of two that could drift. Added
+  `MailHub.ResolveDraftConflict`, `DraftDto.SyncConflict`, a ⚠️ indicator in `DraftList`, and a
+  resolution banner in `Compose`. `invariant-review` caught a real data-integrity bug before
+  this shipped: the "keep theirs" branch located the account's Drafts mailbox with
+  `FirstAsync(... EffectiveSpecialUse == Drafts)`, but nothing enforces at-most-one-mailbox-
+  per-account for that condition — a manual `SpecialUseOverride` (§13 Epic 2) has no uniqueness
+  check against other mailboxes already holding Drafts. With two candidates, `FirstAsync` would
+  pick one arbitrarily and fetch the raw message against the wrong mailbox's id-space, silently
+  materializing an unrelated message's content into the user's draft. Every other consumer of
+  this override pattern already used `.Where(...)` as a set; this was the one holdout. Fixed by
+  switching to `Where(...).ToListAsync` with an explicit count check that throws
+  `InvalidOperationException` when it isn't exactly 1, plus a regression test seeding a second
+  `SpecialUseOverride = Drafts` mailbox and asserting the throw. `dotnet test` 344 passed/0
+  failed (up from 343). `pnpm check` clean under Node 22.
 
 ## Next task
 
