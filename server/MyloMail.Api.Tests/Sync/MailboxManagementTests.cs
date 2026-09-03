@@ -103,4 +103,33 @@ public class MailboxManagementTests
 			Assert.Null(reloaded.ParentId);
 		});
 	}
+
+	/// <summary>
+	/// Sixty-fifth pass: a provider rejection (a duplicate name, a namespace the server won't
+	/// accept) from Create/Rename/Move/Delete was left to propagate raw, so SignalR's default
+	/// "An unexpected error occurred" (detailed errors are off) reached the user instead of the
+	/// provider's real message — silently defeating MailboxTree.tsx's error banner, which exists
+	/// specifically to show why the operation was rejected.
+	/// </summary>
+	[Fact]
+	public async Task A_provider_rejection_reaches_the_caller_as_a_HubException_with_the_real_message()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		var mailbox = harness.Provider.AddMailbox("Existing", SpecialUse.None);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var local = await context.Mailboxes.FirstAsync(m => m.ProviderMailboxId == "Existing");
+			var mailboxes = scope.GetRequiredService<MailboxManagement>();
+
+			harness.Provider.FailMailboxOperationWith(new InvalidOperationException("Mailbox already exists."));
+			var ex = await Assert.ThrowsAsync<HubException>(
+				() => mailboxes.RenameAsync(local.Id, "AlsoExisting")
+			);
+			Assert.Equal("Mailbox already exists.", ex.Message);
+		});
+	}
 }

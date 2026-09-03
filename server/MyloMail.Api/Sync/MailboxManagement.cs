@@ -44,14 +44,16 @@ public sealed class MailboxManagement(
 			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
 			: null;
 
-		await providers.For(account).CreateMailboxAsync(account, name, parent, ct);
+		await RunProviderCallAsync(() => providers.For(account).CreateMailboxAsync(account, name, parent, ct));
 		await ReconcileAsync(account, ct);
 	}
 
 	public async Task RenameAsync(Guid mailboxId, string newName, CancellationToken ct = default)
 	{
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
-		var renamed = await providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct);
+		var renamed = await RunProviderCallAsync(
+			() => providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct)
+		);
 
 		await AdoptAsync(mailbox, renamed, ct);
 		await ReconcileAsync(account, ct);
@@ -74,7 +76,9 @@ public sealed class MailboxManagement(
 			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
 			: null;
 
-		var moved = await providers.For(account).MoveMailboxAsync(account, mailbox, parent, ct);
+		var moved = await RunProviderCallAsync(
+			() => providers.For(account).MoveMailboxAsync(account, mailbox, parent, ct)
+		);
 
 		await AdoptAsync(mailbox, moved, ct);
 		await ReconcileAsync(account, ct);
@@ -117,7 +121,7 @@ public sealed class MailboxManagement(
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
 		var provider = providers.For(account);
 
-		await provider.DeleteMailboxAsync(account, mailbox, ct);
+		await RunProviderCallAsync(() => provider.DeleteMailboxAsync(account, mailbox, ct));
 
 		// The generation is bumped before reconciliation removes the row, so any page still in
 		// flight for this mailbox is discarded rather than resurrecting it (§1).
@@ -202,6 +206,44 @@ public sealed class MailboxManagement(
 		}
 
 		await context.SaveChangesAsync(ct);
+	}
+
+	/// <summary>
+	/// Surfaces a provider's rejection of a folder-lifecycle call to the caller with its real
+	/// message, instead of SignalR's default "An unexpected error occurred" (detailed errors
+	/// are off, matching every other hub method). MailboxTree.tsx's error handling exists
+	/// specifically to show the user why a create/rename/move/delete was rejected — a duplicate
+	/// name, a namespace the server won't accept, a special folder it won't delete — which is
+	/// silently defeated unless the failure is rethrown as a <see cref="HubException"/>, the
+	/// one exception type SignalR forwards verbatim.
+	/// </summary>
+	private async Task RunProviderCallAsync(Func<Task> call)
+	{
+		try
+		{
+			await call();
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
+		{
+			// Logged before the rethrow: HubException carries only ex.Message to the caller, so
+			// this is the last point the original exception (type, stack trace) is still
+			// available to distinguish a legitimate provider rejection from a genuine defect.
+			logger.LogWarning(ex, "A mailbox provider call was rejected.");
+			throw new HubException(ex.Message);
+		}
+	}
+
+	private async Task<T> RunProviderCallAsync<T>(Func<Task<T>> call)
+	{
+		try
+		{
+			return await call();
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
+		{
+			logger.LogWarning(ex, "A mailbox provider call was rejected.");
+			throw new HubException(ex.Message);
+		}
 	}
 
 	private async Task<(Account Account, Mailbox Mailbox)> ResolveAsync(

@@ -31,6 +31,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private Exception? sendFailure;
 	private Exception? fetchRawMessageFailure;
 	private Exception? draftPushFailure;
+	private Exception? mailboxOperationFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
 	private MutationProblemDetails? authFailureProblem;
@@ -67,6 +68,10 @@ public sealed class FakeMailProvider : IMailProvider
 
 	/// <summary>Makes the next raw-message fetch throw, so a content-fetch failure path can be exercised.</summary>
 	public void FailFetchRawMessageWith(Exception failure) => fetchRawMessageFailure = failure;
+
+	/// <summary>Makes the next folder create/rename/move/delete throw, so a provider rejection
+	/// (a duplicate name, a namespace it won't accept) can be exercised.</summary>
+	public void FailMailboxOperationWith(Exception failure) => mailboxOperationFailure = failure;
 
 	/// <summary>
 	/// Makes a later draft push throw after minting a provider id (a real remote draft was
@@ -510,6 +515,12 @@ public sealed class FakeMailProvider : IMailProvider
 		CancellationToken ct
 	)
 	{
+		if (mailboxOperationFailure is { } createFailure)
+		{
+			mailboxOperationFailure = null;
+			throw createFailure;
+		}
+
 		var providerId = parent is null ? name : $"{ProviderIdOf(parent)}/{name}";
 		AddMailbox(providerId);
 		return Task.FromResult(
@@ -529,6 +540,12 @@ public sealed class FakeMailProvider : IMailProvider
 		CancellationToken ct
 	)
 	{
+		if (mailboxOperationFailure is { } renameFailure)
+		{
+			mailboxOperationFailure = null;
+			throw renameFailure;
+		}
+
 		var existing = Require(ProviderIdOf(mailbox));
 		mailboxes.Remove(existing.ProviderMailboxId);
 		var renamed = existing with { ProviderMailboxId = newName };
