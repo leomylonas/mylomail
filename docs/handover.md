@@ -1207,6 +1207,25 @@ check` clean under Node 22.
   as a recorded gap, not fixed here. New regression test manually confirmed as a genuine
   discriminator via revert-and-reproduce. `dotnet test` 351 passed/0 failed (up from 350).
   `pnpm check` clean, 260 dotnet tests, vitest 43.
+- **Fifty-eighth pass — closed pass 57's recorded gap: a queued send could still fire against a
+  draft that became conflicted afterward.** `SendExecutor.SendAsync` built outgoing MIME
+  straight from the draft's local fields with no revision check of its own, so an item already
+  sitting in the queue when a concurrent sync flipped `Draft.SyncConflict` would still send,
+  silently discarding whatever the server's real copy held. `SendExecutor` now checks
+  `draft.SyncConflict` immediately after loading it (right after the existing "draft no longer
+  exists" branch, which this mirrors exactly): the item fails with a user-facing `LastError`
+  instead of sending, routing the user back through `DraftService.ResolveConflictAsync`. No
+  `MutationExecutionAttempt` is created, since nothing was dispatched to a provider — there is
+  no ambiguous outcome to record. `invariant-review` caught a real bug: the new `Failed`
+  transition wrote `OutboxItem.Status` directly without announcing `OutboxStatusChanged`,
+  leaving the renderer showing a stuck "Sending" item forever (§7 requires every status
+  transition to be announced) — and found the identical gap already existed, unannounced, in
+  the adjacent "draft is null" branch this code was modeled on, pre-existing but propagated to
+  a second call site by this diff. Fixed both via a new `OutboxService.AnnounceStatusAsync`
+  wrapper around the existing private announce method. New regression test manually confirmed
+  as a genuine discriminator via revert-and-reproduce (item ends `Sent` instead of `Failed`
+  against the pre-fix code). `dotnet test` 352 passed/0 failed (up from 351). `pnpm check`
+  clean, 261 dotnet tests, vitest 43.
 
 ## Next task
 
