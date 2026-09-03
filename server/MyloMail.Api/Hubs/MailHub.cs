@@ -362,6 +362,16 @@ public class MailHub(
 	/// </remarks>
 	public async Task<MessageBodyDto> GetMessageBody(Guid messageId)
 	{
+		// Distinct from "not yet fetched," which has no MessageBody/MessageContentState row
+		// either but a live Message row behind it: a reading pane left open on a message that
+		// has since been deleted (or its whole account removed) would otherwise see the same
+		// all-null shape and poll this forever, showing a blank body under a stale subject
+		// line with no indication anything is wrong.
+		if (!await context.Messages.AnyAsync(m => m.Id == messageId))
+		{
+			throw new HubException("This message no longer exists.");
+		}
+
 		var body = await context.MessageBodies.FirstOrDefaultAsync(b => b.MessageId == messageId);
 		var state = await context.MessageContentStates.FirstOrDefaultAsync(c => c.MessageId == messageId);
 

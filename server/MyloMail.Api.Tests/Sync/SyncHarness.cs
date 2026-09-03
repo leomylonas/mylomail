@@ -65,6 +65,11 @@ internal sealed class SyncHarness : IAsyncDisposable
 			.AddMutations()
 			.AddSync()
 			.AddScheduling()
+			// Not wired by AddSignalR (this harness never calls it) — a plain class with all
+			// its own dependencies already registered above, so it resolves fine standalone
+			// for tests that exercise a hub method directly rather than through a live
+			// connection.
+			.AddScoped<MailHub>()
 			// These override AddScheduling's own registrations (order matters: last wins),
 			// so SyncJobs — which AddScheduling registers — resolves the fake/recording
 			// implementations rather than the real provider factories or Hangfire client.

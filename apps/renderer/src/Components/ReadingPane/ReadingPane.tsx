@@ -57,9 +57,15 @@ export function ReadingPane({
 		// Content lands after the message does, so an unfetched body is worth asking about
 		// again; a fetched one never changes unless its raw content is replaced. A failed one
 		// never will, having already exhausted its retries server-side (§15) — polling it
-		// forever would just be asking the same unanswerable question every two seconds.
+		// forever would just be asking the same unanswerable question every two seconds. A
+		// query error means the message itself is gone (deleted, or its account removed) —
+		// also terminal, and also not worth asking again.
 		refetchInterval: (query) =>
-			query.state.data?.isFetched || query.state.data?.isFailed ? false : 2000,
+			query.state.data?.isFetched ||
+			query.state.data?.isFailed ||
+			query.state.error
+				? false
+				: 2000,
 	});
 
 	return (
@@ -76,6 +82,11 @@ export function ReadingPane({
 				) : null}
 			</div>
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
+			{body.isError ? (
+				<p className={styles.waiting} role="alert">
+					This message is no longer available.
+				</p>
+			) : null}
 			{body.data ? (
 				<Body
 					body={body.data}
