@@ -18,6 +18,7 @@ import {
 	openWindowChannel,
 	pickExportFolderChannel,
 	showNotificationChannel,
+	updateCloseBehaviorChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
@@ -175,6 +176,17 @@ export async function startShell(): Promise<void> {
 		notification.show();
 	});
 
+	// Without this, a change made in ShellSettings only ever reaches the AppSettings row the
+	// backend answers `loadCloseBehavior` from at the *next* startup — `closeBehavior` above
+	// would keep acting on whatever was true when this window opened, silently ignoring a
+	// setting the user just changed and saw succeed with no error (§8, §13 Epic 10).
+	ipcMain.handle(updateCloseBehaviorChannel, (_event, value: unknown): void => {
+		// Mirrors loadCloseBehavior's own mapping (CloseBehavior.MinimizeToTray = 1 in
+		// server/MyloMail.Api/Domain/AppSettings.cs) — the renderer already confirmed the
+		// write succeeded, so this trusts the value it hands back rather than re-fetching.
+		closeBehavior = value === 1 ? "MinimizeToTray" : "QuitApp";
+	});
+
 	// The port, never the token: this line is diagnostics, and the token is the backend's
 	// only defence against another local process.
 	console.info(`Backend ready on 127.0.0.1:${backend.port}.`);
@@ -330,6 +342,15 @@ async function confirmQuit(origin: string): Promise<boolean> {
 	return result.response === 0;
 }
 
+// CloseBehavior.MinimizeToTray = 1 (server/MyloMail.Api/Domain/AppSettings.cs) —
+// System.Text.Json serialises enums as their numeric ordinal by default here, since
+// AppSettingsController has no JsonStringEnumConverter registered.
+export function closeBehaviorFromValue(
+	value: unknown,
+): "QuitApp" | "MinimizeToTray" {
+	return value === 1 ? "MinimizeToTray" : "QuitApp";
+}
+
 async function loadCloseBehavior(
 	origin: string,
 ): Promise<"QuitApp" | "MinimizeToTray"> {
@@ -341,10 +362,7 @@ async function loadCloseBehavior(
 		const settings = (await response.json()) as {
 			closeBehavior?: unknown;
 		};
-		// CloseBehavior.MinimizeToTray = 1 (server/MyloMail.Api/Domain/AppSettings.cs) —
-		// System.Text.Json serialises enums as their numeric ordinal by default here, since
-		// AppSettingsController has no JsonStringEnumConverter registered.
-		return settings.closeBehavior === 1 ? "MinimizeToTray" : "QuitApp";
+		return closeBehaviorFromValue(settings.closeBehavior);
 	} catch {
 		// The backend isn't answering this early, or the row doesn't exist yet — quitting on
 		// close is the least surprising default.

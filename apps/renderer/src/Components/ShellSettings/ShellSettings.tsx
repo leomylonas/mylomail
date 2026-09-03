@@ -94,6 +94,18 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 			if (!response.ok)
 				throw new Error(`close-behavior responded ${response.status}`);
 			invalidateShellSettings();
+			// The shell reads CloseBehavior once at startup (§13 Epic 10) — without telling it
+			// directly, this save takes effect only after the app is next relaunched, with no
+			// error to explain why closing the window didn't behave as just chosen. This runs
+			// after the save is already known to have succeeded and outside its try block: the
+			// PUT is the durable write, so a failure here must not be reported as the save
+			// itself having failed.
+			try {
+				await window.shellSettings?.closeBehaviorChanged(value);
+			} catch {
+				// Best-effort only. The setting is saved; the running app just won't act on it
+				// until relaunched, which is the same outcome as before this push existed.
+			}
 		} catch (error) {
 			reportFailure("The close behaviour could not be saved")(error);
 		}

@@ -6,6 +6,7 @@ import {
 	openWindowChannel,
 	pickExportFolderChannel,
 	showNotificationChannel,
+	updateCloseBehaviorChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
@@ -67,4 +68,14 @@ contextBridge.exposeInMainWorld("windows", {
 contextBridge.exposeInMainWorld("dialogs", {
 	pickExportFolder: (): Promise<string | null> =>
 		ipcRenderer.invoke(pickExportFolderChannel) as Promise<string | null>,
+});
+
+/**
+ * `CloseBehavior` is main-process state (§13 Epic 10) read from `AppSettings` once at
+ * startup — a change saved through ShellSettings only reaches this run if the renderer
+ * pushes it across after the write succeeds, since nothing else re-reads it mid-session.
+ */
+contextBridge.exposeInMainWorld("shellSettings", {
+	closeBehaviorChanged: (value: number): Promise<void> =>
+		ipcRenderer.invoke(updateCloseBehaviorChannel, value) as Promise<void>,
 });

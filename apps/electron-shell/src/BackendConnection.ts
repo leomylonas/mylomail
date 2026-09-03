@@ -13,6 +13,8 @@ export const showNotificationChannel = "notification:show";
 export const notificationClickedChannel = "notification:clicked";
 export const openWindowChannel = "window:open";
 export const pickExportFolderChannel = "export:pick-folder";
+export const updateCloseBehaviorChannel =
+	"shell-settings:close-behavior-changed";
 
 /**
  * What the renderer hands the shell to show a native OS notification (§13 Epic 9).
