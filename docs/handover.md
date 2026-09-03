@@ -1070,9 +1070,19 @@ check` clean under Node 22.
   enumerates every mailbox with no `SpecialUse` filtering — Drafts/Sent/Trash/Archive/Junk are
   all included, and `RawBytesAsync` writes full raw MIME bytes, preserving attachments). Both
   clean after reading the actual implementation.
-- **Fifty-first pass — search result ordering flagged as an open decision, not resolved.** See
-  item 5 under "Next task" below — asked the user, no answer yet, left undecided rather than
-  built unilaterally.
+- **Fifty-first pass — search results were returned in recency order despite genuine relevance
+  ranking already being computed and discarded.** `MessageSearch.cs`'s `MatchAsync` computes
+  real FTS5 relevance ranking (SQL `ORDER BY rank`; its own doc comment says it returns "ids
+  FTS5 matches, in relevance order") — but `SearchAsync` discarded that order entirely and
+  re-sorted by `ReceivedAt` instead. Not a strict doc violation (§8 doesn't explicitly promise
+  relevance ranking), so raised to the user as a genuine UX decision; they chose relevance
+  order. Fixed by reapplying `MatchAsync`'s rank order in-memory after the EF `Contains()`
+  query, which doesn't preserve source-list order. New regression test manually confirmed as a
+  genuine discriminator (fails against the pre-fix recency ordering, passes with the fix) —
+  written carefully to avoid bm25 corpus-statistics pollution from the test fixture's existing
+  "invoice" documents, verified with a standalone SQLite probe of bm25's actual behavior before
+  writing the assertion. `dotnet test` 340 passed/0 failed (up from 339). `pnpm check` clean
+  under Node 22.
 
 ## Next task
 
@@ -1098,15 +1108,6 @@ check` clean under Node 22.
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
-5. **Search result ordering is an open decision (fifty-first pass, unanswered).**
-   `MessageSearch.cs`'s `MatchAsync` genuinely computes FTS5 relevance ranking (SQL
-   `ORDER BY rank`; its own doc comment says it returns "ids FTS5 matches, in relevance
-   order") — but `SearchAsync` discards that order entirely and re-sorts by `ReceivedAt`
-   instead. `docs/architecture.md` §8 doesn't explicitly promise relevance ranking, so this
-   isn't a strict doc violation, but the unused rank computation looks like either vestigial
-   code or an oversight. Asked the user whether to switch to relevance order or remove the
-   now-pointless rank computation and simplify to a plain match; no answer was given yet — not
-   built either direction, left as a genuine open decision rather than resolved unilaterally.
 
 ## Read first
 
