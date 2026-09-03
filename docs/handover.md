@@ -1188,6 +1188,25 @@ check` clean under Node 22.
   genuine discriminators by temporarily dropping each method's `MailboxId` filter and
   reproducing the failure, then restoring. `dotnet test` 350 passed/0 failed (up from 348).
   `pnpm check` clean, 259 dotnet tests, vitest 43.
+- **Fifty-seventh pass — a conflicted draft could still be sent.** Pass 52 built
+  `DraftService.ResolveConflictAsync` so a user can clear `Draft.SyncConflict` via "keep
+  mine"/"keep theirs," but nothing stopped hitting Send on a still-conflicted draft:
+  `SendAsync` builds its outgoing MIME straight from the draft's local fields with no revision
+  check of its own, so it would silently discard whatever the server's copy actually held —
+  defeating §1/§15's "prompts resolution rather than overwriting" promise for the send path
+  specifically. `SendAsync` now throws `InvalidOperationException` immediately after loading
+  the draft, before any side effect, if `SyncConflict` is set — matching the same bare-
+  `InvalidOperationException` convention pass 52's Drafts-mailbox-ambiguity guard already
+  established in this file. `Compose.tsx` additionally disables Send, the "Send later"
+  overflow menu, and the schedule picker's Schedule button while conflicted, as defense in
+  depth. `invariant-review` found no issues and no frozen-invariant hit, and flagged one
+  legitimate but out-of-scope follow-up: an outbox item already queued before a concurrent
+  sync flips `SyncConflict` on its draft isn't touched by this guard, since `SendAsync` isn't
+  re-invoked for an item already in the queue — closing that would need `OutboxService` to
+  re-check at dispatch time, or cancellation triggered on the conflict transition itself; left
+  as a recorded gap, not fixed here. New regression test manually confirmed as a genuine
+  discriminator via revert-and-reproduce. `dotnet test` 351 passed/0 failed (up from 350).
+  `pnpm check` clean, 260 dotnet tests, vitest 43.
 
 ## Next task
 
