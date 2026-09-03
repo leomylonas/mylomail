@@ -1394,6 +1394,22 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   tests, one per terminal path, manually confirmed as genuine discriminators via
   revert-and-reproduce. `dotnet test` 367 passed/0 failed (up from 364). `pnpm check` clean, 271
   dotnet tests, vitest 52.
+- **Seventieth pass — closed pass 68's last documented gap: distinguishing an expired
+  `AmbiguousOutcome` from an in-window one.** `describeSentState` could not tell "seconds-old
+  raw exception from `SendExecutor`'s catch-all" from "`SendReconciler`'s final verdict once its
+  `ReconciliationWindow` expires" — both populate `LastError` the same way, and the DTO carried
+  no separate signal. Added `OutboxItemDto.ReconcilingSince` (nullable, mirroring the domain
+  field), threaded it through `Compose.tsx`, and gave `describeSentState` an optional `now`
+  parameter plus a client-side `RECONCILIATION_WINDOW_MS` (10 minutes, duplicating the server's
+  fixed `SendReconciler.ReconciliationWindow` constant rather than sending it over the wire,
+  since it isn't per-account config): within the window it still shows the neutral "Confirming
+  this was sent…"; past it, `LastError` if present, or a new fallback message if the reconciler
+  itself never resolved the item. `invariant-review` asked for confirmation the regenerated
+  types file wasn't stale — re-ran `pnpm generate:types` and got byte-identical output,
+  confirming the odd comment (no `?` for a nullable `DateTimeOffset`) is just the transpiler's
+  own rendering, not a hand-edit. New C# and vitest regression tests (both sides of the
+  10-minute boundary) manually confirmed as genuine discriminators. `dotnet test` 368 passed/0
+  failed (up from 367). `pnpm check` clean, 271 dotnet tests, vitest 55.
 
 ## Next task
 
