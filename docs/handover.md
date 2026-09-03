@@ -1123,7 +1123,33 @@ check` clean under Node 22.
   persistence) and confirmed the process-global variable is correct by design (this setting is
   a fact about the installation, like window bounds, not per-window state). No changes
   requested. `dotnet test` unaffected at 344 passed/0 failed (renderer/shell-only change).
-  `pnpm check` clean under Node 22.
+  `pnpm check` clean under Node 22. A small follow-up (commit `6667647`) extracted the
+  value-to-CloseBehavior mapping into a new electron-import-free `CloseBehavior.ts` with its
+  own unit tests, since `Main.ts` imports `electron` at module scope with a `startup` side
+  effect and so cannot itself be unit-tested without mocking the whole module — this pass also
+  happened to run concurrently with another instance of itself picking the same angle, landing
+  a small, harmless duplicate fix (`6acfd8a`) before the two were reconciled.
+- **Fifty-fourth pass — `CalendarSyncService.ApplyPageAsync`'s recurrence-master resolution was
+  a real N+1.** It issued one `SingleAsync` plus one `SingleOrDefaultAsync` EF Core query per
+  upserted event just to resolve the local `RecurrenceMasterId` — including every non-recurring
+  event, whose `RecurrenceMasterProviderEventId` is null and so was still spending a query
+  looking for a row that could never match — plus one `SingleAsync` plus one `ToListAsync` per
+  master event to find its "waiting children." A page of N events could issue up to ~2N+2M
+  queries. Batched into three total queries regardless of page size: one loading every
+  upserted event's own row, one batch-loading any referenced masters not already loaded, one
+  batch-loading waiting children. `invariant-review` caught a real, narrow behavior divergence
+  in the first version: an event skipped this page because it's flagged `SyncConflict` never
+  runs through `Apply()`, so its stored `RecurrenceMasterProviderEventId` keeps its old value —
+  the old per-item code always re-read that stored value fresh from the DB, but the first
+  batched version used the incoming dto's value instead, which could silently re-parent a
+  conflicted event's master link. Fixed by deriving the batch-load's master-id set from the
+  loaded rows' own stored field, never from the dtos. The reviewer also flagged that the only
+  existing recurrence test covered same-page master+child linking only; added
+  `CalendarRecurrenceCrossPageLinkingTests` covering cross-page master resolution, the
+  waiting-children path, and the conflict-skip case, the last one manually verified as a
+  genuine discriminator (reverting the fix reproduces `Expected: <guid>, Actual: null`). A
+  second invariant-review pass confirmed both findings resolved. `dotnet test` 347 passed/0
+  failed (up from 344). `pnpm check` clean.
 
 ## Next task
 
