@@ -124,6 +124,53 @@ public sealed class SendCrashWindowTests
 	}
 
 	/// <summary>
+	/// Without this, a compose window watching an ambiguous send's status stays on "still
+	/// confirming" forever even once reconciliation actually resolves it: nothing told the
+	/// renderer the item ever changed (§7). Same missing-announcement bug shape as pass
+	/// 58/59, here in the one status writer neither of those passes touched.
+	/// </summary>
+	[Fact]
+	public async Task Resolving_an_ambiguous_send_as_sent_announces_the_new_status()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SendAsync(harness, item.Id));
+		await harness.RestartAsync();
+
+		await MaterialiseInSentAsync(harness, item.StableMessageId);
+		harness.Events.Clear();
+		await ReconcileAsync(harness);
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses);
+		Assert.Equal(item.Id, announced.Id);
+		Assert.Equal(OutboxStatus.Sent, announced.Status);
+	}
+
+	/// <summary>Same gap as above, on the expiry path rather than the resolved-Sent path.</summary>
+	[Fact]
+	public async Task An_expired_reconciliation_announces_its_new_status()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SendAsync(harness, item.Id));
+		await harness.RestartAsync();
+
+		await ReconcileAsync(harness);
+		harness.Clock.Advance(SendReconciler.ReconciliationWindow + TimeSpan.FromMinutes(1));
+		harness.Events.Clear();
+		await ReconcileAsync(harness);
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses);
+		Assert.Equal(item.Id, announced.Id);
+		Assert.Equal(OutboxStatus.AmbiguousOutcome, announced.Status);
+		Assert.NotNull(announced.LastError);
+	}
+
+	/// <summary>
 	/// Startup reconciliation must find a send left in flight. With in-memory job storage
 	/// nothing else knows it existed.
 	/// </summary>

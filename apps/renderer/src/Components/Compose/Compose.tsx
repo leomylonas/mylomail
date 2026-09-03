@@ -16,8 +16,11 @@ import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
 import type {
 	AttachmentConstraintsDto,
+	OutboxItemDto,
 	SendIdentityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import { OutboxStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { describeSentState } from "@mylomail/renderer/Components/Compose/SentStatus";
 import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -28,6 +31,14 @@ interface Sent {
 	cancelled: boolean;
 	/** Absent for a normal send (the undo-send delay applies); set for a genuine schedule. */
 	scheduledFor?: Date;
+	/**
+	 * The item's live status, kept in sync via `OutboxStatusChanged` (§7, §15) so this window
+	 * reflects what actually happened rather than sitting on "Sending…" forever once the
+	 * worker takes the item — undefined only in the instant between `SendDraft` returning and
+	 * the first announcement arriving.
+	 */
+	status?: OutboxStatus;
+	lastError?: string;
 }
 
 interface DraftAttachment {
@@ -488,22 +499,42 @@ export function Compose({
 		}
 	};
 
+	// Without this, this window never learns what actually happened after the undo-send
+	// window closes: OutboxService announces every status transition (§7, §15) specifically
+	// so a watcher isn't left staring at "Sending…" once the worker takes the item, but until
+	// now nothing in the renderer subscribed to it.
+	useEffect(() => {
+		const onStatusChanged = (item: OutboxItemDto) => {
+			setSent((current) =>
+				current && item.id === current.outboxItemId
+					? {
+							...current,
+							status: item.status,
+							lastError: item.lastError ?? undefined,
+						}
+					: current,
+			);
+		};
+		hub.on("OutboxStatusChanged", onStatusChanged);
+		return () => hub.off("OutboxStatusChanged", onStatusChanged);
+	}, [hub]);
+
 	if (sent) {
+		const display = describeSentState(sent);
 		return (
 			<div className={styles.compose}>
-				<p className={styles.sent}>
-					{sent.cancelled
-						? "Sending cancelled. Your message was not sent."
-						: sent.scheduledFor
-							? `Scheduled for ${sent.scheduledFor.toLocaleString()}.`
-							: "Sending…"}
+				<p
+					className={display.failed ? styles.sendFailed : styles.sent}
+					role={display.failed ? "alert" : undefined}
+				>
+					{display.message}
 				</p>
 				<div className={styles.actions}>
-					{sent.cancelled ? null : (
+					{display.canUndo ? (
 						<Button size="sm" kind="tertiary" onClick={() => void undo()}>
 							Undo send
 						</Button>
-					)}
+					) : null}
 					<Button size="sm" kind="ghost" onClick={onClose}>
 						Close
 					</Button>

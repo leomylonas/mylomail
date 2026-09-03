@@ -21,7 +21,12 @@ namespace MyloMail.Api.Outbox;
 /// the copy has not appeared yet would produce exactly the duplicate this exists to prevent.
 /// </para>
 /// </remarks>
-public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock, ILogger<SendReconciler> logger)
+public sealed class SendReconciler(
+	MyloMailDbContext context,
+	TimeProvider clock,
+	OutboxService outbox,
+	ILogger<SendReconciler> logger
+)
 {
 	/// <summary>
 	/// How long to keep looking before giving up and asking the user.
@@ -42,6 +47,10 @@ public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock
 			.ToListAsync(ct);
 
 		var resolved = 0;
+		// Announced only after SaveChangesAsync commits, below: AnnounceStatusAsync reads back
+		// through an AsNoTracking query (§7), which would not see this loop's own uncommitted
+		// writes yet.
+		var toAnnounce = new List<Guid>();
 
 		foreach (var item in unresolved)
 		{
@@ -63,6 +72,7 @@ public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock
 				resolved++;
 
 				await CloseAttemptAsync(item.Id, ct);
+				toAnnounce.Add(item.Id);
 				continue;
 			}
 
@@ -73,6 +83,7 @@ public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock
 				item.LastError =
 					"This message was sent but its outcome could not be confirmed. "
 					+ "Check your Sent mail before sending it again.";
+				toAnnounce.Add(item.Id);
 
 				logger.LogWarning(
 					"Outbox item {OutboxItemId} remains unresolved after {Window}.",
@@ -83,6 +94,16 @@ public sealed class SendReconciler(MyloMailDbContext context, TimeProvider clock
 		}
 
 		await context.SaveChangesAsync(ct);
+
+		// A resolved Sent, or an expiry that finally set LastError, both change what an
+		// already-open compose window shows (§7) — without this it stays on "Confirming this
+		// was sent…" even once the real answer is known, same bug shape as pass 58/59's
+		// missing-announcement fixes.
+		foreach (var itemId in toAnnounce)
+		{
+			await outbox.AnnounceStatusAsync(itemId, ct);
+		}
+
 		return resolved;
 	}
 
