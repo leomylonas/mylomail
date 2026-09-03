@@ -40,9 +40,7 @@ public sealed class MailboxManagement(
 	)
 	{
 		var account = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
-		var parent = parentId is Guid id
-			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
-			: null;
+		var parent = parentId is Guid id ? await ResolveParentAsync(id, accountId, ct) : null;
 
 		await RunProviderCallAsync(() => providers.For(account).CreateMailboxAsync(account, name, parent, ct));
 		await ReconcileAsync(account, ct);
@@ -72,9 +70,7 @@ public sealed class MailboxManagement(
 			throw new HubException("A folder cannot be moved into itself or one of its own subfolders.");
 		}
 
-		var parent = newParentId is Guid id
-			? await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == id, ct)
-			: null;
+		var parent = newParentId is Guid id ? await ResolveParentAsync(id, account.Id, ct) : null;
 
 		var moved = await RunProviderCallAsync(
 			() => providers.For(account).MoveMailboxAsync(account, mailbox, parent, ct)
@@ -82,6 +78,29 @@ public sealed class MailboxManagement(
 
 		await AdoptAsync(mailbox, moved, ct);
 		await ReconcileAsync(account, ct);
+	}
+
+	/// <summary>
+	/// Resolves a client-supplied parent id, rejecting one that belongs to a different
+	/// account.
+	/// </summary>
+	/// <remarks>
+	/// Same reasoning as the cycle guard in <see cref="MoveAsync"/>: the client UI only ever
+	/// offers folders from the same account's own tree, but a hub method cannot assume every
+	/// caller already enforced that. Without this check, a cross-account parent id would carry
+	/// through <see cref="ReconcileAsync"/> into a persisted <see cref="Mailbox.ParentId"/> that
+	/// points at a mailbox row outside the child's own account — corrupting the per-account tree
+	/// every reader assumes it can walk within one account's rows alone.
+	/// </remarks>
+	private async Task<Mailbox?> ResolveParentAsync(Guid parentId, Guid accountId, CancellationToken ct)
+	{
+		var parent = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == parentId, ct);
+		if (parent is not null && parent.AccountId != accountId)
+		{
+			throw new HubException("A folder cannot be created or moved under another account's folder.");
+		}
+
+		return parent;
 	}
 
 	/// <summary>Whether <paramref name="candidateId"/> is <paramref name="ancestorId"/> itself or sits beneath it.</summary>

@@ -132,4 +132,56 @@ public class MailboxManagementTests
 			Assert.Equal("Mailbox already exists.", ex.Message);
 		});
 	}
+
+	/// <summary>
+	/// Seventy-first pass: unlike the cycle guard right above, nothing checked that a
+	/// client-supplied parent id actually belongs to the same account before <c>Move</c>/
+	/// <c>Create</c> carried it through reconciliation into a persisted
+	/// <see cref="Mailbox.ParentId"/> — corrupting the per-account tree every reader assumes it
+	/// can walk within one account's rows alone.
+	/// </summary>
+	[Fact]
+	public async Task Moving_a_folder_under_another_accounts_folder_is_rejected()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+
+			var otherAccount = new Account
+			{
+				Id = Guid.NewGuid(),
+				DisplayName = "Other",
+				ProviderType = ProviderType.Imap,
+				InitialSyncMode = InitialSyncMode.Full,
+			};
+			var foreignParent = new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = otherAccount.Id,
+				ProviderMailboxId = "Foreign",
+				Name = "Foreign",
+			};
+			var mine = new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				ProviderMailboxId = "Mine",
+				Name = "Mine",
+			};
+			context.Accounts.Add(otherAccount);
+			context.Mailboxes.AddRange(foreignParent, mine);
+			await context.SaveChangesAsync();
+
+			var mailboxes = scope.GetRequiredService<MailboxManagement>();
+
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(mine.Id, foreignParent.Id));
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "New", foreignParent.Id));
+
+			var reloaded = await context.Mailboxes.FirstAsync(m => m.Id == mine.Id);
+			Assert.Null(reloaded.ParentId);
+		});
+	}
 }
