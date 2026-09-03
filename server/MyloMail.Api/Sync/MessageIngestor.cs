@@ -62,6 +62,26 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		var updated = new List<Message>();
 		var observed = new List<Message>();
 
+		// Batched up front rather than once per message (was up to ~3 queries per message plus
+		// one per occurrence): a page's worth of messages is exactly the shape IMAP's
+		// whole-mailbox-every-poll model produces, and per-item matching queries made every
+		// steady-state poll of an established mailbox as expensive as its initial backfill.
+		var (byStableId, byOccurrence, byHeader) = await LoadMatchCandidatesAsync(
+			account,
+			messages,
+			mailboxesByProviderId,
+			ct
+		);
+
+		var existingMemberships = await LoadExistingMembershipsAsync(
+			messages,
+			mailboxesByProviderId,
+			byStableId,
+			byOccurrence,
+			byHeader,
+			ct
+		);
+
 		foreach (var dto in messages)
 		{
 			// A draft on the server is a Draft, never both (§1), so one drafts occurrence
@@ -82,7 +102,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 				continue;
 			}
 
-			var message = await MatchAsync(account, dto, mailboxesByProviderId, ct);
+			var message = Match(dto, mailboxesByProviderId, byStableId, byOccurrence, byHeader);
 			var isNew = message is null;
 			var membershipChanged = false;
 
@@ -118,7 +138,13 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 					continue;
 				}
 
-				membershipChanged |= await UpsertOccurrenceAsync(message, mailbox, occurrence, ct);
+				membershipChanged |= await UpsertOccurrenceAsync(
+					message,
+					mailbox,
+					occurrence,
+					existingMemberships,
+					ct
+				);
 			}
 
 			observed.Add(message);
@@ -141,28 +167,97 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	}
 
 	/// <summary>
-	/// The matching precedence from §1, in order: the provider's stable id where it supplies
-	/// one, then the per-mailbox occurrence identity, then
-	/// <c>(AccountId, MessageIdHeader, ReceivedAt)</c> as a heuristic.
+	/// Loads every row this page's matching could possibly need, in three queries total
+	/// regardless of page size. Deliberately over-fetches (e.g. an occurrence row for a
+	/// mailbox/id combination no dto actually asked about) rather than trying to build an
+	/// exact per-pair filter — the surplus rows are cheap and never looked up, whereas an exact
+	/// filter would need a per-message OR clause EF Core can't batch any better than the
+	/// original per-item queries.
 	/// </summary>
-	private async Task<Message?> MatchAsync(
+	private async Task<(
+		Dictionary<string, Message> ByStableId,
+		Dictionary<(Guid MailboxId, string OccurrenceId), Message> ByOccurrence,
+		ILookup<string, Message> ByHeader
+	)> LoadMatchCandidatesAsync(
 		Account account,
-		MessageDto dto,
+		IReadOnlyList<MessageDto> messages,
 		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
 		CancellationToken ct
 	)
 	{
-		if (dto.ProviderStableId is not null)
-		{
-			var byStableId = await context.Messages.FirstOrDefaultAsync(
-				m => m.AccountId == account.Id && m.ProviderStableId == dto.ProviderStableId,
-				ct
-			);
+		var stableIds = messages
+			.Select(m => m.ProviderStableId)
+			.Where(id => id is not null)
+			.Distinct()
+			.ToList();
+		var byStableIdRows = stableIds.Count == 0
+			? []
+			: await context
+				.Messages.Where(m => m.AccountId == account.Id && stableIds.Contains(m.ProviderStableId))
+				.ToListAsync(ct);
+		// First-found-wins, same as the original per-item FirstOrDefaultAsync: this is a
+		// pre-existing ambiguity (nothing enforces ProviderStableId uniqueness) this pass
+		// doesn't change, just preserves.
+		var byStableId = byStableIdRows
+			.GroupBy(m => m.ProviderStableId!)
+			.ToDictionary(g => g.Key, g => g.First());
 
-			if (byStableId is not null)
-			{
-				return byStableId;
-			}
+		var mailboxIds = mailboxesByProviderId.Values.Select(m => m.Id).ToList();
+		var occurrenceIds = messages
+			.SelectMany(m => m.Occurrences)
+			.Select(o => o.ProviderOccurrenceId)
+			.Distinct()
+			.ToList();
+		var byOccurrenceRows =
+			mailboxIds.Count == 0 || occurrenceIds.Count == 0
+				? []
+				: await context
+					.MessageMailboxes.Where(o =>
+						mailboxIds.Contains(o.MailboxId) && occurrenceIds.Contains(o.ProviderOccurrenceId)
+					)
+					.Join(
+						context.Messages.Where(m => m.AccountId == account.Id),
+						o => o.MessageId,
+						m => m.Id,
+						(o, m) => new { o.MailboxId, o.ProviderOccurrenceId, Message = m }
+					)
+					.ToListAsync(ct);
+		var byOccurrence = byOccurrenceRows
+			.GroupBy(r => (r.MailboxId, r.ProviderOccurrenceId))
+			.ToDictionary(g => g.Key, g => g.First().Message);
+
+		var headers = messages
+			.Select(m => m.MessageIdHeader)
+			.Where(h => h is not null)
+			.Distinct()
+			.ToList();
+		var byHeaderRows = headers.Count == 0
+			? []
+			: await context
+				.Messages.Where(m => m.AccountId == account.Id && headers.Contains(m.MessageIdHeader))
+				.ToListAsync(ct);
+		var byHeader = byHeaderRows.ToLookup(m => m.MessageIdHeader!);
+
+		return (byStableId, byOccurrence, byHeader);
+	}
+
+	/// <summary>
+	/// The matching precedence from §1, in order: the provider's stable id where it supplies
+	/// one, then the per-mailbox occurrence identity, then
+	/// <c>(AccountId, MessageIdHeader, ReceivedAt)</c> as a heuristic. Resolved entirely
+	/// in-memory against <see cref="LoadMatchCandidatesAsync"/>'s preloaded rows.
+	/// </summary>
+	private static Message? Match(
+		MessageDto dto,
+		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
+		Dictionary<string, Message> byStableId,
+		Dictionary<(Guid MailboxId, string OccurrenceId), Message> byOccurrence,
+		ILookup<string, Message> byHeader
+	)
+	{
+		if (dto.ProviderStableId is not null && byStableId.TryGetValue(dto.ProviderStableId, out var stableMatch))
+		{
+			return stableMatch;
 		}
 
 		foreach (var occurrence in dto.Occurrences)
@@ -177,22 +272,9 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 				continue;
 			}
 
-			var byOccurrence = await context
-				.MessageMailboxes.Where(o =>
-					o.MailboxId == mailbox.Id
-					&& o.ProviderOccurrenceId == occurrence.ProviderOccurrenceId
-				)
-				.Join(
-					context.Messages.Where(m => m.AccountId == account.Id),
-					o => o.MessageId,
-					m => m.Id,
-					(_, m) => m
-				)
-				.FirstOrDefaultAsync(ct);
-
-			if (byOccurrence is not null)
+			if (byOccurrence.TryGetValue((mailbox.Id, occurrence.ProviderOccurrenceId), out var occurrenceMatch))
 			{
-				return byOccurrence;
+				return occurrenceMatch;
 			}
 		}
 
@@ -201,13 +283,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		// as a last resort.
 		if (dto.MessageIdHeader is not null)
 		{
-			return await context.Messages.FirstOrDefaultAsync(
-				m =>
-					m.AccountId == account.Id
-					&& m.MessageIdHeader == dto.MessageIdHeader
-					&& m.ReceivedAt == dto.ReceivedAt,
-				ct
-			);
+			return byHeader[dto.MessageIdHeader].FirstOrDefault(m => m.ReceivedAt == dto.ReceivedAt);
 		}
 
 		return null;
@@ -243,11 +319,47 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		message.SizeEstimate = dto.SizeEstimate;
 	}
 
+	/// <summary>
+	/// Preloads every <see cref="MessageMailbox"/> row a pre-existing (matched, not newly
+	/// created) message in this page could already have in a mailbox this page touches — one
+	/// query regardless of page size, so <see cref="UpsertOccurrenceAsync"/> only needs to fall
+	/// back to a live query for a row this deliberately-broad preload still missed.
+	/// </summary>
+	private async Task<Dictionary<(Guid MessageId, Guid MailboxId), MessageMailbox>> LoadExistingMembershipsAsync(
+		IReadOnlyList<MessageDto> messages,
+		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
+		Dictionary<string, Message> byStableId,
+		Dictionary<(Guid MailboxId, string OccurrenceId), Message> byOccurrence,
+		ILookup<string, Message> byHeader,
+		CancellationToken ct
+	)
+	{
+		var matchedMessageIds = messages
+			.Select(dto => Match(dto, mailboxesByProviderId, byStableId, byOccurrence, byHeader)?.Id)
+			.Where(id => id is not null)
+			.Distinct()
+			.ToList();
+		var mailboxIds = mailboxesByProviderId.Values.Select(m => m.Id).ToList();
+
+		if (matchedMessageIds.Count == 0 || mailboxIds.Count == 0)
+		{
+			return [];
+		}
+
+		var rows = await context
+			.MessageMailboxes.Where(o =>
+				matchedMessageIds.Contains(o.MessageId) && mailboxIds.Contains(o.MailboxId)
+			)
+			.ToListAsync(ct);
+		return rows.ToDictionary(o => (o.MessageId, o.MailboxId));
+	}
+
 	/// <summary>Upserts one membership, reporting whether it actually changed anything.</summary>
 	private async Task<bool> UpsertOccurrenceAsync(
 		Message message,
 		Mailbox mailbox,
 		MessageOccurrenceDto dto,
+		Dictionary<(Guid MessageId, Guid MailboxId), MessageMailbox> existingMemberships,
 		CancellationToken ct
 	)
 	{
@@ -261,6 +373,7 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 				.ChangeTracker.Entries<MessageMailbox>()
 				.Select(e => e.Entity)
 				.FirstOrDefault(o => o.MessageId == message.Id && o.MailboxId == mailbox.Id)
+			?? existingMemberships.GetValueOrDefault((message.Id, mailbox.Id))
 			?? await context.MessageMailboxes.FirstOrDefaultAsync(
 				o => o.MessageId == message.Id && o.MailboxId == mailbox.Id,
 				ct

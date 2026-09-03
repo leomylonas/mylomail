@@ -160,6 +160,60 @@ public class MessageIdentityTests
 		});
 	}
 
+	/// <summary>
+	/// Matching now preloads every candidate row for the whole page in three queries (§1, an
+	/// N+1 fix), by deliberately over-fetching: one query for every occurrence id across every
+	/// mailbox this page touches, then keying the results by the exact
+	/// <c>(MailboxId, OccurrenceId)</c> pair in memory. If that keying were ever done by
+	/// occurrence id alone, two existing messages that happen to share an occurrence id in
+	/// different mailboxes — an ordinary IMAP UID collision — would merge into one the moment
+	/// both were observed in the very same sync page, not just across separate pages.
+	/// </summary>
+	[Fact]
+	public async Task Occurrence_ids_that_collide_across_mailboxes_stay_separate_within_one_page()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("Archive", SpecialUse.Archive);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var inbox = await harness.MailboxAsync(scope, "INBOX");
+			var archive = await harness.MailboxAsync(scope, "Archive");
+			var mailboxes = new Dictionary<string, Mailbox> { ["INBOX"] = inbox, ["Archive"] = archive };
+			var ingestor = scope.GetRequiredService<MessageIngestor>();
+
+			// Establish both messages first, each already occupying occurrence id "2" in its
+			// own mailbox.
+			await ingestor.IngestAsync(
+				account,
+				[Observation("INBOX", "2", "In the inbox"), Observation("Archive", "2", "In the archive")],
+				mailboxes,
+				GenerationSnapshot.Capture(mailboxes.Values)
+			);
+			await context.SaveChangesAsync();
+
+			// Then re-observe both in the SAME page, so the batched preload's over-fetched
+			// occurrence rows for occurrence id "2" span both mailboxes at once.
+			await ingestor.IngestAsync(
+				account,
+				[
+					Observation("INBOX", "2", "Inbox, updated"),
+					Observation("Archive", "2", "Archive, updated"),
+				],
+				mailboxes,
+				GenerationSnapshot.Capture(mailboxes.Values)
+			);
+			await context.SaveChangesAsync();
+
+			var subjects = await context.Messages.Select(m => m.Subject).OrderBy(s => s).ToListAsync();
+			Assert.Equal(["Archive, updated", "Inbox, updated"], subjects);
+		});
+	}
+
 	private static MessageDto Observation(string mailbox, string occurrenceId, string subject) =>
 		new()
 		{
