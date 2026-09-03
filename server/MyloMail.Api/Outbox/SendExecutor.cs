@@ -130,6 +130,7 @@ public sealed class SendExecutor(
 			attempt.State = MutationAttemptState.Completed;
 			attempt.ResultPersistedAt = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
+			await outbox.AnnounceStatusAsync(item.Id, ct);
 
 			// Rethrown so the job layer applies the account gate and reschedules at exactly
 			// the delay the provider named.
@@ -144,6 +145,7 @@ public sealed class SendExecutor(
 			item.LastError = ex.Message;
 			item.ReconcilingSince = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
+			await outbox.AnnounceStatusAsync(item.Id, ct);
 
 			logger.LogError(ex, "Send for outbox item {OutboxItemId} may or may not have happened.", item.Id);
 			return;
@@ -170,5 +172,7 @@ public sealed class SendExecutor(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		await outbox.AnnounceStatusAsync(item.Id, ct);
 	}
 }

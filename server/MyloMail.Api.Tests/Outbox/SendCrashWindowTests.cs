@@ -4,6 +4,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -168,6 +169,55 @@ public sealed class SendCrashWindowTests
 		Assert.Equal(item.Id, announced.Id);
 		Assert.Equal(OutboxStatus.AmbiguousOutcome, announced.Status);
 		Assert.NotNull(announced.LastError);
+	}
+
+	/// <summary>
+	/// Sixty-ninth pass: a successful send never announced its own <c>Sent</c> transition —
+	/// the very outcome pass 68's live-status subscription exists to show. Same missing-
+	/// announcement shape as the reconciliation paths above, here on <see cref="SendExecutor"/>'s
+	/// own terminal-success write.
+	/// </summary>
+	[Fact]
+	public async Task A_successful_send_announces_its_new_status()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.Events.Clear();
+
+		await SendAsync(harness, item.Id);
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.Sent);
+		Assert.Equal(item.Id, announced.Id);
+	}
+
+	/// <summary>Same gap as the successful-send case above, on the ambiguous-outcome path.</summary>
+	[Fact]
+	public async Task A_send_that_throws_announces_its_ambiguous_status()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.Provider.FailSendWith(new InvalidOperationException("connection reset"));
+		harness.Events.Clear();
+
+		await SendAsync(harness, item.Id);
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.AmbiguousOutcome);
+		Assert.Equal(item.Id, announced.Id);
+	}
+
+	/// <summary>Same gap again, on the categorised-rejection path that returns the item to the queue.</summary>
+	[Fact]
+	public async Task A_throttled_send_announces_its_scheduled_status()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.Provider.FailSendWith(new ProviderThrottledException(TimeSpan.FromMinutes(5), "rate limited"));
+		harness.Events.Clear();
+
+		await Assert.ThrowsAsync<ProviderThrottledException>(() => SendAsync(harness, item.Id));
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.Scheduled);
+		Assert.Equal(item.Id, announced.Id);
 	}
 
 	/// <summary>

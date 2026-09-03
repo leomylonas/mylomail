@@ -82,6 +82,8 @@ public sealed class OutboxJobs(
 			}
 			catch (ProviderThrottledException ex)
 			{
+				// SendExecutor already set OutboxStatus.Scheduled and announced it before
+				// rethrowing (§7) — the renderer already knows this item is back in the queue.
 				gate.Throttle(accountId, ex.RetryAfter);
 				jobs.Schedule<OutboxJobs>(j => j.RunAsync(accountId, default), ex.RetryAfter);
 				return;
@@ -94,6 +96,8 @@ public sealed class OutboxJobs(
 				// too. Writing through it here would silently affect zero rows: it looks
 				// attached (EF gives no error), but SaveChangesAsync has nothing queued for
 				// it. A fresh, newly-tracked load is required.
+				// SendExecutor already set OutboxStatus.Scheduled and announced it (§7) before
+				// rethrowing — only the account-level signal remains this job's responsibility.
 				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
 				reloaded.AuthState = AuthState.NeedsReauth;
 				reloaded.LastAuthError = ex.Message;
@@ -106,7 +110,8 @@ public sealed class OutboxJobs(
 				// Same detached-`account` hazard as the ProviderAuthenticationException branch
 				// above — a fresh load is required. Not gated off like NeedsReauth: the next
 				// scheduled run retrying on its own, once the OS store is reachable again, is
-				// the recovery path (see SyncJobs.GuardAsync's matching comment).
+				// the recovery path (see SyncJobs.GuardAsync's matching comment). SendExecutor
+				// already set OutboxStatus.Scheduled and announced it (§7) before rethrowing.
 				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
 				reloaded.AuthState = AuthState.CredentialStoreUnavailable;
 				reloaded.LastAuthError = ex.Message;
