@@ -1312,6 +1312,28 @@ check` clean under Node 22.
   indistinguishable from a legitimate rejection once only the bare message survives to the client
   — applied. New regression test confirmed as a genuine discriminator via revert-and-reproduce.
   `dotnet test` 360 passed/0 failed (up from 359). `pnpm check` clean, 269 dotnet tests, vitest 43.
+- **Sixty-sixth pass — the same raw-provider-exception bug pass 65 fixed for mailboxes, still
+  live for calendar events.** `CalendarEventService.CreateAsync`, `UpdateAsync`'s non-conflict
+  path, `ResolveConflictAsync`'s keepMine branch, `DeleteAsync`, and `RespondToInviteAsync` all
+  let a provider exception other than `ProviderConflictException` propagate raw, silently
+  defeating `EventModal.tsx`'s and `ReadingPane.tsx`'s `InviteBanner`'s error reporting the same
+  way pass 65 found for `MailboxTree.tsx`. Added a `RunProviderCallAsync` helper to
+  `CalendarEventService`, structurally identical to `MailboxManagement`'s helper of the same
+  name, and wrapped every remaining raw provider call. `UpdateAsync`'s existing
+  `catch (ProviderConflictException)` is untouched and still runs first, so a genuine sync
+  conflict still routes to keep-mine/keep-theirs rather than becoming a generic `HubException`.
+  `ResolveConflictAsync`'s keepMine branch deliberately does not special-case
+  `ProviderConflictException` the way `UpdateAsync` does: keepMine already is the
+  conflict-resolution action, so a rejection there has no further resolution path to route back
+  into and should just surface like any other failure. `Deleting_an_event_the_provider_rejects_
+leaves_it_in_place` previously asserted the raw `ProviderConflictException` type; updated to
+  assert `HubException` with the same message, since surfacing that message is exactly the fix
+  — confirmed via a full-codebase search that no other caller of `DeleteAsync` depended on
+  catching `ProviderConflictException` specifically. `invariant-review` confirmed no
+  frozen-invariant hit, correct catch-block precedence, and that every remaining provider call
+  in the file is now wrapped. New/modified tests confirmed as genuine discriminators via
+  revert-and-reproduce. `dotnet test` 361 passed/0 failed (up from 360). `pnpm check` clean, 270
+  dotnet tests, vitest 43.
 
 ## Next task
 
