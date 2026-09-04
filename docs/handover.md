@@ -1736,6 +1736,29 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   no retry, double-invoke, or swallowed error that previously reached calling code. No
   regression test added, matching passes 91-92's already-documented gap. `pnpm check` clean, 286
   dotnet tests (unaffected — renderer-only), vitest 57.
+- **Ninety-fifth pass — built search-result term highlighting.** Pass 94 found search results
+  never highlighted matched terms: `Message.Snippet` is a static provider-supplied preview
+  (Gmail's `snippet`/Graph's `bodyPreview`), not an FTS5 match-context excerpt, so a hit showed
+  generic preview text with no indication of what actually matched. User asked, chose to build
+  it now. `MessageSearch.MatchAsync` now also calls FTS5's own `snippet()` function (column
+  index `-1`, so FTS5 picks whichever indexed column actually contains the match), delimiting
+  matched terms with the ASCII SOH/STX control characters rather than any HTML markup — message
+  content is arbitrary, untrusted sender text, and a marker scheme that could collide with or be
+  mistaken for real markup would be a real risk. `MessageSummaryDto` gained an optional trailing
+  `SearchSnippet`, populated only by search; ordinary listing implicitly passes `null` via the
+  new parameter's default. The renderer's new `SearchSnippet.ts` parses the delimited string
+  into plain `{text, highlighted}` segments with no HTML anywhere in the pipeline;
+  `MessageList.tsx` renders them as `<mark>`/`<span>` JSX children (never
+  `dangerouslySetInnerHTML`) for search results only. `invariant-review` confirmed no XSS path
+  exists, the `snippet()` call's own arguments are bound parameters entirely separate from the
+  user's own query text, `maxTokens=20` is within FTS5's documented clamp range, ordinary
+  listing is unaffected end-to-end, and no frozen-invariant table entry is touched — it also
+  caught a real robustness gap: relying on `Dictionary<Guid,string>`'s insertion-order
+  enumeration to preserve FTS5's rank order was an undocumented implementation detail, not a
+  language guarantee, fixed by switching to `List<(Guid Id, string Snippet)>` instead. New
+  regression tests confirmed the snippet-content test is a genuine discriminator via
+  revert-and-reproduce. `dotnet test` 385 passed/0 failed (up from 383). `pnpm check` clean, 288
+  dotnet tests, vitest 62.
 
 ## Next task
 
