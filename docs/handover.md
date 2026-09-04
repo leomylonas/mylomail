@@ -1998,6 +1998,21 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   practically unit-testable without a real OS credential store, mirroring `RetrieveAsync`'s own
   already-untested precedent. `dotnet test` 398 passed/0 failed (unaffected). `pnpm check` clean,
   300 dotnet tests, vitest 70.
+- **Hundred-and-twenty-fourth pass — an iTIP reply to a single recurring occurrence looked like
+  a reply to the whole series.** `CalDavIcs.ToReplyIcs` builds the REPLY `.ics` sent back to an
+  event's organizer on accept/decline/tentative, but never included `CalendarEvent.RecurrenceId`
+  — set on an occurrence override, null on the master. Per RFC 5546 §3.2.3, a REPLY with no
+  `RECURRENCE-ID` is interpreted as applying to the entire series, so declining just one instance
+  of a recurring meeting was indistinguishable, organizer-side, from declining the whole thing.
+  Confirmed reachable, not theoretical: `CalendarEventService.RespondToInviteAsync` loads its
+  target with no filter excluding override rows. Fixed by adding a `RECURRENCE-ID` line via the
+  same `FormatDateTimeProperty` helper the existing forward-export path already used for the
+  identical purpose. `invariant-review` confirmed the property placement doesn't matter to this
+  codebase's own name-based ICS parser, the timezone reference is correct and round-trips
+  consistently with the sync-read side, and no frozen-invariant table entry is touched. New tests
+  confirm `RECURRENCE-ID` is present for an override and absent for a master, manually confirmed
+  as a genuine discriminator via revert-and-reproduce. `dotnet test` 400 passed/0 failed (up from
+  398). `pnpm check` clean, 302 dotnet tests, vitest 70.
 
 ## Next task
 
