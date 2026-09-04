@@ -214,7 +214,8 @@ public class AccountsController(
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
 			account.CertificateTrustMode,
-			account.AttachmentSizeLimitOverride
+			account.AttachmentSizeLimitOverride,
+			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>

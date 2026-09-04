@@ -697,6 +697,14 @@ public class MailHub(
 		account.AttachmentSizeLimitOverride =
 			settings.AttachmentSizeLimitOverride is > 0 ? settings.AttachmentSizeLimitOverride : null;
 
+		// IMAP only: a non-null value from any other account type is ignored rather than
+		// throwing, since the renderer only ever shows this field for IMAP accounts and a
+		// stray value here would otherwise reject an unrelated field's update too.
+		if (settings.AppendToSentOnSend is bool appendToSentOnSend && account.ProviderConfig is ImapProviderConfig imap)
+		{
+			imap.AppendToSentOnSend = appendToSentOnSend;
+		}
+
 		await context.SaveChangesAsync();
 
 		if (resumingPolling)
@@ -718,6 +726,7 @@ public class MailHub(
 		{
 			PollIntervalSeconds = account.PollIntervalSeconds,
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
+			AppendToSentOnSend = (account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
 		};
 	}
 

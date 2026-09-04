@@ -15,6 +15,11 @@ namespace MyloMail.Api.Contracts;
 /// real values, however recently they were changed.
 /// </para>
 /// </remarks>
+/// <param name="AppendToSentOnSend">
+/// Whether to append a Sent copy after sending (§15) — IMAP only, mirroring
+/// <see cref="ImapProviderConfig.AppendToSentOnSend"/>. Null for every other provider type,
+/// since Gmail/Graph place the copy themselves as part of the send.
+/// </param>
 [TranspilationSource]
 public record AccountDto(
 	Guid Id,
@@ -32,7 +37,8 @@ public record AccountDto(
 	int UndoSendDelaySeconds,
 	bool NotificationsEnabled,
 	CertificateTrustMode CertificateTrustMode,
-	int? AttachmentSizeLimitOverride
+	int? AttachmentSizeLimitOverride,
+	bool? AppendToSentOnSend
 );
 
 /// <summary>

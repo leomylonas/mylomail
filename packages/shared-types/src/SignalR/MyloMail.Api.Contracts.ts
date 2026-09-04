@@ -38,6 +38,8 @@ export type AccountDto = {
     certificateTrustMode: CertificateTrustMode;
     /** Transpiled from int */
     attachmentSizeLimitOverride?: number;
+    /** Transpiled from bool */
+    appendToSentOnSend?: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AddAccountRequest */
@@ -346,6 +348,8 @@ export type AccountSettingsDto = {
     certificateTrustMode: CertificateTrustMode;
     /** Transpiled from int */
     attachmentSizeLimitOverride?: number;
+    /** Transpiled from bool */
+    appendToSentOnSend?: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MutationFailureDto */

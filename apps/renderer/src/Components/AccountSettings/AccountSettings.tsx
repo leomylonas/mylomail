@@ -8,7 +8,10 @@ import {
 	Toggle,
 } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
-import { CertificateTrustMode } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	CertificateTrustMode,
+	ProviderType,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
 import { SendIdentityManager } from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager";
@@ -27,6 +30,10 @@ export interface AccountSettingsValues {
 	certificateTrustMode: CertificateTrustMode;
 	/** Bytes. Null leaves it unset — the provider's own limit (or "unknown") applies (§15). */
 	attachmentSizeLimitOverride: number | null;
+	/** Not itself sent to `UpdateAccount` beyond deciding whether the toggle below renders. */
+	providerType: ProviderType;
+	/** IMAP only; null for every other provider (§15). */
+	appendToSentOnSend: boolean | null;
 }
 
 /**
@@ -208,6 +215,16 @@ export function AccountSettings({
 					})
 				}
 			/>
+			{values.providerType === ProviderType.Imap ? (
+				<Toggle
+					id="settings-append-to-sent"
+					labelText="Save a copy to Sent when sending"
+					toggled={values.appendToSentOnSend ?? true}
+					onToggle={(checked) =>
+						setValues({ ...values, appendToSentOnSend: checked })
+					}
+				/>
+			) : null}
 			<SendIdentityManager hub={hub} accountId={values.id} />
 			<ExportAccount hub={hub} accountId={values.id} />
 			<section className={styles.dangerZone}>

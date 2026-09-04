@@ -228,6 +228,11 @@ public record AccountCapabilitiesDto(Guid AccountId, bool DeletingMailboxDeletes
 /// <c>IMailProvider.GetAttachmentConstraintsAsync</c> alongside whatever the provider itself
 /// reports (§15). Null leaves it unset; the provider's own limit (or "unknown") applies.
 /// </param>
+/// <param name="AppendToSentOnSend">
+/// IMAP only, mirrors <see cref="ImapProviderConfig.AppendToSentOnSend"/>. Null for every
+/// other provider type; a non-null value from a non-IMAP account is ignored by
+/// <c>MailHub.UpdateAccount</c> rather than accepted with no effect.
+/// </param>
 [TranspilationSource]
 public record AccountSettingsDto(
 	Guid Id,
@@ -238,7 +243,8 @@ public record AccountSettingsDto(
 	int UndoSendDelaySeconds,
 	bool NotificationsEnabled,
 	CertificateTrustMode CertificateTrustMode,
-	int? AttachmentSizeLimitOverride
+	int? AttachmentSizeLimitOverride,
+	bool? AppendToSentOnSend
 );
 
 [TranspilationSource]

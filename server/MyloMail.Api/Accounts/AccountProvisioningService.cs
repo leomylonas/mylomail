@@ -298,7 +298,8 @@ internal static class AccountDtoFactory
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
 			account.CertificateTrustMode,
-			account.AttachmentSizeLimitOverride
+			account.AttachmentSizeLimitOverride,
+			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend
 		);
 
 	/// <summary>

@@ -35,6 +35,7 @@ import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
 import {
 	AuthState,
 	CertificateTrustMode,
+	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
@@ -52,6 +53,8 @@ interface Account {
 	sidebarCollapsed?: boolean;
 	attachmentSizeLimitOverride?: number | null;
 	certificateTrustMode?: CertificateTrustMode;
+	providerType?: ProviderType;
+	appendToSentOnSend?: boolean | null;
 }
 
 /**
@@ -494,6 +497,8 @@ function toSettings(
 		certificateTrustMode:
 			account?.certificateTrustMode ?? CertificateTrustMode.Default,
 		attachmentSizeLimitOverride: account?.attachmentSizeLimitOverride ?? null,
+		providerType: account?.providerType ?? ProviderType.Imap,
+		appendToSentOnSend: account?.appendToSentOnSend ?? null,
 	};
 }
 
