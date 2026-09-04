@@ -46,6 +46,10 @@ import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/Notifi
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/SearchSnippet";
+import {
+	isRovingFocusKey,
+	nextFocusIndex,
+} from "@mylomail/renderer/Components/MessageList/RovingFocus";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -326,9 +330,83 @@ export function MessageList({
 	// different result set — left alone, switching mailboxes deep in a long list leaves the view
 	// scrolled to an arbitrary point in the new one, showing unrelated rows or a blank overscroll
 	// area while its own first page is still loading in at the top.
+	//
+	// The same is true of a roving-tabindex target left over from the previous mailbox/search —
+	// index N in the old result set means nothing in the new one, so it's cleared here too
+	// rather than silently pointing at an unrelated row.
 	useEffect(() => {
 		virtualizer.scrollToOffset(0);
+		setFocusedIndex(null);
 	}, [mailboxId, searching, virtualizer]);
+
+	// Roving tabindex (§13): a virtualized list of native `<button>` rows has no built-in
+	// keyboard navigation between them — Tab only ever lands on whatever the browser happens to
+	// have rendered, and a row scrolled out of the virtualized viewport is unreachable without a
+	// mouse to scroll first. `focusedIndex` is the one row Tab can land on; every other row gets
+	// `tabIndex={-1}` so arrow keys move a single roving focus point instead.
+	const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+	const rowRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+	// Invalidates in-flight focusRowWhenReady retry chains from an earlier key press: without
+	// this, holding an arrow key down spawns one independent rAF chain per keystroke, and
+	// whichever happens to resolve last "wins" the DOM focus call regardless of which key press
+	// it actually came from.
+	const focusRequestId = useRef(0);
+
+	// Falls back sensibly when the row last given keyboard focus no longer exists at that index
+	// — a concurrent mutation (this window's own action, or a sync-driven remove/re-sort) can
+	// shrink or reorder the list between one render and the next. Preferring the selected row,
+	// then the first row, over losing focus into the void entirely — but only among rows the
+	// virtualizer has actually mounted: an index outside that set would leave no DOM element
+	// with tabIndex=0 at all, making the whole list untabbable-into until the next scroll.
+	const renderedIndices = virtualizer
+		.getVirtualItems()
+		.map((item) => item.index);
+	const tabbableIndex =
+		renderedIndices.length === 0
+			? null
+			: (() => {
+					const selectedIndex = rows.findIndex((row) =>
+						selectedIds.has(row.original.id),
+					);
+					const preferred = [focusedIndex, selectedIndex, renderedIndices[0]];
+					return (
+						preferred.find((index) => renderedIndices.includes(index ?? -1)) ??
+						renderedIndices[0]
+					);
+				})();
+
+	function focusRowWhenReady(
+		index: number,
+		requestId: number,
+		attemptsRemaining = 5,
+	): void {
+		if (focusRequestId.current !== requestId) return;
+		const element = rowRefs.current.get(index);
+		if (element) {
+			element.focus();
+			return;
+		}
+		// The virtualizer's scroll-triggered re-render hasn't mounted this row's DOM node yet —
+		// bounded retries across frames rather than an effect dependency, since there is no
+		// single prop that reliably changes exactly when react-virtual finishes that render.
+		if (attemptsRemaining > 0) {
+			requestAnimationFrame(() =>
+				focusRowWhenReady(index, requestId, attemptsRemaining - 1),
+			);
+		}
+	}
+
+	function moveRovingFocus(
+		key: "ArrowUp" | "ArrowDown" | "Home" | "End",
+		currentIndex: number,
+	): void {
+		const next = nextFocusIndex(key, currentIndex, rows.length);
+		if (next === currentIndex) return;
+		setFocusedIndex(next);
+		virtualizer.scrollToIndex(next, { align: "auto" });
+		focusRequestId.current += 1;
+		focusRowWhenReady(next, focusRequestId.current);
+	}
 
 	// Follows the current selection, not just the context-menu target, so a shortcut and a
 	// multi-select bulk action cannot diverge in what "the selection" means (§13 Epic 6).
@@ -469,9 +547,19 @@ export function MessageList({
 								>
 									<button
 										type="button"
+										ref={(element) => {
+											if (element) rowRefs.current.set(index, element);
+											else rowRefs.current.delete(index);
+										}}
+										tabIndex={index === tabbableIndex ? 0 : -1}
 										aria-pressed={isSelected}
 										className={`${styles.row} ${read ? "" : styles.unread} ${isSelected ? styles.selected : ""}`}
 										draggable
+										onKeyDown={(event) => {
+											if (!isRovingFocusKey(event.key)) return;
+											event.preventDefault();
+											moveRovingFocus(event.key, index);
+										}}
 										onDragStart={(event) => {
 											// Dragging a row that's part of a multi-selection carries
 											// the whole selection; dragging any other row carries just
@@ -505,6 +593,7 @@ export function MessageList({
 											setMenu({ x: event.clientX, y: event.clientY, targets });
 										}}
 										onClick={(event) => {
+											setFocusedIndex(index);
 											if (event.shiftKey && anchorIndex !== null) {
 												const [start, end] = [
 													Math.min(anchorIndex, index),
