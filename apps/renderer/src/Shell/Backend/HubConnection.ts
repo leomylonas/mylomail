@@ -189,7 +189,14 @@ export function connectHub(
 		}) => {
 			void window.notifications
 				?.show(notification)
-				.then(() => hub.invoke("MarkNotificationDelivered", notification.id));
+				.then(() => hub.invoke("MarkNotificationDelivered", notification.id))
+				.catch((error: unknown) => {
+					// Left unmarked-delivered on purpose: per the comment above, that's exactly
+					// what makes the shell redeliver this same notification instead of losing
+					// it. Logged only so a show/deliver failure doesn't surface as an unhandled
+					// promise rejection with no trace of what happened.
+					console.error(`notification delivery failed: ${String(error)}`);
+				});
 		},
 	);
 
