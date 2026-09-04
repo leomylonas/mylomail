@@ -2176,6 +2176,22 @@ check` clean, 308 dotnet tests, vitest 70.
   all-day branch through the timed-format path and reproducing the exact pre-fix symptom.
   `dotnet test` 406 passed/0 failed (unchanged — additive field only). `pnpm check` clean, 308
   dotnet tests, vitest 80 (up from 77).
+- **Hundred-and-thirty-eighth pass — all-day calendar dates were parsed in the viewer's local
+  zone instead of UTC, shifting the displayed day for anyone west of UTC.** Pass 137's
+  `invariant-review` flagged this as a real, pre-existing bug shared by `AllDayEventEnd.ts` (the
+  calendar event form's date-input helpers) and the new `InviteWhen.ts`: all-day dates are
+  stored server-side as literal-calendar-date UTC midnight, but `toInclusiveEndDateInputValue`,
+  `fromInclusiveEndDateInputValue`, `EventModal.tsx`'s `toInputValue`/`fromInputValue`, and
+  `InviteWhen.ts`'s own `dayjs(start)` call all parsed/formatted using plain local-zone `dayjs()`
+  — reproduced directly: parsing a UTC-midnight ISO string under `America/Los_Angeles` with
+  plain `dayjs()` yields the previous day. Fixed all five call sites to use `dayjs.utc(...)`
+  instead, so the calendar-date string round-trips literally regardless of the viewer's zone.
+  Existing `AllDayEventEnd.test.ts` fixtures switched from local- to UTC-anchored construction to
+  match the real backend convention; new regression tests in both files reproduce the bug
+  directly (one under a forced `America/Los_Angeles` TZ), manually confirmed as genuine
+  discriminators via revert-and-reproduce. Purely a renderer-side parsing fix — no backend
+  changes, the wire value was already correct. `dotnet test` unaffected (sanity check only).
+  `pnpm check` clean, 308 dotnet tests, vitest 82 (up from 80).
 
 ## Next task
 
