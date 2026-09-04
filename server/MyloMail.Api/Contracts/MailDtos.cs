@@ -367,6 +367,7 @@ public record MessageInviteDto(
 	string Title,
 	DateTimeOffset Start,
 	DateTimeOffset End,
+	bool IsAllDay,
 	Address? Organizer,
 	InviteResponse? MyResponseStatus
 );

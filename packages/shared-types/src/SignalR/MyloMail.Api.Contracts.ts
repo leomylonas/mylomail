@@ -468,6 +468,8 @@ export type MessageInviteDto = {
     start: (Date | string);
     /** Transpiled from System.DateTimeOffset */
     end: (Date | string);
+    /** Transpiled from bool */
+    isAllDay: boolean;
     /** Transpiled from MyloMail.Api.Domain.Address? */
     organizer?: Address;
     /** Transpiled from MyloMail.Api.Domain.InviteResponse */

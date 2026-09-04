@@ -451,7 +451,15 @@ public class MailHub(
 			myResponse = mine is null ? null : ToInviteResponse(mine.ResponseStatus);
 		}
 
-		return new MessageInviteDto(ev?.Id, parsed.Title, parsed.Start, parsed.End, parsed.Organizer, myResponse);
+		return new MessageInviteDto(
+			ev?.Id,
+			parsed.Title,
+			parsed.Start,
+			parsed.End,
+			parsed.IsAllDay,
+			parsed.Organizer,
+			myResponse
+		);
 	}
 
 	public async Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId) =>

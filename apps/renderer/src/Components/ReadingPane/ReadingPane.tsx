@@ -3,6 +3,7 @@ import type { HubConnection } from "@microsoft/signalr";
 import { Button, SkeletonText } from "@carbon/react";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
+import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -13,6 +14,7 @@ interface MessageInvite {
 	title: string;
 	start: string;
 	end: string;
+	isAllDay: boolean;
 	organizer: { name: string | null; email: string } | null;
 	myResponseStatus: InviteResponse | null;
 }
@@ -202,9 +204,11 @@ function InviteBanner({
 
 	if (!invite.data) return null;
 
-	const when = `${new Date(invite.data.start).toLocaleString()} – ${new Date(
+	const when = describeInviteWhen(
+		invite.data.start,
 		invite.data.end,
-	).toLocaleTimeString()}`;
+		invite.data.isAllDay,
+	);
 
 	return (
 		<div className={styles.invite}>
