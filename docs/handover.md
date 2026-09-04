@@ -2138,6 +2138,29 @@ check` clean, 308 dotnet tests, vitest 70.
   Home/End keys don't conflict with the existing `useShortcuts` document-level listener (row
   `onKeyDown` doesn't `stopPropagation`, so that listener still sees and correctly ignores
   them). `pnpm check` clean, 308 dotnet tests (unaffected), vitest 77 (up from 70).
+- **Hundred-and-thirty-fifth pass — the same gap as pass 133, one component over.** Pass 134
+  found `CalendarAgenda.tsx` (the calendar list view) had the identical virtualized-keyboard-
+  navigation gap `MessageList.tsx` had before pass 133. User asked, chose to build it now.
+  Replicated pass 133's pattern for `CalendarAgenda`'s two-level structure: react-virtual
+  virtualizes DAY rows, but focus needs to move between individual EVENTS, of which a day can
+  hold several or none. Flattened every day's events into one ordered list so the already-shared
+  `nextFocusIndex`/`isRovingFocusKey` (relocated from `Components/MessageList/RovingFocus.ts` to
+  the more general `Lib/RovingFocus.ts`, since they were already fully generic) drive linear
+  arrow/Home/End movement, skipping empty days entirely; `virtualizer.scrollToIndex` moves by the
+  event's day index; the DOM lookup keys off a composite `dayIndex:eventId`, not the bare event
+  id, since a multi-day event legitimately appears once per day it spans. Three rounds of
+  `invariant-review`, mirroring pass 133's own history: round 1 found a worse version of pass
+  133's stale-focus bug — the reset effect's `rangeStart`/`rangeEnd` deps were unmemoized
+  `Dayjs.startOf()`/`endOf()` calls in `Calendar.tsx` that return a fresh identity every render
+  regardless of whether the month changed, clearing focus on effectively every re-render (every
+  click opening `EventModal`), not just genuine range changes — fixed by memoizing on `[anchor]`.
+  Round 2 found the fix's own `events` addition to that effect's deps reintroduced the identical
+  instability one level removed (`useQueries` without a `combine` option returns a fresh array
+  every render) — fixed by depending on a derived primitive string of event ids instead, which
+  compares by value; round 2 also flagged an O(n²) `findIndex`-per-event render cost and the
+  multi-day id-collision risk, both fixed. Round 3 confirmed everything correct, including that
+  each day-instance of a shared multi-day event now gets its own distinct flat index, tabIndex-0
+  target, and DOM ref. `pnpm check` clean, 308 dotnet tests (unaffected), vitest 77.
 
 ## Next task
 
