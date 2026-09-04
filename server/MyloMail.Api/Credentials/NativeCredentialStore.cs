@@ -35,21 +35,34 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 	public async Task StoreAsync(Guid accountId, CredentialPayload payload, CancellationToken ct)
 	{
 		var encoded = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(payload));
-		if (OperatingSystem.IsWindows())
+		try
 		{
-			Directory.CreateDirectory(windowsDirectory);
-			var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(encoded), null, DataProtectionScope.CurrentUser);
-			await File.WriteAllBytesAsync(Path.Combine(windowsDirectory, accountId.ToString("N")), protectedBytes, ct);
-			return;
-		}
+			if (OperatingSystem.IsWindows())
+			{
+				Directory.CreateDirectory(windowsDirectory);
+				var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(encoded), null, DataProtectionScope.CurrentUser);
+				await File.WriteAllBytesAsync(Path.Combine(windowsDirectory, accountId.ToString("N")), protectedBytes, ct);
+				return;
+			}
 
-		if (OperatingSystem.IsMacOS())
+			if (OperatingSystem.IsMacOS())
+			{
+				MacKeychainCredentialStore.Store(Service, accountId, encoded, ct);
+				return;
+			}
+
+			await LinuxSecretServiceCredentialStore.StoreAsync(Service, accountId, encoded, ct);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			MacKeychainCredentialStore.Store(Service, accountId, encoded, ct);
-			return;
+			// Same reasoning as RetrieveAsync below: a locked keyring with no interactive unlock
+			// offered, or a denied Keychain prompt, means the store itself could not be reached
+			// -- distinct from any credential-content problem (§4).
+			throw new CredentialStoreUnavailableException(
+				$"The OS credential store could not be reached: {ex.Message}",
+				ex
+			);
 		}
-
-		await LinuxSecretServiceCredentialStore.StoreAsync(Service, accountId, encoded, ct);
 	}
 
 	public async Task<CredentialPayload?> RetrieveAsync(Guid accountId, CancellationToken ct)
@@ -94,17 +107,28 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 
 	public async Task DeleteAsync(Guid accountId, CancellationToken ct)
 	{
-		if (OperatingSystem.IsWindows())
+		try
 		{
-			File.Delete(Path.Combine(windowsDirectory, accountId.ToString("N")));
-			return;
+			if (OperatingSystem.IsWindows())
+			{
+				File.Delete(Path.Combine(windowsDirectory, accountId.ToString("N")));
+				return;
+			}
+			if (OperatingSystem.IsMacOS())
+			{
+				MacKeychainCredentialStore.Delete(Service, accountId, ct);
+				return;
+			}
+			await LinuxSecretServiceCredentialStore.DeleteAsync(Service, accountId, ct);
 		}
-		if (OperatingSystem.IsMacOS())
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			MacKeychainCredentialStore.Delete(Service, accountId, ct);
-			return;
+			// Same reasoning as RetrieveAsync/StoreAsync above.
+			throw new CredentialStoreUnavailableException(
+				$"The OS credential store could not be reached: {ex.Message}",
+				ex
+			);
 		}
-		await LinuxSecretServiceCredentialStore.DeleteAsync(Service, accountId, ct);
 	}
 
 	private static async Task<string?> RunAsync(string file, string arguments, CancellationToken ct, string? input = null, bool allowMissing = false)
