@@ -1908,6 +1908,20 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   Gmail account's attempt is silently ignored; the first manually confirmed as a genuine
   discriminator via revert-and-reproduce. `dotnet test` 394 passed/0 failed (up from 392).
   `pnpm check` clean, 296 dotnet tests, vitest 66.
+- **Hundred-and-thirteenth pass — a dropped attachment that failed silently dropped every other
+  file in the same batch.** `Compose.tsx`'s `addFiles` (drag-and-drop and the file picker both
+  call it) wrapped its per-file upload loop in a single try/catch — one rejected or failed file
+  aborted the loop immediately, so any remaining files in the same drop were never even
+  attempted, with one generic toast giving no indication which file failed or that the others
+  never ran. The file's own forward-attachment-copy effect a few lines above already got this
+  right (catch per attachment, collect failures, report together); `addFiles` now mirrors that
+  pattern — each file gets its own try/catch, failures collect by filename, and a single toast
+  lists which ones failed once the loop finishes, while every other file still gets attempted and
+  attached on success. `invariant-review` confirmed the mirror is faithful, `uploadAttachment`'s
+  success-only state update is unaffected, the outer `save()` try/catch still short-circuits
+  correctly on a failed save, and no frozen-invariant entry is touched. No regression test added
+  — confirmed via grep that no `@testing-library/react`/jsdom renderer test-infra exists,
+  consistent with passes 91-93/108/110. `pnpm check` clean, 296 dotnet tests (unaffected), vitest 66.
 
 ## Next task
 
