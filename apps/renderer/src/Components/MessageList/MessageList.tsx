@@ -49,7 +49,7 @@ import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/Se
 import {
 	isRovingFocusKey,
 	nextFocusIndex,
-} from "@mylomail/renderer/Components/MessageList/RovingFocus";
+} from "@mylomail/renderer/Lib/RovingFocus";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {

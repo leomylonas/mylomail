@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	isRovingFocusKey,
 	nextFocusIndex,
-} from "@mylomail/renderer/Components/MessageList/RovingFocus";
+} from "@mylomail/renderer/Lib/RovingFocus";
 
 describe("isRovingFocusKey", () => {
 	it("recognises the four navigation keys", () => {

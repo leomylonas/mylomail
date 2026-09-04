@@ -94,8 +94,16 @@ export function Calendar({
 
 	// Six full weeks so the grid never reflows, and the same window doubles as the agenda's
 	// range — one set of navigation controls for both views.
-	const rangeStart = anchor.startOf("month").startOf("week");
-	const rangeEnd = anchor.endOf("month").endOf("week");
+	// Memoized rather than computed inline: Dayjs.startOf()/endOf() return a fresh instance
+	// every call even for the same underlying date, and CalendarAgenda's roving-focus reset
+	// effect depends on this object's identity — an unmemoized value would reset keyboard focus
+	// on every Calendar re-render (a click opening EventModal, an unrelated sync refresh), not
+	// just a genuine month/anchor change.
+	const rangeStart = useMemo(
+		() => anchor.startOf("month").startOf("week"),
+		[anchor],
+	);
+	const rangeEnd = useMemo(() => anchor.endOf("month").endOf("week"), [anchor]);
 
 	const eventQueries = useQueries({
 		queries: calendars.map((calendar) => ({

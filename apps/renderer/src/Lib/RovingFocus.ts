@@ -1,8 +1,9 @@
 /**
- * Pure index arithmetic for the message list's roving-tabindex keyboard navigation (§13). Kept
- * separate from `MessageList.tsx` so it is testable without a DOM/virtualizer harness — the
- * imperative scroll-and-focus side effects live in the component, this only ever answers
- * "given the current focus and a key, what index should be focused next."
+ * Pure index arithmetic for roving-tabindex keyboard navigation over a virtualized list (§13).
+ * Kept separate from any one component so it is testable without a DOM/virtualizer harness, and
+ * shared by every virtualized list that needs it (MessageList, CalendarAgenda) — the imperative
+ * scroll-and-focus side effects live in each component, this only ever answers "given the
+ * current focus and a key, what index should be focused next."
  */
 export type RovingFocusKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
 
