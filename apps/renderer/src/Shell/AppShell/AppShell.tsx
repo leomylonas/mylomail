@@ -163,6 +163,16 @@ export function AppShell() {
 								detail: "This message hasn't finished downloading yet.",
 							});
 						}
+					})
+					.catch((error: unknown) => {
+						// Otherwise a hub disconnect at exactly the wrong moment makes clicking
+						// a notification silently do nothing — no different from the click never
+						// having registered at all.
+						notify(notifications, {
+							kind: "error",
+							title: "Couldn't open that message",
+							detail: error instanceof Error ? error.message : String(error),
+						});
 					});
 			}),
 		[hub, store, notifications],

@@ -38,7 +38,14 @@ export function SendIdentityManager({
 	const reload = () =>
 		hub
 			.invoke<SendIdentityDto[]>("GetSendIdentities", accountId)
-			.then(setIdentities);
+			.then(setIdentities)
+			.catch((thrown: unknown) => {
+				// Unlike `run`'s failures (a save/delete the user just triggered), this one
+				// fires from the mount effect below with no action of the user's own to blame
+				// it on — surfacing it the same way keeps a failed initial load from silently
+				// rendering as "this account simply has no identities."
+				setError(thrown instanceof Error ? thrown.message : String(thrown));
+			});
 
 	useEffect(() => {
 		void reload();
