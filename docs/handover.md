@@ -2033,6 +2033,27 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   revert-and-reproduce (a round-trip test that fails with a 4-hour offset error against the
   pre-fix reader). `dotnet test` 403 passed/0 failed (up from 400). `pnpm check` clean, 305
   dotnet tests, vitest 70.
+- **Hundred-and-twenty-sixth pass — ORGANIZER/ATTENDEE's `CN` used the wrong RFC 5545 grammar
+  entirely.** A third pass through `CalDavIcs.cs` following 124/125's RFC compliance fixes:
+  `CN` was written with the TEXT-property backslash-escaping helper (`Escape`, correct for
+  SUMMARY/DESCRIPTION) — but a parameter value has a different grammar (§3.2) with no
+  backslash-escaping mechanism at all, only bare text or a DQUOTE-wrapped quoted-string. A
+  display name in the common "Last, First" shape produced invalid syntax; the reader's matching
+  `Unescape` silently undid the same mistake, so MyloMail's own round trip "worked" by
+  coincidence while any other client, or a real server's correctly-quoted `CN`, would see or
+  produce literal stray backslashes. Added `QuoteParamValue` (quoted-string only when the value
+  contains COMMA/SEMICOLON/COLON, DQUOTE stripped as unrepresentable in either grammar branch)
+  at all four `CN` construction sites, and removed `Unescape` from the read side. Fixing the
+  writer alone would have reintroduced pass 125's exact failure shape: `ParseLine`'s naive
+  `head.Split(';')`/`line.IndexOf(':')` would incorrectly split inside a quoted value containing
+  a literal `;` or `:` — fixed with quote-aware `IndexOfOutsideQuotes`/`SplitOutsideQuotes`
+  helpers. `invariant-review` confirmed the RFC grammar handling, the quote-aware parsing, and
+  found no other instance of the naive-split pattern in the file; noted one accepted,
+  out-of-scope gap consistent with pass 125's own precedent — a name written under the old
+  scheme to a real server before this fix reads back with a stray backslash, not addressed. New
+  regression tests, one confirmed as a genuine discriminator via revert-and-reproduce (a
+  semicolon-containing name corrupts to "Doe\\" against the pre-fix reader). `dotnet test` 406
+  passed/0 failed (up from 403). `pnpm check` clean, 308 dotnet tests, vitest 70.
 
 ## Next task
 
