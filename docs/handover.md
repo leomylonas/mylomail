@@ -2192,6 +2192,22 @@ check` clean, 308 dotnet tests, vitest 70.
   discriminators via revert-and-reproduce. Purely a renderer-side parsing fix — no backend
   changes, the wire value was already correct. `dotnet test` unaffected (sanity check only).
   `pnpm check` clean, 308 dotnet tests, vitest 82 (up from 80).
+- **Follow-up on passes 137/138 — the "forced west-of-UTC" regression test in `InviteWhen.test.ts`
+  didn't actually discriminate.** Passes 137/138 landed without the mandatory `invariant-review`
+  step (the implementing fork was a one-shot agent that couldn't wait cross-turn for an async
+  review and self-verified instead), so a genuine first review ran afterward — and it earned its
+  keep. The test's expected value was computed as `new Date(Date.UTC(2026, 2, 10))
+.toLocaleDateString()` — the same UTC-instant-through-local-zone reformatting the code under
+  test performs, so a reintroduced bug shifts both sides by the same amount and the assertion
+  passes either way. Confirmed empirically: reverting `dayjs.utc(start)` back to `dayjs(start)`
+  and rerunning under the machine's actual (east-of-UTC) timezone left this exact test green
+  against the reintroduced bug. Fixed by deriving the expected value from explicit local Y/M/D
+  components instead of a UTC instant, and added a second test that forces
+  `process.env.TZ = "America/Los_Angeles"` before calling `describeInviteWhen` (Node reads `TZ`
+  dynamically at format-time in this runtime, verified directly) so the west-of-UTC shift is
+  exercised on any machine running the suite, not only one that happens to sit west of UTC
+  already. Both confirmed as genuine discriminators via revert-and-reproduce. `pnpm check` clean,
+  308 dotnet tests (unaffected), vitest 83 (up from 82).
 
 ## Next task
 
