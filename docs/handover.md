@@ -2054,6 +2054,23 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   regression tests, one confirmed as a genuine discriminator via revert-and-reproduce (a
   semicolon-containing name corrupts to "Doe\\" against the pre-fix reader). `dotnet test` 406
   passed/0 failed (up from 403). `pnpm check` clean, 308 dotnet tests, vitest 70.
+- **Hundred-and-twenty-seventh pass — an overlong attachment filename could push the Save/Open
+  buttons out of view.** Checked `CalDavIcs.cs`'s ROLE/PARTSTAT parameters for the same grammar
+  bug 124-126 fixed for `CN` — they're enum-driven fixed tokens (`REQ-PARTICIPANT`, `ACCEPTED`,
+  etc.), never free text, so no quoting issue is possible; that file is now genuinely exhausted
+  after three real fixes. Verified `PollRegistry`'s claim-then-schedule pattern (pass 121's
+  area) is race-free (an atomic locked `HashSet.Add`) and correctly holds its claim across a
+  loop's self-reschedule rather than releasing and re-claiming. Found the actual gap in
+  `AttachmentList.tsx`: its per-attachment row is a flex `justify-content: space-between` div
+  with an unbounded filename `<span>`, so a very long filename had no overflow handling — a
+  flex item's default `min-width: auto` floors its shrinkage at the content's intrinsic width,
+  overriding `overflow: hidden` alone. Fixed with a `.filename` class (`min-width: 0` plus the
+  same three-property ellipsis convention `MessageList.module.css` already uses) and a `title`
+  attribute for the full name on hover, plus `flex-shrink: 0` on the button group. `invariant
+-review` confirmed `min-width: 0`'s necessity for this exact flex layout, no accessibility
+  conflict, and no frozen-invariant hit. No renderer test exists for this component (a
+  pre-existing gap, not introduced here). `dotnet test` 406 passed/0 failed (unaffected). `pnpm
+check` clean, 308 dotnet tests, vitest 70.
 
 ## Next task
 
