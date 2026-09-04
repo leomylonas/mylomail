@@ -108,12 +108,12 @@ internal static partial class CalDavIcs
 		}}");
 		if (ev.Organizer is { } organizer)
 		{
-			var cn = organizer.Name is { Length: > 0 } ? $";CN={Escape(organizer.Name)}" : "";
+			var cn = organizer.Name is { Length: > 0 } ? $";CN={QuoteParamValue(organizer.Name)}" : "";
 			lines.Add($"ORGANIZER{cn}:mailto:{organizer.Email}");
 		}
 		foreach (var attendee in ev.Attendees)
 		{
-			var cn = attendee.Name is { Length: > 0 } ? $";CN={Escape(attendee.Name)}" : "";
+			var cn = attendee.Name is { Length: > 0 } ? $";CN={QuoteParamValue(attendee.Name)}" : "";
 			var role = attendee.Role switch
 			{
 				AttendeeRole.Optional => "OPT-PARTICIPANT",
@@ -228,8 +228,8 @@ internal static partial class CalDavIcs
 			ResponseStatus.Tentative => "TENTATIVE",
 			_ => "NEEDS-ACTION",
 		};
-		var cn = replyingAs.Name is { Length: > 0 } ? $";CN={Escape(replyingAs.Name)}" : "";
-		var organizerCn = ev.Organizer?.Name is { Length: > 0 } ? $";CN={Escape(ev.Organizer.Name)}" : "";
+		var cn = replyingAs.Name is { Length: > 0 } ? $";CN={QuoteParamValue(replyingAs.Name)}" : "";
+		var organizerCn = ev.Organizer?.Name is { Length: > 0 } ? $";CN={QuoteParamValue(ev.Organizer.Name)}" : "";
 
 		var lines = new List<string>
 		{
@@ -302,11 +302,11 @@ internal static partial class CalDavIcs
 			EndTimeZoneId = SingleWithParams("DTEND")?.Params.GetValueOrDefault("TZID"),
 			IsAllDay = isAllDay,
 			Organizer = SingleWithParams("ORGANIZER") is { } organizer
-				? new Address(Unescape(organizer.Params.GetValueOrDefault("CN")), StripMailto(organizer.Value))
+				? new Address(organizer.Params.GetValueOrDefault("CN"), StripMailto(organizer.Value))
 				: null,
 			Attendees = All("ATTENDEE")
 				.Select(a => new Attendee(
-					Unescape(a.Params.GetValueOrDefault("CN")),
+					a.Params.GetValueOrDefault("CN"),
 					StripMailto(a.Value),
 					a.Params.GetValueOrDefault("ROLE") switch
 					{
@@ -493,6 +493,23 @@ internal static partial class CalDavIcs
 		value.Replace("\\", "\\\\").Replace(";", "\\;").Replace(",", "\\,").Replace("\n", "\\n");
 
 	/// <summary>
+	/// RFC 5545 §3.2's param-value grammar has no backslash-escaping at all — that mechanism
+	/// belongs to TEXT-valued properties (<see cref="Escape"/>), a different part of the spec.
+	/// A parameter value is either bare (SAFE-CHAR, excluding COMMA/SEMICOLON/COLON/DQUOTE) or a
+	/// quoted-string (DQUOTE *QSAFE-CHAR DQUOTE, QSAFE-CHAR itself excluding DQUOTE). Applying
+	/// <see cref="Escape"/> to a CN value produced syntax no compliant reader accepts — this
+	/// codebase's own reader only "round-tripped" it because <see cref="Unescape"/> silently
+	/// undid the same mistake, but every other client (and this reader, reading a real server's
+	/// correctly-quoted CN) saw the literal backslashes. DQUOTE has no valid representation in
+	/// either grammar, so it is dropped rather than escaped.
+	/// </summary>
+	private static string QuoteParamValue(string value)
+	{
+		var sanitized = value.Replace("\"", "");
+		return sanitized.IndexOfAny([',', ';', ':']) >= 0 ? $"\"{sanitized}\"" : sanitized;
+	}
+
+	/// <summary>
 	/// Reverses <see cref="Escape"/> for the TEXT-valued properties it applies to (RFC 5545
 	/// §3.3.11). Never applied to RRULE/RDATE/EXDATE, whose commas are structural list
 	/// separators rather than escaped text — unescaping those would corrupt them.
@@ -528,16 +545,16 @@ internal static partial class CalDavIcs
 
 	private static (string Name, IReadOnlyDictionary<string, string> Params, string Value) ParseLine(string line)
 	{
-		var colon = line.IndexOf(':');
+		var colon = IndexOfOutsideQuotes(line, ':');
 		if (colon < 0)
 		{
 			return (line, NoParams, string.Empty);
 		}
 		var head = line[..colon];
 		var value = line[(colon + 1)..];
-		var segments = head.Split(';');
+		var segments = SplitOutsideQuotes(head, ';');
 		var name = segments[0].ToUpperInvariant();
-		if (segments.Length == 1)
+		if (segments.Count == 1)
 		{
 			return (name, NoParams, value);
 		}
@@ -552,6 +569,51 @@ internal static partial class CalDavIcs
 			}
 		}
 		return (name, parameters, value);
+	}
+
+	/// <summary>
+	/// A property line's parameter list can itself carry <c>;</c> and <c>:</c> characters inside
+	/// a quoted param-value (e.g. <c>CN="Doe; Smith"</c>, RFC 5545 §3.2) — splitting on the raw
+	/// character, as a naive parser would, corrupts the value and can even misidentify which
+	/// colon separates the parameter list from the property's actual value. These two helpers
+	/// track whether a scan position is inside a double-quoted span and never split there.
+	/// </summary>
+	private static int IndexOfOutsideQuotes(string s, char target)
+	{
+		var quoted = false;
+		for (var i = 0; i < s.Length; i++)
+		{
+			if (s[i] == '"')
+			{
+				quoted = !quoted;
+			}
+			else if (s[i] == target && !quoted)
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private static List<string> SplitOutsideQuotes(string s, char delimiter)
+	{
+		var parts = new List<string>();
+		var quoted = false;
+		var start = 0;
+		for (var i = 0; i < s.Length; i++)
+		{
+			if (s[i] == '"')
+			{
+				quoted = !quoted;
+			}
+			else if (s[i] == delimiter && !quoted)
+			{
+				parts.Add(s[start..i]);
+				start = i + 1;
+			}
+		}
+		parts.Add(s[start..]);
+		return parts;
 	}
 
 	/// <summary>RFC 5545 line unfolding: a CRLF followed by a space or tab continues the prior line.</summary>
