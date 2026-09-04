@@ -1870,6 +1870,26 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   infrastructure, documented as a gap per this session's precedent (passes 91-93, 102).
   `dotnet test` 392 passed/0 failed (unaffected — no test added). `pnpm check` clean, 294 dotnet
   tests, vitest 62.
+- **Hundred-and-sixth pass — all-day events were stored one day short, and single-day ones
+  vanished entirely.** `CalDavIcs.cs`'s ICS export and `CalendarAgenda.tsx`'s day-span filter
+  (`event.start.isBefore(dayEnd) && event.end.isAfter(dayStart)`) both assume RFC 5545's
+  exclusive-end convention for all-day events — `End` is the day _after_ the last included one —
+  but `EventModal.tsx`'s End date field read and wrote the raw stored `End` with no adjustment.
+  Picking the same date for Start and End on a new all-day event, the natural way to create a
+  one-day event, produced `Start === End`: a zero-duration span the agenda filter's
+  `isAfter(dayStart)` (false when equal) then silently excluded from every day, including the one
+  picked. A multi-day event was similarly stored one day short of its real last day. Added
+  `AllDayEventEnd.ts`'s `toInclusiveEndDateInputValue`/`fromInclusiveEndDateInputValue` pair to
+  show/store the inclusive-last-day the user actually means, wired into the End field only when
+  `isAllDay` (the timed-event path is unchanged), plus a fix to the "All day" toggle itself so
+  flipping it snaps `End` to a valid span on either transition instead of carrying over whatever
+  timed value was already there. `invariant-review` confirmed the two functions are true inverses,
+  DST-safe (`dayjs` has no default timezone set, so day arithmetic is calendar-day not fixed-24h),
+  the timed path is provably byte-identical to before, the toggle can never produce
+  `End <= Start`, no frozen-invariant hit, and `Calendar.tsx`'s two `isAllDay` usages are pure
+  pass-through with no parallel fix needed. New pure-function tests confirmed genuine (concrete
+  date-string assertions, not tautologies) after fixing a UTC-vs-local mismatch in the test's own
+  first draft. `pnpm check` clean, 294 dotnet tests (unaffected), vitest 66 (up from 62).
 
 ## Next task
 
