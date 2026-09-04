@@ -1806,6 +1806,27 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   and still moving the whole series. New regression test seeds a real recurrence master and
   asserts the detail reports its own dates, not a later occurrence's. `dotnet test` 387 passed/0
   failed (up from 386). `pnpm check` clean, 290 dotnet tests, vitest 62.
+- **Hundredth pass — a rejected CalDAV certificate surfaced with no fingerprint, hostname, or
+  issuer.** Investigating provider-specific error message clarity, found IMAP's
+  `AuthenticateAsync` and the SMTP send path both translate a rejected certificate into
+  `CertificateTrust.Problem`'s detailed message (§15), but CalDAV surfaced only a bare
+  `HttpRequestException` — the codebase's own documented expectation until now, per an existing
+  live test that explicitly asserted that raw exception type. Added `CertificateRejectionHandler`,
+  a `DelegatingHandler` `CalendarProviderFactory` wraps its `HttpClientHandler` with, translating
+  the same rejection from one place rather than at each of `CalDavCalendarProvider`'s nine call
+  sites. `invariant-review`'s first pass caught a real, serious bug: the handler is held and
+  reused across a provider's whole lifetime (unlike IMAP, which gets a fresh client per connect),
+  and the rejected-certificate field was never reset — a rejection on one request would stay
+  stamped forever, mislabelling a later, unrelated transport failure as the same stale
+  certificate problem. Fixed by resetting per attempt, mirroring `ImapMailProvider.ConnectAsync`'s
+  own pattern; a second `invariant-review` pass confirmed the fix. Two new regression tests: a
+  live test driving the real `CalendarProviderFactory` against the `caldav:up` fixture's actual
+  self-signed certificate, and a unit test (made possible by widening the nested handler from
+  `private` to `internal` under the existing `InternalsVisibleTo` grant) exercising the staleness
+  scenario directly against a scripted fake transport — both manually confirmed as genuine
+  discriminators via revert-and-reproduce. `dotnet test` 388 passed/0 failed (up from 387), plus
+  4/4 CalDAV live tests verified against the real Docker fixture. `pnpm check` clean, 291 dotnet
+  tests, vitest 62.
 
 ## Next task
 
