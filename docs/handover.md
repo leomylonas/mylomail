@@ -1702,6 +1702,23 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   the repo (no `@testing-library/react`/jsdom setup exists, and `ShellSettings.tsx`'s identical
   pattern ships untested too), a real infrastructure gap flagged as a follow-up rather than
   worked around. `pnpm check` clean, 286 dotnet tests (unaffected), vitest 57.
+- **Ninety-second pass — two more fire-and-forget async chains had no error handling.**
+  Follow-up sweep from pass 91's finding, grepping the renderer for other unawaited/uncaught
+  hub/REST calls. Found `SendIdentityManager.tsx`'s `reload()` (called at mount, and awaited
+  inside the component's own save/delete flow) had no `.catch()` at all — a failed initial load
+  left `identities` `null` forever, rendered via `(identities ?? []).map(...)` as "this account
+  simply has no send identities" rather than as an error. And `AppShell.tsx`'s
+  notification-click handler invoked `ResolveStagedMessage` with a `.then()` but no `.catch()` —
+  a hub disconnect at exactly the wrong moment made clicking a notification silently do nothing.
+  Fixed both by adding `.catch()` handlers reusing each component's existing
+  error/`notify`-based feedback path. `invariant-review` confirmed both fixes correct and
+  identified one real, benign behavior change: `reload()` now always resolves, so `run()`'s own
+  `await reload()` always proceeds to `setEditing(null)` after a successful save/delete even if
+  the refresh itself failed — correct, since the save/delete already succeeded and the refresh
+  failure is still surfaced separately. Neither change touches a frozen-invariant table entry.
+  No regression test added, matching pass 91's already-documented gap (no
+  `@testing-library/react`/jsdom setup exists in this repo). `pnpm check` clean, 286 dotnet
+  tests (unaffected — renderer-only), vitest 57.
 
 ## Next task
 
