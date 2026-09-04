@@ -2100,6 +2100,22 @@ check` clean, 308 dotnet tests, vitest 70.
   frozen-invariant hit, and no existing test references `attachment.filename` (no Compose
   component-render tests exist). `dotnet test` 406 passed/0 failed (unaffected). `pnpm check`
   clean, 308 dotnet tests, vitest 70.
+- **Hundred-and-thirtieth pass — a stale scroll offset survived a mailbox switch.** Pass 130
+  found the overflow-truncation angle exhausted after checking notification/toast components
+  (already handled by Carbon's own wrapping), send-identity dropdowns (native Carbon `Select`,
+  no custom flex-row at risk), and flagged `DraftList.tsx`'s subject line inside a Carbon
+  `Button` as an unconfirmed, lower-confidence candidate for a future pass rather than forcing a
+  fix. It also surfaced an unrelated, uncommitted leftover in `MessageList.tsx` from an earlier
+  interrupted pass: `useVirtualizer`'s scroll offset was never reset on a mailbox switch or
+  search toggle, leaving a deeply-scrolled list at the same arbitrary offset in the new result
+  set — unrelated rows or blank overscroll while the new mailbox's first page loaded. Picked up,
+  verified, and completed rather than left dangling: a `useEffect` resets
+  `virtualizer.scrollToOffset(0)` keyed on `mailboxId`/`searching`. `invariant-review` confirmed
+  `useVirtualizer` returns a stable object reference (mutated in place via `setOptions`), so
+  including it in the deps array is inert, not a rerun risk; the deps list deliberately excludes
+  anything pagination-derived, so `fetchNextPage()` never retriggers the reset; selection state
+  is managed independently of scroll offset; no frozen-invariant entry touched. `pnpm check`
+  clean, 308 dotnet tests (unaffected), vitest 70.
 
 ## Next task
 
