@@ -1784,6 +1784,28 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   fix and that no construction site was missed. New regression test distinguishes an override
   (false) from a virtual occurrence (true) within one result set. `dotnet test` 386 passed/0
   failed (up from 385). `pnpm check` clean, 289 dotnet tests, vitest 62.
+- **Ninety-eighth pass — editing a recurring event's virtual occurrence silently rescheduled the
+  whole series.** A more serious version of pass 97's delete shape. `Calendar.tsx`'s
+  `openEditModal` substitutes a virtual occurrence's id with its `masterEventId` before opening
+  the edit modal (existing, documented — true per-occurrence editing is deferred per §13 Epic
+  7), but only `id` was substituted: the form's initial `Start`/`End` stayed the clicked
+  occurrence's own derived date. `CalendarEventService.UpdateAsync` unconditionally overwrites
+  `existing.Start`/`End` with whatever the form holds, so saving an edit — even just changing
+  the title, without touching the date fields — would silently reschedule the entire series to
+  that occurrence's date. Not an unclear warning; a silent data-corruption path. Added
+  `Start`/`End`/`IsAllDay` to `CalendarEventDetailDto` and `MailHub.GetCalendarEventDetail`'s
+  construction (the master row's own persisted values); `EventModal.tsx` gained a
+  `virtualOccurrence` prop that, once `GetCalendarEventDetail` resolves, corrects the form's
+  date fields via a `useEffect` guarded to apply exactly once (never on a later background
+  refetch that would clobber the user's own in-flight edit). `invariant-review` confirmed the
+  root cause by reading `UpdateAsync` directly, confirmed the once-only guard and the negligible
+  resolve-before-submit race (no worse than one pass 97 already accepted), confirmed no
+  regression when `virtualOccurrence` is false, confirmed the single DTO construction site, and
+  confirmed no frozen-invariant entry touched — noting one optional, not-required UX follow-up:
+  nothing yet stops a user from _manually_ changing the date fields on a virtual-occurrence edit
+  and still moving the whole series. New regression test seeds a real recurrence master and
+  asserts the detail reports its own dates, not a later occurrence's. `dotnet test` 387 passed/0
+  failed (up from 386). `pnpm check` clean, 290 dotnet tests, vitest 62.
 
 ## Next task
 
