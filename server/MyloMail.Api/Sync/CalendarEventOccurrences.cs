@@ -58,7 +58,24 @@ public static class CalendarEventOccurrences
 		{
 			overridesByMaster.TryGetValue(master.Id, out var overridesForMaster);
 
-			foreach (var occurrence in CalendarRecurrenceExpander.Expand(master, from, to))
+			// A non-standard StartTimeZoneId (Outlook/Exchange are known to emit vendor ids
+			// like "Customized Time Zone" that aren't in the IANA/Windows tz database this
+			// runs against) makes Expand's TimeZoneInfo.FindSystemTimeZoneById throw, and a
+			// malformed RRULE string makes Ical.Net's RecurrencePattern constructor throw. One
+			// bad master's provider-supplied data must not take down the whole calendar view
+			// with it — every other master and every plain event in this window is unrelated
+			// and still deserves to render.
+			IReadOnlyList<RecurrenceOccurrence> occurrences;
+			try
+			{
+				occurrences = CalendarRecurrenceExpander.Expand(master, from, to);
+			}
+			catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException or FormatException or ArgumentException)
+			{
+				continue;
+			}
+
+			foreach (var occurrence in occurrences)
 			{
 				// The override map is keyed by the occurrence's *original* slot
 				// (RECURRENCE-ID) — a cancelled or moved occurrence must not also show a

@@ -138,6 +138,160 @@ public sealed class CalendarEventOccurrencesTests
 		Assert.Equal("Standup", occurrence.Title);
 	}
 
+	/// <summary>
+	/// Eighty-ninth architecture-review pass: Outlook/Exchange are known to emit non-standard
+	/// <c>TZID</c>s (e.g. "Customized Time Zone") that aren't in the tz database this runs
+	/// against — <see cref="CalendarRecurrenceExpander.Expand"/>'s
+	/// <see cref="TimeZoneInfo.FindSystemTimeZoneById"/> call throws for one, and nothing
+	/// caught it, so a single malformed recurring master took the whole calendar view down
+	/// with it, hiding every other unrelated event in the window too.
+	/// </summary>
+	[Fact]
+	public async Task A_master_with_an_unrecognised_time_zone_id_is_skipped_not_fatal()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var calendarId = Guid.NewGuid();
+		var start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
+
+		await UsingAsync(
+			database,
+			async context =>
+			{
+				context.Accounts.Add(new Account { Id = accountId, ProviderType = ProviderType.Imap });
+				context.Calendars.Add(
+					new Calendar
+					{
+						Id = calendarId,
+						AccountId = accountId,
+						ProviderCalendarId = "calendar-1",
+						Name = "Calendar",
+					}
+				);
+				context.CalendarEvents.Add(
+					new CalendarEvent
+					{
+						Id = Guid.NewGuid(),
+						CalendarId = calendarId,
+						Title = "Broken recurring meeting",
+						ProviderEventId = "master-broken",
+						Start = start,
+						End = start.AddMinutes(30),
+						StartTimeZoneId = "Customized Time Zone",
+						RecurrenceRules = ["FREQ=WEEKLY;COUNT=6"],
+						Status = EventStatus.Confirmed,
+					}
+				);
+				context.CalendarEvents.Add(
+					new CalendarEvent
+					{
+						Id = Guid.NewGuid(),
+						CalendarId = calendarId,
+						Title = "Unrelated one-off meeting",
+						ProviderEventId = "plain-1",
+						Start = start.AddHours(1),
+						End = start.AddHours(1.5),
+						Status = EventStatus.Confirmed,
+					}
+				);
+				await context.SaveChangesAsync();
+				return true;
+			}
+		);
+
+		var events = await UsingAsync(
+			database,
+			context =>
+				CalendarEventOccurrences.ForCalendarAsync(
+					context,
+					calendarId,
+					start.AddDays(-1),
+					start.AddDays(60)
+				)
+		);
+
+		var plain = Assert.Single(events, e => e.Title == "Unrelated one-off meeting");
+		Assert.Equal(start.AddHours(1), plain.Start);
+		Assert.DoesNotContain(events, e => e.Title == "Broken recurring meeting");
+	}
+
+	/// <summary>
+	/// Same containment as the unrecognised-time-zone case above, for the sibling failure
+	/// invariant-review found during pass 89's own review: Ical.Net's <c>RecurrencePattern</c>
+	/// constructor throws <see cref="ArgumentOutOfRangeException"/> (an <see
+	/// cref="ArgumentException"/>) for a malformed <c>RRULE</c> string — provider data this
+	/// service never validated before this point.
+	/// </summary>
+	[Fact]
+	public async Task A_master_with_a_malformed_recurrence_rule_is_skipped_not_fatal()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var calendarId = Guid.NewGuid();
+		var start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
+
+		await UsingAsync(
+			database,
+			async context =>
+			{
+				context.Accounts.Add(new Account { Id = accountId, ProviderType = ProviderType.Imap });
+				context.Calendars.Add(
+					new Calendar
+					{
+						Id = calendarId,
+						AccountId = accountId,
+						ProviderCalendarId = "calendar-1",
+						Name = "Calendar",
+					}
+				);
+				context.CalendarEvents.Add(
+					new CalendarEvent
+					{
+						Id = Guid.NewGuid(),
+						CalendarId = calendarId,
+						Title = "Broken recurring meeting",
+						ProviderEventId = "master-broken-rrule",
+						Start = start,
+						End = start.AddMinutes(30),
+						RecurrenceRules = ["NOT A VALID RRULE"],
+						Status = EventStatus.Confirmed,
+					}
+				);
+				context.CalendarEvents.Add(
+					new CalendarEvent
+					{
+						Id = Guid.NewGuid(),
+						CalendarId = calendarId,
+						Title = "Unrelated one-off meeting",
+						ProviderEventId = "plain-2",
+						Start = start.AddHours(1),
+						End = start.AddHours(1.5),
+						Status = EventStatus.Confirmed,
+					}
+				);
+				await context.SaveChangesAsync();
+				return true;
+			}
+		);
+
+		var events = await UsingAsync(
+			database,
+			context =>
+				CalendarEventOccurrences.ForCalendarAsync(
+					context,
+					calendarId,
+					start.AddDays(-1),
+					start.AddDays(60)
+				)
+		);
+
+		var plain = Assert.Single(events, e => e.Title == "Unrelated one-off meeting");
+		Assert.Equal(start.AddHours(1), plain.Start);
+		Assert.DoesNotContain(events, e => e.Title == "Broken recurring meeting");
+	}
+
 	private static async Task<(Guid CalendarId, Guid MasterId, DateTimeOffset SecondOccurrence)> SeedWeeklySeriesAsync(
 		TestDatabase database
 	)
