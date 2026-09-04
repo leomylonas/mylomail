@@ -2161,6 +2161,21 @@ check` clean, 308 dotnet tests, vitest 70.
   multi-day id-collision risk, both fixed. Round 3 confirmed everything correct, including that
   each day-instance of a shared multi-day event now gets its own distinct flat index, tabIndex-0
   target, and DOM ref. `pnpm check` clean, 308 dotnet tests (unaffected), vitest 77.
+- **Hundred-and-thirty-seventh pass — an all-day invite's date/time line showed a misleading
+  midnight time, and a multi-day invite lost its end date entirely.** `MessageInviteDto` (the
+  reading-pane RSVP invite banner's DTO) was missing an `IsAllDay` field even though the parsed
+  ICS event already carries it — so the banner always formatted `start`/`end` as a timed event,
+  printing "12:00:00 AM" for a genuine all-day invite, and for a multi-day invite showing only
+  an end _time_ with no date at all. Added `IsAllDay` threaded from the single construction site
+  in `MailHub.GetMessageInvite`, and extracted the display logic into a pure
+  `describeInviteWhen` in a new `InviteWhen.ts` — reuses the existing
+  `toInclusiveEndDateInputValue` helper (already used by the calendar event form for the same
+  RFC 5545 exclusive-end-date adjustment) to show a single date for a one-day all-day invite or
+  a date range for a multi-day one, with no time-of-day component either way. Three new tests,
+  the single-day case manually confirmed as a genuine discriminator by temporarily forcing the
+  all-day branch through the timed-format path and reproducing the exact pre-fix symptom.
+  `dotnet test` 406 passed/0 failed (unchanged — additive field only). `pnpm check` clean, 308
+  dotnet tests, vitest 80 (up from 77).
 
 ## Next task
 
