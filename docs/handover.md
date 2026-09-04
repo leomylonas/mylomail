@@ -1958,6 +1958,26 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   pure renderer refactor with no frozen-invariant hit. New regression test manually confirmed as
   a genuine discriminator via revert-and-reproduce. `dotnet test` 395 passed/0 failed (unaffected
   — renderer-only). `pnpm check` clean, 297 dotnet tests, vitest 70 (up from 66).
+- **Hundred-and-twenty-first pass — topology reconciliation never ran on the cadence its own doc
+  comment promised.** `TopologySyncService` says each provider "reconciles topology separately
+  and on its own cadence," but `SyncJobs.TopologyAsync` only ever ran once, at startup or account
+  resume, and never rescheduled itself — unlike every sibling loop. A folder created, renamed or
+  deleted in another client mid-session went undiscovered until the app's next restart. Fixed by
+  making `TopologyAsync` self-reschedule, mirroring `CalendarAsync`'s shape exactly. Two real bugs
+  were caught across three rounds of `invariant-review` before this shipped: round 1 found the
+  first version's `PollRegistry` claim guard living _inside_ the self-rescheduling method itself,
+  which deadlocked the loop after exactly one cycle (the claim was never released before the
+  reschedule, so the scheduled successor found the scope already held and silently died) — fixed
+  by moving the guard to the loop's external callers, matching how `StartCalendarLoop` claims its
+  own scope; round 2 found that move missed a third real caller, `MailHub.UpdateAccount`'s
+  `resumingPolling` branch, whose own surrounding comment described a `TryStart` call the code
+  never actually made — a pre-existing comment/code mismatch that only became a real bug once the
+  loop started self-rescheduling forever, since every polling disable/re-enable toggle would have
+  started an unbounded, permanently self-perpetuating second loop. Fixed by adding `PollRegistry`
+  to `MailHub`'s constructor and guarding that enqueue too. Three new regression tests, one per
+  call site's guard, including one manually confirmed as a genuine discriminator for round 1's
+  deadlock via revert-and-reproduce. `dotnet test` 398 passed/0 failed (up from 395). `pnpm check`
+  clean, 300 dotnet tests, vitest 70.
 
 ## Next task
 
