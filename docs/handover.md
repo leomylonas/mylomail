@@ -1579,6 +1579,33 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   transaction, leaving a narrow, self-healing crash window. New regression test (a real
   parent+child mailbox pair) confirmed as a genuine discriminator via revert-and-reproduce.
   `dotnet test` 377 passed/0 failed (up from 376). `pnpm check` clean, 280 dotnet tests, vitest 55.
+- **Eighty-first pass — no gap found.** Swept for other `DeleteBehavior.Restrict` FKs with the
+  same cascade-conflict shape pass 80 found. Only two others exist:
+  `MessageSearchContent.MessageId`→`Message` (both real deletion paths —
+  `AccountProvisioningService.RemoveAsync` and `TombstoneGcJobs`'s tombstone collection — already
+  call `search.RemoveAsync`/`RemoveForAccountAsync` before removing the `Message` row) and
+  `Draft.SendIdentityId`→`SendIdentity` (a probe test seeding a real cross-referencing pair and
+  calling `RemoveAsync` passed cleanly — unlike the self-referencing `Mailbox.ParentId` case,
+  `Draft` and `SendIdentity` are independent tables both cascading from `Account`, and SQLite's
+  cascade engine deletes the referencing side first without issue). Pass 80's fix was the only
+  genuine instance of this bug class.
+- **Eighty-second pass — a lost undo-send race gave the user no feedback at all.** §15's
+  undo-send compare-and-swap (`OutboxService.TryCancelAsync` vs. `TryClaimForSendAsync`) was
+  already correct server-side, but `Compose.tsx`'s `undo()` did `setSent({ ...sent, cancelled:
+false })` on a lost race — a no-op from the UI's perspective, since `cancelled` was already
+  `false`. The "Undo send" button stayed visible and clickable, silently doing nothing, until a
+  later `OutboxStatusChanged` (potentially seconds away) corrected the display. Added
+  `undoRejected` to `Sent`/`SentState`, shown as "Too late to undo — this message is already
+  being sent." with the button hidden, checked after every real status branch so a genuine
+  announcement always wins over a stale rejection flag. `invariant-review`'s first pass caught a
+  real bug in the initial fix: `undo()` spread the closure-captured `sent` instead of using
+  React's functional update form, so a genuine `OutboxStatusChanged` arriving mid-flight could
+  get clobbered by a stale `undoRejected: true` — fixed by switching to the functional form,
+  matching the sibling `onStatusChanged` handler's own pattern; a second `invariant-review` pass
+  confirmed the fix and identified `describeSentState`'s status-first check ordering as a second,
+  independent layer of protection regardless of arrival order. Two new regression tests confirmed
+  as genuine discriminators via revert-and-reproduce. `dotnet test` 377 passed/0 failed
+  (unaffected — renderer-only). `pnpm check` clean, 280 dotnet tests, vitest 57 (up from 55).
 
 ## Next task
 
