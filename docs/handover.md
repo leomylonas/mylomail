@@ -1562,6 +1562,23 @@ OperationCanceledException)`, matching the method's own stated contract. `invari
   than through SignalR's own invocation pipeline — confirmed as a genuine discriminator via
   revert-and-reproduce. `dotnet test` 376 passed/0 failed (up from 375). `pnpm check` clean, 279
   dotnet tests, vitest 55.
+- **Eightieth pass — removing an account with a nested mailbox hierarchy threw a FOREIGN KEY
+  constraint failure.** Follow-up sweep on account-removal cleanup completeness from pass 79.
+  `Mailbox.ParentId` is `Restrict`, not `Cascade` — a topology reconciliation must decide
+  explicitly what happens to a deleted parent's children, never have the database silently drop
+  a subtree — but that same guard also blocked `AccountProvisioningService.RemoveAsync`'s own
+  account-deletion cascade: SQLite refused to delete a parent mailbox row while a child mailbox
+  in the same account still referenced it, for any account with at least one nested folder (the
+  common case for most providers). Fixed by clearing every mailbox's `ParentId` for the account
+  in one `ExecuteUpdateAsync` immediately before the account row (and therefore its mailboxes)
+  is removed — safe specifically because every mailbox in the account is about to be deleted
+  together, so there is no longer a subtree left for `Restrict` to protect. `invariant-review`
+  confirmed ordinary single-mailbox deletion (a separate code path) remains fully protected, no
+  tracked entities are left stale by the bulk update, and no frozen-invariant entry is touched;
+  one low-priority note accepted as-is: the update and the account deletion aren't in one
+  transaction, leaving a narrow, self-healing crash window. New regression test (a real
+  parent+child mailbox pair) confirmed as a genuine discriminator via revert-and-reproduce.
+  `dotnet test` 377 passed/0 failed (up from 376). `pnpm check` clean, 280 dotnet tests, vitest 55.
 
 ## Next task
 
