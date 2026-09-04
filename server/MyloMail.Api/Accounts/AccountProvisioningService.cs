@@ -252,6 +252,17 @@ public sealed class AccountProvisioningService(
 		// no longer exist (§8).
 		await search.RemoveForAccountAsync(accountId, ct);
 
+		// Mailbox.ParentId is Restrict, not Cascade (a topology sync must never let one
+		// deleted folder silently take its whole subtree with it) — but that same guard blocks
+		// SQLite's own FK-cascade from Account down to Mailbox here: it deletes a parent
+		// mailbox row while a child mailbox still references it, which SQLite refuses with a
+		// FOREIGN KEY constraint failure. Every mailbox in this account is about to be deleted
+		// together via that same cascade, so breaking every parent link first is safe — there
+		// is no longer a subtree left for Restrict to protect.
+		await context
+			.Mailboxes.Where(m => m.AccountId == accountId)
+			.ExecuteUpdateAsync(u => u.SetProperty(m => m.ParentId, (Guid?)null), ct);
+
 		context.Accounts.Remove(account);
 		await context.SaveChangesAsync(ct);
 

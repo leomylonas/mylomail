@@ -251,6 +251,43 @@ public sealed class AccountProvisioningTests
 		}
 	}
 
+	[Fact]
+	public async Task Removing_an_account_with_a_nested_mailbox_hierarchy_does_not_throw()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await AddAsync(harness, "someone@example.org", Secret());
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var parent = new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				ProviderMailboxId = "PARENT",
+				Name = "Parent",
+				SpecialUse = SpecialUse.None,
+			};
+			context.Mailboxes.Add(parent);
+			context.Mailboxes.Add(
+				new Mailbox
+				{
+					Id = Guid.NewGuid(),
+					AccountId = account.Id,
+					ProviderMailboxId = "CHILD",
+					Name = "Child",
+					SpecialUse = SpecialUse.None,
+					ParentId = parent.Id,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<AccountProvisioningService>().RemoveAsync(account.Id)
+		);
+	}
+
 	/// <summary>Removal disables first, so a running job stops before the row disappears (§3).</summary>
 	[Fact]
 	public async Task Removing_an_account_deletes_it_and_its_credential()
