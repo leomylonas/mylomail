@@ -2013,6 +2013,26 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   confirm `RECURRENCE-ID` is present for an override and absent for a master, manually confirmed
   as a genuine discriminator via revert-and-reproduce. `dotnet test` 400 passed/0 failed (up from
   398). `pnpm check` clean, 302 dotnet tests, vitest 70.
+- **Hundred-and-twenty-fifth pass — RDATE/EXDATE never carried DTSTART's `TZID`, both writing
+  and reading.** Following pass 124's RFC 5546 fix in the same file, found `CalDavIcs
+.RenderVEvent`'s RDATE/EXDATE emission hardcoded `tzid: null` regardless of DTSTART's real
+  zone. Per RFC 5545 §3.8.5.1/§3.8.5.2 an EXDATE/RDATE must match DTSTART's exact value type and
+  zone — a receiving client compares it literally against instances it generates from RRULE in
+  DTSTART's own zone, so a mismatched EXDATE simply fails to exclude anything. Fixed by
+  extracting a shared `RecurrenceSetPropertyName` helper and having `FormatDateTimeValue`
+  actually use its `tzid` parameter. `invariant-review`'s first pass caught something more
+  serious: `ParseEvents` (the reader, same file) discarded each RDATE/EXDATE's own parsed
+  `Params` and always parsed with `NoParams` — before this pass EXDATE/RDATE were always written
+  bare-UTC, so read-after-write happened to round-trip correctly by coincidence; this pass's
+  write-side fix alone would have made MyloMail start emitting the exact TZID-qualified
+  construct its own reader mishandled, misreading a zoned exception date as UTC and computing
+  the wrong instant on the next sync. Fixed by passing each line's own `Params` into
+  `ParseDateTime` instead of `NoParams`. A second `invariant-review` pass confirmed the reader
+  fix correct and found no other instance of the pattern among the file's other `All(...)`
+  callers. Three new regression tests, one confirmed as a genuine discriminator via
+  revert-and-reproduce (a round-trip test that fails with a 4-hour offset error against the
+  pre-fix reader). `dotnet test` 403 passed/0 failed (up from 400). `pnpm check` clean, 305
+  dotnet tests, vitest 70.
 
 ## Next task
 
