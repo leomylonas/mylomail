@@ -1978,6 +1978,26 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   call site's guard, including one manually confirmed as a genuine discriminator for round 1's
   deadlock via revert-and-reproduce. `dotnet test` 398 passed/0 failed (up from 395). `pnpm check`
   clean, 300 dotnet tests, vitest 70.
+- **Hundred-and-twenty-third pass — `StoreAsync`/`DeleteAsync` didn't translate credential-store
+  failures the way `RetrieveAsync` already did.** `NativeCredentialStore.RetrieveAsync` wraps any
+  failure (a locked keyring with no interactive unlock, a denied Keychain prompt, no D-Bus
+  session) in `CredentialStoreUnavailableException`, so callers can tell "the store itself
+  couldn't be reached" from "no credential stored." `StoreAsync`/`DeleteAsync` had no such
+  wrapping — a raw exception propagated untranslated, bypassing `AccountsController`'s dedicated
+  `catch (CredentialStoreUnavailableException)` block on the account-add and reauthenticate
+  endpoints (returning 503 with a useful detail, instead of a bare 500) entirely. A locked keyring
+  during account creation or reauth surfaced as a generic, unhelpful error. Fixed by wrapping both
+  methods' bodies in the same try/catch pattern `RetrieveAsync` already used. `invariant-review`
+  confirmed no success-path behavior change on any OS branch; identified a pre-existing, separate
+  gap in `AccountProvisioningService.AddAsync`'s failed-auth cleanup path (a delete failure there
+  can mask the original exception) that this diff doesn't worsen and arguably improves, since the
+  now-thrown type is meaningfully handled everywhere it's caught rather than an opaque raw
+  exception; confirmed the exit-78 process-restart handling in `Program.cs` is scoped narrowly to
+  startup and unaffected. No frozen-invariant hit. No regression test added — the OS-specific
+  static calls (Windows DPAPI, macOS Keychain P/Invoke, Linux D-Bus Secret Service) aren't
+  practically unit-testable without a real OS credential store, mirroring `RetrieveAsync`'s own
+  already-untested precedent. `dotnet test` 398 passed/0 failed (unaffected). `pnpm check` clean,
+  300 dotnet tests, vitest 70.
 
 ## Next task
 
