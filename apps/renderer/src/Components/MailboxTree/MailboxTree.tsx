@@ -356,7 +356,9 @@ export function MailboxTree({
 									event.dataTransfer.effectAllowed = "move";
 								}}
 							>
-								<span>{mailbox.name}</span>
+								<span className={styles.name} title={mailbox.name}>
+									{mailbox.name}
+								</span>
 								{mailbox.coverage === CoverageStatus.Backfilling ? (
 									<BackfillProgress mailboxId={mailbox.id} />
 								) : (

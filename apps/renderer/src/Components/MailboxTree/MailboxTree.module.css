@@ -60,4 +60,12 @@
 .count {
 	color: var(--cds-text-secondary);
 	font-size: 0.75rem;
+	flex-shrink: 0;
+}
+
+.name {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	min-width: 0;
 }
