@@ -1927,6 +1927,13 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
    step to centralize the translation in, plus the exact status-code-to-exception mapping and
    `Retry-After` parsing per SDK is a real design decision — worth doing once OAuth registration
    (item 1) actually lands and these providers become reachable.
+6. **`Message.ThreadId` is a half-built, provider-inconsistent field with no consumer** (found by
+   pass 108, left as a documented gap per the user's explicit choice). It exists on the domain
+   model and `MessageDto`, and Graph populates it from `ConversationId` — but Gmail and IMAP
+   never populate it at all, it's absent from `MessageSummaryDto`, no conversation-grouping UI
+   exists, and no query filters by it. Building real threading needs each provider's own
+   thread-id concept (a design decision, not dictated by strong precedent) plus new UI; the field
+   should either be built out properly or removed, not left in this half state indefinitely.
 
 ## Read first
 
