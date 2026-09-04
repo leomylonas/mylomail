@@ -2,11 +2,17 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using MyloMail.Api.Accounts;
+using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Controllers;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -150,11 +156,104 @@ public sealed class AccountsControllerTests
 		Assert.Equal(10 * 1024 * 1024, dto.AttachmentSizeLimitOverride);
 	}
 
+	/// <summary>
+	/// Eighty-seventh architecture-review pass: a locked OS keychain during account creation
+	/// throws <see cref="CredentialStoreUnavailableException"/> straight out of
+	/// <see cref="AccountProvisioningService.AddAsync"/>, with nothing here to catch it — unlike
+	/// every background job (§3), which pass 64 gave a distinct, friendly status for exactly
+	/// this failure.
+	/// </summary>
+	[Fact]
+	public async Task A_locked_credential_store_reports_service_unavailable_not_a_bare_500()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			ControllerWithThrowingCredentialStore(services).Add(
+				new AddAccountRequest("Test", ProviderType.Imap, "someone@example.org", "hunter2", ImapSettings),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status503ServiceUnavailable);
+	}
+
+	/// <summary>
+	/// The symmetric case for <see cref="Reauthenticate"/>: its own credential retrieve/store
+	/// calls are just as reachable from a locked keychain as <see cref="Add"/>'s, and the two
+	/// catch blocks are independent edits — a mistake unique to this one (wrong status, wrong
+	/// title, wrong placement relative to its own other catches) would not be caught by the
+	/// <see cref="Add"/> test above.
+	/// </summary>
+	[Fact]
+	public async Task Reauthenticating_with_a_locked_credential_store_reports_service_unavailable()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Test", ProviderType.Imap, "someone@example.org", null, new CredentialPayload("imap-password", "hunter2"u8.ToArray())))
+		);
+
+		var result = await harness.UsingAsync(services =>
+			ControllerWithThrowingCredentialStore(services).Reauthenticate(
+				account.Id,
+				new ReauthenticateAccountRequest("new-password"),
+				default
+			)
+		);
+
+		var problem = Assert.IsType<ObjectResult>(result);
+		Assert.Equal(StatusCodes.Status503ServiceUnavailable, problem.StatusCode);
+	}
+
+	private static readonly ImapAccountSettings ImapSettings = new(
+		"imap.example.org",
+		993,
+		true,
+		"someone@example.org",
+		"smtp.example.org",
+		587
+	);
+
 	private static AccountsController Controller(IServiceProvider services) =>
 		new(
 			services.GetRequiredService<MyloMailDbContext>(),
 			services.GetRequiredService<AccountProvisioningService>()
 		);
+
+	/// <summary>
+	/// A hand-built <see cref="AccountProvisioningService"/> sharing every other real dependency
+	/// from the scope, but with a credential store that always throws — the only way to
+	/// reproduce a locked-keychain failure without a fault-injection hook on
+	/// <see cref="InMemoryCredentialStore"/> itself.
+	/// </summary>
+	private static AccountsController ControllerWithThrowingCredentialStore(IServiceProvider services)
+	{
+		var provisioning = new AccountProvisioningService(
+			services.GetRequiredService<MyloMailDbContext>(),
+			new ThrowingCredentialStore(),
+			services.GetRequiredService<IMailProviderFactory>(),
+			services.GetRequiredService<StartupScheduler>(),
+			services.GetRequiredService<IHubEvents>(),
+			services.GetRequiredService<SearchIndexer>(),
+			services.GetRequiredService<TimeProvider>(),
+			NullLogger<AccountProvisioningService>.Instance
+		);
+		return new AccountsController(services.GetRequiredService<MyloMailDbContext>(), provisioning);
+	}
+
+	private sealed class ThrowingCredentialStore : ICredentialStore
+	{
+		public Task StoreAsync(Guid accountId, CredentialPayload payload, CancellationToken ct) =>
+			throw new CredentialStoreUnavailableException("the keyring is locked");
+
+		public Task<CredentialPayload?> RetrieveAsync(Guid accountId, CancellationToken ct) =>
+			throw new CredentialStoreUnavailableException("the keyring is locked");
+
+		public Task DeleteAsync(Guid accountId, CancellationToken ct) =>
+			throw new CredentialStoreUnavailableException("the keyring is locked");
+	}
 
 	private static void AssertProblem(ActionResult<AccountDto> result, int expectedStatus)
 	{

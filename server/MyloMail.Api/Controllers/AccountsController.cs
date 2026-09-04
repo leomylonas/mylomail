@@ -136,6 +136,14 @@ public class AccountsController(
 			// The user cannot fix this: the deployment is missing a client registration.
 			return Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented, title: "Provider not configured");
 		}
+		catch (CredentialStoreUnavailableException ex)
+		{
+			// Unlike every background job (§3), this is a synchronous, user-initiated call with
+			// no earlier catch to translate it — left unhandled here, it would surface as a bare
+			// 500 with no useful detail, matching neither AddAccount.tsx's genuine failures above
+			// nor the friendly "unlock your keychain" story pass 64 built everywhere else.
+			return Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable");
+		}
 	}
 
 	/// <summary>
@@ -180,6 +188,12 @@ public class AccountsController(
 				return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
 			}
 			return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed");
+		}
+		catch (CredentialStoreUnavailableException ex)
+		{
+			// Same gap as Add above: this call retrieves and re-stores the prior secret before
+			// authenticating, and a locked keychain there would otherwise surface as a bare 500.
+			return Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable");
 		}
 	}
 
