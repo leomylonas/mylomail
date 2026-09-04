@@ -1890,6 +1890,24 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   pass-through with no parallel fix needed. New pure-function tests confirmed genuine (concrete
   date-string assertions, not tautologies) after fixing a UTC-vs-local mismatch in the test's own
   first draft. `pnpm check` clean, 294 dotnet tests (unaffected), vitest 66 (up from 62).
+- **Hundred-and-tenth pass — built a settings UI for `ImapProviderConfig.AppendToSentOnSend`.**
+  Pass 109 found this real, correctly-consumed toggle (`MailProviderFactory` reads it to decide
+  whether the IMAP client should append a Sent copy on send) had zero UI exposure — absent from
+  `AccountSettingsDto`/`AccountDto`, no checkbox anywhere. User asked, chose to build it now.
+  Added `bool? AppendToSentOnSend` to both DTOs (nullable — IMAP-only), populated from
+  `(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend` at both `AccountDto`
+  construction sites, and `MailHub.UpdateAccount` writes it back by mutating the already-tracked
+  `ImapProviderConfig` instance in place (never reassigning `account.ProviderConfig`, so no
+  sibling field like `Host`/`SmtpHost` can be clobbered), silently ignoring a non-null value from
+  a non-IMAP account rather than throwing. `AccountSettings.tsx` gained a `Toggle` gated on
+  `providerType === ProviderType.Imap`. `invariant-review` confirmed the write path is safe,
+  that `ProviderConfig`'s JSON value converter (`HasJsonConversion` with an explicit structural
+  `ValueComparer`) means EF Core correctly detects and persists this in-place mutation, the
+  non-IMAP no-op has no side effect, and no frozen-invariant entry is touched. New tests confirm
+  the setting round-trips without disturbing sibling `ImapProviderConfig` fields and that a
+  Gmail account's attempt is silently ignored; the first manually confirmed as a genuine
+  discriminator via revert-and-reproduce. `dotnet test` 394 passed/0 failed (up from 392).
+  `pnpm check` clean, 296 dotnet tests, vitest 66.
 
 ## Next task
 
