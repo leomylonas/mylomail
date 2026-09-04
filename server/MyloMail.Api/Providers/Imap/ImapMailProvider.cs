@@ -101,6 +101,18 @@ public sealed partial class ImapMailProvider : IMailProvider
 			capabilities = ImapCapabilityNegotiation.Build(client.Capabilities);
 			return client;
 		}
+		// Translated here, not left for every one of ConnectAsync's callers to notice: only
+		// AuthenticateAsync and Send.cs's own SMTP connect used to catch this specifically —
+		// every other caller (mailboxes, sync, mutations, drafts) let a rejected certificate
+		// propagate as a raw MailKit SslHandshakeException with no fingerprint/issuer detail,
+		// caught (if at all) by a generic handler with no live AuthState signal (§7, §15).
+		catch (SslHandshakeException) when (rejectedCertificate is { } rejected)
+		{
+			client.Dispose();
+			throw new ProviderAuthenticationException(
+				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer).Detail!
+			);
+		}
 		catch
 		{
 			client.Dispose();
@@ -124,8 +136,13 @@ public sealed partial class ImapMailProvider : IMailProvider
 				Problem(ErrorCategory.Auth, "Authentication failed", ex.Message)
 			);
 		}
-		catch (SslHandshakeException) when (rejectedCertificate is { } rejected)
+		catch (ProviderAuthenticationException) when (rejectedCertificate is { } rejected)
 		{
+			// ConnectAsync already translated the rejection into this same exception type;
+			// rejectedCertificate is still set (it's cleared only at the top of the next
+			// ConnectAsync call), so the original structured Problem — fingerprint, issuer,
+			// hostname as extension fields, not just the flattened message text — is
+			// reconstructed exactly as it was before that translation moved here.
 			return new AuthResult(
 				false,
 				AuthState.Error,
