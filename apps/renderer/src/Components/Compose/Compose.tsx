@@ -454,12 +454,26 @@ export function Compose({
 		void send(target);
 	};
 
+	// Each file is attempted independently, mirroring the forward-attachment-copy effect below:
+	// one oversized or rejected file must not silently drop every file dropped alongside it.
 	const addFiles = async (files: FileList | File[]) => {
 		setBusy(true);
 		try {
 			const id = await save();
+			const failed: string[] = [];
 			for (const file of Array.from(files)) {
-				await uploadAttachment(id, file, file.name);
+				try {
+					await uploadAttachment(id, file, file.name);
+				} catch {
+					failed.push(file.name);
+				}
+			}
+			if (failed.length > 0) {
+				notify(notifications, {
+					kind: "error",
+					title: "Some attachments could not be added",
+					detail: failed.join(", "),
+				});
 			}
 		} catch (error) {
 			reportFailure("This attachment could not be added")(error);
