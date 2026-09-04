@@ -2071,6 +2071,19 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   conflict, and no frozen-invariant hit. No renderer test exists for this component (a
   pre-existing gap, not introduced here). `dotnet test` 406 passed/0 failed (unaffected). `pnpm
 check` clean, 308 dotnet tests, vitest 70.
+- **Hundred-and-twenty-eighth pass — the same overflow bug from pass 127, one component over.**
+  Checked other renderer surfaces displaying unbounded provider/user text (`MessageList`'s cells
+  were already covered; sender names, mailbox names, calendar titles, send-identity names)
+  against the pass-127 pattern. `MailboxTree`'s `.item` button has the identical shape — flex
+  `justify-content: space-between`, an unconstrained `mailbox.name` span next to a `.count`
+  badge (or `BackfillProgress` during a backfill) — so a long mailbox name had no truncation and
+  could push the count out of view. Fixed with a `.name` class (`min-width: 0` plus the same
+  ellipsis convention) and a `title` attribute, plus `flex-shrink: 0` on `.count`.
+  `BackfillProgress` renders inside that same `.count` span in both its states, so it inherits
+  the fix with no separate change. `invariant-review` confirmed `min-width: 0`'s necessity, no
+  accessibility conflict (the button has no `aria-label` to duplicate), and no frozen-invariant
+  hit. No test added — no test precedent exists for this bug class, per pass 127's own commit.
+  `dotnet test` 406 passed/0 failed (unaffected). `pnpm check` clean, 308 dotnet tests, vitest 70.
 
 ## Next task
 
