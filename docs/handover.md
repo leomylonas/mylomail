@@ -1680,6 +1680,28 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   future pass, but that's product-scope work beyond "don't crash the view." Two new regression
   tests (one per exception type) confirmed as genuine discriminators via revert-and-reproduce.
   `dotnet test` 383 passed/0 failed (up from 381). `pnpm check` clean, 286 dotnet tests, vitest 57.
+- **Ninetieth pass — no gap found.** Swept attachment/MIME edge cases (`AttachmentService`'s
+  path-traversal-safe filename sanitization, RFC 2231/encoded-word filenames via MimeKit's own
+  decoding), inline-image `cid:` resolution and blob-URL lifecycle in `MessageHtml.tsx` (already
+  cancellation-guarded, no leak or race), `MessagePartsController`'s message-id-only lookup
+  (correctly not a cross-account gap — unlike the mutation/draft/calendar cases from passes
+  71-77, a message id is already globally unique in this single-user desktop app), the
+  `ReauthenticateAccount`/`CredentialStoreUnavailable` banner split, and `AccountSettings.tsx`'s
+  save/remove error handling. All already correct on inspection.
+- **Ninety-first pass — a resize left the panel-layout write's failure completely silent.**
+  `useShellLayout`'s debounced write used `void fetch(...)` with no error handling at all — not
+  even a `response.ok` check — the one write in the codebase that didn't follow the
+  try/catch-plus-`notify` pattern every other write already uses (`ShellSettings.tsx`'s
+  `setCloseBehavior`/`setTheme`/`untrustSender`). A failed save (network error, backend down,
+  non-2xx response) gave the user no signal their resize preference wasn't persisted. Added an
+  `onSaveError` callback wired to the existing `notify` infrastructure in `AppShell.tsx`.
+  `invariant-review` confirmed the fix catches both failure shapes with no unhandled-rejection
+  gap, `notify`'s title-based dedup collapses repeated failures into one toast, and suggested
+  extracting the inline async IIFE into a named function for readability (applied). No
+  regression test added — confirmed this bug class has no existing test precedent anywhere in
+  the repo (no `@testing-library/react`/jsdom setup exists, and `ShellSettings.tsx`'s identical
+  pattern ships untested too), a real infrastructure gap flagged as a follow-up rather than
+  worked around. `pnpm check` clean, 286 dotnet tests (unaffected), vitest 57.
 
 ## Next task
 
