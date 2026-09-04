@@ -37,7 +37,7 @@ public interface IMailHub
 {
 	Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId);
 
-	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int take);
+	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take);
 
 	Task<IReadOnlyList<PendingChangeDto>> GetPendingSyncState(Guid accountId);
 
@@ -305,14 +305,24 @@ public class MailHub(
 		];
 	}
 
-	public async Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int take)
+	public async Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take)
 	{
 		var messages = await context
 			.MessageMailboxes.Where(o => o.MailboxId == mailboxId)
 			.Join(context.Messages, o => o.MessageId, m => m.Id, (_, m) => m)
 			.ToListAsync();
 
-		var shown = messages.OrderByDescending(m => m.ReceivedAt).Take(take).ToList();
+		// Id as a tiebreaker, not just ReceivedAt: two messages can share a timestamp (a
+		// provider-side bulk import, or a fast IMAP APPEND burst), and a total order matters
+		// here specifically because paging calls this same query again for the next page — an
+		// order that reshuffles ties between calls would skip or repeat a message at the page
+		// boundary even though nothing in the mailbox actually changed.
+		var shown = messages
+			.OrderByDescending(m => m.ReceivedAt)
+			.ThenByDescending(m => m.Id)
+			.Skip(skip)
+			.Take(take)
+			.ToList();
 		var failures = await MessageMutationFailures.ForMessagesAsync(
 			context,
 			shown.Select(m => m.Id).ToList()

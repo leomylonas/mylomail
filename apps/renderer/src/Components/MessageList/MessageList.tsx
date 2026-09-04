@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
@@ -26,7 +27,7 @@ import {
 } from "@tanstack/react-table/legacy";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { HubConnection } from "@microsoft/signalr";
-import { SkeletonText, TextInput } from "@carbon/react";
+import { Button, SkeletonText, TextInput } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
@@ -80,6 +81,10 @@ const columnHelper = createColumnHelper<MessageSummary>();
  * ever does render taller (e.g. a very long wrapped subject).
  */
 const rowHeightEstimate = 64;
+
+/** Messages fetched per `GetMessages` page (§12) — also the signal `hasNextPage` uses: a
+ * page shorter than this is the last one. */
+const messagePageSize = 100;
 
 /**
  * Matches across the fields the row itself displays, not full-text search: this is a fast,
@@ -176,18 +181,44 @@ export function MessageList({
 	const [sorting, setSorting] = useState<SortingState>([]);
 	const [filterText, setFilterText] = useState("");
 
-	// One list, two sources. Searching scopes to the selected mailbox, because a search from
-	// inside a folder that silently returned results from everywhere would be a different
-	// question than the one the user asked.
-	const messages = useQuery({
-		queryKey: searching
-			? queryKeys.search(accountId, query, mailboxId)
-			: queryKeys.messages(mailboxId),
+	// Search never paginates: it is a bounded, already-ranked result set from FTS5, not a
+	// mailbox listing a user might scroll through thousands of. Searching scopes to the
+	// selected mailbox, because a search from inside a folder that silently returned results
+	// from everywhere would be a different question than the one the user asked.
+	const search = useQuery({
+		queryKey: queryKeys.search(accountId, query, mailboxId),
 		queryFn: () =>
-			searching
-				? hub.invoke<MessageSummary[]>("Search", accountId, query, mailboxId)
-				: hub.invoke<MessageSummary[]>("GetMessages", mailboxId, 100),
+			hub.invoke<MessageSummary[]>("Search", accountId, query, mailboxId),
+		enabled: searching,
 	});
+
+	// Ordinary mailbox listing pages by `skip`/`take` (§12): a mailbox can hold far more than
+	// one page's worth of messages, and loading them all up front would mean a slow initial
+	// render and an ever-growing payload for every account, not just large ones.
+	const listing = useInfiniteQuery({
+		queryKey: queryKeys.messages(mailboxId),
+		queryFn: ({ pageParam }) =>
+			hub.invoke<MessageSummary[]>(
+				"GetMessages",
+				mailboxId,
+				pageParam,
+				messagePageSize,
+			),
+		initialPageParam: 0,
+		getNextPageParam: (lastPage, pages) =>
+			lastPage.length < messagePageSize
+				? undefined
+				: pages.length * messagePageSize,
+		enabled: !searching,
+	});
+
+	const messages = searching
+		? search
+		: {
+				data: listing.data?.pages.flat() ?? [],
+				isPending: listing.isPending,
+				isError: listing.isError,
+			};
 
 	// What the user has asked for and the server has not yet confirmed. Merged over
 	// server-known state so a flag they just toggled does not flicker back while its mutation
@@ -537,6 +568,23 @@ export function MessageList({
 					</div>
 				</div>
 			)}
+			{!searching && listing.hasNextPage ? (
+				<div className={styles.loadMore}>
+					<Button
+						kind="ghost"
+						size="sm"
+						disabled={listing.isFetchingNextPage}
+						onClick={() => void listing.fetchNextPage()}
+					>
+						{listing.isFetchingNextPage ? "Loading…" : "Load more"}
+					</Button>
+					{listing.isFetchNextPageError ? (
+						<p className={styles.empty} role="alert">
+							Could not load more messages.
+						</p>
+					) : null}
+				</div>
+			) : null}
 			{menu ? (
 				<MessageContextMenu
 					open

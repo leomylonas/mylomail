@@ -18,10 +18,11 @@ export type IMailHub = {
     getMailboxes(accountId: string): Promise<MailboxSummaryDto[]>;
     /**
     * @param mailboxId Transpiled from System.Guid
+    * @param skip Transpiled from int
     * @param take Transpiled from int
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
     */
-    getMessages(mailboxId: string, take: number): Promise<MessageSummaryDto[]>;
+    getMessages(mailboxId: string, skip: number, take: number): Promise<MessageSummaryDto[]>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Hubs.PendingChangeDto>>

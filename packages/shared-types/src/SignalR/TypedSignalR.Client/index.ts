@@ -86,8 +86,8 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetMailboxes", accountId);
     }
 
-    public readonly getMessages = async (mailboxId: string, take: number): Promise<MessageSummaryDto[]> => {
-        return await this.connection.invoke("GetMessages", mailboxId, take);
+    public readonly getMessages = async (mailboxId: string, skip: number, take: number): Promise<MessageSummaryDto[]> => {
+        return await this.connection.invoke("GetMessages", mailboxId, skip, take);
     }
 
     public readonly getPendingSyncState = async (accountId: string): Promise<PendingChangeDto[]> => {
