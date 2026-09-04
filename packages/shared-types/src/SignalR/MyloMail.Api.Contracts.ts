@@ -176,6 +176,8 @@ export type MessageSummaryDto = {
     hasNonInlineAttachments: boolean;
     /** Transpiled from MyloMail.Api.Errors.ErrorCategory */
     mutationFailure?: ErrorCategory;
+    /** Transpiled from string? */
+    searchSnippet?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.SyncProgressDto */

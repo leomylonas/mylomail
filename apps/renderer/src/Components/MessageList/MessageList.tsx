@@ -45,6 +45,7 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
+import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/SearchSnippet";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
 interface MessageSummary {
@@ -62,6 +63,11 @@ interface MessageSummary {
 	 * mutation, not "ever failed." Absent once a later mutation succeeds.
 	 */
 	mutationFailure: ErrorCategory | null;
+	/**
+	 * A match-context excerpt from FTS5's own `snippet()`, present only on search results
+	 * (§8) — absent for an ordinary mailbox listing, which never ran a query to excerpt.
+	 */
+	searchSnippet?: string;
 }
 
 interface PendingChange {
@@ -537,7 +543,18 @@ export function MessageList({
 										<span className={styles.cell}>
 											{message.subject || "(no subject)"}
 											<br />
-											<span className={styles.sender}>{message.snippet}</span>
+											<span className={styles.sender}>
+												{message.searchSnippet
+													? parseSearchSnippet(message.searchSnippet).map(
+															(segment, index) =>
+																segment.highlighted ? (
+																	<mark key={index}>{segment.text}</mark>
+																) : (
+																	<span key={index}>{segment.text}</span>
+																),
+														)
+													: message.snippet}
+											</span>
 										</span>
 										<span className={styles.cell}>
 											{new Date(message.receivedAt).toLocaleString()}

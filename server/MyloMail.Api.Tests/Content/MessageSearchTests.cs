@@ -97,6 +97,47 @@ public sealed class MessageSearchTests : IAsyncLifetime
 	}
 
 	/// <summary>
+	/// Ninety-fifth pass: a search result carries FTS5's own match-context excerpt, delimited
+	/// by control characters rather than HTML, so the renderer can highlight the matched term
+	/// without ever needing to trust or inject raw markup.
+	/// </summary>
+	[Fact]
+	public async Task Search_results_carry_a_delimited_match_excerpt()
+	{
+		var results = await SearchAsync("invoice", inboxId);
+
+		var snippet = Assert.Single(results).SearchSnippet;
+		Assert.NotNull(snippet);
+		Assert.Contains('', snippet);
+		Assert.Contains('', snippet);
+		Assert.DoesNotContain("<mark>", snippet, StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>
+	/// An ordinary listing never ran a query, so it has nothing to excerpt — confirmed via the
+	/// DTO's own default, which is what every non-search constructor site (e.g. `GetMessages`)
+	/// relies on rather than passing an explicit value.
+	/// </summary>
+	[Fact]
+	public void Ordinary_listing_has_no_search_snippet_by_default()
+	{
+		var dto = new Api.Contracts.MessageSummaryDto(
+			Guid.NewGuid(),
+			accountId,
+			"Subject",
+			"Snippet",
+			[],
+			DateTimeOffset.UnixEpoch,
+			false,
+			false,
+			false,
+			null
+		);
+
+		Assert.Null(dto.SearchSnippet);
+	}
+
+	/// <summary>
 	/// Results come back in FTS5's own relevance order, not recency — a stronger match must
 	/// outrank a weaker, more recent one, which recency-first ordering would get backwards.
 	/// </summary>

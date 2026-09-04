@@ -54,6 +54,14 @@ public record MailboxSummaryDto(
 /// on the affected message, not just the one-shot <c>MessageSyncFailed</c> toast, which is
 /// missed once dismissed or if no window was open to see it.
 /// </remarks>
+/// <param name="SearchSnippet">
+/// A match-context excerpt from FTS5's own <c>snippet()</c> function, present only on results
+/// from <see cref="Content.MessageSearch"/> — <c>null</c> for an ordinary mailbox listing, which
+/// never ran a query to have a match to excerpt. Matched terms are delimited by the ASCII
+/// SOH/STX control characters (0x01/0x02), never HTML markup: the underlying text is arbitrary,
+/// untrusted sender content, and the renderer must render this as plain text with markers parsed
+/// out, not injected as HTML.
+/// </param>
 [TranspilationSource]
 public record MessageSummaryDto(
 	Guid Id,
@@ -65,7 +73,8 @@ public record MessageSummaryDto(
 	bool IsRead,
 	bool IsFlagged,
 	bool HasNonInlineAttachments,
-	ErrorCategory? MutationFailure
+	ErrorCategory? MutationFailure,
+	string? SearchSnippet = null
 );
 
 /// <summary>

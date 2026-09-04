@@ -45,8 +45,9 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			return [];
 		}
 
+		var matchedIds = matched.Select(x => x.Id).ToHashSet();
 		var messages = await context
-			.Messages.Where(m => m.AccountId == accountId && matched.Contains(m.Id))
+			.Messages.Where(m => m.AccountId == accountId && matchedIds.Contains(m.Id))
 			.Where(m =>
 				mailboxId == null
 				|| context.MessageMailboxes.Any(o => o.MessageId == m.Id && o.MailboxId == mailboxId)
@@ -57,7 +58,8 @@ public sealed class MessageSearch(MyloMailDbContext context)
 		// but the EF `Contains` query above doesn't preserve it, so it's reapplied here
 		// in-memory (SQLite cannot ORDER BY a DateTimeOffset either, which ruled out doing
 		// this as part of the query in the first place).
-		var rank = matched.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
+		var rank = matched.Select((x, index) => (x.Id, index)).ToDictionary(x => x.Id, x => x.index);
+		var snippets = matched.ToDictionary(x => x.Id, x => x.Snippet);
 		var shown = messages.OrderBy(m => rank[m.Id]).Take(take).ToList();
 		var failures = await MessageMutationFailures.ForMessagesAsync(
 			context,
@@ -77,33 +79,51 @@ public sealed class MessageSearch(MyloMailDbContext context)
 				m.IsRead,
 				m.IsFlagged,
 				m.HasNonInlineAttachments,
-				failures.TryGetValue(m.Id, out var category) ? category : null
+				failures.TryGetValue(m.Id, out var category) ? category : null,
+				snippets[m.Id]
 			)),
 		];
 	}
 
-	/// <summary>The message ids FTS5 matches, in relevance order.</summary>
-	private async Task<List<Guid>> MatchAsync(string query, CancellationToken ct)
+	// Matched-term markers for MessageSummaryDto.SearchSnippet: ASCII SOH/STX, never valid in
+	// ordinary message text and never HTML, so the renderer can split on them safely without
+	// risking a sender's own content being mistaken for markup (or, worse, actually rendered
+	// as some).
+	private const string HighlightStart = "\u0001";
+	private const string HighlightEnd = "\u0002";
+
+	/// <summary>The message ids FTS5 matches, in relevance order, with a match-context excerpt.</summary>
+	private async Task<List<(Guid Id, string Snippet)>> MatchAsync(string query, CancellationToken ct)
 	{
 		await context.Database.OpenConnectionAsync(ct);
 		await using var command = context.Database.GetDbConnection().CreateCommand();
 
+		// Column index -1 lets FTS5 pick whichever indexed column (Subject, BodyText, ...)
+		// actually contains the match, rather than assuming it's always the body.
 		command.CommandText = """
-			SELECT c."MessageId"
+			SELECT c."MessageId", snippet("MessageSearchIndex", -1, $start, $end, $ellipsis, $maxTokens)
 			FROM "MessageSearchIndex" AS i
 			JOIN "MessageSearchContents" AS c ON c."RowId" = i."rowid"
 			WHERE "MessageSearchIndex" MATCH $query
 			ORDER BY rank;
 			""";
 		command.Parameters.Add(new SqliteParameter("$query", query));
+		command.Parameters.Add(new SqliteParameter("$start", HighlightStart));
+		command.Parameters.Add(new SqliteParameter("$end", HighlightEnd));
+		command.Parameters.Add(new SqliteParameter("$ellipsis", "…"));
+		command.Parameters.Add(new SqliteParameter("$maxTokens", 20));
 
-		var ids = new List<Guid>();
+		// A List, not a Dictionary: relevance order is FTS5's own read order here, and a
+		// List's enumeration order is an actual language guarantee, unlike a Dictionary's
+		// insertion order, which is an implementation detail the runtime has never promised
+		// to keep.
+		var matches = new List<(Guid Id, string Snippet)>();
 		try
 		{
 			await using var reader = await command.ExecuteReaderAsync(ct);
 			while (await reader.ReadAsync(ct))
 			{
-				ids.Add(reader.GetGuid(0));
+				matches.Add((reader.GetGuid(0), reader.GetString(1)));
 			}
 		}
 		catch (SqliteException ex) when (ex.SqliteErrorCode == 1)
@@ -113,6 +133,6 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			return [];
 		}
 
-		return ids;
+		return matches;
 	}
 }

@@ -97,6 +97,11 @@
 	font-size: 0.75rem;
 }
 
+.sender mark {
+	background: var(--cds-highlight, #fff8b8);
+	color: inherit;
+}
+
 .empty {
 	padding: var(--cds-spacing-05);
 	color: var(--cds-text-secondary);
