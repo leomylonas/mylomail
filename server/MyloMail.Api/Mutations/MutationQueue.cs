@@ -144,19 +144,32 @@ public sealed class MutationQueue(
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-			var highest = await context
-				.MutationItems.Where(m => m.AccountId == item.AccountId && m.MessageId == item.MessageId)
-				.MaxAsync(m => (long?)m.Sequence, ct);
+			try
+			{
+				var highest = await context
+					.MutationItems.Where(m => m.AccountId == item.AccountId && m.MessageId == item.MessageId)
+					.MaxAsync(m => (long?)m.Sequence, ct);
 
-			item.Id = item.Id == Guid.Empty ? Guid.NewGuid() : item.Id;
-			item.Sequence = (highest ?? 0) + 1;
-			item.State = MutationState.Pending;
-			item.CreatedAt = clock.GetUtcNow();
+				item.Id = item.Id == Guid.Empty ? Guid.NewGuid() : item.Id;
+				item.Sequence = (highest ?? 0) + 1;
+				item.State = MutationState.Pending;
+				item.CreatedAt = clock.GetUtcNow();
 
-			context.MutationItems.Add(item);
-			await UpsertPendingChangesAsync(item, ct);
+				context.MutationItems.Add(item);
+				await UpsertPendingChangesAsync(item, ct);
 
-			await context.SaveChangesAsync(ct);
+				await context.SaveChangesAsync(ct);
+			}
+			catch
+			{
+				// A rolled-back transaction does not detach what it added from EF's own change
+				// tracker — a caller looping over several ids (a multi-select is the routine
+				// case) would otherwise carry this failed insert into its next iteration's
+				// SaveChangesAsync too, risking an unrelated, genuinely valid item failing
+				// alongside it.
+				context.ChangeTracker.Clear();
+				throw;
+			}
 
 			// The optimistic state and the mutation that owns it are committed together, so
 			// desired state can never be orphaned by a crash between the two.

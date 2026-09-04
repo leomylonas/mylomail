@@ -754,43 +754,56 @@ public class MailHub(
 	public Task TrustCertificate(Guid accountId, string hostname, string sha256Fingerprint) =>
 		certificates.TrustAsync(accountId, hostname, sha256Fingerprint, default);
 
-	public async Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged)
-	{
-		foreach (var messageId in messageIds)
-		{
-			await mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged));
-		}
-	}
+	public Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged) =>
+		EnqueueEachAsync(
+			messageIds,
+			messageId => mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged))
+		);
 
-	public async Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId)
-	{
-		foreach (var messageId in messageIds)
-		{
-			await mutations.MoveAsync(accountId, messageId, targetMailboxId);
-		}
-	}
+	public Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId) =>
+		EnqueueEachAsync(messageIds, messageId => mutations.MoveAsync(accountId, messageId, targetMailboxId));
 
-	public async Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId)
-	{
-		foreach (var messageId in messageIds)
-		{
-			await mutations.RemoveFromMailboxAsync(accountId, messageId, mailboxId);
-		}
-	}
+	public Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId) =>
+		EnqueueEachAsync(
+			messageIds,
+			messageId => mutations.RemoveFromMailboxAsync(accountId, messageId, mailboxId)
+		);
 
-	public async Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds)
-	{
-		foreach (var messageId in messageIds)
-		{
-			await mutations.MoveToTrashAsync(accountId, messageId);
-		}
-	}
+	public Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds) =>
+		EnqueueEachAsync(messageIds, messageId => mutations.MoveToTrashAsync(accountId, messageId));
 
-	public async Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds)
+	public Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds) =>
+		EnqueueEachAsync(messageIds, messageId => mutations.DeletePermanentlyAsync(accountId, messageId));
+
+	/// <summary>
+	/// Attempts every id in a bulk action rather than stopping at the first failure — one
+	/// message rejected (a stale selection, a concurrent enqueue collision on the unique
+	/// <c>(AccountId, MessageId, Sequence)</c> index) must not silently strand every message
+	/// after it in the same multi-select untouched. Failures are collected and reported
+	/// together once every id has been tried, rather than either swallowed or aborting early.
+	/// </summary>
+	private static async Task EnqueueEachAsync(IReadOnlyList<Guid> messageIds, Func<Guid, Task> enqueue)
 	{
+		List<Exception>? failures = null;
 		foreach (var messageId in messageIds)
 		{
-			await mutations.DeletePermanentlyAsync(accountId, messageId);
+			try
+			{
+				await enqueue(messageId);
+			}
+			catch (Exception ex)
+			{
+				(failures ??= []).Add(ex);
+			}
+		}
+		if (failures is { Count: > 0 })
+		{
+			// A HubException specifically: SignalR replaces any other exception type's message
+			// with a generic fallback on the wire (no EnableDetailedErrors here), so an
+			// AggregateException's carefully built summary would never actually reach the
+			// renderer's error toast — every other hub method in this file that surfaces a
+			// message to the caller does the same for the same reason.
+			throw new HubException($"{failures.Count} of {messageIds.Count} message(s) could not be updated.");
 		}
 	}
 
