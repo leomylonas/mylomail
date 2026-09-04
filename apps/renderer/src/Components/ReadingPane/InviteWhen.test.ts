@@ -35,12 +35,35 @@ describe("describeInviteWhen", () => {
 
 	// Regression: `start` is UTC-midnight, a literal calendar date, not an instant — parsing it
 	// in the reader's local zone shifted the displayed date back a day for anyone west of UTC.
+	// The expected value is built from explicit local Y/M/D components (`new Date(2026, 2,
+	// 10)`), never from a UTC instant reformatted through the local zone — an earlier version of
+	// this test derived "expected" that second way, which shifts by the same amount as the bug
+	// itself and so passed whether or not the bug was present.
 	it("shows the correct single-day date regardless of the viewer's zone", () => {
 		const when = describeInviteWhen(
 			"2026-03-10T00:00:00.000Z",
 			"2026-03-11T00:00:00.000Z",
 			true,
 		);
-		expect(when).toBe(new Date(Date.UTC(2026, 2, 10)).toLocaleDateString());
+		expect(when).toBe(new Date(2026, 2, 10).toLocaleDateString());
+	});
+
+	// The above assertion is only a genuine discriminator for a viewer west of UTC, where the
+	// bug it guards against actually shifts the display. This test forces exactly that timezone
+	// so the regression is caught on any machine running the suite, not only one that happens to
+	// sit west of UTC already.
+	it("shows the correct single-day date under a forced west-of-UTC viewer timezone", () => {
+		const originalTz = process.env.TZ;
+		process.env.TZ = "America/Los_Angeles";
+		try {
+			const when = describeInviteWhen(
+				"2026-03-10T00:00:00.000Z",
+				"2026-03-11T00:00:00.000Z",
+				true,
+			);
+			expect(when).toBe(new Date(2026, 2, 10).toLocaleDateString());
+		} finally {
+			process.env.TZ = originalTz;
+		}
 	});
 });
