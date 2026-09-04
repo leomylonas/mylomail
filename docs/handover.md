@@ -1827,6 +1827,25 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   discriminators via revert-and-reproduce. `dotnet test` 388 passed/0 failed (up from 387), plus
   4/4 CalDAV live tests verified against the real Docker fixture. `pnpm check` clean, 291 dotnet
   tests, vitest 62.
+- **Hundred-and-first pass — a fresh finding surfaced mid-pass-100: IMAP Sent-folder filing
+  failures were invisible.** `ImapMailProvider.AppendFailure` records when a successfully-sent
+  message's copy couldn't be filed into Sent — deliberately not a send failure of its own, since
+  the message already left — but nothing anywhere read the property: not logged, not surfaced,
+  no diagnostic trail for "why is this sent message missing from Sent." Added
+  `SendExecutor.AppendFailureOf`, a pattern-match that only matches an `ImapMailProvider` with a
+  non-null `AppendFailure`, logging a warning after a successful send when it does. Building this
+  required hoisting `providers.For(account)` out of the inline send call to reuse the resolved
+  instance for the check — the hoist initially moved that call outside the surrounding try block,
+  a real regression `invariant-review` caught before it shipped: `providers.For(account)` can
+  itself throw `CredentialStoreUnavailableException` (a locked OS keyring), and that exception's
+  dedicated handling (returning the item to `Scheduled` rather than leaving it stuck) depends on
+  being inside that try. Fixed by declaring the variable before the try and assigning it as the
+  try's first statement. Two new regression tests: one exercising `AppendFailureOf` directly
+  against a real `ImapMailProvider` via a new `SimulateAppendFailure` test seam (a genuine IMAP
+  APPEND failure needs a live server round trip), and one exercising the hoist regression itself
+  via a new `MutationHarness.FailNextProviderResolutionWith` hook, manually confirmed as a
+  genuine discriminator via revert-and-reproduce. `dotnet test` 392 passed/0 failed (up from
+  388). `pnpm check` clean, 294 dotnet tests, vitest 62.
 
 ## Next task
 
