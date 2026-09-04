@@ -245,6 +245,14 @@ internal static partial class CalDavIcs
 		{
 			lines.Add($"ORGANIZER{organizerCn}:mailto:{organizer.Email}");
 		}
+		if (ev.RecurrenceId is { } recurrenceId)
+		{
+			// Without this, a REPLY to a single occurrence of a recurring series is
+			// indistinguishable from a REPLY to the series master (RFC 5546 §3.2.3) — the
+			// organiser's client has no way to know this response is scoped to one occurrence,
+			// and could apply it to the whole series instead.
+			lines.Add(FormatDateTimeProperty("RECURRENCE-ID", recurrenceId, ev.IsAllDay, ev.StartTimeZoneId));
+		}
 		lines.Add($"ATTENDEE{cn};PARTSTAT={partstat}:mailto:{replyingAs.Email}");
 		lines.Add("END:VEVENT");
 		lines.Add("END:VCALENDAR");
