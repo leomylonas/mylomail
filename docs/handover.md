@@ -1846,6 +1846,30 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   via a new `MutationHarness.FailNextProviderResolutionWith` hook, manually confirmed as a
   genuine discriminator via revert-and-reproduce. `dotnet test` 392 passed/0 failed (up from
   388). `pnpm check` clean, 294 dotnet tests, vitest 62.
+- **Hundred-and-third pass — a rejected IMAP certificate was only translated into a clear error
+  on two of many call paths.** `ImapMailProvider.ConnectAsync` sets `rejectedCertificate` on a
+  TLS validation rejection, but only `AuthenticateAsync` and `Send.cs`'s separate SMTP connect
+  caught `SslHandshakeException` specifically to build a rich `CertificateTrust.Problem`
+  (fingerprint/issuer). Every other caller — `ListMailboxesAsync` and the rest of
+  `.Mailboxes.cs`, `.Sync.cs`, `.Mutations.cs`, `.Drafts.cs` — had no try/catch at all, so a
+  rejection hit during ordinary mid-session work propagated as a raw MailKit exception through
+  `SyncJobs`/`MutationJobs`'s generic handlers with no `AuthState` change, no live announcement,
+  and no fingerprint/issuer detail — the same "raw provider exception defeats a clear error
+  message" bug class passes 65-67 and 100-101 already fixed elsewhere. Centralized the
+  translation in `ConnectAsync` itself: a new catch throws `ProviderAuthenticationException`
+  whenever `rejectedCertificate` is set, so every caller benefits without its own catch, and the
+  scheduling layer's existing `ProviderAuthenticationException` handling picks it up
+  automatically. `invariant-review` confirmed correct disposal, confirmed `Send.cs`'s SMTP path
+  is unaffected, and flagged one real but non-blocking inconsistency: the same rejection cause
+  now resolves to `AuthState.Error` via explicit `AuthenticateAsync` but `AuthState.NeedsReauth`
+  via this centralized path elsewhere — a label mismatch, not a functional bug, since both states
+  are handled identically for recovery and `NeedsReauth` is actually the behaviorally-correct
+  choice (it's what gates further polling; mapping to `Error` would retry-storm against the same
+  rejected certificate). No test added: `tests/imap-matrix/compose.yaml` is explicitly
+  plaintext-only with no TLS fixture at all, unlike CalDAV's — building one is real new
+  infrastructure, documented as a gap per this session's precedent (passes 91-93, 102).
+  `dotnet test` 392 passed/0 failed (unaffected — no test added). `pnpm check` clean, 294 dotnet
+  tests, vitest 62.
 
 ## Next task
 
