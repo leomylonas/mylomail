@@ -103,7 +103,8 @@ public static class CalendarEventOccurrences
 						IsRecurring: true,
 						SyncConflict: false,
 						IsVirtualOccurrence: true,
-						MasterEventId: master.Id
+						MasterEventId: master.Id,
+						IsRecurrenceMaster: true
 					)
 				);
 			}
@@ -126,6 +127,7 @@ public static class CalendarEventOccurrences
 			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
 			ev.SyncConflict,
 			isVirtual,
-			masterEventId
+			masterEventId,
+			IsRecurrenceMaster: ev.RecurrenceRules.Count > 0
 		);
 }

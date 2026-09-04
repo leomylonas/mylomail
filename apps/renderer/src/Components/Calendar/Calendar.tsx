@@ -42,6 +42,13 @@ interface CalendarEventSummary {
 	 */
 	isVirtualOccurrence: boolean;
 	masterEventId: string | null;
+	/**
+	 * True only for the row that owns the series' recurrence rules (or a virtual occurrence
+	 * generated from one) — false for an already-materialised override/exception row, even
+	 * though that row's own `isRecurring` is also true. Deleting a master or virtual occurrence
+	 * removes the whole series; deleting an override removes only that one occurrence.
+	 */
+	isRecurrenceMaster: boolean;
 }
 
 type ModalState =
@@ -282,6 +289,9 @@ export function Calendar({
 					initial={toFormValues(modal)}
 					syncConflict={
 						modal.mode === "edit" ? modal.event.syncConflict : false
+					}
+					deletesWholeSeries={
+						modal.mode === "edit" ? modal.event.isRecurrenceMaster : false
 					}
 					onSave={(values) => save.mutate(values)}
 					onDelete={

@@ -62,6 +62,62 @@ public sealed class CalendarEventOccurrencesTests
 	}
 
 	/// <summary>
+	/// Ninety-seventh pass: <c>IsRecurring</c> is true on both a master and any of its
+	/// already-materialised overrides, but only the master (or a virtual occurrence generated
+	/// from one) should be reported as <c>IsRecurrenceMaster</c> — deleting an override removes
+	/// just that one occurrence, not the whole series, and a renderer confirmation worded for
+	/// "this deletes the whole series" would be actively wrong if shown for an override delete.
+	/// </summary>
+	[Fact]
+	public async Task Only_the_master_and_its_virtual_occurrences_report_IsRecurrenceMaster()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (calendarId, masterId, secondOccurrence) = await SeedWeeklySeriesAsync(database);
+
+		await UsingAsync(
+			database,
+			async context =>
+			{
+				context.CalendarEvents.Add(
+					new CalendarEvent
+					{
+						Id = Guid.NewGuid(),
+						CalendarId = calendarId,
+						Title = "Standup (moved to the afternoon)",
+						ProviderEventId = "override-1",
+						Start = secondOccurrence.AddHours(6),
+						End = secondOccurrence.AddHours(6.5),
+						RecurrenceMasterId = masterId,
+						RecurrenceId = secondOccurrence,
+						Status = EventStatus.Confirmed,
+					}
+				);
+				await context.SaveChangesAsync();
+				return true;
+			}
+		);
+
+		var events = await UsingAsync(
+			database,
+			context => CalendarEventOccurrences.ForCalendarAsync(
+				context,
+				calendarId,
+				secondOccurrence.AddDays(-7),
+				secondOccurrence.AddDays(1)
+			)
+		);
+
+		var overrideDto = Assert.Single(events, e => e.Title == "Standup (moved to the afternoon)");
+		Assert.True(overrideDto.IsRecurring);
+		Assert.False(overrideDto.IsRecurrenceMaster);
+
+		var virtualOccurrence = Assert.Single(events, e => e.IsVirtualOccurrence);
+		Assert.True(virtualOccurrence.IsRecurring);
+		Assert.True(virtualOccurrence.IsRecurrenceMaster);
+	}
+
+	/// <summary>
 	/// A cancelled instance is a real, already-materialised row — whether the calendar view
 	/// greys it out or hides it is existing, unrelated rendering behaviour this feature
 	/// doesn't change. What this feature must guarantee is that no *second*, generated

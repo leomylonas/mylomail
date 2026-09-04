@@ -838,7 +838,8 @@ public class MailHub(
 			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
 			ev.SyncConflict,
 			false,
-			null
+			null,
+			ev.RecurrenceRules.Count > 0
 		);
 
 	public async Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId)

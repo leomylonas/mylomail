@@ -282,6 +282,15 @@ public record CalendarSummaryDto(Guid Id, Guid AccountId, string Name, string? C
 /// The recurring master's real id, set only when <paramref name="IsVirtualOccurrence"/> is
 /// true.
 /// </param>
+/// <param name="IsRecurrenceMaster">
+/// True only for the row that owns the series' <c>RecurrenceRules</c> (or a virtual occurrence
+/// generated from one) — false for an already-materialised override/exception row, even though
+/// that row's own <paramref name="IsRecurring"/> is also true. Deleting a master (or a virtual
+/// occurrence, which routes to its master per §13 Epic 7's deferred per-occurrence editing)
+/// removes the whole series; deleting an override removes only that one occurrence. The two
+/// must not be conflated — a UI warning worded for "this deletes the whole series" would be
+/// actively wrong if shown for an override delete.
+/// </param>
 [TranspilationSource]
 public record CalendarEventSummaryDto(
 	Guid Id,
@@ -296,7 +305,8 @@ public record CalendarEventSummaryDto(
 	bool IsRecurring,
 	bool SyncConflict,
 	bool IsVirtualOccurrence,
-	Guid? MasterEventId
+	Guid? MasterEventId,
+	bool IsRecurrenceMaster
 );
 
 /// <summary>One attendee as an event's own detail view needs it (§13 Epic 7) — not carried on

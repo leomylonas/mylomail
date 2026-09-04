@@ -54,6 +54,7 @@ export function EventModal({
 	hub,
 	initial,
 	syncConflict,
+	deletesWholeSeries,
 	onSave,
 	onDelete,
 	onResolveConflict,
@@ -62,6 +63,13 @@ export function EventModal({
 	hub: HubConnection;
 	initial: EventFormValues;
 	syncConflict?: boolean;
+	/**
+	 * True when this event is a recurring series (a master, or a not-yet-materialised virtual
+	 * occurrence routed to its master — §13 Epic 7's deferred per-occurrence editing). Deleting
+	 * either one deletes the whole series, not just the occurrence the user opened, so the
+	 * confirmation must say so rather than reading like an ordinary single-event delete.
+	 */
+	deletesWholeSeries?: boolean;
 	onSave: (values: EventFormValues) => void;
 	onDelete?: () => void;
 	/**
@@ -276,7 +284,21 @@ export function EventModal({
 					</div>
 				) : null}
 				{onDelete ? (
-					<button type="button" className={styles.delete} onClick={onDelete}>
+					<button
+						type="button"
+						className={styles.delete}
+						onClick={() => {
+							if (
+								deletesWholeSeries &&
+								!window.confirm(
+									"This is a recurring event. Deleting it removes the entire series, not just this occurrence. Continue?",
+								)
+							) {
+								return;
+							}
+							onDelete();
+						}}
+					>
 						Delete event
 					</button>
 				) : null}
