@@ -43,10 +43,10 @@ export function AttachmentList({
 			<h3>Attachments</h3>
 			{visible.map((attachment) => (
 				<div className={styles.item} key={attachment.id}>
-					<span>
+					<span className={styles.filename} title={attachment.filename}>
 						{attachment.filename} ({formatSize(attachment.size)})
 					</span>
-					<div>
+					<div className={styles.actions}>
 						<Button
 							size="sm"
 							kind="ghost"

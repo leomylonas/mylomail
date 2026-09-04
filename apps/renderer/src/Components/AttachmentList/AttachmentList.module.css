@@ -11,6 +11,19 @@
 	gap: var(--cds-spacing-03);
 }
 
+/* A filename has no length limit worth trusting — truncate rather than let it push the
+ * Save/Open buttons out of view or force the panel to scroll horizontally. */
+.filename {
+	overflow: hidden;
+	min-width: 0;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.actions {
+	flex-shrink: 0;
+}
+
 .error {
 	color: var(--cds-text-secondary);
 }
