@@ -1647,6 +1647,19 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   `ThrowingCredentialStore` double, confirmed as a genuine discriminator via
   revert-and-reproduce for both. `dotnet test` 381 passed/0 failed (up from 379). `pnpm check`
   clean, 284 dotnet tests, vitest 57.
+- **Eighty-eighth pass — no gap found.** Following pass 87's finding (a REST controller missing
+  a catch every background job already had), checked every other `[ApiController]` class
+  (`OutboxController`, `DraftAttachmentsController`, `MessagePartsController`,
+  `MessageAttachmentsController`, `RemoteContentController`, `CredentialStoreController`,
+  `AppSettingsController`) for the same shape — none call into a service that can throw
+  `CredentialStoreUnavailableException`/`ProviderAuthenticationException`; they're all local
+  DB reads/writes or raw-MIME extraction with no provider or credential-store round trip. This
+  bug class is now exhausted across every REST controller, not just hub methods (already swept
+  in passes 65-67). Also re-checked mailbox rename/move collision handling directly against
+  `MailboxManagement.cs`: cross-account parent checks (pass 71's `ResolveParentAsync`) and
+  provider-delegated collision errors surfaced via `HubException` (pass 65's
+  `RunProviderCallAsync`) are both already correct, confirming pass 83's earlier clean finding
+  on the same code. No commits made this pass.
 
 ## Next task
 
