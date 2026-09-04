@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	useInfiniteQuery,
 	useMutation,
@@ -321,6 +321,14 @@ export function MessageList({
 		estimateSize: () => rowHeightEstimate,
 		overscan: 8,
 	});
+
+	// A scroll offset from the previous mailbox (or search) means nothing against a completely
+	// different result set — left alone, switching mailboxes deep in a long list leaves the view
+	// scrolled to an arbitrary point in the new one, showing unrelated rows or a blank overscroll
+	// area while its own first page is still loading in at the top.
+	useEffect(() => {
+		virtualizer.scrollToOffset(0);
+	}, [mailboxId, searching, virtualizer]);
 
 	// Follows the current selection, not just the context-menu target, so a shortcut and a
 	// multi-select bulk action cannot diverge in what "the selection" means (§13 Epic 6).
