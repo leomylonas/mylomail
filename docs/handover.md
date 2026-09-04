@@ -1719,6 +1719,23 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   No regression test added, matching pass 91's already-documented gap (no
   `@testing-library/react`/jsdom setup exists in this repo). `pnpm check` clean, 286 dotnet
   tests (unaffected — renderer-only), vitest 57.
+- **Ninety-third pass — closed the last instance of passes 91-92's fire-and-forget sweep.**
+  `HubConnection.ts`'s `NotificationReady` handler chained
+  `window.notifications.show(...).then(() => hub.invoke("MarkNotificationDelivered", ...))` with
+  no `.catch` at all — either call rejecting produced a bare unhandled promise rejection with no
+  trace of what happened. Added a
+  `.catch` that only logs via `console.error`, not user-facing feedback: this is an IPC/hub
+  relay with no natural UI surface, not a user-initiated action, and leaving the notification
+  unmarked-delivered on failure is the intended fallback — confirmed by reading
+  `NotificationService.RedispatchPendingAsync`, which re-announces every record with
+  `DeliveredAt == null` specifically to recover from a crash between announcement and delivery
+  confirmation ("duplicating an already-shown notification is the accepted cost; silently
+  dropping one is not," §13 Epic 9). A systematic grep of the whole renderer for `void fetch(`
+  and unawaited `.then()` chains without `.catch()` found nothing else remaining — this angle is
+  now exhausted. `invariant-review` confirmed no frozen-invariant hit and that the fix introduces
+  no retry, double-invoke, or swallowed error that previously reached calling code. No
+  regression test added, matching passes 91-92's already-documented gap. `pnpm check` clean, 286
+  dotnet tests (unaffected — renderer-only), vitest 57.
 
 ## Next task
 
