@@ -1922,6 +1922,29 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   correctly on a failed save, and no frozen-invariant entry is touched. No regression test added
   — confirmed via grep that no `@testing-library/react`/jsdom renderer test-infra exists,
   consistent with passes 91-93/108/110. `pnpm check` clean, 296 dotnet tests (unaffected), vitest 66.
+- **Hundred-and-fourteenth pass — a rejected message aborted a whole bulk mail action, the same
+  bug shape as pass 113 but in `MailHub.SetFlags`/`MoveMessages`/`RemoveFromMailbox`/
+  `MoveToTrash`/`DeletePermanently`.** Each looped over a multi-select awaiting one enqueue at a
+  time; one message rejected (pass 72's cross-account check, or the concurrent-enqueue
+  unique-index collision `MutationQueue.EnqueueAsync`'s own doc comment already anticipates)
+  silently stranded every message after it in the same selection. Extracted a shared
+  `EnqueueEachAsync` helper: attempts every id, collects failures, reports a summary once every
+  id has been tried. `invariant-review`'s first pass caught two real issues in the initial
+  version: the summary was thrown as `AggregateException`, which SignalR silently replaces with
+  a generic fallback on the wire (no `EnableDetailedErrors`) — fixed by switching to
+  `HubException`, matching every other exception this codebase deliberately surfaces this way;
+  and `MutationQueue.EnqueueAsync`'s transaction body left a failed insert attached to the
+  change tracker after a rolled-back `SaveChangesAsync`, which would have poisoned a later
+  iteration's insert in the same `DbContext` scope — fixed with `context.ChangeTracker.Clear()`
+  in a catch around the transaction body. A second `invariant-review` pass confirmed both fixes:
+  `HubException` usage is consistent, `ChangeTracker.Clear()` is safe since `MailHub` is the only
+  caller with nothing else sharing that scope, and the try/catch doesn't affect the happy path.
+  No dedicated test for the change-tracker-poisoning scenario itself — genuinely reproducing a
+  concurrent sequence collision deterministically isn't possible in this single-writer SQLite
+  test setup (transactions serialize at the file-lock level), confirmed as a reasonable call by
+  the second review pass. The cross-account-rejection scenario is covered and manually confirmed
+  as a genuine discriminator via revert-and-reproduce. `dotnet test` 395 passed/0 failed (up from
+  394). `pnpm check` clean, 297 dotnet tests, vitest 66.
 
 ## Next task
 
