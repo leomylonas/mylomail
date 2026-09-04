@@ -1660,6 +1660,26 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   provider-delegated collision errors surfaced via `HubException` (pass 65's
   `RunProviderCallAsync`) are both already correct, confirming pass 83's earlier clean finding
   on the same code. No commits made this pass.
+- **Eighty-ninth pass — one malformed recurring master crashed the entire calendar view.**
+  `CalendarEventOccurrences.ForCalendarAsync` loops over every recurring master in a window
+  calling `CalendarRecurrenceExpander.Expand` with no exception handling. `Expand` calls
+  `TimeZoneInfo.FindSystemTimeZoneById(master.StartTimeZoneId)`, which throws for an
+  unrecognised zone id — a real, documented issue since Outlook/Exchange sometimes emit
+  non-standard vendor TZIDs like "Customized Time Zone" not in the IANA/Windows tz database.
+  One malformed master's data crashed the whole `ForCalendarAsync` call, hiding every other
+  unrelated event (plain events, other masters, overrides) in that window too. Wrapped the
+  per-master `Expand` call in a try/catch, skipping only that master's expansion on failure.
+  `invariant-review` confirmed the containment is clean (a malformed master's `RecurrenceRules`
+  count already excludes it from the `plain` bucket, so `continue` leaves no partial state) and
+  flagged a same-shaped sibling bug in the same unguarded call: Ical.Net's `RecurrencePattern`
+  constructor throws `ArgumentOutOfRangeException` for a malformed RRULE string via the
+  identical crash-the-whole-view path — fixed in the same catch clause, verified via a
+  standalone probe that Ical.Net genuinely throws that type for a garbage RRULE. Noted as a
+  legitimate follow-up, not a hole in this fix: the silent omission (a broken series simply
+  never shows again, with no signal to the user) could use a health/diagnostic surface in a
+  future pass, but that's product-scope work beyond "don't crash the view." Two new regression
+  tests (one per exception type) confirmed as genuine discriminators via revert-and-reproduce.
+  `dotnet test` 383 passed/0 failed (up from 381). `pnpm check` clean, 286 dotnet tests, vitest 57.
 
 ## Next task
 
