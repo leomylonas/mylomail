@@ -1624,6 +1624,29 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   messages sharing one timestamp specifically to exercise the `Id` tiebreaker, confirmed
   disjoint/exhaustive/ordered across the page boundary. `dotnet test` 379 passed/0 failed (up
   from 377). `pnpm check` clean, 282 dotnet tests, vitest 57.
+- **Eighty-sixth pass — no gap found.** Investigated whether pass 85's flagged "Load more
+  re-sorts the whole mailbox" perf note was a small fix (it isn't — a clean fix needs either a
+  SQL-translatable keyset requiring further DateTimeOffset-comparison research pass 62 didn't
+  solve, or a session-scoped cache with real invalidation, both genuine design questions) and
+  whether new mail arriving mid-pagination could shift `skip` offsets into a duplicate/gap
+  (checked: `HubConnection.ts` invalidates the whole `["messages"]` infinite query on any
+  message event, so TanStack Query refetches every already-loaded page together at their stored
+  `skip`s — a shifted mailbox still gets stable slices, no duplicate or gap). Both clean.
+- **Eighty-seventh pass — a locked OS keychain during account creation or reauthentication
+  surfaced as a bare, uninformative 500.** Pass 64 gave every background job a distinct
+  `AuthState.CredentialStoreUnavailable` and a friendly UI banner for exactly this failure, but
+  `AccountsController.Add` and `.Reauthenticate` — synchronous, user-initiated REST endpoints
+  that also read/write credentials — never caught `CredentialStoreUnavailableException`, and
+  with no global exception-handler middleware in `Program.cs`, an uncaught one propagated
+  straight to a bare 500 with no detail. Added a catch to both returning a 503 Service
+  Unavailable Problem with the exception's message. `invariant-review` confirmed both call paths
+  genuinely reach `ICredentialStore` in a way that can throw before responding, 503 is the right
+  choice since the renderer's failure handling is generic, and no frozen-invariant entry is
+  touched — it also caught that the first version only tested `Add`, leaving `Reauthenticate`'s
+  independent catch block unverified; added a symmetric test using the same
+  `ThrowingCredentialStore` double, confirmed as a genuine discriminator via
+  revert-and-reproduce for both. `dotnet test` 381 passed/0 failed (up from 379). `pnpm check`
+  clean, 284 dotnet tests, vitest 57.
 
 ## Next task
 
