@@ -144,14 +144,16 @@ function sanitiseForQuoting(html: string): string {
 	return prepare(html, false).html;
 }
 
-/** Builds a Gmail/Outlook-style quoted reply (§13). */
-export function buildReplySeed(
+/**
+ * Who a reply/reply-all actually goes to, split out from {@link buildReplySeed} so it can be
+ * tested without pulling in `sanitiseForQuoting`'s DOMPurify dependency, which needs a real DOM.
+ */
+export function buildReplyRecipients(
 	mode: "reply" | "replyAll",
 	context: MessageReplyContext,
-	originalBodyHtml: string,
 	ownAddress: string,
-): ComposeSeed {
-	const to = excludeSelf(replyTarget(context), ownAddress);
+): { to: Address[]; cc: Address[] } {
+	const to = excludeSelf(dedupe(replyTarget(context)), ownAddress);
 	const cc =
 		mode === "replyAll"
 			? excludeSelf(dedupe([...context.to, ...context.cc]), ownAddress).filter(
@@ -161,6 +163,17 @@ export function buildReplySeed(
 						),
 				)
 			: [];
+	return { to, cc };
+}
+
+/** Builds a Gmail/Outlook-style quoted reply (§13). */
+export function buildReplySeed(
+	mode: "reply" | "replyAll",
+	context: MessageReplyContext,
+	originalBodyHtml: string,
+	ownAddress: string,
+): ComposeSeed {
+	const { to, cc } = buildReplyRecipients(mode, context, ownAddress);
 
 	const attribution = `On ${formatWhen(context.receivedAt)}, ${formatAddress(
 		context.from[0] ?? { name: null, email: "" },
