@@ -8,14 +8,21 @@ import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
  * include. Without this adjustment a single-day all-day event round-trips as `Start === End`,
  * a zero-duration span the agenda filter then excludes from every day, including the one the
  * user picked.
+ *
+ * All-day values are always parsed and formatted in UTC, never the viewer's local zone:
+ * `CalDavIcs.cs` stores an all-day date as literal-calendar-date UTC midnight
+ * (`new DateTimeOffset(DateTime.ParseExact(value, "yyyyMMdd"), TimeSpan.Zero)`), meant to be
+ * read back as that same calendar date everywhere, not as an instant. Formatting it in local
+ * time instead shifts the displayed date by one for any viewer west of UTC — a UTC-midnight
+ * timestamp falls on the *previous* local calendar day there.
  */
 export function toInclusiveEndDateInputValue(exclusiveEndIso: string): string {
-	return dayjs(exclusiveEndIso).subtract(1, "day").format("YYYY-MM-DD");
+	return dayjs.utc(exclusiveEndIso).subtract(1, "day").format("YYYY-MM-DD");
 }
 
 export function fromInclusiveEndDateInputValue(
 	lastDayInclusive: string,
 ): string {
 	if (!lastDayInclusive) return lastDayInclusive;
-	return dayjs(lastDayInclusive).add(1, "day").startOf("day").toISOString();
+	return dayjs.utc(lastDayInclusive).add(1, "day").startOf("day").toISOString();
 }

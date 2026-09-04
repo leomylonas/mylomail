@@ -361,14 +361,19 @@ export function EventModal({
 	);
 }
 
+// All-day values are parsed/formatted in UTC, never the viewer's local zone — see
+// AllDayEventEnd.ts's doc comment: an all-day date is stored as literal-calendar-date UTC
+// midnight, and formatting it in local time would shift the displayed date by one for any
+// viewer west of UTC.
 function toInputValue(iso: string, isAllDay: boolean): string {
-	const format = isAllDay ? "YYYY-MM-DD" : "YYYY-MM-DDTHH:mm";
-	return dayjs(iso).format(format);
+	return isAllDay
+		? dayjs.utc(iso).format("YYYY-MM-DD")
+		: dayjs(iso).format("YYYY-MM-DDTHH:mm");
 }
 
 function fromInputValue(value: string, isAllDay: boolean): string {
 	if (!value) return value;
 	return isAllDay
-		? dayjs(value).startOf("day").toISOString()
+		? dayjs.utc(value).startOf("day").toISOString()
 		: dayjs(value).toISOString();
 }

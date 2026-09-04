@@ -32,4 +32,15 @@ describe("describeInviteWhen", () => {
 		expect(when).toContain("–");
 		expect(when).not.toMatch(/12:00:00 AM|AM|PM/);
 	});
+
+	// Regression: `start` is UTC-midnight, a literal calendar date, not an instant — parsing it
+	// in the reader's local zone shifted the displayed date back a day for anyone west of UTC.
+	it("shows the correct single-day date regardless of the viewer's zone", () => {
+		const when = describeInviteWhen(
+			"2026-03-10T00:00:00.000Z",
+			"2026-03-11T00:00:00.000Z",
+			true,
+		);
+		expect(when).toBe(new Date(Date.UTC(2026, 2, 10)).toLocaleDateString());
+	});
 });
