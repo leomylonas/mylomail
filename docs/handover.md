@@ -1895,6 +1895,18 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
+5. **Gmail/Graph never translate a 401/429/503 into `ProviderAuthenticationException`/
+   `ProviderThrottledException`** (found by pass 105) — every `catch` in `GmailMailProvider.*`/
+   `GraphMailProvider.*` only handles a 404 lookup-miss; a real revoked-token or rate-limit
+   response would propagate as a raw `GoogleApiException`/`Microsoft.Kiota.Abstractions
+.ApiException` straight through the background jobs' generic catch blocks — never triggering
+   `AuthState.NeedsReauth`, never getting `AccountGate` backoff, never getting a live
+   announcement, unlike every IMAP/CalDAV path passes 59/64/100/103 now cover. Currently dead
+   code (item 1 above blocks any Gmail/Graph account from existing at all), and unlike IMAP's
+   single `ConnectAsync` chokepoint (pass 103) this spans ~10 files with no shared connection
+   step to centralize the translation in, plus the exact status-code-to-exception mapping and
+   `Retry-After` parsing per SDK is a real design decision — worth doing once OAuth registration
+   (item 1) actually lands and these providers become reachable.
 
 ## Read first
 
