@@ -1945,6 +1945,19 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   the second review pass. The cross-account-rejection scenario is covered and manually confirmed
   as a genuine discriminator via revert-and-reproduce. `dotnet test` 395 passed/0 failed (up from
   394). `pnpm check` clean, 297 dotnet tests, vitest 66.
+- **Hundred-and-eighteenth pass — a reply's primary recipient could show up twice.**
+  Investigated reply/reply-all recipient-list construction. `buildReplySeed`'s "to" list (built
+  from `replyTarget(context)` — `context.replyTo` if present, else `context.from`) was never
+  deduplicated, unlike the reply-all "cc" list, which already called `dedupe(...)`. A message
+  whose ReplyTo or From header contained a duplicate address (malformed/merged headers, a
+  provider quirk) would show the same recipient twice. Fixed by wrapping `replyTarget(context)`
+  in the existing `dedupe(...)` helper, matching the cc path's ordering. Extracted the recipient
+  computation into a new pure `buildReplyRecipients` so it could be unit-tested without pulling
+  in `sanitiseForQuoting`'s DOMPurify dependency, which needs a real DOM this repo's default
+  vitest config doesn't provide — this module's first test file. `invariant-review` confirmed a
+  pure renderer refactor with no frozen-invariant hit. New regression test manually confirmed as
+  a genuine discriminator via revert-and-reproduce. `dotnet test` 395 passed/0 failed (unaffected
+  — renderer-only). `pnpm check` clean, 297 dotnet tests, vitest 70 (up from 66).
 
 ## Next task
 
