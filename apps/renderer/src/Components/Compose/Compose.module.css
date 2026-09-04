@@ -41,6 +41,16 @@
 	gap: var(--cds-spacing-03);
 }
 
+/* A flex item's default min-width is auto (content-based) — without this, an overlong filename
+ * can force the row wider than its container and push the Remove button out of view (same
+ * pitfall passes 127/128 fixed elsewhere). */
+.attachmentName {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+
 .sendSplit {
 	display: flex;
 	align-items: center;

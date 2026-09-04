@@ -72,6 +72,11 @@
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
+
+	/* A grid item's default min-width is auto (content-based), the same pitfall passes 127/128
+	 * fixed for flex items — without this, a subject with no breakable whitespace can force the
+	 * 1fr track wider than the container regardless of overflow: hidden. */
+	min-width: 0;
 }
 
 .indicators {

@@ -87,11 +87,17 @@ export function CalendarAgenda({
 														? "All day"
 														: dayjs(event.start).format("h:mm A")}
 												</span>
-												<span className={styles.title}>
+												<span
+													className={styles.title}
+													title={event.title || "(No title)"}
+												>
 													{event.title || "(No title)"}
 												</span>
 												{event.location ? (
-													<span className={styles.location}>
+													<span
+														className={styles.location}
+														title={event.location}
+													>
 														{event.location}
 													</span>
 												) : null}

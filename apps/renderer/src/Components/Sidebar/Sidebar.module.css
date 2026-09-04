@@ -52,4 +52,9 @@
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
+
+	/* A flex item's default min-width is auto (content-based) — without this, an unbroken-word
+	 * display name can force the row wider than the sidebar regardless of overflow: hidden
+	 * (same pitfall passes 127/128 fixed elsewhere). */
+	min-width: 0;
 }

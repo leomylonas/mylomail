@@ -120,7 +120,9 @@ export function Sidebar({
 								}}
 								aria-hidden
 							/>
-							<span className={styles.name}>{account.displayName}</span>
+							<span className={styles.name} title={account.displayName}>
+								{account.displayName}
+							</span>
 						</button>
 						{isCollapsed ? null : (
 							<MailboxTree hub={hub} accountId={account.id} />

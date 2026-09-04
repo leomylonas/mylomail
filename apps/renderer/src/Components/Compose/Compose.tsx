@@ -676,7 +676,12 @@ export function Compose({
 				<ul className={styles.attachments} aria-label="Attached files">
 					{attachments.map((attachment) => (
 						<li key={attachment.id}>
-							{attachment.filename}
+							<span
+								className={styles.attachmentName}
+								title={attachment.filename}
+							>
+								{attachment.filename}
+							</span>
 							<Button
 								size="sm"
 								kind="ghost"
