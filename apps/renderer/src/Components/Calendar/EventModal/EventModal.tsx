@@ -6,6 +6,10 @@ import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Doma
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import {
+	fromInclusiveEndDateInputValue,
+	toInclusiveEndDateInputValue,
+} from "@mylomail/renderer/Components/Calendar/EventModal/AllDayEventEnd";
 import styles from "@mylomail/renderer/Components/Calendar/EventModal/EventModal.module.css";
 
 interface Attendee {
@@ -199,7 +203,20 @@ export function EventModal({
 					id="event-all-day"
 					labelText="All day"
 					toggled={values.isAllDay}
-					onToggle={(checked) => setValues({ ...values, isAllDay: checked })}
+					onToggle={(checked) =>
+						setValues({
+							...values,
+							isAllDay: checked,
+							// Switching on: snap End to the RFC 5545 exclusive convention
+							// (Start's day plus one) rather than carry over a same-day
+							// timestamp that would render as a zero-duration span. Switching
+							// off: the reverse would be equally wrong to leave in place, so
+							// give the timed fields a real one-hour span to start from.
+							end: checked
+								? dayjs(values.start).startOf("day").add(1, "day").toISOString()
+								: dayjs(values.start).add(1, "hour").toISOString(),
+						})
+					}
 				/>
 				<div className={styles.row}>
 					<TextInput
@@ -218,11 +235,17 @@ export function EventModal({
 						id="event-end"
 						labelText="End"
 						type={values.isAllDay ? "date" : "datetime-local"}
-						value={toInputValue(values.end, values.isAllDay)}
+						value={
+							values.isAllDay
+								? toInclusiveEndDateInputValue(values.end)
+								: toInputValue(values.end, false)
+						}
 						onChange={(event) =>
 							setValues({
 								...values,
-								end: fromInputValue(event.target.value, values.isAllDay),
+								end: values.isAllDay
+									? fromInclusiveEndDateInputValue(event.target.value)
+									: fromInputValue(event.target.value, false),
 							})
 						}
 					/>
