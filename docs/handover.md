@@ -1759,6 +1759,31 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   regression tests confirmed the snippet-content test is a genuine discriminator via
   revert-and-reproduce. `dotnet test` 385 passed/0 failed (up from 383). `pnpm check` clean, 288
   dotnet tests, vitest 62.
+- **Ninety-sixth pass — no gap found.** Swept for other Dictionary/HashSet-iteration-order bugs
+  following pass 95's fix: every `Dictionary<>` in the backend is a keyed lookup or join, never
+  enumerated where order matters. Checked export completeness (bulk export is a deliberate,
+  mail-only `.eml` tree — calendar/drafts/identities are out of scope by design, not a gap),
+  multi-window sync (every `IHubEvents` method broadcasts via `hub.Clients.All` uniformly, no
+  per-window filtering to miss an update through), and keyboard shortcuts (only one call site
+  exists, so no duplicate-binding conflict is even possible yet). All clean.
+- **Ninety-seventh pass — deleting a recurring event's virtual occurrence silently removed the
+  whole series with no warning.** `Calendar.tsx`'s `openEditModal` already substitutes a virtual
+  occurrence's id with its `masterEventId` before opening the edit modal (existing, documented:
+  editing reaches the whole series, per §13 Epic 7's deferred per-occurrence editing) — delete
+  silently inherited the same whole-series scope, with the button just reading "Delete event".
+  Added a `deletesWholeSeries` prop to `EventModal`, showing `window.confirm` with the real scope
+  before calling `onDelete()`, mirroring the existing `window.confirm` pattern already used in
+  `Compose.tsx`'s send-time warnings. The first version set this from the existing `isRecurring`
+  field, but `invariant-review` caught a real false-positive: `isRecurring` is true both for a
+  master AND for an already-materialised override/exception row, so deleting an override would
+  show the same "deletes the whole series" warning even though it only ever removes that one
+  row — user-facing misinformation about a destructive action, not a data-loss bug. Fixed
+  properly with a new `CalendarEventSummaryDto.IsRecurrenceMaster` field, true only for the row
+  that owns the series' `RecurrenceRules` (or a virtual occurrence generated from one), set
+  correctly at all three DTO construction sites. A second `invariant-review` round confirmed the
+  fix and that no construction site was missed. New regression test distinguishes an override
+  (false) from a virtual occurrence (true) within one result set. `dotnet test` 386 passed/0
+  failed (up from 385). `pnpm check` clean, 289 dotnet tests, vitest 62.
 
 ## Next task
 
