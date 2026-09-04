@@ -2116,6 +2116,28 @@ check` clean, 308 dotnet tests, vitest 70.
   anything pagination-derived, so `fetchNextPage()` never retriggers the reset; selection state
   is managed independently of scroll offset; no frozen-invariant entry touched. `pnpm check`
   clean, 308 dotnet tests (unaffected), vitest 70.
+- **Hundred-and-thirty-third pass — built roving-tabindex keyboard navigation for the message
+  list.** Pass 132 found MessageList.tsx's virtualized rows had no keyboard row-to-row
+  navigation at all — a keyboard-only user could Tab into the list and activate the focused row,
+  but couldn't move between rows with arrow keys, and any row scrolled out of
+  `@tanstack/react-virtual`'s rendered viewport was unreachable via Tab without first scrolling
+  with a mouse — exactly the risk `docs/architecture.md` §13 anticipates for headless
+  table/virtualization libraries. User asked, chose to build it now. A single `focusedIndex`
+  tracks the one row Tab can land on; arrow keys move it (clamped), Home/End jump to the
+  first/last loaded row, each move calls `virtualizer.scrollToIndex` then imperatively focuses
+  the target row's DOM node via a bounded `requestAnimationFrame` retry once react-virtual has
+  mounted it. Pure index arithmetic extracted into a new, DOM-independent `RovingFocus.ts`
+  (following `CloseBehavior.ts`/`SentStatus.ts`'s established pattern). Two rounds of
+  `invariant-review` found and fixed three real bugs in the first version: `tabbableIndex` was
+  computed against the full unvirtualized `rows` array, so a candidate index outside the
+  actually-rendered set left NO element with `tabIndex=0` — silently defeating the whole
+  feature; `focusedIndex` was never cleared on a mailbox/search switch, letting a stale index
+  point at an unrelated row in the new result set; and each key press spawned an independent,
+  uncancelled rAF retry chain, so holding an arrow key down could race multiple chains for which
+  row ultimately got focused. All three fixed and confirmed by a second review round; arrow/
+  Home/End keys don't conflict with the existing `useShortcuts` document-level listener (row
+  `onKeyDown` doesn't `stopPropagation`, so that listener still sees and correctly ignores
+  them). `pnpm check` clean, 308 dotnet tests (unaffected), vitest 77 (up from 70).
 
 ## Next task
 
