@@ -135,11 +135,15 @@ internal static partial class CalDavIcs
 		}
 		if (ev.RecurrenceDates.Count > 0)
 		{
-			lines.Add($"RDATE:{string.Join(',', ev.RecurrenceDates.Select(d => FormatDateTimeValue(d, ev.IsAllDay, null)))}");
+			lines.Add(
+				$"{RecurrenceSetPropertyName("RDATE", ev.IsAllDay, ev.StartTimeZoneId)}:{string.Join(',', ev.RecurrenceDates.Select(d => FormatDateTimeValue(d, ev.IsAllDay, ev.StartTimeZoneId)))}"
+			);
 		}
 		if (ev.ExceptionDates.Count > 0)
 		{
-			lines.Add($"EXDATE:{string.Join(',', ev.ExceptionDates.Select(d => FormatDateTimeValue(d, ev.IsAllDay, null)))}");
+			lines.Add(
+				$"{RecurrenceSetPropertyName("EXDATE", ev.IsAllDay, ev.StartTimeZoneId)}:{string.Join(',', ev.ExceptionDates.Select(d => FormatDateTimeValue(d, ev.IsAllDay, ev.StartTimeZoneId)))}"
+			);
 		}
 		if (ev.RecurrenceId is { } recurrenceId)
 		{
@@ -331,8 +335,12 @@ internal static partial class CalDavIcs
 				.Select(r => r!.Value)
 				.ToList(),
 			RecurrenceRules = All("RRULE").Select(r => r.Value).ToList(),
-			RecurrenceDates = All("RDATE").SelectMany(r => r.Value.Split(',')).Select(v => ParseDateTime(NoParams, v)).ToList(),
-			ExceptionDates = All("EXDATE").SelectMany(r => r.Value.Split(',')).Select(v => ParseDateTime(NoParams, v)).ToList(),
+			// Each occurrence's own Params, not NoParams: RFC 5545 requires an RDATE/EXDATE to
+			// carry the same VALUE type and TZID as DTSTART (§3.8.5.1/§3.8.5.2), and
+			// RenderVEvent now writes them that way — parsing with NoParams would silently
+			// misread a zoned value as floating/UTC, off by whatever the zone's offset is.
+			RecurrenceDates = All("RDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
+			ExceptionDates = All("EXDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
 			RecurrenceMasterProviderEventId = recurrenceId is null ? null : href,
 			RecurrenceId = recurrenceId,
 		};
@@ -437,21 +445,31 @@ internal static partial class CalDavIcs
 		return new DateTimeOffset(local, TimeSpan.Zero);
 	}
 
-	private static string FormatDateTimeProperty(string name, DateTimeOffset value, bool isAllDay, string? tzid)
+	private static string FormatDateTimeProperty(string name, DateTimeOffset value, bool isAllDay, string? tzid) =>
+		$"{RecurrenceSetPropertyName(name, isAllDay, tzid)}:{FormatDateTimeValue(value, isAllDay, tzid)}";
+
+	/// <summary>
+	/// The <c>NAME;PARAM=...</c> half of a date-time property line, shared by <c>DTSTART</c>/
+	/// <c>DTEND</c>/<c>RECURRENCE-ID</c> and by <c>RDATE</c>/<c>EXDATE</c> — RFC 5545 §3.8.5.1/
+	/// §3.8.5.2 require an EXDATE/RDATE to carry the exact same <c>VALUE</c> type and <c>TZID</c>
+	/// as <c>DTSTART</c>, since an occurrence excluded/added in the wrong zone or value type
+	/// simply fails to match the instance a receiving client generated from <c>RRULE</c>.
+	/// </summary>
+	private static string RecurrenceSetPropertyName(string name, bool isAllDay, string? tzid) =>
+		isAllDay ? $"{name};VALUE=DATE" : tzid is { Length: > 0 } ? $"{name};TZID={tzid}" : name;
+
+	private static string FormatDateTimeValue(DateTimeOffset value, bool isAllDay, string? tzid)
 	{
 		if (isAllDay)
 		{
-			return $"{name};VALUE=DATE:{value:yyyyMMdd}";
+			return value.ToString("yyyyMMdd");
 		}
 		if (tzid is { Length: > 0 })
 		{
-			return $"{name};TZID={tzid}:{FormatLocal(value, tzid)}";
+			return FormatLocal(value, tzid);
 		}
-		return $"{name}:{value.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}";
+		return $"{value.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}";
 	}
-
-	private static string FormatDateTimeValue(DateTimeOffset value, bool isAllDay, string? tzid) =>
-		isAllDay ? value.ToString("yyyyMMdd") : $"{value.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}";
 
 	private static string FormatLocal(DateTimeOffset value, string tzid)
 	{
