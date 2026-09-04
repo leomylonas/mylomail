@@ -13,6 +13,12 @@ public sealed partial class ImapMailProvider
 	/// <summary>Why the Sent copy could not be filed, if it could not. Diagnostics only.</summary>
 	public string? AppendFailure => appendFailure;
 
+	/// <summary>Forces <see cref="AppendFailure"/> without a real append failure — the append
+	/// path needs a live IMAP/SMTP round trip that deliberately fails APPEND to exercise for
+	/// real, so this lets a test drive <see cref="Outbox.SendExecutor"/>'s consumption of the
+	/// property directly instead.</summary>
+	internal void SimulateAppendFailure(string message) => appendFailure = message;
+
 	private string? appendFailure;
 
 	/// <summary>

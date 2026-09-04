@@ -52,6 +52,11 @@ internal sealed class MutationHarness : IAsyncDisposable
 	/// <summary>Records the §7 events raised, so a test can assert which one fired.</summary>
 	public RecordingHubEvents Events { get; } = new();
 
+	/// <summary>When set, the next call to <see cref="IMailProviderFactory.For"/> throws this
+	/// instead of returning <see cref="Provider"/>, then clears itself — for exercising a
+	/// provider-resolution failure (e.g. a locked credential store) rather than a send failure.</summary>
+	public Exception? FailNextProviderResolutionWith { get; set; }
+
 	public FakeTimeProvider Clock { get; }
 
 	public Account Account { get; private set; } = null!;
@@ -70,7 +75,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddPersistence(Database.Directory)
 			.AddSingleton<TimeProvider>(Clock)
 			.AddSingleton<IFaultInjector>(Faults)
-			.AddSingleton<IMailProviderFactory>(new StubProviderFactory(Provider))
+			.AddSingleton<IMailProviderFactory>(new StubProviderFactory(this))
 			.AddSingleton<ICredentialStore, InMemoryCredentialStore>()
 			.AddSingleton<IHubEvents>(Events)
 			.AddMutations()
@@ -176,9 +181,17 @@ internal sealed class MutationHarness : IAsyncDisposable
 		await Database.DisposeAsync();
 	}
 
-	private sealed class StubProviderFactory(IMailProvider provider) : IMailProviderFactory
+	private sealed class StubProviderFactory(MutationHarness harness) : IMailProviderFactory
 	{
-		public IMailProvider For(Account account) => provider;
+		public IMailProvider For(Account account)
+		{
+			if (harness.FailNextProviderResolutionWith is Exception failure)
+			{
+				harness.FailNextProviderResolutionWith = null;
+				throw failure;
+			}
+			return harness.Provider;
+		}
 	}
 }
 

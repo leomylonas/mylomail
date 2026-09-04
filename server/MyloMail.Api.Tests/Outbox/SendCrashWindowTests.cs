@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Outbox;
@@ -239,6 +240,32 @@ public sealed class SendCrashWindowTests
 
 		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.Scheduled);
 		Assert.Equal(item.Id, announced.Id);
+	}
+
+	/// <summary>
+	/// Hundred-and-first pass regression: <c>providers.For(account)</c> was briefly hoisted
+	/// outside the try block that catches <see cref="CredentialStoreUnavailableException"/> — a
+	/// locked credential store fails before a provider can even be built, so nothing was
+	/// dispatched, and that must still route back to <see cref="OutboxStatus.Scheduled"/> rather
+	/// than propagate uncaught.
+	/// </summary>
+	[Fact]
+	public async Task A_locked_credential_store_during_provider_resolution_returns_the_item_to_the_queue()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.FailNextProviderResolutionWith = new CredentialStoreUnavailableException("the keyring is locked");
+		harness.Events.Clear();
+
+		await Assert.ThrowsAsync<CredentialStoreUnavailableException>(() => SendAsync(harness, item.Id));
+
+		var announced = Assert.Single(harness.Events.OutboxStatuses, o => o.Status == OutboxStatus.Scheduled);
+		Assert.Equal(item.Id, announced.Id);
+
+		var reloaded = await harness.UsingAsync(services =>
+			services.GetRequiredService<MyloMailDbContext>().OutboxItems.SingleAsync(o => o.Id == item.Id)
+		);
+		Assert.Equal(OutboxStatus.Scheduled, reloaded.Status);
 	}
 
 	/// <summary>

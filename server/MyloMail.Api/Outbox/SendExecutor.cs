@@ -4,6 +4,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Imap;
 
 namespace MyloMail.Api.Outbox;
 
@@ -109,9 +110,25 @@ public sealed class SendExecutor(
 
 		faults.Reached(FaultPoints.AfterDispatchedBeforeProviderCall);
 
+		IMailProvider provider;
 		try
 		{
-			await providers.For(account).SendAsync(account, draft, item.StableMessageId, ct);
+			provider = providers.For(account);
+			await provider.SendAsync(account, draft, item.StableMessageId, ct);
+
+			// IMAP-only, and deliberately not a send failure of its own (see the doc comment
+			// on ImapMailProvider.SendAsync): the message already left, so a failed Sent-copy
+			// append cannot retry without risking a duplicate. Until now nothing read this
+			// property at all, so a filing failure was invisible everywhere — not even logged
+			// — leaving no trail for "why is this sent message missing from Sent" support.
+			if (AppendFailureOf(provider) is string appendFailure)
+			{
+				logger.LogWarning(
+					"Outbox item {OutboxItemId} sent successfully but its Sent-folder copy could not be filed: {AppendFailure}",
+					item.Id,
+					appendFailure
+				);
+			}
 		}
 		catch (Exception ex)
 			when (ex is ProviderThrottledException or ProviderAuthenticationException or CredentialStoreUnavailableException)
@@ -175,4 +192,11 @@ public sealed class SendExecutor(
 
 		await outbox.AnnounceStatusAsync(item.Id, ct);
 	}
+
+	/// <summary>Only <see cref="ImapMailProvider"/> can ever report an append failure — Gmail
+	/// and Graph never take this shape, and pattern-matching on the concrete type is safe since
+	/// every provider is an independent, unrelated implementation of <see cref="IMailProvider"/>,
+	/// not a shared base class something else could accidentally also match.</summary>
+	internal static string? AppendFailureOf(IMailProvider provider) =>
+		provider is ImapMailProvider { AppendFailure: string appendFailure } ? appendFailure : null;
 }
