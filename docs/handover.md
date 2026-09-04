@@ -1606,6 +1606,24 @@ false })` on a lost race — a no-op from the UI's perspective, since `cancelled
   independent layer of protection regardless of arrival order. Two new regression tests confirmed
   as genuine discriminators via revert-and-reproduce. `dotnet test` 377 passed/0 failed
   (unaffected — renderer-only). `pnpm check` clean, 280 dotnet tests, vitest 57 (up from 55).
+- **Eighty-fifth pass — built message-list pagination.** Pass 84 found `MailHub.GetMessages` had
+  a flat `take: 100` with no pagination at all — nothing beyond the first 100 messages in a
+  mailbox was ever reachable in the UI, undocumented anywhere. User asked, chose to build it now.
+  `GetMessages` gained a `skip` parameter; ordering is `ReceivedAt` descending with `Id` as a
+  tiebreaker so two page fetches over an unchanged mailbox partition the same total order rather
+  than reshuffling ties between calls — the sort still runs in-memory after materializing the
+  mailbox's messages, extending pass 62's existing SQLite-DateTimeOffset-ordering workaround
+  rather than introducing a new one. `MessageList.tsx` switched its ordinary listing from
+  `useQuery` to `useInfiniteQuery` with a "Load more" button; search stays a plain, unpaginated
+  query since FTS5 already returns a bounded ranked set. `invariant-review` confirmed the
+  ordering provably guarantees disjoint, jointly-exhaustive pages, the sort genuinely runs
+  in-memory (not SQL-translated), `getNextPageParam` computes correctly across any page count,
+  and the load-more error state correctly re-enables via React Query's own reset — flagged one
+  non-blocking perf note for a future pass (each "Load more" click re-sorts the whole mailbox in
+  memory rather than the old single per-session full-scan). New regression tests seed 150
+  messages sharing one timestamp specifically to exercise the `Id` tiebreaker, confirmed
+  disjoint/exhaustive/ordered across the page boundary. `dotnet test` 379 passed/0 failed (up
+  from 377). `pnpm check` clean, 282 dotnet tests, vitest 57.
 
 ## Next task
 
