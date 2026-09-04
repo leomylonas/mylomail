@@ -15,7 +15,7 @@ const defaultLayout: PanelLayout = { sidebar: 20, list: 35, detail: 45 };
  * not synced to any window already open — each window's own live sizes stay in
  * `react-resizable-panels`' own component state, never mirrored back here.
  */
-export function useShellLayout(): {
+export function useShellLayout(onSaveError?: (error: unknown) => void): {
 	initial: PanelLayout;
 	ready: boolean;
 	onResize: (layout: PanelLayout) => void;
@@ -43,15 +43,24 @@ export function useShellLayout(): {
 	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useEffect(() => () => clearTimeout(timer.current), []);
 
-	const onResize = (layout: PanelLayout) => {
-		clearTimeout(timer.current);
-		timer.current = setTimeout(() => {
-			void fetch("/shell-settings/panel-layout", {
+	const save = async (layout: PanelLayout) => {
+		try {
+			const response = await fetch("/shell-settings/panel-layout", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ panelLayout: JSON.stringify(layout) }),
 			});
-		}, 500);
+			if (!response.ok) {
+				throw new Error(`panel-layout responded ${response.status}`);
+			}
+		} catch (error) {
+			onSaveError?.(error);
+		}
+	};
+
+	const onResize = (layout: PanelLayout) => {
+		clearTimeout(timer.current);
+		timer.current = setTimeout(() => void save(layout), 500);
 	};
 
 	return {

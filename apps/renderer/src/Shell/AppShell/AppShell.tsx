@@ -89,7 +89,13 @@ export function AppShell() {
 		store,
 		"selectedMessageSenderAddress",
 	);
-	const layout = useShellLayout();
+	const layout = useShellLayout((error) =>
+		notify(notifications, {
+			kind: "error",
+			title: "The panel layout could not be saved",
+			detail: error instanceof Error ? error.message : String(error),
+		}),
+	);
 	const sidebarRef = useRef<PanelImperativeHandle>(null);
 	const detailRef = useRef<PanelImperativeHandle>(null);
 
