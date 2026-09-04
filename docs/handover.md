@@ -2084,6 +2084,22 @@ check` clean, 308 dotnet tests, vitest 70.
   accessibility conflict (the button has no `aria-label` to duplicate), and no frozen-invariant
   hit. No test added — no test precedent exists for this bug class, per pass 127's own commit.
   `dotnet test` 406 passed/0 failed (unaffected). `pnpm check` clean, 308 dotnet tests, vitest 70.
+- **Hundred-and-twenty-ninth pass — four more instances of passes 127/128's overflow bug
+  pattern.** Continued the sweep: `MessageList.module.css`'s `.cell` is a CSS grid track, not
+  flexbox, but the same `min-width: auto` pitfall applies to grid items too — an unbroken-word
+  subject could force the `1fr` track wider than the row (shared by the sender/date cells, but
+  inert there since their content is always short). `CalendarAgenda`'s `.title`/`.location` spans
+  in the agenda list had no overflow handling at all (`.location` gets `flex-shrink: 2` so it
+  yields space to `.title` first, since title is the more important field). `Sidebar`'s `.name`
+  span for an account's display name had overflow rules but was missing `min-width: 0`.
+  `Compose.tsx` renders its own attachment list independent of `AttachmentList.tsx` (the
+  reading-pane component pass 127 fixed) — `attachment.filename` was a bare text node with no
+  truncation next to the Remove button. All four fixed with the same pattern plus a `title`
+  attribute. `invariant-review` confirmed each is genuine, the `flex-shrink: 2` choice is
+  reasonable, the `title` attributes don't conflict with any parent button's accessible name, no
+  frozen-invariant hit, and no existing test references `attachment.filename` (no Compose
+  component-render tests exist). `dotnet test` 406 passed/0 failed (unaffected). `pnpm check`
+  clean, 308 dotnet tests, vitest 70.
 
 ## Next task
 
