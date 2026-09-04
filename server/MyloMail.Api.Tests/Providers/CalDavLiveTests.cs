@@ -341,6 +341,70 @@ public sealed class CalDavLiveTests
 		}
 	}
 
+	/// <summary>
+	/// A rejected certificate must reach the caller as something a user can act on — the real
+	/// fingerprint, hostname, and issuer <c>TrustCertificate</c> needs — not a bare
+	/// <see cref="HttpRequestException"/>. Drives <see cref="CalendarProviderFactory"/> itself
+	/// (the production wiring, not a client built by hand), against this fixture's real
+	/// self-signed certificate, so this proves the same translation IMAP's
+	/// <c>AuthenticateAsync</c> already gets.
+	/// </summary>
+	[SkippableFact]
+	public async Task A_rejected_certificate_is_reported_with_its_fingerprint_not_a_bare_transport_error()
+	{
+		Skip.If(
+			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
+			"TEST_CALDAV_HOST/PORT not set — start the matrix with `pnpm caldav:up`"
+		);
+
+		var baseUri = new Uri($"https://{Host}:{Port}/");
+		var endpoint = new Uri(baseUri, $"{Uri.EscapeDataString(User)}/{Guid.NewGuid():N}/");
+
+		using (var setup = new HttpClient(TrustingHandler()))
+		{
+			await MkCalendarAsync(setup, endpoint);
+		}
+
+		var credentials = new InMemoryCredentialStore();
+		var accountId = Guid.NewGuid();
+		await credentials.StoreAsync(
+			accountId,
+			new CredentialPayload(MailProviderFactory.ImapPasswordFormat, Encoding.UTF8.GetBytes(Password)),
+			default
+		);
+		var account = new Account
+		{
+			Id = accountId,
+			ProviderType = ProviderType.Imap,
+			ProviderConfig = new ImapProviderConfig
+			{
+				CalDav = new CalDavProviderConfig { Endpoint = endpoint.ToString(), UserName = User },
+			},
+		};
+
+		var factory = new CalendarProviderFactory(
+			credentials,
+			new UnusedMailProviderFactory(),
+			new EmptyTrustedCertificateStore()
+		);
+		var provider = factory.For(account);
+		using var disposable = provider as IDisposable;
+
+		var ex = await Assert.ThrowsAsync<ProviderAuthenticationException>(
+			() => provider.ListCalendarsAsync(account, default)
+		);
+		Assert.Contains(Host!, ex.Message);
+		Assert.Matches("[0-9a-f]{64}", ex.Message);
+	}
+
+	private sealed class EmptyTrustedCertificateStore : ITrustedCertificateStore
+	{
+		public IReadOnlyList<AccountTrustedCertificate> GetForAccount(Guid accountId) => [];
+
+		public Task TrustAsync(Guid accountId, string expectedHostname, string sha256Fingerprint, CancellationToken ct) =>
+			throw new NotSupportedException();
+	}
+
 	private static async Task PutRawAsync(HttpClient http, Uri target, string ics)
 	{
 		var request = new HttpRequestMessage(HttpMethod.Put, target)

@@ -34,19 +34,63 @@ public sealed class CalendarProviderFactory(
 		}
 
 		var pinned = certificates.GetForAccount(account.Id);
-		var handler = new HttpClientHandler
+		var handler = new HttpClientHandler();
+		var rejectionHandler = new CertificateRejectionHandler(handler);
+		handler.ServerCertificateCustomValidationCallback = (request, certificate, _, sslPolicyErrors) =>
 		{
-			ServerCertificateCustomValidationCallback = (request, certificate, _, sslPolicyErrors) =>
-				certificate is not null
-				&& CertificateTrust.Validate(
-					account.CertificateTrustMode,
-					pinned,
-					request.RequestUri?.Host ?? string.Empty,
-					certificate,
-					sslPolicyErrors
-				),
+			if (certificate is null)
+			{
+				return false;
+			}
+
+			var hostname = request.RequestUri?.Host ?? string.Empty;
+			var trusted = CertificateTrust.Validate(account.CertificateTrustMode, pinned, hostname, certificate, sslPolicyErrors);
+			if (!trusted)
+			{
+				rejectionHandler.Rejected = (hostname, CertificateTrust.Fingerprint(certificate), certificate.Issuer);
+			}
+			return trusted;
 		};
 
-		return new CalDavCalendarProvider(new CalDavRequestFactory(credentials), new HttpClient(handler), mail);
+		return new CalDavCalendarProvider(new CalDavRequestFactory(credentials), new HttpClient(rejectionHandler), mail);
+	}
+
+	/// <summary>
+	/// Every CalDAV request goes through <see cref="HttpClient"/>'s own error handling, which
+	/// only ever surfaces a rejected certificate as a bare <see cref="HttpRequestException"/> —
+	/// no fingerprint, hostname, or issuer, unlike IMAP's <c>AuthenticateAsync</c> and SMTP send
+	/// path, which both translate the same rejection into <see cref="CertificateTrust.Problem"/>
+	/// so the renderer can offer to pin it (§15). Wrapping the client, rather than each of
+	/// <see cref="CalDavCalendarProvider"/>'s nine call sites individually, gives every CalDAV
+	/// request the same translation from one place.
+	/// </summary>
+	internal sealed class CertificateRejectionHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+	{
+		/// <summary>Set by the validation callback, synchronously, before the handshake it
+		/// rejected can unwind into an exception here — the same ordering IMAP's own
+		/// <c>rejectedCertificate</c> field relies on.</summary>
+		public (string Hostname, string Fingerprint, string Issuer)? Rejected;
+
+		protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+		{
+			// Reset per attempt, exactly like ImapMailProvider.ConnectAsync's own
+			// rejectedCertificate does: this handler is held and reused across every request
+			// CalDavCalendarProvider makes over its lifetime, not recreated per call the way
+			// IMAP gets a fresh ImapClient each time — without this, a rejection on one request
+			// would stay stamped on the field forever, and a later, wholly unrelated transport
+			// failure (a DNS blip, a dropped connection) would be mislabelled as that same
+			// stale certificate problem.
+			Rejected = null;
+			try
+			{
+				return await base.SendAsync(request, ct);
+			}
+			catch (HttpRequestException) when (Rejected is { } rejected)
+			{
+				throw new ProviderAuthenticationException(
+					CertificateTrust.Problem(rejected.Hostname, rejected.Fingerprint, rejected.Issuer).Detail!
+				);
+			}
+		}
 	}
 }
