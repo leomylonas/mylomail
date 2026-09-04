@@ -40,6 +40,8 @@ interface Sent {
 	status?: OutboxStatus;
 	lastError?: string;
 	reconcilingSince?: Date;
+	/** An undo attempt lost its compare-and-swap against the send worker; see `SentState`. */
+	undoRejected?: boolean;
 }
 
 interface DraftAttachment {
@@ -494,7 +496,13 @@ export function Compose({
 				"CancelScheduledSend",
 				sent.outboxItemId,
 			);
-			setSent({ ...sent, cancelled });
+			// Functional update, not a spread of the closure-captured `sent`: a genuine
+			// OutboxStatusChanged can land while this call is still in flight, and overwriting
+			// it with a stale copy here would revert a real "Sent"/"Failed" back to whatever
+			// this closure saw when undo() was first called.
+			setSent((current) =>
+				current ? { ...current, cancelled, undoRejected: !cancelled } : current,
+			);
 		} catch (error) {
 			reportFailure("The send could not be undone")(error);
 		}

@@ -150,4 +150,25 @@ describe("describeSentState", () => {
 		);
 		expect(display.canUndo).toBe(false);
 	});
+
+	it("reports a lost undo attempt instead of silently doing nothing", () => {
+		const display = describeSentState({
+			cancelled: false,
+			undoRejected: true,
+		});
+		expect(display.message).toBe(
+			"Too late to undo — this message is already being sent.",
+		);
+		expect(display.failed).toBe(false);
+		expect(display.canUndo).toBe(false);
+	});
+
+	it("prefers a real status announcement over a stale undoRejected flag", () => {
+		const display = describeSentState({
+			cancelled: false,
+			undoRejected: true,
+			status: OutboxStatus.Sent,
+		});
+		expect(display.message).toBe("Sent.");
+	});
 });

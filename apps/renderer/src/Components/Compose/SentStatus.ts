@@ -6,6 +6,14 @@ export interface SentState {
 	status?: OutboxStatus;
 	lastError?: string;
 	reconcilingSince?: Date;
+	/**
+	 * An undo attempt lost its compare-and-swap against the send worker (§15) — the worker had
+	 * already claimed the item, so cancelling was never going to succeed. Distinct from
+	 * `cancelled: false`'s default (no attempt made yet): without this, clicking "Undo send"
+	 * after the worker wins does nothing visible at all until the next status announcement,
+	 * which can be seconds away.
+	 */
+	undoRejected?: boolean;
 }
 
 /**
@@ -67,6 +75,13 @@ export function describeSentState(
 			message: expired
 				? (sent.lastError ?? "This message's delivery could not be confirmed.")
 				: "Confirming this was sent…",
+			failed: false,
+			canUndo: false,
+		};
+	}
+	if (sent.undoRejected) {
+		return {
+			message: "Too late to undo — this message is already being sent.",
 			failed: false,
 			canUndo: false,
 		};
