@@ -862,7 +862,10 @@ public class MailHub(
 			[.. ev.Attendees.Select(a => new AttendeeDto(a.Name, a.Email, a.Role, a.ResponseStatus))],
 			isOrganizer,
 			mine is null ? null : ToInviteResponse(mine.ResponseStatus),
-			ev.Reminders
+			ev.Reminders,
+			ev.Start,
+			ev.End,
+			ev.IsAllDay
 		);
 	}
 

@@ -446,6 +446,12 @@ export type CalendarEventDetailDto = {
     myResponseStatus?: InviteResponse;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
     reminders: (Date | string)[];
+    /** Transpiled from System.DateTimeOffset */
+    start: (Date | string);
+    /** Transpiled from System.DateTimeOffset */
+    end: (Date | string);
+    /** Transpiled from bool */
+    isAllDay: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageInviteDto */

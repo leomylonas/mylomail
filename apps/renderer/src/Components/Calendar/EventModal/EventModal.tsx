@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Modal, Tag, TextArea, TextInput, Toggle } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
@@ -23,6 +23,11 @@ interface EventDetail {
 	myResponseStatus: InviteResponse | null;
 	/** Absolute trigger times parsed from the source's own VALARM blocks (§1). Read-only. */
 	reminders: string[];
+	/** The row's own persisted start/end — the series' original start for a recurring master,
+	 * not any particular occurrence's date (§13 Epic 7). */
+	start: string;
+	end: string;
+	isAllDay: boolean;
 }
 
 const responseStatusLabel = [
@@ -55,6 +60,7 @@ export function EventModal({
 	initial,
 	syncConflict,
 	deletesWholeSeries,
+	virtualOccurrence,
 	onSave,
 	onDelete,
 	onResolveConflict,
@@ -70,6 +76,15 @@ export function EventModal({
 	 * confirmation must say so rather than reading like an ordinary single-event delete.
 	 */
 	deletesWholeSeries?: boolean;
+	/**
+	 * True when `initial` was routed here from a not-yet-materialised virtual occurrence rather
+	 * than a real row (§13 Epic 7) — `initial.start`/`end` are that occurrence's own derived
+	 * date, not the master's. Saving unedited would silently reschedule the whole series to that
+	 * date, since `SaveCalendarEvent` overwrites the master's Start/End with whatever the form
+	 * holds. Once `GetCalendarEventDetail` resolves the master's real Start/End, this replaces
+	 * the occurrence's date in the form so the fields shown match what a save would actually do.
+	 */
+	virtualOccurrence?: boolean;
 	onSave: (values: EventFormValues) => void;
 	onDelete?: () => void;
 	/**
@@ -92,6 +107,22 @@ export function EventModal({
 			hub.invoke<EventDetail>("GetCalendarEventDetail", initial.eventId),
 		enabled: !isNew,
 	});
+
+	// Applied once, not on every `detail` refetch: after the user has started editing the
+	// date/time themselves, a background refetch replacing their edit with the (unchanged)
+	// master date would be as surprising as the bug this exists to prevent.
+	const appliedMasterDate = useRef(false);
+	useEffect(() => {
+		if (virtualOccurrence && detail.data && !appliedMasterDate.current) {
+			appliedMasterDate.current = true;
+			setValues((current) => ({
+				...current,
+				start: detail.data.start,
+				end: detail.data.end,
+				isAllDay: detail.data.isAllDay,
+			}));
+		}
+	}, [virtualOccurrence, detail.data]);
 
 	const respond = useMutation({
 		mutationFn: (response: InviteResponse) =>

@@ -325,6 +325,14 @@ public record AttendeeDto(string? Name, string Email, AttendeeRole Role, Respons
 /// Absolute trigger times parsed from the source's own <c>VALARM</c> blocks (§1) — read-only
 /// here; MyloMail's own compose flow does not yet write reminders back to the provider.
 /// </param>
+/// <param name="Start">
+/// The row's own persisted start (§13 Epic 7) — for a recurring master, this is the series'
+/// original start, not any particular occurrence's date. A virtual occurrence's edit routes to
+/// the master by id (per-occurrence editing is deferred), so the edit form must show this
+/// value rather than the clicked occurrence's own derived date: pre-filling with the
+/// occurrence's date and saving without touching it would silently reschedule the whole
+/// series to that date.
+/// </param>
 [TranspilationSource]
 public record CalendarEventDetailDto(
 	Guid Id,
@@ -332,7 +340,10 @@ public record CalendarEventDetailDto(
 	IReadOnlyList<AttendeeDto> Attendees,
 	bool IsOrganizer,
 	InviteResponse? MyResponseStatus,
-	IReadOnlyList<DateTimeOffset> Reminders
+	IReadOnlyList<DateTimeOffset> Reminders,
+	DateTimeOffset Start,
+	DateTimeOffset End,
+	bool IsAllDay
 );
 
 /// <summary>

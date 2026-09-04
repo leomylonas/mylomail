@@ -293,6 +293,9 @@ export function Calendar({
 					deletesWholeSeries={
 						modal.mode === "edit" ? modal.event.isRecurrenceMaster : false
 					}
+					virtualOccurrence={
+						modal.mode === "edit" ? modal.event.isVirtualOccurrence : false
+					}
 					onSave={(values) => save.mutate(values)}
 					onDelete={
 						modal.mode === "edit"
