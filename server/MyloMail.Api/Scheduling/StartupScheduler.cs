@@ -55,8 +55,14 @@ public sealed class StartupScheduler(
 		{
 			// Topology starts the change-stream loops once it knows the mailboxes. Nothing
 			// else can: job storage is in-memory, so after a restart no poll loop exists and
-			// live sync would never resume on its own.
-			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+			// live sync would never resume on its own. Claimed here, exactly once, the same
+			// way StartCalendarLoop claims CalendarScope: the loop's own self-reschedule at
+			// the end of a successful run must go through unguarded, or it would find its own
+			// claim already held and deadlock after a single cycle.
+			if (polls.TryStart(accountId, SyncJobs.TopologyScope))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+			}
 			jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 
 			// A standing sweep, not outstanding work interrupted by the crash: tombstone
@@ -136,7 +142,10 @@ public sealed class StartupScheduler(
 		// topology may start them again.
 		polls.StopAll(accountId);
 
-		jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+		if (polls.TryStart(accountId, SyncJobs.TopologyScope))
+		{
+			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+		}
 		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 		jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 	}

@@ -52,16 +52,55 @@ public sealed class SyncJobs(
 	/// </summary>
 	private static readonly Guid CalendarScope = Guid.Empty;
 
-	/// <summary>Reconciles an account's mailboxes, then schedules coverage for any that need it.</summary>
+	/// <summary>
+	/// Topology is also account-scoped; it borrows the same registry under a second, distinct
+	/// sentinel so its own loop's start/stop bookkeeping does not collide with
+	/// <see cref="CalendarScope"/>'s. Internal, not private: <see cref="StartupScheduler"/> and
+	/// <see cref="Hubs.MailHub"/>'s <c>UpdateAccount</c> are this loop's external starters — the
+	/// same relationship <see cref="CalendarScope"/> has with <c>StartCalendarLoop</c> — and
+	/// each must claim the scope itself before enqueuing a run, since the loop's own
+	/// self-reschedule at the bottom of a successful run must go through unguarded (a
+	/// self-reschedule while still holding its own claim would find that claim already taken
+	/// and deadlock after one cycle).
+	/// </summary>
+	internal static readonly Guid TopologyScope = new("11111111-1111-1111-1111-111111111111");
+
+	/// <summary>
+	/// Reconciles an account's mailboxes, schedules coverage for any that need it, and
+	/// reschedules itself at the account's poll interval.
+	/// </summary>
+	/// <remarks>
+	/// A folder created, renamed or deleted elsewhere is invisible to every other loop here —
+	/// this class's own doc comment says each provider "reconciles topology separately and on
+	/// its own cadence," but until this fix the only call to <see cref="TopologySyncService
+	/// .ReconcileAsync"/> ran once at startup (or account resume) and never rescheduled, unlike
+	/// every sibling loop (<see cref="ChangeStreamAsync"/>, <see cref="IntegrityAsync"/>,
+	/// <see cref="CalendarAsync"/>) which all self-reschedule. A folder created mid-session in
+	/// another client would go undiscovered until the app next restarted.
+	/// </remarks>
 	public async Task TopologyAsync(Guid accountId, CancellationToken ct = default)
 	{
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
+			polls.Stop(accountId, TopologyScope);
 			return;
 		}
 
-		await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
+		try
+		{
+			await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception)
+		{
+			polls.Stop(accountId, TopologyScope);
+			throw;
+		}
 
 		var pending = await context
 			.Mailboxes.Where(m => m.AccountId == accountId)
@@ -77,6 +116,14 @@ public sealed class SyncJobs(
 		await StartChangeStreamsAsync(account, ct);
 		await StartIntegrityReconciliationAsync(account, ct);
 		StartCalendarLoop(account);
+
+		if (!await StillRunnableAsync(accountId, ct))
+		{
+			polls.Stop(accountId, TopologyScope);
+			return;
+		}
+
+		jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), PollInterval(account) + gate.Delay(accountId));
 	}
 
 	/// <summary>

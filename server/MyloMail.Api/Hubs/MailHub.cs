@@ -264,7 +264,8 @@ public class MailHub(
 	Scheduling.ExportJobs export,
 	ITrustedCertificateStore certificates,
 	IBackgroundJobClient jobs,
-	Scheduling.ConnectivityMonitor connectivity
+	Scheduling.ConnectivityMonitor connectivity,
+	Scheduling.PollRegistry polls
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -720,7 +721,10 @@ public class MailHub(
 			// stopped, TryStart below claims it correctly; if it hasn't yet, TryStart simply
 			// no-ops and the still-alive loop resumes itself on its own next tick, since
 			// PollingEnabled is true again by then.
-			jobs.Enqueue<Scheduling.SyncJobs>(j => j.TopologyAsync(account.Id, default));
+			if (polls.TryStart(account.Id, Scheduling.SyncJobs.TopologyScope))
+			{
+				jobs.Enqueue<Scheduling.SyncJobs>(j => j.TopologyAsync(account.Id, default));
+			}
 		}
 		return settings with
 		{
