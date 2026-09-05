@@ -27,6 +27,7 @@ import {
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 import { destroyTray, ensureTray } from "@mylomail/electron-shell/Tray";
 import { closeBehaviorFromValue } from "@mylomail/electron-shell/CloseBehavior";
+import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachment";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -588,15 +589,6 @@ async function openExternally(url: string): Promise<void> {
 }
 
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const dangerousExtensions = new Set([
-	".bat",
-	".cmd",
-	".desktop",
-	".exe",
-	".msi",
-	".ps1",
-	".sh",
-]);
 
 function isGuid(value: unknown): value is string {
 	return typeof value === "string" && guid.test(value);
@@ -618,13 +610,6 @@ function isAttachmentTempPath(path: string): boolean {
 	return (
 		basename(dirname(parent)) === "attachments" && guid.test(basename(parent))
 	);
-}
-
-function isDangerousAttachment(path: string): boolean {
-	const extension = basename(path)
-		.slice(basename(path).lastIndexOf("."))
-		.toLowerCase();
-	return dangerousExtensions.has(extension);
 }
 
 /**
