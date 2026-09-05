@@ -62,6 +62,9 @@ public sealed class ContentJobs(
 		catch (ProviderThrottledException ex)
 		{
 			gate.Throttle(accountId, ex.RetryAfter);
+			// A quiet diagnostic signal only — see SyncJobs.GuardAsync's own copy of this
+			// comment.
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
 			jobs.Schedule<ContentJobs>(job => job.FetchNextAsync(accountId, default), ex.RetryAfter);
 			return;
 		}

@@ -56,6 +56,7 @@ interface Account {
 	certificateTrustMode?: CertificateTrustMode;
 	providerType?: ProviderType;
 	appendToSentOnSend?: boolean | null;
+	isThrottled?: boolean;
 }
 
 /**
@@ -456,6 +457,11 @@ export function AppShell() {
 							<AccountSettings
 								hub={hub}
 								initial={toSettings(accounts.data, selectedAccountId)}
+								isThrottled={
+									accounts.data?.find(
+										(account) => account.id === selectedAccountId,
+									)?.isThrottled
+								}
 								onClose={() => setPane("reading")}
 								onRemoved={() => {
 									// Cleared, not left pointing at a now-gone account: the

@@ -20,6 +20,14 @@ namespace MyloMail.Api.Contracts;
 /// <see cref="ImapProviderConfig.AppendToSentOnSend"/>. Null for every other provider type,
 /// since Gmail/Graph place the copy themselves as part of the send.
 /// </param>
+/// <param name="IsThrottled">
+/// Whether <see cref="Scheduling.AccountGate"/> currently holds this account back after a
+/// provider throttling response — read live from the in-memory gate, not a persisted column
+/// (the gate is deliberately not durable: a short-lived backoff window is advice about the
+/// near future, not a fact about the account). Purely informational: retry is already
+/// happening automatically and silently regardless of whether anything is watching this
+/// field, so it exists only for a quiet diagnostic surface, not to prompt any user action.
+/// </param>
 [TranspilationSource]
 public record AccountDto(
 	Guid Id,
@@ -38,7 +46,8 @@ public record AccountDto(
 	bool NotificationsEnabled,
 	CertificateTrustMode CertificateTrustMode,
 	int? AttachmentSizeLimitOverride,
-	bool? AppendToSentOnSend
+	bool? AppendToSentOnSend,
+	bool IsThrottled
 );
 
 /// <summary>

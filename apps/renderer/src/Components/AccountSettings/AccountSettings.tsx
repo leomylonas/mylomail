@@ -4,6 +4,7 @@ import {
 	InlineNotification,
 	Modal,
 	NumberInput,
+	Tag,
 	TextInput,
 	Toggle,
 } from "@carbon/react";
@@ -46,11 +47,22 @@ export interface AccountSettingsValues {
 export function AccountSettings({
 	hub,
 	initial,
+	isThrottled,
 	onClose,
 	onRemoved,
 }: {
 	hub: HubConnection;
 	initial: AccountSettingsValues;
+	/**
+	 * Whether the account is currently being held back after a provider throttling response
+	 * (§ retry policy) — read live from the server's in-memory gate, not a setting this form
+	 * saves, so it lives as its own prop rather than on `AccountSettingsValues` (which is
+	 * deliberately only what the user owns). Retry is already happening automatically and
+	 * silently regardless of this; it exists only as a quiet diagnostic, not to prompt any
+	 * action, which is why it renders as a small tag here rather than a toast or banner in the
+	 * main mail view.
+	 */
+	isThrottled?: boolean;
 	onClose: () => void;
 	/**
 	 * Called after the account is actually removed server-side, separately from `onClose`:
@@ -237,6 +249,11 @@ export function AccountSettings({
 						setValues({ ...values, appendToSentOnSend: checked })
 					}
 				/>
+			) : null}
+			{isThrottled ? (
+				<Tag type="cool-gray" size="sm">
+					Slowed down by the provider — retrying automatically
+				</Tag>
 			) : null}
 			<SendIdentityManager hub={hub} accountId={values.id} />
 			<ExportAccount hub={hub} accountId={values.id} />

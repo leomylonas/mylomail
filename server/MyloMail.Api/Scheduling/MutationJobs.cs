@@ -80,6 +80,11 @@ public sealed class MutationJobs(
 			catch (ProviderThrottledException ex)
 			{
 				gate.Throttle(accountId, ex.RetryAfter);
+				// A quiet diagnostic signal only — see SyncJobs.GuardAsync's own copy of this
+				// comment. `account` is safe to read here even though it may be a stale tracked
+				// reference post-claim-CAS (see the reload comment just below): this only reads
+				// its fields to build a DTO, it never writes through it.
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
 				jobs.Schedule<MutationJobs>(j => j.DrainAsync(accountId, default), ex.RetryAfter);
 				return;
 			}

@@ -40,6 +40,8 @@ export type AccountDto = {
     attachmentSizeLimitOverride?: number;
     /** Transpiled from bool */
     appendToSentOnSend?: boolean;
+    /** Transpiled from bool */
+    isThrottled: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AddAccountRequest */

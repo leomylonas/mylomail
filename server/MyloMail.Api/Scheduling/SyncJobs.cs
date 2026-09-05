@@ -488,6 +488,12 @@ public sealed class SyncJobs(
 			// curve, and not just for this one job.
 			gate.Throttle(account.Id, ex.RetryAfter);
 			logger.LogWarning("Account {AccountId} throttled for {Delay}.", account.Id, ex.RetryAfter);
+			// A quiet diagnostic signal only (§ no user-facing error for something that's
+			// already retrying itself automatically) — fires once when the gate first engages
+			// for this account, not on every job that finds it already closed (those never
+			// reach the provider at all; see RunnableAsync's own gate.Delay check above), so
+			// this does not repeat per retry.
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
 			throw;
 		}
 		catch (ProviderAuthenticationException ex)

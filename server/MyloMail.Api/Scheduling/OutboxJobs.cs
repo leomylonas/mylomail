@@ -85,6 +85,9 @@ public sealed class OutboxJobs(
 				// SendExecutor already set OutboxStatus.Scheduled and announced it before
 				// rethrowing (§7) — the renderer already knows this item is back in the queue.
 				gate.Throttle(accountId, ex.RetryAfter);
+				// A quiet diagnostic signal only — see SyncJobs.GuardAsync's own copy of this
+				// comment.
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
 				jobs.Schedule<OutboxJobs>(j => j.RunAsync(accountId, default), ex.RetryAfter);
 				return;
 			}

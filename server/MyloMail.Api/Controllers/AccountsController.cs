@@ -7,6 +7,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 
 namespace MyloMail.Api.Controllers;
 
@@ -15,7 +16,8 @@ namespace MyloMail.Api.Controllers;
 [Route("accounts")]
 public class AccountsController(
 	MyloMailDbContext context,
-	AccountProvisioningService provisioning
+	AccountProvisioningService provisioning,
+	AccountGate gate
 ) : ControllerBase
 {
 	/// <summary>
@@ -216,7 +218,7 @@ public class AccountsController(
 		}
 	}
 
-	private static AccountDto ToDto(Account account, string? address) =>
+	private AccountDto ToDto(Account account, string? address) =>
 		new(
 			account.Id,
 			account.DisplayName,
@@ -234,7 +236,8 @@ public class AccountsController(
 			account.NotificationsEnabled,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
-			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend
+			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
+			gate.Delay(account.Id) > TimeSpan.Zero
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>

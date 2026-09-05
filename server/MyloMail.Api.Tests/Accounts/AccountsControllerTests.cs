@@ -207,6 +207,58 @@ public sealed class AccountsControllerTests
 		Assert.Equal(StatusCodes.Status503ServiceUnavailable, problem.StatusCode);
 	}
 
+	/// <summary>
+	/// Pass 200: <see cref="AccountDto.IsThrottled"/> is read live from <see cref="AccountGate"/>
+	/// at DTO-construction time, not a persisted column, so it reflects the gate's current state
+	/// exactly — set the instant <see cref="AccountGate.Throttle"/> is called, and cleared the
+	/// instant the window it named has elapsed, with no separate "clear" write needed anywhere.
+	/// </summary>
+	[Fact]
+	public async Task An_account_reports_throttled_only_while_the_gate_holds_it()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var accountId = await harness.UsingAsync(async services =>
+		{
+			var account = await services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(new NewAccount("Throttled", ProviderType.Gmail, "someone@example.org", null, null));
+			return account.Id;
+		});
+
+		var beforeThrottle = await harness.UsingAsync(async services =>
+		{
+			var response = await Controller(services).List(default);
+			return Assert.IsType<OkObjectResult>(response.Result).Value as IReadOnlyList<AccountDto>;
+		});
+		Assert.False(beforeThrottle!.Single(a => a.Id == accountId).IsThrottled);
+
+		await harness.UsingAsync(services =>
+		{
+			services.GetRequiredService<AccountGate>().Throttle(accountId, TimeSpan.FromMinutes(5));
+			return Task.CompletedTask;
+		});
+
+		var whileThrottled = await harness.UsingAsync(async services =>
+		{
+			var response = await Controller(services).List(default);
+			return Assert.IsType<OkObjectResult>(response.Result).Value as IReadOnlyList<AccountDto>;
+		});
+		Assert.True(whileThrottled!.Single(a => a.Id == accountId).IsThrottled);
+
+		await harness.UsingAsync(services =>
+		{
+			services.GetRequiredService<AccountGate>().Clear(accountId);
+			return Task.CompletedTask;
+		});
+
+		var afterClear = await harness.UsingAsync(async services =>
+		{
+			var response = await Controller(services).List(default);
+			return Assert.IsType<OkObjectResult>(response.Result).Value as IReadOnlyList<AccountDto>;
+		});
+		Assert.False(afterClear!.Single(a => a.Id == accountId).IsThrottled);
+	}
+
 	private static readonly ImapAccountSettings ImapSettings = new(
 		"imap.example.org",
 		993,
@@ -219,7 +271,8 @@ public sealed class AccountsControllerTests
 	private static AccountsController Controller(IServiceProvider services) =>
 		new(
 			services.GetRequiredService<MyloMailDbContext>(),
-			services.GetRequiredService<AccountProvisioningService>()
+			services.GetRequiredService<AccountProvisioningService>(),
+			services.GetRequiredService<AccountGate>()
 		);
 
 	/// <summary>
@@ -240,7 +293,11 @@ public sealed class AccountsControllerTests
 			services.GetRequiredService<TimeProvider>(),
 			NullLogger<AccountProvisioningService>.Instance
 		);
-		return new AccountsController(services.GetRequiredService<MyloMailDbContext>(), provisioning);
+		return new AccountsController(
+			services.GetRequiredService<MyloMailDbContext>(),
+			provisioning,
+			services.GetRequiredService<AccountGate>()
+		);
 	}
 
 	private sealed class ThrowingCredentialStore : ICredentialStore

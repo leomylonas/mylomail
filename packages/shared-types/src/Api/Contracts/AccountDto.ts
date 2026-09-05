@@ -26,6 +26,7 @@ export interface AccountDto {
   certificateTrustMode: CertificateTrustMode;
   attachmentSizeLimitOverride?: number;
   appendToSentOnSend?: boolean;
+  isThrottled: boolean;
 }
 
 export const AccountDtoSchema = z.object({
@@ -46,4 +47,5 @@ export const AccountDtoSchema = z.object({
   certificateTrustMode: z.nativeEnum(CertificateTrustMode),
   attachmentSizeLimitOverride: z.number().nullable(),
   appendToSentOnSend: z.boolean().nullable(),
+  isThrottled: z.boolean(),
 });

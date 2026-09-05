@@ -315,7 +315,7 @@ public sealed class AccountProvisioningService(
 
 internal static class AccountDtoFactory
 {
-	public static AccountDto ToDto(Account account, string? address) =>
+	public static AccountDto ToDto(Account account, string? address, Scheduling.AccountGate? gate = null) =>
 		new(
 			account.Id,
 			account.DisplayName,
@@ -333,7 +333,8 @@ internal static class AccountDtoFactory
 			account.NotificationsEnabled,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
-			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend
+			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
+			gate is not null && gate.Delay(account.Id) > TimeSpan.Zero
 		);
 
 	/// <summary>
@@ -348,14 +349,15 @@ internal static class AccountDtoFactory
 		MyloMailDbContext context,
 		Hubs.IHubEvents events,
 		Account account,
-		CancellationToken ct
+		CancellationToken ct,
+		Scheduling.AccountGate? gate = null
 	)
 	{
 		var address = await context
 			.SendIdentities.Where(i => i.AccountId == account.Id && i.IsDefault)
 			.Select(i => i.EmailAddress)
 			.FirstOrDefaultAsync(ct);
-		await events.AccountStatusChangedAsync(ToDto(account, address));
+		await events.AccountStatusChangedAsync(ToDto(account, address, gate));
 	}
 }
 
