@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Contracts;
@@ -22,8 +23,16 @@ public sealed class MessageSearch(MyloMailDbContext context)
 	/// </para>
 	/// <para>
 	/// The query is passed to FTS5 as a parameter, so its syntax is the user's to use:
-	/// <c>Subject:invoice</c> and <c>from:alice</c> work because the index has real columns.
-	/// A malformed query is the user's mistake to see, not an exception to leak.
+	/// <c>Subject:invoice</c> works directly against the index's own column name, but
+	/// <c>from:</c>/<c>to:</c>/<c>cc:</c>/<c>body:</c> — the field names Epic 5 actually
+	/// documents — do not, since the indexed columns are named <c>FromAddresses</c>,
+	/// <c>ToAddresses</c>, <c>CcAddresses</c> and <c>BodyText</c>. FTS5 column-filter syntax
+	/// requires an exact column-name match with no aliasing, so before this rewrite those
+	/// prefixes threw a SQLite syntax error caught below and surfaced as a silent zero-result
+	/// search — not a crash, but not the documented feature either. <see cref="RewriteFieldPrefixes"/>
+	/// translates the documented short forms to their real column names before the query
+	/// reaches FTS5. A malformed query beyond that is still the user's mistake to see, not an
+	/// exception to leak.
 	/// </para>
 	/// </remarks>
 	public async Task<IReadOnlyList<MessageSummaryDto>> SearchAsync(
@@ -92,9 +101,39 @@ public sealed class MessageSearch(MyloMailDbContext context)
 	private const string HighlightStart = "\u0001";
 	private const string HighlightEnd = "\u0002";
 
+	// Matches a field-filter prefix at the start of the query or right after whitespace/an
+	// opening paren (FTS5's own column-filter position), so "from:" inside quoted body text
+	// (a search for the literal word) is left alone — only a genuine filter position is rewritten.
+	private static readonly Regex FieldPrefixPattern = new(
+		@"(?<=^|[\s(])(from|to|cc|body)(?=:)",
+		RegexOptions.IgnoreCase | RegexOptions.Compiled
+	);
+
+	/// <summary>
+	/// Rewrites Epic 5's documented short field names to the search index's actual FTS5 column
+	/// names, so <c>from:alice</c> matches <c>FromAddresses</c> instead of failing with "no such
+	/// column: from" (silently swallowed by <see cref="MatchAsync"/>'s syntax-error catch, since
+	/// FTS5 offers no column aliasing of its own).
+	/// </summary>
+	internal static string RewriteFieldPrefixes(string query) =>
+		FieldPrefixPattern.Replace(
+			query,
+			m =>
+				m.Value.ToLowerInvariant() switch
+				{
+					"from" => "FromAddresses",
+					"to" => "ToAddresses",
+					"cc" => "CcAddresses",
+					"body" => "BodyText",
+					_ => m.Value,
+				}
+		);
+
 	/// <summary>The message ids FTS5 matches, in relevance order, with a match-context excerpt.</summary>
 	private async Task<List<(Guid Id, string Snippet)>> MatchAsync(string query, CancellationToken ct)
 	{
+		var rewritten = RewriteFieldPrefixes(query);
+
 		await context.Database.OpenConnectionAsync(ct);
 		await using var command = context.Database.GetDbConnection().CreateCommand();
 
@@ -107,7 +146,7 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			WHERE "MessageSearchIndex" MATCH $query
 			ORDER BY rank;
 			""";
-		command.Parameters.Add(new SqliteParameter("$query", query));
+		command.Parameters.Add(new SqliteParameter("$query", rewritten));
 		command.Parameters.Add(new SqliteParameter("$start", HighlightStart));
 		command.Parameters.Add(new SqliteParameter("$end", HighlightEnd));
 		command.Parameters.Add(new SqliteParameter("$ellipsis", "…"));

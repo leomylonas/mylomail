@@ -54,6 +54,33 @@ public sealed class MessageSearchTests : IAsyncLifetime
 	}
 
 	/// <summary>
+	/// Epic 5 documents <c>from:</c> as a supported field-scoped search prefix, but the FTS5
+	/// index's real column is named <c>FromAddresses</c> — with no rewrite, FTS5 rejects
+	/// <c>from:</c> with "no such column: from", which <see cref="MessageSearch"/>'s syntax-error
+	/// catch turns into a silent, empty result set rather than a crash. Seeds a message from a
+	/// distinct sender so a naive unscoped match on "bob" (which would also match nothing else
+	/// here) can't accidentally pass for the right reason.
+	/// </summary>
+	[Fact]
+	public async Task A_from_prefixed_query_matches_the_sender_address()
+	{
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Meeting notes",
+			"see you there",
+			from: "bob@example.org"
+		);
+
+		var results = await SearchAsync("from:bob");
+
+		Assert.Single(results);
+		Assert.Equal("Meeting notes", results[0].Subject);
+	}
+
+	/// <summary>
 	/// Scoping is applied after the match, not indexed — which is what lets a message move
 	/// folders without ever being reindexed (§8).
 	/// </summary>
@@ -205,7 +232,8 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		Guid mailboxId,
 		string subject,
 		string body,
-		DateTimeOffset? receivedAt = null
+		DateTimeOffset? receivedAt = null,
+		string from = "alice@example.org"
 	)
 	{
 		var context = scope.GetRequiredService<MyloMailDbContext>();
@@ -230,7 +258,7 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		await context.SaveChangesAsync();
 
 		var mime = new MimeMessage();
-		mime.From.Add(MailboxAddress.Parse("alice@example.org"));
+		mime.From.Add(MailboxAddress.Parse(from));
 		await scope
 			.GetRequiredService<SearchIndexer>()
 			.IndexAsync(
