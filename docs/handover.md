@@ -2755,6 +2755,29 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   closes out the case-sensitivity series started in pass 192) and committed. `dotnet test` 438
   passed/0 failed (up from 437). `pnpm check` clean under Node 22: 340 dotnet tests, vitest 100.
 
+- **Hundred-and-ninety-sixth pass — a rejected IMAP password could silently kill the sync poll
+  loop.** `ImapMailProvider.ConnectAsync` already translated a rejected TLS certificate into
+  `ProviderAuthenticationException` so every sync-path caller got a structured, catchable
+  exception, not just `AuthenticateAsync`'s own explicit try/catch. A rejected credential (MailKit's
+  `AuthenticationException`, thrown when a password stops working mid-session — changed on the
+  server, a revoked app password) had no such translation: every caller other than
+  `AuthenticateAsync` (mailbox listing, sync, mutations, drafts) let the raw exception propagate
+  uncaught, which `SyncJobs.GuardAsync`'s generic fallback swallowed as unrecognised — silently
+  stopping the poll loop instead of setting `AuthState.NeedsReauth` or announcing anything live
+  (§3, §7). Fixed by having `ConnectAsync` also catch and translate `AuthenticationException`,
+  mirroring the existing certificate-rejection catch; `AuthenticateAsync`'s own catch now keys off
+  the translated type, still distinguishing certificate- from credential-rejection via its existing
+  `rejectedCertificate` guard. New live test against the real Dovecot QRESYNC container manually
+  confirmed as a genuine discriminator via revert-and-reproduce. This pass's implementing fork hit
+  the session rate limit mid-work with the fix already written but unverified; the parent picked up
+  the diff, ran the live-container discrimination check itself, then the full pipeline and
+  `invariant-review` (no issues — confirmed `SyncJobs.GuardAsync` already has the correct
+  `ProviderAuthenticationException` handler this now routes into, no stale-state leakage between
+  the two exception-type catches, no other caller relies on the raw type, no frozen-table entry
+  touched). `dotnet test` 438 passed/0 failed (unchanged — the new test only runs against real
+  containers, like every other test in this file). `pnpm check` clean under Node 22: 340 dotnet
+  tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
