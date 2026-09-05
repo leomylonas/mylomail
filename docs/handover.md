@@ -2856,6 +2856,30 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   codebase's contract, not a per-`BatchItemResult` one. `dotnet test` 453 passed/0 failed (up from
   438). `pnpm check` clean: 355 dotnet tests, vitest 100.
 
+- **Two-hundredth pass — a UI error category with nothing behind it, then a small quiet
+  indicator built to fill it.** `ErrorPresentation.ts`'s `ErrorCategory.RateLimit` case
+  ("Slowed down by the provider") was confirmed unreachable dead code: `ProviderThrottledException`
+  (freshly wired end-to-end in pass 199) is caught only by the job schedulers, all of which retry
+  silently and indefinitely per the frozen invariant, never surfacing a terminal user-facing
+  failure. Also confirmed, not a gap: Gmail/Graph calendar support is a deliberately later slice
+  (`CalendarProviderFactory`'s own doc comment names both as not yet built), and §"CalDAV" scopes
+  `ProviderThrottledException` to `IMailProvider` only, not `ICalendarProvider`. The user was asked
+  whether the dead UI branch mattered and explicitly asked for a small, quiet indicator somewhere
+  low-visibility — not a toast/banner, not per-retry noise. Built: `AccountDto.IsThrottled`,
+  computed live (never persisted) as `gate.Delay(accountId) > TimeSpan.Zero` against the existing
+  in-memory `AccountGate`, so it self-clears the instant the throttle window elapses rather than
+  adding new persisted state; each of the four job schedulers' existing
+  `catch (ProviderThrottledException)` block now also announces the account's live status once per
+  throttle acquisition (a job can't reach the provider again while still inside its own gate
+  window, so this can't spam). `AccountSettings.tsx` renders it as a small Carbon `Tag`, kept out
+  of `AccountSettingsValues` (whose own doc comment restricts it to user-editable settings) since
+  this is read-only diagnostic state — nothing in the main mail-reading UI. `invariant-review`: no
+  issues — confirmed no race between `gate.Throttle`/`gate.Delay`, the new announce call is a
+  distinct SignalR event that can't collide with an unrelated one, a throttle acquisition fires at
+  most once per window, and no frozen entry (exact `Retry-After` timing, `AccountGate`'s in-memory
+  design) is touched — a pure additive observability signal. `dotnet test` 454 passed/0 failed (up
+  from 453). `pnpm check` clean: 356 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
