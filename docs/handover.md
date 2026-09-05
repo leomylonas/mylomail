@@ -2304,6 +2304,25 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   touched. No test added (no existing precedent for testing Electron dialog copy in this
   codebase). `pnpm check` clean, 310 dotnet tests, vitest 87 (both unaffected — renderer/shell
   only). `dotnet test` 408 passed, unaffected (sanity check).
+- **Hundred-and-forty-seventh pass — "Delete permanently" had zero confirmation, unlike every
+  comparable destructive action.** Continuing pass 146's angle (confirmation dialogs vs. real
+  backend behavior): `MessageList.tsx`'s "Delete permanently" context-menu action — danger-styled,
+  and its own existing code comment already says "never reversible by the app" — fired
+  immediately on click. Mailbox delete, account removal, and a recurring series' whole-series
+  delete all confirm first; only this one didn't. "Move to trash" deliberately still doesn't
+  confirm and was correctly left alone — it's provider-recoverable, per that same comment, unlike
+  a true permanent delete. Wrapped the existing `deletePermanently` callback in a
+  `window.confirm(...)` check with pluralized wording for a multi-message selection. Exported the
+  previously-unexported `messageActions` function and `MessageSummary` interface so a new test
+  could exercise the confirm-gate directly, using a per-file `// @vitest-environment jsdom`
+  pragma (jsdom is an existing, previously-unused devDependency) scoped to just this one file
+  rather than changing the package's default node test environment. `invariant-review` confirmed
+  the trash/permanent-delete asymmetry is intentional, the two new exports are behavior-neutral,
+  the jsdom pragma doesn't affect sibling test files, and no frozen-invariant table entry is
+  touched — it flagged one non-blocking nitpick (a test that verified deletion still happened but
+  not that the dialog was actually shown), applied as a small strengthening. Two of three new
+  tests confirmed as genuine discriminators via revert-and-reproduce. `pnpm check` clean, 310
+  dotnet tests (unaffected), vitest 90 (up from 87).
 
 ## Next task
 
