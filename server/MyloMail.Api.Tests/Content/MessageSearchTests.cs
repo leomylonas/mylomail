@@ -169,6 +169,25 @@ public sealed class MessageSearchTests : IAsyncLifetime
 	}
 
 	/// <summary>
+	/// FTS5's query grammar reserves "AND"/"OR"/"NOT" as boolean operators, but only in this
+	/// exact uppercase spelling — confirmed directly against SQLite's own parser, "and"/"And"
+	/// match literally. A search for the literal word "AND" (a company name, a capitalised
+	/// habit) hit the same silent-empty-result bug as an unquoted email address before this
+	/// fix, since it passes the bareword-safety check that the address case needed.
+	/// </summary>
+	[Fact]
+	public async Task An_uppercase_reserved_keyword_matches_as_a_literal_word()
+	{
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(scope.ServiceProvider, Guid.NewGuid(), inboxId, "Smith AND Co", "a company name");
+
+		var results = await SearchAsync("AND");
+
+		Assert.Single(results);
+		Assert.Equal("Smith AND Co", results[0].Subject);
+	}
+
+	/// <summary>
 	/// Ninety-fifth pass: a search result carries FTS5's own match-context excerpt, delimited
 	/// by control characters rather than HTML, so the renderer can highlight the matched term
 	/// without ever needing to trust or inject raw markup.

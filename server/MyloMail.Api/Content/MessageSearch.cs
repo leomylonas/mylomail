@@ -31,8 +31,11 @@ public sealed class MessageSearch(MyloMailDbContext context)
 	/// prefixes threw a SQLite syntax error caught below and surfaced as a silent zero-result
 	/// search — not a crash, but not the documented feature either. <see cref="RewriteFieldPrefixes"/>
 	/// translates the documented short forms to their real column names before the query
-	/// reaches FTS5. A malformed query beyond that is still the user's mistake to see, not an
-	/// exception to leak.
+	/// reaches FTS5. Likewise, an unquoted bareword containing punctuation FTS5's grammar treats
+	/// as syntax (an email address's "@"/".") or matching exactly one of its reserved uppercase
+	/// operator keywords (<c>AND</c>/<c>OR</c>/<c>NOT</c>) throws the same way; <see
+	/// cref="SanitizeForFts5"/> quotes both cases. A malformed query beyond that is still the
+	/// user's mistake to see, not an exception to leak.
 	/// </para>
 	/// </remarks>
 	public async Task<IReadOnlyList<MessageSummaryDto>> SearchAsync(
@@ -142,6 +145,14 @@ public sealed class MessageSearch(MyloMailDbContext context)
 	// just its tokenizer: unquoted, it throws rather than merely failing to match.
 	private static readonly Regex SafeBarewordPattern = new(@"^[\w*]+$", RegexOptions.Compiled);
 
+	// FTS5's query grammar reserves these three tokens as boolean operators, but only in
+	// this exact uppercase spelling — "and"/"And"/"aND" all match literally, confirmed
+	// directly against SQLite's own FTS5 parser. A search for the literal word "AND" (a
+	// company name, a capitalised habit, anything) would otherwise hit the identical
+	// silent-empty-result bug as an unquoted email address: it passes SafeBarewordPattern
+	// (all word characters) so nothing else here would catch it.
+	private static readonly HashSet<string> ReservedKeywords = ["AND", "OR", "NOT"];
+
 	/// <summary>
 	/// Quotes any bareword token FTS5's query grammar would otherwise choke on. An address like
 	/// <c>alice@example.com</c> — or anything else containing <c>@</c>, <c>.</c>, <c>-</c> and
@@ -158,7 +169,10 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			m =>
 			{
 				var term = m.Groups["term"].Value;
-				if (term.StartsWith('"') || SafeBarewordPattern.IsMatch(term))
+				if (
+					term.StartsWith('"')
+					|| (SafeBarewordPattern.IsMatch(term) && !ReservedKeywords.Contains(term))
+				)
 				{
 					return m.Value;
 				}
