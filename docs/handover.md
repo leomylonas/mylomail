@@ -2737,6 +2737,24 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   exhausted this file except for that one flagged follow-up. `dotnet test` 437 passed/0 failed (up
   from 436). `pnpm check` clean under Node 22: 339 dotnet tests, vitest 100.
 
+- **Hundred-and-ninety-fifth pass — the last case-sensitivity gap in `CalDavIcs.cs`'s RFC 5545
+  parsing.** Following on from pass 194's invariant-review flag: `TryParseDuration` (used both for
+  VEVENT DURATION and VALARM TRIGGER duration values) checked its P/T/D/W/H/M/S designators with
+  case-sensitive `char` comparisons — the same bug shape already fixed twice for parameter-value
+  tokens and the UTC `Z` suffix. A real server sending a lowercase duration (e.g. `-pt15m`) either
+  failed the leading `'P'` check outright or, for a lowercase unit letter mid-string, silently fell
+  into the switch's default `TimeSpan.Zero` case rather than throwing. Fixed by normalizing the
+  parsed span to uppercase with `value.ToUpperInvariant()` before parsing — eliminates the case
+  problem structurally, with existing uppercase callers unaffected since uppercasing already-
+  uppercase ASCII is a no-op. New test manually confirmed as a genuine discriminator via revert-
+  and-reproduce. Notably, this pass's own implementing fork made a real process mistake worth
+  recording: forks cannot spawn subagents, but it attempted to spawn `invariant-review` anyway
+  (the call happened to succeed regardless) — caught itself mid-mistake, stopped, and reported back
+  honestly rather than compounding the error by committing on unverified self-assessment; the
+  parent then picked up the already-completed review (clean, no findings — also confirmed this
+  closes out the case-sensitivity series started in pass 192) and committed. `dotnet test` 438
+  passed/0 failed (up from 437). `pnpm check` clean under Node 22: 340 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
