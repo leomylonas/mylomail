@@ -319,7 +319,7 @@ internal static partial class CalDavIcs
 			props.Where(p => p.Name == name).Select(p => (p.Params, p.Value));
 
 		var uid = Single("UID") ?? href;
-		var isAllDay = SingleWithParams("DTSTART")?.Params.GetValueOrDefault("VALUE") == "DATE";
+		var isAllDay = ParamEquals(SingleWithParams("DTSTART")?.Params, "VALUE", "DATE");
 		var start = SingleWithParams("DTSTART") is { } dtstart ? ParseDateTime(dtstart.Params, dtstart.Value) : DateTimeOffset.UnixEpoch;
 		// RFC 5545 §3.6.1: DTEND and DURATION are mutually exclusive on a VEVENT — a server or
 		// another client may legitimately emit DURATION instead of DTEND (common for all-day and
@@ -356,13 +356,13 @@ internal static partial class CalDavIcs
 				.Select(a => new Attendee(
 					a.Params.GetValueOrDefault("CN"),
 					StripMailto(a.Value),
-					a.Params.GetValueOrDefault("ROLE") switch
+					a.Params.GetValueOrDefault("ROLE")?.ToUpperInvariant() switch
 					{
 						"OPT-PARTICIPANT" => AttendeeRole.Optional,
 						"NON-PARTICIPANT" => AttendeeRole.Resource,
 						_ => AttendeeRole.Required,
 					},
-					a.Params.GetValueOrDefault("PARTSTAT") switch
+					a.Params.GetValueOrDefault("PARTSTAT")?.ToUpperInvariant() switch
 					{
 						"ACCEPTED" => ResponseStatus.Accepted,
 						"DECLINED" => ResponseStatus.Declined,
@@ -371,7 +371,7 @@ internal static partial class CalDavIcs
 					}
 				))
 				.ToList(),
-			Status = Single("STATUS") switch
+			Status = Single("STATUS")?.ToUpperInvariant() switch
 			{
 				"TENTATIVE" => EventStatus.Tentative,
 				"CANCELLED" => EventStatus.Cancelled,
@@ -401,7 +401,7 @@ internal static partial class CalDavIcs
 
 	private static DateTimeOffset? TryParseTrigger(IReadOnlyDictionary<string, string> parameters, string value, DateTimeOffset start, DateTimeOffset end)
 	{
-		if (parameters.GetValueOrDefault("VALUE") == "DATE-TIME")
+		if (ParamEquals(parameters, "VALUE", "DATE-TIME"))
 		{
 			return ParseDateTime(parameters, value);
 		}
@@ -413,9 +413,21 @@ internal static partial class CalDavIcs
 		// duration-relative trigger is relative to the event's END instead (e.g. "15 minutes
 		// before an all-day event's end") — anchoring to start unconditionally silently fires
 		// the reminder at the wrong instant for any event whose end differs from its start.
-		var anchor = string.Equals(parameters.GetValueOrDefault("RELATED"), "END", StringComparison.OrdinalIgnoreCase) ? end : start;
+		var anchor = ParamEquals(parameters, "RELATED", "END") ? end : start;
 		return anchor + duration;
 	}
+
+	/// <summary>
+	/// RFC 5545's parameter-value tokens (<c>VALUE</c>, <c>ROLE</c>, <c>PARTSTAT</c>,
+	/// <c>RELATED</c>, and so on) are ABNF terminal strings (RFC 5234 §2.3: quoted literals are
+	/// case-insensitive unless marked <c>%s</c>, which this grammar never does) — a compliant
+	/// server may send <c>value=date-time</c> just as validly as <c>VALUE=DATE-TIME</c>.
+	/// <see cref="ParseLine"/> only uppercases parameter *names*, never their values, so every
+	/// comparison against one of these known tokens must be explicitly case-insensitive here
+	/// rather than relying on the value already being normalized.
+	/// </summary>
+	private static bool ParamEquals(IReadOnlyDictionary<string, string>? parameters, string key, string expected) =>
+		string.Equals(parameters?.GetValueOrDefault(key), expected, StringComparison.OrdinalIgnoreCase);
 
 	/// <summary>The inverse of <see cref="TryParseDuration"/>, for a VALARM's own TRIGGER.</summary>
 	private static string FormatDuration(TimeSpan span)
@@ -489,7 +501,7 @@ internal static partial class CalDavIcs
 
 	private static DateTimeOffset ParseDateTime(IReadOnlyDictionary<string, string> parameters, string value)
 	{
-		if (parameters.GetValueOrDefault("VALUE") == "DATE" || (value.Length == 8 && !value.Contains('T')))
+		if (ParamEquals(parameters, "VALUE", "DATE") || (value.Length == 8 && !value.Contains('T')))
 		{
 			return new DateTimeOffset(DateTime.ParseExact(value, "yyyyMMdd", CultureInfo.InvariantCulture), TimeSpan.Zero);
 		}
