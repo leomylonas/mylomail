@@ -2323,6 +2323,18 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   not that the dialog was actually shown), applied as a small strengthening. Two of three new
   tests confirmed as genuine discriminators via revert-and-reproduce. `pnpm check` clean, 310
   dotnet tests (unaffected), vitest 90 (up from 87).
+- **Hundred-and-forty-eighth pass — continuing passes 146/147: deleting a send-as identity had
+  no confirmation either.** `AccountSettings`' send-identity manager fired `DeleteSendIdentity`
+  immediately on click, a hard, undo-free remove per `SendIdentityService.DeleteAsync`. Extracted
+  a pure `confirmDeleteSendIdentity(identity, confirm)` mirroring pass 147's testability pattern,
+  but taking `confirm` as an injected parameter rather than referencing `window` directly — a
+  deliberate improvement that means its test needs no jsdom pragma at all. `invariant-review`
+  confirmed the fix and flagged a real, non-blocking gap: the Delete button rendered
+  unconditionally, including for the account's default identity, even though the backend already
+  refuses to delete a default identity (no account can end up with zero) — a confirm-then-fail
+  UX, not a data-safety bug. Fixed alongside by gating Delete on `identity.isDefault`, mirroring
+  how "Make default" is already hidden for it. New test confirmed as a genuine discriminator via
+  revert-and-reproduce. `pnpm check` clean, 310 dotnet tests (unaffected), vitest 92 (up from 90).
 
 ## Next task
 
