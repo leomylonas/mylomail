@@ -2650,6 +2650,17 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   export id). `dotnet test` 421 passed/0 failed (up from 419). `pnpm check` clean under Node 22:
   format/tsc/eslint/stylelint/build, 323 dotnet tests, vitest 100.
 
+- **Hundred-and-eighty-ninth pass — clean.** The outbox send loop (`OutboxJobs.RunAsync`)
+  processes multiple due items per pass from an account snapshot taken before the loop, without
+  rechecking `IsEnabled` between items — superficially the same shape as 183/184's sync-loop bug,
+  but §3 itself explicitly documents that jobs need only check `IsEnabled` "at entry and exit" and
+  that an already-dispatched send completing remotely afterward is accepted, so this is documented
+  behaviour, not a bug. Also checked: FTS5 query construction (properly parameterized, no
+  injection risk), IMAP connect/auth/send exception translation (comprehensive, nothing falling
+  through uncaught), and `DraftService.SaveAsync`'s concurrent-window save semantics (last-write-
+  wins by design — "detect-don't-merge" applies only to remote conflicts, not local-local races).
+  No fix, no diff, no invariant-review needed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
