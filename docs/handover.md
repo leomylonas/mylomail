@@ -2959,6 +2959,18 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   touched (pure renderer/compose-flow change). `pnpm check` clean: vitest 117 (up from 114; no
   backend change, `dotnet test` stays at 356).
 
+- **Two-hundred-and-fifth pass — a stale tracked-gap entry contradicting the actual code.** The
+  "Next task" item recording Gmail/Graph's 401/429/503 translation as an open gap (originally found
+  by pass 105) was stale: passes 196-199 fully closed it — `GmailMailProvider`/`GraphMailProvider`
+  both now throw `ProviderAuthenticationException` on a rejected/revoked credential (confirmed via
+  their `ServiceAsync`/`ClientAsync` choke points) and `ProviderThrottledException` on a 429/
+  throttled response (confirmed via the dedicated `GmailThrottleAwareRequests`/
+  `GraphThrottleAwareRequests` translation helpers wired across every call site). The doc had never
+  been updated when that series landed, leaving a tracked gap that read as still-open work a future
+  pass could have wastefully re-investigated or re-fixed. Removed the stale item and renumbered the
+  list; no code changed, so no build/test/`pnpm check`/`invariant-review` pipeline applies to this
+  pass — it is a pure documentation correction against already-verified, already-committed code.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
@@ -2983,26 +2995,14 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
    method exists (§7) but has no UI caller yet. Once they properly diverge (drop-this-membership
    vs. delete-the-message), wire a "Remove from this folder" entry into `MessageList.tsx`'s
    context menu the same way `DeletePermanently` already is.
-5. **Gmail/Graph never translate a 401/429/503 into `ProviderAuthenticationException`/
-   `ProviderThrottledException`** (found by pass 105) — every `catch` in `GmailMailProvider.*`/
-   `GraphMailProvider.*` only handles a 404 lookup-miss; a real revoked-token or rate-limit
-   response would propagate as a raw `GoogleApiException`/`Microsoft.Kiota.Abstractions
-.ApiException` straight through the background jobs' generic catch blocks — never triggering
-   `AuthState.NeedsReauth`, never getting `AccountGate` backoff, never getting a live
-   announcement, unlike every IMAP/CalDAV path passes 59/64/100/103 now cover. Currently dead
-   code (item 1 above blocks any Gmail/Graph account from existing at all), and unlike IMAP's
-   single `ConnectAsync` chokepoint (pass 103) this spans ~10 files with no shared connection
-   step to centralize the translation in, plus the exact status-code-to-exception mapping and
-   `Retry-After` parsing per SDK is a real design decision — worth doing once OAuth registration
-   (item 1) actually lands and these providers become reachable.
-6. **`Message.ThreadId` is a half-built, provider-inconsistent field with no consumer** (found by
+5. **`Message.ThreadId` is a half-built, provider-inconsistent field with no consumer** (found by
    pass 108, left as a documented gap per the user's explicit choice). It exists on the domain
    model and `MessageDto`, and Graph populates it from `ConversationId` — but Gmail and IMAP
    never populate it at all, it's absent from `MessageSummaryDto`, no conversation-grouping UI
    exists, and no query filters by it. Building real threading needs each provider's own
    thread-id concept (a design decision, not dictated by strong precedent) plus new UI; the field
    should either be built out properly or removed, not left in this half state indefinitely.
-7. **Graph's send path has no plain-text alternative body** (found by pass 165, during the
+6. **Graph's send path has no plain-text alternative body** (found by pass 165, during the
    Epic-by-Epic docs/architecture.md read-through). Epic 6's "Compose (plain text or HTML)" is
    satisfied for IMAP and Gmail by `BodyBuilder`'s automatic `multipart/alternative`
    construction — both `ImapMailProvider.Send.cs` and `GmailMailProvider.Send.cs` set
@@ -3012,8 +3012,8 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
    single content type, with no `multipart/alternative` shape at all — building one for real
    would mean switching Graph's send path from the typed `client.Me.Messages.PostAsync(message)`
    call to a raw-MIME upload (`message/rfc822` content, a materially different implementation),
-   a real design decision, not dictated by strong precedent. Currently dead code, same as item 5:
-   no Graph account can exist yet pending item 1's OAuth registration.
+   a real design decision, not dictated by strong precedent. Currently dead code: no Graph account
+   can exist yet pending item 1's OAuth registration.
 
 ## Read first
 
