@@ -52,7 +52,7 @@ import {
 } from "@mylomail/renderer/Lib/RovingFocus";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 
-interface MessageSummary {
+export interface MessageSummary {
 	id: string;
 	subject: string;
 	snippet: string;
@@ -730,7 +730,7 @@ export function MessageList({
  * for the conventional menu per item type, and a menu that grows entries as features land
  * reads as an app that keeps changing shape.
  */
-function messageActions(
+export function messageActions(
 	targets: MessageSummary[],
 	setFlags: (input: {
 		messages: MessageSummary[];
@@ -795,7 +795,21 @@ function messageActions(
 		},
 		{
 			label: `Delete permanently${suffix}`,
-			run: () => deletePermanently(targets),
+			// Unlike every other destructive action here (trash, mailbox delete, account
+			// removal, a recurring series' whole-series delete), this had no confirmation at
+			// all — a single misclick on a danger-styled menu item did something the app itself
+			// documents as never reversible.
+			run: () => {
+				if (
+					window.confirm(
+						targets.length > 1
+							? `Permanently delete ${targets.length} messages? This cannot be undone.`
+							: "Permanently delete this message? This cannot be undone.",
+					)
+				) {
+					deletePermanently(targets);
+				}
+			},
 			danger: true,
 		},
 		{
