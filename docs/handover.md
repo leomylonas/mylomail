@@ -2500,6 +2500,21 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   startup-exit-and-restart mechanics for this path, pure text change with no logic impact, no
   stale references to the old string anywhere, no frozen-invariant hit. `pnpm check` clean, 316
   dotnet tests, vitest 100 (both unaffected — this file has no test harness reaching it).
+- **Hundred-and-seventy-fourth pass — Graph's bounded-sync limitation went undisclosed in Add
+  Account, the same bug class as pass 173.** §3 requires: "Bounded sync on Graph reduces local
+  materialisation and time-to-useful UI, not provider enumeration cost. This must surface in the
+  UI, since 'last 3 months' otherwise implies a speed benefit Graph will not deliver." The
+  "Initial sync" radio group in `AddAccount.tsx` showed identical "Last N months"/"Last N
+  messages" copy for every provider, with no Graph-specific caveat. Fixed with a conditional
+  helper paragraph, shown only for Microsoft 365 + a bounded sync mode, stating the real
+  limitation. Currently unreachable in practice (Microsoft 365 account creation is blocked
+  pending the already-tracked deferred-OAuth item) but correctly forward-looking, the same
+  reasoning passes 105/108 used for other currently-dormant-but-correct fixes. Like pass 173,
+  the implementing fork diagnosed and applied the fix but couldn't spawn the mandatory
+  `invariant-review` itself; completed in the parent session. `invariant-review` confirmed the
+  condition fires only for Microsoft365 + bounded modes, all enum identifiers are real ones
+  already used in the file, the copy is accurate to §3's intent, JSX structure correctly closed,
+  no frozen-invariant hit. `pnpm check` clean, 316 dotnet tests, vitest 100 (both unaffected).
 
 ## Next task
 
