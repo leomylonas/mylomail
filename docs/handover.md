@@ -3056,6 +3056,22 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   completed; the parent addressed the finding and committed. `dotnet test` 459 passed/0 failed (up
   from 457). `pnpm check` clean: 361 dotnet tests, vitest 117.
 
+- **Two-hundred-and-tenth pass — checked for siblings of pass 209's "deadline only enforced
+  opportunistically" bug; found none.** Followed up on §2's "the lease carries an expiry; a sweep
+  reclaims expired leases" for mutation ownership: `MutationClaimService.ClaimAsync` does reclaim
+  an expired lease, but only as a side effect of whatever next calls `MutationJobs.DrainAsync` —
+  unlike pass 209's outbox case, the doc states no specific time-bound "must fire within N minutes"
+  guarantee for this reclaim, only that a later claim attempt succeeds; `DrainAsync` is also
+  unconditionally re-enqueued for every account at startup (`StartupScheduler.cs`), so a leftover
+  expired lease is bounded by "next restart," not open-ended. `TombstoneGcJobs.SweepAsync`
+  (§6's 30-minute `GracePeriod`) was checked too and is already the correct pattern pass 209's fix
+  now matches: it unconditionally re-enqueues itself every pass, immediately when it found
+  something to collect or after a 10-minute `IdleDelay` otherwise, so a lingering tombstone is
+  never left waiting on an unrelated trigger. No other numeric `TimeSpan.From*` deadline constant
+  in the scheduling code lacked a genuine self-reschedule. Scheduled-send's own known limitation
+  ("fires only while the app is running," relying on startup reconciliation to resume) is already
+  explicitly documented as accepted, not a silent gap. No fix, no diff, no invariant-review needed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
