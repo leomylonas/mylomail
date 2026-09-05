@@ -2661,6 +2661,20 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   wins by design — "detect-don't-merge" applies only to remote conflicts, not local-local races).
   No fix, no diff, no invariant-review needed.
 
+- **Hundred-and-ninetieth pass — CalDAV VEVENT parsing silently invented wrong event end
+  times.** `CalDavIcs.ParseEvents` only ever read `DTEND` to compute an event's end; RFC 5545
+  §3.6.1 permits `DURATION` instead (mutually exclusive with DTEND, common for all-day/templated
+  recurring events from real servers), which the parser never handled — falling back to an
+  arbitrary fixed `start+1h` whenever DTEND was absent, regardless of what DURATION actually said.
+  Fixed by reusing the existing `TryParseDuration` helper (already used for VALARM triggers, same
+  RFC grammar) to compute `start + duration` when DURATION is present, and replacing the arbitrary
+  one-hour fallback with RFC 5545's actual stated default (one day for all-day events, zero
+  otherwise) when neither is present. Read-path only — this codebase's own writer (`RenderVEvent`)
+  always emits DTEND, so nothing MyloMail generates is affected; this only matters for events
+  synced from a real server or another client. 4 new regression tests, each manually confirmed as
+  a genuine discriminator via revert-and-reproduce. `invariant-review`: no findings. `dotnet test`
+  425 passed/0 failed (up from 421). `pnpm check` clean under Node 22: 327 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
