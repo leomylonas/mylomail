@@ -100,11 +100,27 @@ public sealed partial class ImapMailProvider
 			// unprompted fails against them.
 			if (smtp.Capabilities.HasFlag(SmtpCapabilities.Authentication))
 			{
-				await smtp.AuthenticateAsync(
-					settings.SmtpUserName ?? settings.UserName,
-					settings.SmtpPassword ?? settings.Password,
-					ct
-				);
+				try
+				{
+					await smtp.AuthenticateAsync(
+						settings.SmtpUserName ?? settings.UserName,
+						settings.SmtpPassword ?? settings.Password,
+						ct
+					);
+				}
+				catch (AuthenticationException ex)
+				{
+					// Same reasoning as the certificate-rejection catch above: a rejected
+					// SMTP credential is a definite pre-authentication rejection, nothing was
+					// sent, so this must not be allowed to fall into SendExecutor's generic
+					// catch — which treats a thrown send as "may have happened" and puts the
+					// item into AmbiguousOutcome, triggering a Sent-mailbox reconciliation for
+					// a send that provably never left. Left untranslated, SendExecutor's own
+					// ProviderAuthenticationException case (added for the connect-path
+					// equivalent of this problem) would never fire for a rejected SMTP
+					// password.
+					throw new ProviderAuthenticationException(ex.Message);
+				}
 			}
 
 			await smtp.SendAsync(message, ct);
