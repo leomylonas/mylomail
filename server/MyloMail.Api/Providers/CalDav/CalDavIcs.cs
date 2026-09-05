@@ -450,7 +450,12 @@ internal static partial class CalDavIcs
 	private static bool TryParseDuration(string value, out TimeSpan duration)
 	{
 		duration = TimeSpan.Zero;
-		var span = value.AsSpan();
+		// RFC 5234 §2.3: the P/T/D/W/H/M/S designators in RFC 5545's dur-value grammar (§3.3.6)
+		// are quoted ABNF literals, case-insensitive like the parameter-value tokens and UTC 'Z'
+		// suffix already fixed elsewhere in this file — a compliant server may send "-pt15m" just
+		// as validly as "-PT15M". Normalizing case up front means the digit/sign parsing below
+		// (unaffected by case either way) never has to special-case it.
+		var span = value.ToUpperInvariant().AsSpan();
 		var negative = false;
 		if (span.Length > 0 && (span[0] == '+' || span[0] == '-'))
 		{
