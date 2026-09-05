@@ -3031,6 +3031,31 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   theme started in pass 205 is now considered genuinely exhausted after three real fixes and two
   confirmed non-issues.
 
+- **Two-hundred-and-ninth pass — an ambiguous send with no further outbox activity could sit
+  stuck forever, never receiving its promised resolution.** `SendReconciler`'s own doc comment
+  describes `ReconciliationWindow` (10 minutes) as an active, time-bound decision — "how long to
+  keep looking before giving up and asking the user" — but `ReconcileAsync` is only ever invoked
+  from `OutboxJobs.RunAsync`, itself only enqueued when a new item becomes due to send or once at
+  startup. An account with exactly one ambiguous send (a crash mid-send) and no further sends
+  afterward would never get `ReconcileAsync` re-invoked, so the promised "check your Sent mail"
+  message would never actually be delivered — the window existed only in the doc comment, not as
+  anything the code actively enforced. Fixed by adding `ScheduleReconciliationCheckAsync`, called
+  at the end of `RunAsync`: it finds every unresolved item's deadline
+  (`ReconcilingSince + ReconciliationWindow`) and, if any is still in the future, self-schedules
+  another `RunAsync` for exactly that delay — the same `jobs.Schedule<OutboxJobs>` entry point
+  already used for due sends and throttle retries, following the self-scheduling pattern
+  `ContentJobs`/`SyncJobs` already establish. Once every item's window has elapsed or resolved as
+  `Sent`, nothing further gets scheduled — no runaway job chain. 2 new tests, each manually
+  confirmed as a genuine discriminator via revert-and-reproduce. `invariant-review`: no issues —
+  confirmed this is read-only until the trailing self-schedule call, no double-scheduling with the
+  pre-existing throttle-driven reschedule (which returns early first), the EF query split (needed
+  because SQLite can't translate `DateTimeOffset` arithmetic) is correct, and no frozen-table entry
+  touched (explicit `jobs.Schedule`, matching "jobs reschedule explicitly"). This pass's
+  implementing fork, correctly barred from spawning subagents as a worker, launched the mandatory
+  review and explicitly reported it could not wait on the result rather than claiming it had
+  completed; the parent addressed the finding and committed. `dotnet test` 459 passed/0 failed (up
+  from 457). `pnpm check` clean: 361 dotnet tests, vitest 117.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
