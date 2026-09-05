@@ -23,12 +23,20 @@ internal static partial class CalDavIcs
 		var lines = Unfold(ics);
 		var events = new List<CalendarEventDto>();
 		List<(string Name, IReadOnlyDictionary<string, string> Params, string Value)>? current = null;
+		// A VEVENT can nest its own components — VALARM being the only one this codebase reads or
+		// writes today — whose properties can share names with VEVENT-level ones (a reminder's
+		// own DESCRIPTION vs. the event's DESCRIPTION). Only VALARM's TRIGGER is something this
+		// parser actually wants (into Reminders, via All("TRIGGER")); every other nested property
+		// must not land in this VEVENT's own flat property list, or it silently overwrites the
+		// real one whenever ToDto's Single(name) takes the last match.
+		var insideValarm = false;
 
 		foreach (var line in lines)
 		{
 			if (line.Equals("BEGIN:VEVENT", StringComparison.OrdinalIgnoreCase))
 			{
 				current = [];
+				insideValarm = false;
 				continue;
 			}
 			if (line.Equals("END:VEVENT", StringComparison.OrdinalIgnoreCase))
@@ -40,9 +48,29 @@ internal static partial class CalDavIcs
 				current = null;
 				continue;
 			}
-			if (current is not null)
+			if (current is null)
+			{
+				continue;
+			}
+			if (line.Equals("BEGIN:VALARM", StringComparison.OrdinalIgnoreCase))
+			{
+				insideValarm = true;
+				continue;
+			}
+			if (line.Equals("END:VALARM", StringComparison.OrdinalIgnoreCase))
+			{
+				insideValarm = false;
+				continue;
+			}
+			if (!insideValarm)
 			{
 				current.Add(ParseLine(line));
+				continue;
+			}
+			var parsed = ParseLine(line);
+			if (parsed.Name.Equals("TRIGGER", StringComparison.OrdinalIgnoreCase))
+			{
+				current.Add(parsed);
 			}
 		}
 
@@ -148,6 +176,18 @@ internal static partial class CalDavIcs
 		if (ev.RecurrenceId is { } recurrenceId)
 		{
 			lines.Add(FormatDateTimeProperty("RECURRENCE-ID", recurrenceId, ev.IsAllDay, ev.StartTimeZoneId));
+		}
+		foreach (var reminder in ev.Reminders)
+		{
+			// Written as a DURATION-relative TRIGGER (RFC 5545 §3.8.6.3), not the DATE-TIME form:
+			// ToDto/ParseEvents itself only ever produces a reminder as start+duration (there is
+			// no per-reminder flag recording "this one came in as an absolute DATE-TIME"), so a
+			// relative TRIGGER is the only form this round-trips through faithfully.
+			lines.Add("BEGIN:VALARM");
+			lines.Add("ACTION:DISPLAY");
+			lines.Add($"DESCRIPTION:{Escape(ev.Title)}");
+			lines.Add($"TRIGGER:{FormatDuration(reminder - ev.Start)}");
+			lines.Add("END:VALARM");
 		}
 		lines.Add("END:VEVENT");
 		return string.Join("\r\n", lines) + "\r\n";
@@ -366,6 +406,23 @@ internal static partial class CalDavIcs
 			return ParseDateTime(parameters, value);
 		}
 		return TryParseDuration(value, out var duration) ? start + duration : null;
+	}
+
+	/// <summary>The inverse of <see cref="TryParseDuration"/>, for a VALARM's own TRIGGER.</summary>
+	private static string FormatDuration(TimeSpan span)
+	{
+		var negative = span < TimeSpan.Zero;
+		var abs = negative ? -span : span;
+		var days = abs.Days;
+		var hours = abs.Hours;
+		var minutes = abs.Minutes;
+		var seconds = abs.Seconds;
+		var time = hours == 0 && minutes == 0 && seconds == 0
+			? ""
+			: $"T{(hours > 0 ? $"{hours}H" : "")}{(minutes > 0 ? $"{minutes}M" : "")}{(seconds > 0 ? $"{seconds}S" : "")}";
+		var date = days > 0 ? $"{days}D" : "";
+		// RFC 5545 §3.3.6: a zero-length duration must still be well-formed (P0D is the shortest).
+		return $"{(negative ? "-" : "")}P{date}{time}" is var text && text is "P" ? "P0D" : text;
 	}
 
 	/// <summary>A minimal ISO-8601 duration parser covering the subset VALARM triggers use.</summary>
