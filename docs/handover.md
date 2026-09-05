@@ -2616,6 +2616,13 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   test files; `MutationReconciler.ReconcileAsync` independently duplicates its purpose correctly.
   Worth a deliberate cleanup pass, not an opportunistic one given mutation code's frozen-caution
   status — left for a dedicated decision rather than touched here.
+- **Hundred-and-eighty-seventh pass — clean.** Investigated attachment size-limit/base64-overhead
+  enforcement (`Compose.tsx`/`GetAttachmentConstraintsAsync`), §10's email-masking log
+  destructuring policy, §13 Epic-9 notification-baseline scoping, calendar `DeleteAsync`'s
+  If-Match conflict handling, per-mailbox `InitialSyncModeOverride` reachability (its no-op-once-
+  `Covered` gate was already explicitly reviewed and accepted in an earlier pass), and
+  credential-slot cleanup on account removal — all matched the doc or were already deliberate,
+  previously-reviewed decisions. No fix, no diff, no invariant-review needed.
 
 ## Next task
 
