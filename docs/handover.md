@@ -2778,6 +2778,31 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   containers, like every other test in this file). `pnpm check` clean under Node 22: 340 dotnet
   tests, vitest 100.
 
+- **Hundred-and-ninety-seventh pass — the SMTP-side sibling of pass 196's bug.** Pass 196 fixed
+  `ImapMailProvider.ConnectAsync`'s IMAP connect path so a rejected password translates to
+  `ProviderAuthenticationException` instead of letting MailKit's raw `AuthenticationException`
+  propagate uncaught — this matters because `SendExecutor.SendAsync` has an explicit catch for
+  `ProviderAuthenticationException` that correctly recognises an explicit categorised rejection as
+  an _observed_ outcome, requeuing the item rather than marking it `AmbiguousOutcome`. This pass
+  found the identical gap on the SMTP send path: `ImapMailProvider.SendAsync` already had this
+  exact treatment for a rejected TLS certificate during `smtp.ConnectAsync`, but
+  `smtp.AuthenticateAsync` right below it had no equivalent catch — a rejected SMTP
+  password/app-password threw the raw exception, fell through `SendExecutor`'s specific catch, and
+  was marked `AmbiguousOutcome` instead of being requeued as a definite pre-send rejection that
+  provably never left. Fixed by wrapping just `smtp.AuthenticateAsync` (not the whole
+  capability-gated `if` block, so an unrelated mid-authentication failure still reaches the
+  generic, correctly-ambiguous catch) in a try/catch mirroring the existing certificate-rejection
+  catch immediately above it. No new regression test: the local Mailpit SMTP test container
+  accepts any credentials with no seam to make `AuthenticateAsync` genuinely fail, and this
+  codebase uses MailKit's concrete `SmtpClient` directly with nothing to mock that would prove
+  more than "the mock behaves as configured" — verified instead by code inspection mirroring an
+  already-proven pattern, plus the full suite. `invariant-review`: no issues — confirmed
+  `SendExecutor.cs`'s catch-clause ordering genuinely routes this away from `AmbiguousOutcome`, the
+  scoped try doesn't change capability-evaluation order or swallow unrelated exceptions, the
+  missing-test rationale is a genuine infrastructure limitation rather than an oversight, and no
+  other untranslated auth-exception site remains in this file or its IMAP siblings. `dotnet test`
+  438 passed/0 failed (unchanged — no new test). `pnpm check` clean.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
