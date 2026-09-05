@@ -2996,6 +2996,25 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   process requires it, then reported and stopped immediately without waiting on it, flagging this
   explicitly; the parent picked up and addressed the review's result.)
 
+- **Two-hundred-and-seventh pass — searching for a literal "AND"/"OR"/"NOT" silently returned
+  nothing.** The sibling of pass 206's bug: confirmed directly against SQLite's own FTS5 parser
+  that these three tokens are reserved boolean operators, but only in this exact uppercase
+  spelling — `and`/`And`/`aND` all match literally with no error. A search for the literal word
+  "AND" (a company name like "Smith AND Co", or just capitalised habit) hit the identical silent-
+  empty-result bug pass 206 fixed for email addresses, since these tokens are made of ordinary
+  word characters and so pass `SafeBarewordPattern`'s existing punctuation check untouched. Fixed
+  by adding a small `ReservedKeywords` set `SanitizeForFts5` also checks, quoting an exact-case
+  match the same way an unsafe bareword is already quoted. Also verified empirically that bare
+  `NEAR` needs no equivalent treatment — it's only a keyword as `NEAR(...)`, and that form's own
+  punctuation is already caught by the existing check. New test
+  `An_uppercase_reserved_keyword_matches_as_a_literal_word`, manually confirmed as a genuine
+  discriminator via revert-and-reproduce. `dotnet test` 457 passed/0 failed (up from 456). `pnpm
+check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork committed the fix
+  (`e936075`) but, bound by a hard no-subagent-spawning rule for workers, correctly did **not**
+  attempt to launch `invariant-review` itself this time — it flagged the diff as needing the
+  parent to run that mandatory review before the pass is fully closed, rather than repeating pass
+  206's launch-and-hope pattern.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
