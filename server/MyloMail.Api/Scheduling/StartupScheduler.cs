@@ -65,6 +65,15 @@ public sealed class StartupScheduler(
 			}
 			jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 
+			// A message left Queued/Fetching by the crash has no other path back onto the queue:
+			// ContentJobs.FetchNextAsync only self-schedules its own successor while content
+			// remains pending and stops rescheduling once drained (§6), so a backlog stalled
+			// mid-fetch by a crash would otherwise sit inert until the next live sync page
+			// happened to kick the chain again — which an idle IMAP IDLE connection or a fully
+			// caught-up account may not do for an arbitrarily long time. FetchNextAsync no-ops
+			// harmlessly if nothing is actually pending, the same as DrainAsync/RunAsync above.
+			jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
+
 			// A standing sweep, not outstanding work interrupted by the crash: tombstone
 			// collection is idempotent and re-scans from DB state on every pass, so it needs
 			// no persisted "was running" signal — only a restart of the loop (§6).
