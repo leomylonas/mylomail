@@ -392,9 +392,17 @@ export function AppShell() {
 								onDetach={
 									window.windows
 										? (draftId) => {
-												void window.windows?.open(
-													`compose=${draftId}&account=${selectedAccountId}`,
-												);
+												void window.windows
+													?.open(
+														`compose=${draftId}&account=${selectedAccountId}`,
+													)
+													.catch(() => {
+														notify(notifications, {
+															kind: "error",
+															title: "Could not open in a new window",
+															detail: "The draft is still open here instead.",
+														});
+													});
 												setPane("reading");
 											}
 										: undefined
@@ -444,11 +452,19 @@ export function AppShell() {
 								onOpenInNewWindow={
 									window.windows
 										? () =>
-												void window.windows?.open(
-													`message=${selectedMessageId}&subject=${encodeURIComponent(
-														selectedMessageSubject,
-													)}`,
-												)
+												void window.windows
+													?.open(
+														`message=${selectedMessageId}&subject=${encodeURIComponent(
+															selectedMessageSubject,
+														)}`,
+													)
+													.catch(() => {
+														notify(notifications, {
+															kind: "error",
+															title: "Could not open in a new window",
+															detail: "The message is still open here instead.",
+														});
+													})
 										: undefined
 								}
 							/>
