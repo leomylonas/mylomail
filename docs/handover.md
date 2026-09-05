@@ -2242,6 +2242,22 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   → "The message", matching the file's established phrasing). No test added: no render-harness
   precedent exists for this component, consistent with prior passes. `pnpm check` clean, 308
   dotnet tests (unaffected), vitest 87.
+- **Hundred-and-forty-third pass — detaching a draft or message to a new window failed
+  silently.** Continued the fire-and-forget sweep from passes 35-39, 65-67, 91-93, 142.
+  `AppShell.tsx`'s `onDetach` (Compose's "open in a new window") and `onOpenInNewWindow`
+  (ReadingPane's equivalent) both called `void window.windows?.open(...)` — an IPC round trip to
+  the Electron main process returning `Promise<void>`, able to reject — with no `.catch`.
+  `onDetach` unconditionally calls `setPane("reading")` right after, so a failed window creation
+  left the current pane switching away with no new window ever appearing and no feedback that
+  anything went wrong. Fixed by attaching `.catch` to both calls, reusing the file's existing
+  `notify(notifications, {...})` pattern from its `ResolveStagedMessage` catch block, telling the
+  user the draft/message is still open in the current window instead. `invariant-review`
+  confirmed `window.windows` is checked truthy before this code runs so `?.open(...)` always
+  resolves to a real promise (never silently skipped), no other handler already catches this
+  rejection, the fire-and-forget shape is preserved with no unhandled-rejection window
+  introduced, and no frozen-invariant entry is touched. No test added: no render-harness
+  precedent for this component. `pnpm check` clean, 308 dotnet tests (unaffected), vitest 87
+  (unaffected).
 
 ## Next task
 
