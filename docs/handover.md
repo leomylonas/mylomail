@@ -2803,6 +2803,22 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   other untranslated auth-exception site remains in this file or its IMAP siblings. `dotnet test`
   438 passed/0 failed (unchanged — no new test). `pnpm check` clean.
 
+- **Hundred-and-ninety-eighth pass — the same auth-rejection bug in the two remaining
+  providers.** Continuing 196/197's pattern (IMAP connect, then SMTP send): `GmailMailProvider
+.ServiceAsync` and `GraphMailProvider.ClientAsync` — each provider's single choke point for every
+  operation — let a revoked/expired-token exception (`TokenResponseException` for Gmail,
+  `MsalException` for Graph) propagate raw, bypassing `SyncJobs.GuardAsync`'s `NeedsReauth`
+  handling and silently killing the poll loop the same way IMAP's untranslated password rejection
+  did. Fixed by wrapping both choke points to translate into `ProviderAuthenticationException`.
+  `invariant-review` caught a real follow-up bug in the Graph fix's first draft: it didn't exclude
+  the admin-consent-required MSAL exception shape, which `AuthenticateAsync` deliberately treats
+  differently (`Validation`, not `NeedsReauth`, since re-authenticating can't fix a missing admin
+  grant — pass 6's own fix) — fixed by excluding that shape via the existing `IsAdminConsentRequired`
+  predicate (made `internal` to share it). New Graph test is a genuine offline discriminator,
+  confirmed via revert-and-reproduce; Gmail's equivalent has no offline-reproducible failure path
+  (same infrastructure limit noted in pass 197 for SMTP), verified by inspection instead. `dotnet
+test` 444 passed/0 failed (up from 438). `pnpm check` clean.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
