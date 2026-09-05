@@ -2971,6 +2971,31 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   list; no code changed, so no build/test/`pnpm check`/`invariant-review` pipeline applies to this
   pass — it is a pure documentation correction against already-verified, already-committed code.
 
+- **Two-hundred-and-sixth pass — searching for an email address silently returned nothing.**
+  Confirmed via direct SQLite testing that FTS5's own query grammar treats `@`, `.`, and `-` (among
+  other punctuation) as syntax characters when unquoted — not just a tokenizer mismatch. A search
+  for `from:alice@example.com`, or even an unscoped `alice@example.com`, threw a SQLite syntax
+  error inside `MessageSearch.MatchAsync`, caught by the existing malformed-query handler and
+  silently returned as empty — indistinguishable from "no matches" for arguably the single most
+  natural thing to search a mail client for. Epic 5 documents only plain terms plus
+  `from:`/`to:`/`cc:`/`body:` prefixes, with no boolean/phrase-operator support as a deliberate
+  feature, so a new `SanitizeForFts5` (run after `RewriteFieldPrefixes`) quotes only the individual
+  tokens FTS5 would choke on — not the whole query, which would turn ordinary multi-word AND-of-
+  terms search into a single literal phrase match — keeping a field-filter prefix outside the
+  quotes (`FromAddresses:"alice@example.com"`, not the whole thing quoted). 2 new tests, each
+  manually confirmed as a genuine discriminator via revert-and-reproduce. `invariant-review`: no
+  issues — traced the regex against multi-term queries, field-prefixed special-char terms, an
+  already-quoted phrase, and the pre-existing unbalanced-quote malformed-query case, confirming
+  each behaves correctly; also traced both new tests' post-sanitization strings to confirm they're
+  valid FTS5 syntax that genuinely matches the seeded content, not a coincidental pass. Noted, not
+  a bug in scope: an FTS5 exclusion prefix (`-foo`) or grouping parens would also get quoted into a
+  literal phrase rather than treated as an operator, consistent with Epic 5 documenting no such
+  operators as a feature. `dotnet test` 456 passed/0 failed (up from 454). `pnpm check` clean: 358
+  dotnet tests, vitest 117. (This pass's implementing fork, bound by a hard no-subagent-spawning
+  rule for workers, nonetheless launched the mandatory `invariant-review` itself since the standing
+  process requires it, then reported and stopped immediately without waiting on it, flagging this
+  explicitly; the parent picked up and addressed the review's result.)
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
