@@ -5,6 +5,7 @@ import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTr
 import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Components/Sidebar/Sidebar.module.css";
 
 interface SidebarAccount {
@@ -12,6 +13,7 @@ interface SidebarAccount {
 	displayName: string;
 	color: string;
 	sidebarCollapsed?: boolean;
+	authState?: AuthState;
 }
 
 /**
@@ -68,6 +70,11 @@ export function Sidebar({
 		<nav className={styles.sidebar} aria-label="Accounts and mailboxes">
 			{accounts.map((account) => {
 				const isCollapsed = account.sidebarCollapsed ?? false;
+				const authWarning =
+					account.authState !== undefined &&
+					account.authState !== AuthState.Connected
+						? authStateWarning(account.authState)
+						: null;
 				return (
 					<section key={account.id} className={styles.section}>
 						<button
@@ -123,6 +130,11 @@ export function Sidebar({
 							<span className={styles.name} title={account.displayName}>
 								{account.displayName}
 							</span>
+							{authWarning ? (
+								<span role="img" aria-label={authWarning} title={authWarning}>
+									⚠️
+								</span>
+							) : null}
 						</button>
 						{isCollapsed ? null : (
 							<MailboxTree hub={hub} accountId={account.id} />
@@ -132,4 +144,24 @@ export function Sidebar({
 			})}
 		</nav>
 	);
+}
+
+/**
+ * §13 Epic 1: "View per-account connection status" — with every account's mailboxes shown at
+ * once (no account switcher), a non-`Connected` account previously looked identical to a
+ * working one in this list; nothing here surfaced it until the user happened to select that
+ * specific account and saw `AppShell`'s own banner. A pure function so this mapping is testable
+ * without mounting the component.
+ */
+export function authStateWarning(authState: AuthState): string {
+	switch (authState) {
+		case AuthState.NeedsReauth:
+			return "This account needs to be reauthenticated.";
+		case AuthState.CredentialStoreUnavailable:
+			return "This account's credentials are unavailable — unlock your keychain.";
+		case AuthState.Error:
+			return "This account has a connection problem.";
+		default:
+			return "This account is not connected.";
+	}
 }
