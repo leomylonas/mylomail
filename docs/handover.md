@@ -2515,6 +2515,25 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   condition fires only for Microsoft365 + bounded modes, all enum identifiers are real ones
   already used in the file, the copy is accurate to §3's intent, JSX structure correctly closed,
   no frozen-invariant hit. `pnpm check` clean, 316 dotnet tests, vitest 100 (both unaffected).
+- **Hundred-and-seventy-sixth pass — a resync double-counted its own backfill progress.** Pass
+  175 confirmed the UI-disclosure angle (passes 173-175) exhausted; this pass audited count
+  displays across the app and found `ChangeStreamService.TriggerResynchronisationAsync` resets
+  `CoverageStatus`/`ResumeToken` to force a fresh backfill on cursor invalidation, but never
+  reset `MailboxCoverageState.MessagesFetched` — unlike the nearly-identical reset block in
+  `TopologySyncService.BumpGenerationAsync`, which resets all three fields together. Since a
+  resync re-walks the same backlog from the start rather than continuing it, every re-ingested
+  message got added on top of whatever `MessagesFetched` already held, inflating the sidebar's
+  "N of M" backfill-progress display past the real total on every resync. Fixed by adding the
+  same `MessagesFetched = 0` reset, matching the sibling block field-for-field. Like passes
+  173/174, the implementing fork diagnosed and applied the fix but couldn't spawn the mandatory
+  `invariant-review` itself; completed in the parent session. `invariant-review` confirmed
+  `MessagesFetched` is genuinely accumulated per-page (so the double-count is real), the fix now
+  matches the sibling block exactly, the extended test genuinely exercises the reset path (a
+  seeded message increments the counter to 1 before the resync, then asserts it's back to 0
+  after), and no frozen-invariant conflict (`AGENTS.md`'s "two count fields per mailbox" entry is
+  a distinct, unrelated pair of fields). New assertion manually confirmed as a genuine
+  discriminator via revert-and-reproduce. `dotnet test` 414 passed/0 failed (unaffected count —
+  extended an existing test). `pnpm check` clean, 316 dotnet tests, vitest 100.
 
 ## Next task
 
