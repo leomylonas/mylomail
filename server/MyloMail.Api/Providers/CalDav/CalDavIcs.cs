@@ -281,9 +281,17 @@ internal static partial class CalDavIcs
 		var uid = Single("UID") ?? href;
 		var isAllDay = SingleWithParams("DTSTART")?.Params.GetValueOrDefault("VALUE") == "DATE";
 		var start = SingleWithParams("DTSTART") is { } dtstart ? ParseDateTime(dtstart.Params, dtstart.Value) : DateTimeOffset.UnixEpoch;
+		// RFC 5545 §3.6.1: DTEND and DURATION are mutually exclusive on a VEVENT — a server or
+		// another client may legitimately emit DURATION instead of DTEND (common for all-day and
+		// templated recurring events). Absent either, the spec's own default duration is one day
+		// for a DATE-valued DTSTART, zero otherwise — never an arbitrary fixed hour.
 		var end = SingleWithParams("DTEND") is { } dtend
 			? ParseDateTime(dtend.Params, dtend.Value)
-			: start.AddHours(1);
+			: Single("DURATION") is { } duration && TryParseDuration(duration, out var vEventDuration)
+				? start + vEventDuration
+				: isAllDay
+					? start.AddDays(1)
+					: start;
 		var recurrenceId = SingleWithParams("RECURRENCE-ID") is { } rid ? ParseDateTime(rid.Params, rid.Value) : (DateTimeOffset?)null;
 		var providerEventId = recurrenceId is null ? href : $"{href}#{recurrenceId:O}";
 
