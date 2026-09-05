@@ -2224,6 +2224,24 @@ check` clean, 308 dotnet tests, vitest 70.
   executable extension and not a mistake, and no frozen-invariant table entry is touched. New
   tests cover original/newly-added/safe extensions plus a double-extension edge case. `pnpm
 check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
+- **Hundred-and-forty-second pass — a failed print or save-as-.eml looked like it did nothing.**
+  Continued the "hardcoded list" angle from pass 140/141 (nothing new found there beyond what
+  was already fixed), then checked Epic 6's context-menu requirements against
+  `MessageList.tsx`'s actual menu-action wiring. Every other action (SetFlags, Move to trash,
+  Delete permanently) goes through `useMutation` with an `onError: reportFailure(...)` handler
+  already in place; "Save as .eml" and "Print" instead called their async helpers
+  (`saveAsEml`/`printMessage`, both hitting `hub.invoke`) with plain `void` and no `.catch` — a
+  hub disconnect or a message deleted out from under the request left the click silently doing
+  nothing, the same fire-and-forget bug class passes 91-93 swept for, in a spot not covered
+  then. Fixed by threading the existing `reportFailure` closure into `messageActions` (a
+  module-level function with no prior access to it) as a new parameter and attaching
+  `.catch(reportFailure(...))` to both calls. `invariant-review` confirmed the fix preserves the
+  original fire-and-forget shape (only adding a rejection handler, no unhandled-rejection
+  window), doesn't double-report (neither helper already reports failures internally), and
+  touches no frozen-invariant entry; flagged and fixed one cosmetic wording nit ("This message"
+  → "The message", matching the file's established phrasing). No test added: no render-harness
+  precedent exists for this component, consistent with prior passes. `pnpm check` clean, 308
+  dotnet tests (unaffected), vitest 87.
 
 ## Next task
 
