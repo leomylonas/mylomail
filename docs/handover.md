@@ -2922,6 +2922,20 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   methods called). 7 new tests, each confirmed as a genuine discriminator via revert-and-reproduce.
   `pnpm check` clean: vitest 109 (up from 102; no backend change, `dotnet test` stays at 356).
 
+- **Two-hundred-and-third pass — the account-reorder sibling of passes 201/202's fix.** The last
+  remaining drag-and-drop-only action in the renderer: `Sidebar.tsx`'s account section headers
+  could only be reordered by dragging one onto another, with no keyboard/context-menu path — the
+  identical gap 201 closed for message moves and 202 closed for mailbox reorder/reparent. Extracted
+  a new pure `accountMoveActions(accounts, account, reorder)` function mirroring
+  `mailboxMoveActions`'s own pattern, returning "Move up"/"Move down" (adjacent-account swap via
+  the pre-existing `ReorderAccounts` hub method, already used by drag-and-drop, disabled at either
+  end), wired via a new `onContextMenu` handler reusing `MailboxTree.tsx`'s own
+  `MessageContextMenu` component. Unlike mailboxes, accounts have no hierarchy, so only Move
+  up/down were added — no "Move to"/reparent case. This pass's implementing fork could not spawn
+  `invariant-review` itself; the parent ran it afterward. 8 new tests, each manually confirmed as a
+  genuine discriminator via revert-and-reproduce. `pnpm check` clean: vitest 114 (up from 109; no
+  backend change, `dotnet test` stays at 356).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
