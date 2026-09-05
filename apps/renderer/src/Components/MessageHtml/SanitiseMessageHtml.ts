@@ -24,6 +24,15 @@ const fetchingAttributes = [
 ];
 
 /**
+ * SVG elements whose `href`/`xlink:href` fetches a resource rather than merely linking one
+ * (unlike `<a href>`, which never fetches on its own). `xlink:href` is legacy SVG1.1;
+ * `href` is what SVG2 and every current browser actually reads, so both need blocking —
+ * `<a>` is deliberately excluded here, since blocking every `href` would strip every mailto/
+ * http link in the body, not just the ones that fetch something.
+ */
+const fetchingSvgElements = new Set(["image", "use", "feimage"]);
+
+/**
  * The schemes a message body may reference.
  *
  * DOMPurify's default set does not include `blob:`, which would silently strip the inline
@@ -61,7 +70,11 @@ export function prepare(html: string, allowRemote: boolean): PreparedHtml {
 			return;
 		}
 
-		if (!fetchingAttributes.includes(data.attrName)) return;
+		const isFetchingSvgHref =
+			(data.attrName === "href" || data.attrName === "xlink:href") &&
+			fetchingSvgElements.has(node.nodeName.toLowerCase());
+		if (!fetchingAttributes.includes(data.attrName) && !isFetchingSvgHref)
+			return;
 
 		// cid: is not remote: it names a part of this message, which is already downloaded.
 		// It survives sanitisation and is rewritten to a blob URL afterwards — and until then
@@ -71,7 +84,11 @@ export function prepare(html: string, allowRemote: boolean): PreparedHtml {
 		if (
 			data.attrValue.startsWith("blob:") ||
 			data.attrValue.startsWith("data:") ||
-			data.attrValue.startsWith("cid:")
+			data.attrValue.startsWith("cid:") ||
+			// A local fragment reference (an SVG `href="#id"` reusing a symbol/pattern defined
+			// elsewhere in the same document) fetches nothing — only an actually-remote `href`
+			// is a request to withhold.
+			(isFetchingSvgHref && data.attrValue.startsWith("#"))
 		)
 			return;
 

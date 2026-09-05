@@ -140,5 +140,72 @@ describe("message HTML sanitisation", () => {
 
 			expect(html.toLowerCase()).not.toContain("<script");
 		});
+
+		/**
+		 * §13 names SVG references explicitly, alongside `srcset`/CSS `url()`, as a fetch
+		 * vector `<img src>` removal alone does not cover — `<image href>` loads exactly like
+		 * `<img src>` does.
+		 */
+		it("blocks a remote SVG image reference", () => {
+			const result = prepare(
+				'<svg><image href="https://evil.example/track.png"/></svg>',
+				false,
+			);
+
+			expect(result.html).not.toContain("evil.example");
+			expect(result.blockedRemoteCount).toBe(1);
+		});
+
+		/** `xlink:href` is the legacy SVG1.1 spelling of the same reference. */
+		it("blocks a remote SVG image reference via the legacy xlink:href spelling", () => {
+			const result = prepare(
+				'<svg><image xlink:href="https://evil.example/track.png"/></svg>',
+				false,
+			);
+
+			expect(result.html).not.toContain("evil.example");
+			expect(result.blockedRemoteCount).toBe(1);
+		});
+
+		/**
+		 * Only an actually-remote `href` is a fetch to block — a local fragment reference
+		 * fetches nothing, the same distinction already made for `src`/`cid:` above.
+		 */
+		it("keeps a local SVG fragment reference", () => {
+			const result = prepare('<svg><image href="#icon"/></svg>', false);
+
+			expect(result.html).toContain('href="#icon"');
+			expect(result.blockedRemoteCount).toBe(0);
+		});
+
+		/**
+		 * An ordinary hyperlink's `href` never fetches on its own — only navigates on click.
+		 * Blocking every `href` attribute regardless of element would strip every mailto/http
+		 * link in the message body, which is not what this defence is for.
+		 */
+		it("keeps an ordinary hyperlink's href", () => {
+			const result = prepare(
+				'<a href="https://example.org/page">a link</a>',
+				false,
+			);
+
+			expect(result.html).toContain('href="https://example.org/page"');
+			expect(result.blockedRemoteCount).toBe(0);
+		});
+
+		/**
+		 * `<feImage>`'s `nodeName` is reported in its source camelCase (`"feImage"`), unlike
+		 * `<image>`/`<use>`, which are already lowercase — this is the one case that actually
+		 * exercises the `.toLowerCase()` before the element-set lookup.
+		 */
+		it("blocks a remote feImage reference", () => {
+			const result = prepare(
+				'<svg><filter><feImage href="https://evil.example/track.png"/></filter></svg>',
+				false,
+			);
+
+			expect(result.html).not.toContain("evil.example");
+			expect(result.blockedRemoteCount).toBe(1);
+		});
 	});
 });
