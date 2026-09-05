@@ -2880,6 +2880,27 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   design) is touched — a pure additive observability signal. `dotnet test` 454 passed/0 failed (up
   from 453). `pnpm check` clean: 356 dotnet tests, vitest 100.
 
+- **Two-hundred-and-first pass — moving a message to a folder had no keyboard path.** §13's
+  Accessibility section states "Full keyboard operability" as a continuous requirement, not a
+  phase. Moving a message to an arbitrary folder (as opposed to trash) was reachable only by
+  dragging it onto a sidebar folder in `MailboxTree.tsx` — no context-menu entry, nothing.
+  `MenuAction` gained an optional `children` field for a nested submenu; `MessageContextMenu.tsx`
+  renders it as a Carbon `MenuItem` wrapping a nested `Menu`, an established (keyboard-navigable)
+  Carbon pattern. `messageActions` gained a "Move to" entry between the flag/read-state actions
+  and "Move to trash", listing the account's non-synthesized mailboxes (excluding Gmail's
+  synthesized nested-label intermediates, mirroring `MailboxTree.tsx`'s own drag-and-drop guard)
+  sorted alphabetically, calling the pre-existing `MoveMessages` hub method — the same call the
+  drag handler already makes. The mailbox list shares `MailboxTree.tsx`'s own
+  `queryKeys.mailboxes(accountId)` cache entry, so this costs no extra round trip once the sidebar
+  has loaded. New tests cover the submenu's contents/sorting/exclusion and the "no other folders"
+  case, manually confirmed as genuine discriminators via revert-and-reproduce.
+  `invariant-review`: no issues — confirmed the divider/submenu/plain three-way branch in
+  `MessageContextMenu` is mutually exclusive and correct, the Carbon nesting pattern is established
+  rather than novel, the `isSynthesized` exclusion correctly mirrors `MailboxTree`'s own guard, the
+  shared mailboxes query has an identical `queryFn` on both sides, and no frozen-table entry is
+  touched — a pure renderer UI addition over an already-existing, already-tested hub method.
+  `pnpm check` clean: vitest 102 (up from 100), dotnet tests unchanged at 356 (no backend change).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
