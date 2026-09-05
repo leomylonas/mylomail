@@ -2675,6 +2675,21 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   a genuine discriminator via revert-and-reproduce. `invariant-review`: no findings. `dotnet test`
   425 passed/0 failed (up from 421). `pnpm check` clean under Node 22: 327 dotnet tests, vitest 100.
 
+- **Hundred-and-ninety-first pass — editing any CalDAV event silently deleted all its
+  reminders.** Following on from pass 190's RFC 5545 angle: `CalDavIcs.RenderVEvent` never wrote a
+  `VALARM` block at all, so any edit made through the app (title, time, location — anything)
+  round-tripped through PUT with every reminder gone, even though `ParseEvents` correctly read
+  them in on the way down. Fixed by emitting one `VALARM`/`TRIGGER` per reminder (duration-relative
+  — the only form that round-trips faithfully) plus a new `FormatDuration` helper. `invariant-review`
+  caught a real follow-up bug in the first draft: `ParseEvents` had no awareness of nested
+  `BEGIN:VALARM`/`END:VALARM`, so the new VALARM's own `DESCRIPTION` line collided with the VEVENT's
+  real `DESCRIPTION` (last-match-wins), silently corrupting any event with both a description and a
+  reminder on its next round-trip. Fixed by tracking VALARM nesting and excluding its properties
+  from the VEVENT's own property list (except `TRIGGER`). 4 new regression tests, each manually
+  confirmed as a genuine discriminator via revert-and-reproduce, including one targeting exactly
+  the DESCRIPTION-collision bug invariant-review found. `dotnet test` 429 passed/0 failed (up from
+  425). `pnpm check` clean under Node 22.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
