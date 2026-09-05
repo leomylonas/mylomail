@@ -29,7 +29,7 @@ import {
 } from "@mylomail/renderer/Lib/DragTypes";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
-interface Mailbox {
+export interface Mailbox {
 	id: string;
 	parentId: string | null;
 	name: string;
@@ -411,6 +411,21 @@ export function MailboxTree({
 									? undefined
 									: "Only available before this folder's initial sync has started.",
 						},
+						{ label: "-", run: () => undefined },
+						...mailboxMoveActions(
+							mailboxes.data,
+							menu.mailbox,
+							(orderedMailboxIds) =>
+								reorderMailboxes.mutate({
+									parentId: menu.mailbox.parentId ?? null,
+									orderedMailboxIds,
+								}),
+							(newParentId) =>
+								moveMailbox.mutate({
+									mailboxId: menu.mailbox.id,
+									newParentId,
+								}),
+						),
 						{
 							label: "Delete",
 							run: () => setDialog({ kind: "delete", mailbox: menu.mailbox }),
@@ -696,6 +711,84 @@ function isDescendantOf(
 		current = mailboxes.find((m) => m.id === current!.parentId);
 	}
 	return false;
+}
+
+/**
+ * Reorder (move up/down among siblings) and reparent ("Move to…") previously had no
+ * keyboard/context-menu path at all — only reachable by dragging a folder onto a sibling or a
+ * different parent (§13 Epic 2), the identical gap pass 201 closed for moving a *message* into
+ * a folder. A pure function, like `messageActions`, so the menu contents can be tested without
+ * rendering the tree.
+ */
+export function mailboxMoveActions(
+	mailboxes: Mailbox[],
+	mailbox: Mailbox,
+	reorder: (orderedMailboxIds: string[]) => void,
+	reparent: (newParentId: string | null) => void,
+) {
+	const siblingIds = mailboxes
+		.filter((m) => (m.parentId ?? null) === (mailbox.parentId ?? null))
+		.map((m) => m.id);
+	const index = siblingIds.indexOf(mailbox.id);
+
+	const swapWith = (otherIndex: number) => {
+		const reordered = [...siblingIds];
+		[reordered[index], reordered[otherIndex]] = [
+			reordered[otherIndex],
+			reordered[index],
+		];
+		reorder(reordered);
+	};
+
+	// "Move to" lists every mailbox this folder could legally reparent under: not itself, not
+	// its current parent (a no-op MoveMailbox call), and not one of its own descendants —
+	// reparenting under a descendant would cycle ParentId, which renderLevel's recursion has
+	// no way back out of. This mirrors exactly what dropOnMailbox's own folder-drag branch
+	// already permits: no isSynthesized guard on either side, since drag-and-drop never added
+	// one for a folder-to-folder move (only for dropping a *message* onto a synthesized
+	// target).
+	const reparentTargets = mailboxes
+		.filter(
+			(candidate) =>
+				candidate.id !== mailbox.id &&
+				candidate.id !== (mailbox.parentId ?? undefined) &&
+				!isDescendantOf(mailboxes, candidate, mailbox.id),
+		)
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	return [
+		{
+			label: "Move up",
+			run: () => swapWith(index - 1),
+			unavailable: index <= 0 ? "Already first" : undefined,
+		},
+		{
+			label: "Move down",
+			run: () => swapWith(index + 1),
+			unavailable:
+				index === -1 || index >= siblingIds.length - 1
+					? "Already last"
+					: undefined,
+		},
+		{
+			label: "Move to",
+			run: () => undefined,
+			unavailable:
+				reparentTargets.length === 0
+					? "No other folders to move this into"
+					: undefined,
+			children: reparentTargets.map((target) => ({
+				label: target.name,
+				run: () => reparent(target.id),
+			})),
+		},
+		{
+			label: "Move to top level",
+			run: () => reparent(null),
+			unavailable:
+				mailbox.parentId === null ? "Already at the top level" : undefined,
+		},
+	];
 }
 
 /**
