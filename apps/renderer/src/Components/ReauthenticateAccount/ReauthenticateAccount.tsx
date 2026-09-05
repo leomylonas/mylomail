@@ -64,7 +64,8 @@ export function ReauthenticateAccount({
 					problem?.category !== undefined
 						? present(problem.category, problem.detail, problem.extensions)
 						: {
-								title: problem?.title ?? "Could not reauthenticate",
+								title:
+									problem?.title ?? "This account could not be reauthenticated",
 								detail:
 									problem?.detail ??
 									`Reauthenticating failed (${response.status}).`,
