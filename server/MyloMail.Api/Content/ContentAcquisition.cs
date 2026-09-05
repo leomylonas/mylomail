@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Content;
@@ -88,6 +89,20 @@ public sealed class ContentAcquisition(
 			state.LastError = ex.Message;
 			await context.SaveChangesAsync(ct);
 			logger.LogWarning(ex, "Content fetch for message {MessageId} could not reach the credential store.", messageId);
+			throw;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			// Same reasoning as the credential-store case above: a sustained outage recurs on
+			// every fetch attempt while it lasts, and the message was never actually unreadable
+			// — only unreachable. Left uncounted against MaxAttempts so a prolonged network
+			// outage can never exhaust the retry budget and mislabel readable content as
+			// permanently Failed (the exact gap tracked in docs/handover.md's Next-task list).
+			state.Attempts--;
+			state.Status = ContentStatus.Queued;
+			state.LastError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			logger.LogDebug(ex, "Content fetch for message {MessageId} could not reach the network.", messageId);
 			throw;
 		}
 		catch (Exception ex)
