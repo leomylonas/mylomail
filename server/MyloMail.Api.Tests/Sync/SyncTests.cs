@@ -172,6 +172,7 @@ public sealed class SyncTests
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		await ReconcileAsync(harness);
 		await CoverAsync(harness);
 		await SyncAsync(harness);
@@ -190,6 +191,11 @@ public sealed class SyncTests
 			Assert.Null(state.CursorState);
 			Assert.Null(state.BaselineEstablishedAt);
 			Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
+			// A resync re-walks the same backlog from scratch — MessagesFetched must reset
+			// alongside Status/ResumeToken, or the re-ingested messages double-count on top
+			// of what was already fetched before the resync, inflating the sidebar's "N of
+			// M" backfill progress past the real total.
+			Assert.Equal(0, coverage.MessagesFetched);
 			Assert.NotNull(await context.IntegrityReconciliationStates.SingleOrDefaultAsync());
 		});
 	}

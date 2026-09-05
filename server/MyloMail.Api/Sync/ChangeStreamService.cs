@@ -468,9 +468,13 @@ public sealed class ChangeStreamService(
 		if (coverage is not null)
 		{
 			// The bound is re-applied from the start: a baseline is what is being
-			// re-established, not a continuation of the old one.
+			// re-established, not a continuation of the old one. MessagesFetched must reset
+			// too — otherwise a resync re-ingests the same backlog and double-counts it on
+			// top of whatever was fetched before, inflating the sidebar's "N of M" progress
+			// past the real total (matches TopologySyncService.BumpGenerationAsync's own reset).
 			coverage.Status = CoverageStatus.NotStarted;
 			coverage.ResumeToken = null;
+			coverage.MessagesFetched = 0;
 		}
 
 		var integrity = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(
