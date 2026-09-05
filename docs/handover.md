@@ -2819,6 +2819,43 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   (same infrastructure limit noted in pass 197 for SMTP), verified by inspection instead. `dotnet
 test` 444 passed/0 failed (up from 438). `pnpm check` clean.
 
+- **Hundred-and-ninety-ninth pass — Gmail/Graph never actually threw `ProviderThrottledException`
+  despite the doc requiring it and every consumer already handling it correctly.** All of
+  `SyncJobs.cs`, `MutationJobs.cs`, `ContentJobs.cs`, `OutboxJobs.cs`, and `SendExecutor.cs` already
+  caught it and scheduled a retry at exactly the given delay — but an exhaustive grep found zero
+  producer-side throws in either provider. The user was asked how to scope closing this (a small
+  fix vs. full coverage vs. scoping down) and chose full scope: every operation in both providers.
+  Gmail: `GoogleApiException` exposes only a status code, no headers, so a new
+  `GmailThrottleTracker` (`IHttpUnsuccessfulResponseHandler`) attaches to each `GmailService`'s
+  `HttpClient` at construction and observes every response, capturing `Retry-After` on a 429
+  without disturbing Google.Apis's own handling; a `ConditionalWeakTable` maps service to tracker
+  since the handler-list property is `[Obsolete]` even to read. All ~19 call sites across the five
+  Gmail provider files now route through a new `ExecuteThrottleAwareAsync`, falling back to a
+  documented 60s default when the header is genuinely absent (Google's own guidance for this API is
+  client-side exponential backoff, so this fallback is expected to fire often, not just
+  defensively). Graph: Kiota's `ApiException` already exposes `ResponseHeaders` directly, so no
+  tracker is needed — two new `ThrottleAwareAsync` overloads wrap all ~23 call sites across six
+  files, parsing `Retry-After` case-insensitively in both its numeric-seconds and HTTP-date forms,
+  falling back to a documented 30s default only if genuinely absent (Graph's own docs say this
+  header is reliably sent). One spot needed manual handling outside the wrapper: the large-
+  attachment upload session PUT bypasses Kiota entirely via a raw `HttpClient` against a
+  pre-authenticated URL, so its 429 is checked directly before `EnsureSuccessStatusCode()`. Every
+  pre-existing catch for a different status code (Gmail's 404-to-cursor-invalidation, Graph's
+  400/410 cursor-invalidation and three 404 swallows) was verified undisturbed — the new wrappers
+  only intercept 429. New tests drive the real, separable production logic directly (constructed
+  `GoogleApiException`/`ApiException` objects with public setters), the same pattern passes 197/198
+  already established for providers with no fake-transport seam reachable from tests; each
+  fallback-vs-real-value case manually confirmed as a genuine discriminator via
+  revert-and-reproduce. `invariant-review`: no issues — confirmed no tracker/weak-table leak or
+  cross-request contamination, correct catch-clause composition with every pre-existing handler, a
+  full sweep found zero remaining unwrapped call sites, and no frozen-table entry touched (this
+  diff never touches `Scheduling/*Jobs.cs` or `SendExecutor.cs`, so Hangfire's own retry curve
+  stays uninvoked exactly as before). It flagged one deliberate scope boundary, not a bug: a
+  per-item 429 inside an otherwise-successful batch response still falls through as a generic
+  per-item failure, since `ProviderThrottledException` is a whole-operation concept in this
+  codebase's contract, not a per-`BatchItemResult` one. `dotnet test` 453 passed/0 failed (up from
+  438). `pnpm check` clean: 355 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
