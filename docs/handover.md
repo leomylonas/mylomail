@@ -2444,6 +2444,28 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   account can exist yet (recorded as Next-task item 7, alongside the already-tracked item 5 this
   is blocked by the same deferred-OAuth item). No code changes this pass — a genuine finding
   recorded, not fixed.
+- **Hundred-and-sixty-eighth pass — attendee iTIP replies now update IMAP-based invites.**
+  Pass 167's Epic 7 deep-dive found "organiser sees attendee responses update" was unmet
+  specifically for mail-materialised events (no CalDAV/Graph backing): `MailInviteMaterializer`
+  only ever handled `METHOD:REQUEST`. Asked the user whether to build this now; they chose to.
+  Added `ApplyReplyAsync`: matches a `METHOD:REPLY` to its local event by `ICalUid` (scoped to
+  the account's own calendars), falls back from a missing override row to the master (only the
+  master is ever materialised from a `REQUEST`), matches the responding attendee by email, and
+  replaces only that attendee's `ResponseStatus` — never adding an uninvited attendee, never
+  touching Name/Role/Email. Deliberately not gated on `Sequence` like the sibling
+  `UpsertAsync`, since a reply's `SEQUENCE` reflects the invite it answers, not the organiser's
+  latest edit. `METHOD:CANCEL` remains deliberately unhandled — no comparably safe, narrowly-
+  scoped partial application exists for it. `invariant-review` confirmed no frozen-invariant
+  hit and sound matching logic, but found one real, worth-documenting gap: two out-of-order
+  REPLYs from the same attendee (e.g. a decline then an accept, delivered in reverse by
+  content-fetch retry) have no `DTSTAMP`-based tiebreaker, so an older reply processed after a
+  newer one would overwrite it — fixing that needs a real schema change (a new persisted field
+  on `Attendee`, plumbed through storage and generated types), bigger than this pass's scope, so
+  it's documented explicitly as a known, recoverable limitation in the method's own doc comment
+  rather than silently left unstated. Also extracted a duplicated calendar-id-scoping query into
+  a shared `AccountCalendarIdsAsync` helper. Three new regression tests, one manually confirmed
+  as a genuine discriminator via revert-and-reproduce. `dotnet test` 413 passed/0 failed (up
+  from 410). `pnpm check` clean, 315 dotnet tests, vitest 100.
 
 ## Next task
 
