@@ -129,10 +129,47 @@ public sealed class MessageSearch(MyloMailDbContext context)
 				}
 		);
 
+	// Matches one query token: an optional column-filter prefix ("FromAddresses:") glued
+	// directly to either an already-quoted phrase or a bareword run of non-whitespace.
+	private static readonly Regex TokenPattern = new(
+		@"(?<prefix>[A-Za-z]+:)?(?<term>""[^""]*""|\S+)",
+		RegexOptions.Compiled
+	);
+
+	// What FTS5 accepts as a bareword with no quoting needed. Anything else — most
+	// significantly "@" and "." from an email address, the single most natural thing to
+	// search a mail client for — is a syntax character to FTS5's own query grammar, not
+	// just its tokenizer: unquoted, it throws rather than merely failing to match.
+	private static readonly Regex SafeBarewordPattern = new(@"^[\w*]+$", RegexOptions.Compiled);
+
+	/// <summary>
+	/// Quotes any bareword token FTS5's query grammar would otherwise choke on. An address like
+	/// <c>alice@example.com</c> — or anything else containing <c>@</c>, <c>.</c>, <c>-</c> and
+	/// several other punctuation characters — is a syntax error to FTS5 when unquoted, not just a
+	/// tokenizer mismatch; <see cref="MatchAsync"/>'s syntax-error catch then turns that into a
+	/// silent, empty result set for the single most natural "from:" query anyone would type. Runs
+	/// after <see cref="RewriteFieldPrefixes"/> so a field prefix's colon is still recognised, and
+	/// leaves an already-quoted phrase (or the deliberately-unbalanced-quote case a malformed
+	/// query already covers) untouched.
+	/// </summary>
+	internal static string SanitizeForFts5(string query) =>
+		TokenPattern.Replace(
+			query,
+			m =>
+			{
+				var term = m.Groups["term"].Value;
+				if (term.StartsWith('"') || SafeBarewordPattern.IsMatch(term))
+				{
+					return m.Value;
+				}
+				return $"{m.Groups["prefix"].Value}\"{term.Replace("\"", "\"\"")}\"";
+			}
+		);
+
 	/// <summary>The message ids FTS5 matches, in relevance order, with a match-context excerpt.</summary>
 	private async Task<List<(Guid Id, string Snippet)>> MatchAsync(string query, CancellationToken ct)
 	{
-		var rewritten = RewriteFieldPrefixes(query);
+		var rewritten = SanitizeForFts5(RewriteFieldPrefixes(query));
 
 		await context.Database.OpenConnectionAsync(ct);
 		await using var command = context.Database.GetDbConnection().CreateCommand();

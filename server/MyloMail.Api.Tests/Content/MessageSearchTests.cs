@@ -124,6 +124,51 @@ public sealed class MessageSearchTests : IAsyncLifetime
 	}
 
 	/// <summary>
+	/// An email address is the single most natural thing to search a mail client for, and FTS5
+	/// rejects "@"/"." as unquoted syntax characters in its own query grammar — not just a
+	/// tokenizer mismatch. Before <see cref="MessageSearch.SanitizeForFts5"/>, this silently
+	/// returned nothing rather than throwing, via the same catch a truly malformed query hits, so
+	/// it looked exactly like "no messages match" rather than a bug.
+	/// </summary>
+	[Fact]
+	public async Task A_from_prefixed_query_matches_a_full_email_address()
+	{
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Meeting notes",
+			"see you there",
+			from: "bob@example.org"
+		);
+
+		var results = await SearchAsync("from:bob@example.org");
+
+		Assert.Single(results);
+		Assert.Equal("Meeting notes", results[0].Subject);
+	}
+
+	/// <summary>Same gap as the address case, for an unscoped (no field-prefix) query.</summary>
+	[Fact]
+	public async Task An_unscoped_query_matches_an_email_address_in_the_body()
+	{
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Contact",
+			"reach me at alice@example.com any time"
+		);
+
+		var results = await SearchAsync("alice@example.com");
+
+		Assert.Single(results);
+		Assert.Equal("Contact", results[0].Subject);
+	}
+
+	/// <summary>
 	/// Ninety-fifth pass: a search result carries FTS5's own match-context excerpt, delimited
 	/// by control characters rather than HTML, so the renderer can highlight the matched term
 	/// without ever needing to trust or inject raw markup.
