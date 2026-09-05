@@ -2407,6 +2407,28 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   actual gap), and no frozen-invariant entry is touched; one cosmetic nit (computing the warning
   string once instead of twice per row) applied. `pnpm check` clean, 312 dotnet tests
   (unaffected), vitest 95 (up from 92).
+- **Hundred-and-sixty-fourth pass — SVG's own `href`/`xlink:href` fetch attributes bypassed
+  remote-content blocking entirely.** Continuing the Epic-by-Epic read-through (Epics 1-4 done
+  by passes 160-163), Epic 5's explicit requirement — "SVG... trigger requests too," enforced
+  "at the request layer, not merely by removing `<img src>`" — turned out to be one of the few
+  fetch vectors `SanitiseMessageHtml.ts` didn't actually cover: `srcset`, CSS `url()`, and
+  `@import` were already handled, but `<image>`/`<use>`/`<feImage>`'s `href` (and the legacy
+  `xlink:href` spelling) survived sanitisation completely untouched, confirmed empirically with
+  a throwaway probe before writing the fix. Not a live exploit — the iframe's CSP already routes
+  these through the same `img-src` the sanitizer's `allowRemote` flag gates, so the network
+  request was already silently blocked as defense-in-depth — but `blockedRemoteCount` didn't
+  count them, undercounting the "N images blocked, load anyway?" prompt, and the raw remote
+  reference sat inert-but-present in the DOM rather than being withheld at the layer the doc
+  actually requires. Fixed by blocking `href`/`xlink:href` specifically on the fetching SVG
+  element set, deliberately excluding `<a>` (whose `href` only navigates, never fetches) and
+  local fragment references (`href="#id"`). Two `invariant-review` passes confirmed the CSP
+  characterization, that `node.nodeName.toLowerCase()` is genuinely load-bearing in a real
+  browser for `<feImage>`'s camelCase `nodeName` (not a jsdom artifact — DOMPurify's own source
+  confirms this), and that `<a href>` is structurally untouched; the first pass's recommended
+  `<feImage>` test (the one case that actually exercises the case-folding, since `<image>`/
+  `<use>` are already lowercase) was added. Five new regression tests, two confirmed as genuine
+  discriminators via revert-and-reproduce. `pnpm check` clean, 312 dotnet tests (unaffected),
+  vitest 100 (up from 95).
 
 ## Next task
 
