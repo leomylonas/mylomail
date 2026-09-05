@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MimeKit;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -264,6 +265,142 @@ public sealed class SyncTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			Assert.Empty(await context.StagedChangeEvents.ToListAsync());
 			Assert.NotEmpty(await context.Messages.ToListAsync());
+		});
+	}
+
+	/// <summary>
+	/// §3: "a worker that was already running when an account was removed cannot commit for
+	/// it." ReplayStagedAsync's own loop can span many staged pages and commits, so the
+	/// account's IsEnabled must be re-checked every iteration, not just once by the caller
+	/// before the method started — otherwise disabling the account mid-replay wouldn't stop
+	/// later pages in the same call from still committing.
+	/// </summary>
+	[Fact]
+	public async Task Disabling_the_account_mid_replay_stops_further_staged_pages_from_committing()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await ReconcileAsync(harness);
+
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddSeconds(1));
+		await SyncAsync(harness);
+		await CoverAsync(harness);
+
+		var (stagedCountBeforeReplay, messageCountBeforeReplay) = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			return (
+				await context.StagedChangeEvents.CountAsync(),
+				await context.Messages.CountAsync()
+			);
+		});
+		Assert.True(stagedCountBeforeReplay >= 1);
+
+		// Disabled before replay runs at all — the very first iteration's check must catch this.
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			account.IsEnabled = false;
+			await context.SaveChangesAsync();
+		});
+
+		var replayed = await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<ChangeStreamService>()
+				.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+		Assert.Equal(0, replayed);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(stagedCountBeforeReplay, await context.StagedChangeEvents.CountAsync());
+			Assert.Equal(messageCountBeforeReplay, await context.Messages.CountAsync());
+		});
+	}
+
+	/// <summary>
+	/// The test above only proves the check catches an account already disabled before
+	/// <see cref="ChangeStreamService.ReplayStagedAsync"/> is called at all — which the
+	/// pre-existing caller-side check already handled. This test additionally proves the check
+	/// is re-evaluated on a resumed replay attempt, not just remembered from before a crash: the
+	/// first staged page commits, a simulated crash interrupts the call, the account is disabled
+	/// while it is down, and a fresh call to resume the replay must still see the disable and
+	/// refuse the remaining page rather than trusting whatever was true when the operation
+	/// originally started.
+	/// </summary>
+	/// <remarks>
+	/// This does not, on its own, distinguish "checked once per call, before the loop" from
+	/// "checked on every loop iteration within one continuous call" — both placements behave
+	/// identically here, since the resumed call only ever executes one iteration. The stricter
+	/// per-iteration guarantee (disabling mid-way through a single uninterrupted call spanning
+	/// several already-in-flight pages) is correct by inspection of
+	/// <see cref="ChangeStreamService.ReplayStagedAsync"/>'s loop structure, but isn't
+	/// independently exercised by a test: doing so would need a fault-injection mechanism that
+	/// can run a side effect and let the same call continue, rather than only throwing to
+	/// simulate a kill.
+	/// </remarks>
+	[Fact]
+	public async Task Disabling_the_account_between_two_staged_pages_stops_only_the_later_one()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await ReconcileAsync(harness);
+
+		// Two separate incremental syncs so each stages its own row — a single SyncAsync call
+		// with two seeded messages would stage them together as one page.
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await SyncAsync(harness);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddSeconds(1));
+		await SyncAsync(harness);
+		await CoverAsync(harness);
+
+		var stagedCountBeforeReplay = await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<MyloMailDbContext>().StagedChangeEvents.CountAsync()
+		);
+		Assert.Equal(2, stagedCountBeforeReplay);
+
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(async scope =>
+				await scope
+					.GetRequiredService<ChangeStreamService>()
+					.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
+			)
+		);
+
+		// The first page's own commit already landed — a real crash cannot un-commit it.
+		var (stagedAfterFirstPage, messagesAfterFirstPage) = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			return (await context.StagedChangeEvents.CountAsync(), await context.Messages.CountAsync());
+		});
+		Assert.Equal(stagedCountBeforeReplay - 1, stagedAfterFirstPage);
+
+		// Disabled between the two pages of what would otherwise be one continuous replay.
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			account.IsEnabled = false;
+			await context.SaveChangesAsync();
+		});
+
+		var replayedAfterDisable = await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<ChangeStreamService>()
+				.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+		Assert.Equal(0, replayedAfterDisable);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			// Still exactly the one remaining staged page — the second never replayed.
+			Assert.Equal(stagedAfterFirstPage, await context.StagedChangeEvents.CountAsync());
+			Assert.Equal(messagesAfterFirstPage, await context.Messages.CountAsync());
 		});
 	}
 

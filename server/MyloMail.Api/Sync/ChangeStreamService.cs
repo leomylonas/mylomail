@@ -372,6 +372,19 @@ public sealed class ChangeStreamService(
 
 		while (true)
 		{
+			// Re-checked every iteration, not just by the caller before this method started:
+			// a long backlog can span many pages and commits, and §3 requires that a worker
+			// already running when the account was disabled or removed cannot keep committing
+			// for it — a single check before the loop began would miss every later page.
+			var stillEnabled = await context
+				.Accounts.Where(a => a.Id == account.Id)
+				.Select(a => a.IsEnabled)
+				.FirstOrDefaultAsync(ct);
+			if (!stillEnabled)
+			{
+				break;
+			}
+
 			var staged = await context
 				.StagedChangeEvents.Where(s => s.AccountId == account.Id)
 				.OrderBy(s => s.Ordinal)
@@ -408,6 +421,12 @@ public sealed class ChangeStreamService(
 				await transaction.CommitAsync(ct);
 
 			});
+
+			// After this page's own commit, before the next iteration's IsEnabled
+			// re-check runs — the exact seam a test needs to disable the account
+			// between two pages of the same replay call, rather than only before or
+			// after the whole method (§3).
+			faults.Reached(FaultPoints.SyncPageAfterCommit);
 
 			// These are steady-state changes too — replayed live-stream history, not
 			// backfill — so a message reported here is genuinely new mail just as it is on
