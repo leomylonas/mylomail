@@ -2901,6 +2901,27 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   touched — a pure renderer UI addition over an already-existing, already-tested hub method.
   `pnpm check` clean: vitest 102 (up from 100), dotnet tests unchanged at 356 (no backend change).
 
+- **Two-hundred-and-second pass — the folder-reorder/reparent sibling of pass 201's fix.** §13's
+  "Full keyboard operability" is a continuous requirement, not a phase; reordering a folder among
+  siblings and reparenting it under a different folder were reachable only by dragging in
+  `MailboxTree.tsx` — no context-menu equivalent, the identical gap pass 201 closed for moving a
+  message. Extracted a new pure `mailboxMoveActions(mailboxes, mailbox, reorder, reparent)`
+  function mirroring `messageActions.ts`'s own pattern, returning "Move up"/"Move down" (adjacent-
+  sibling swap via the pre-existing `ReorderMailboxes` hub method, disabled at either end), "Move
+  to" (a nested submenu via the pre-existing `MoveMailbox` hub method, excluding the mailbox's own
+  current parent and every descendant to prevent a `ParentId` cycle), and "Move to top level".
+  Deliberately mirrors the existing drag-and-drop folder-move branch exactly, including its lack of
+  an `isSynthesized` guard — confirmed by this pass's invariant-review that drag-and-drop's
+  `isSynthesized` check only ever guarded a _message_ drop onto a synthesized Gmail label-group,
+  never a folder-to-folder move, so the keyboard path correctly replicates existing intentional
+  behaviour rather than copying a latent bug. This pass's implementing fork committed the fix but
+  could not spawn `invariant-review` itself; the parent ran it afterward — no changes requested,
+  confirmed the own-descendant exclusion is genuine defense-in-depth alongside the server's own
+  independent `MoveAsync` ancestor-chain check, the sibling-swap math and its parentId-scoping test
+  are both correct, and no frozen-table entry touched (pure renderer change, only pre-existing hub
+  methods called). 7 new tests, each confirmed as a genuine discriminator via revert-and-reproduce.
+  `pnpm check` clean: vitest 109 (up from 102; no backend change, `dotnet test` stays at 356).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
