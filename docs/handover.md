@@ -2707,6 +2707,18 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   manually confirmed as a genuine discriminator via revert-and-reproduce. `dotnet test` 432
   passed/0 failed (up from 429). `pnpm check` clean under Node 22: 334 dotnet tests, vitest 100.
 
+- **Hundred-and-ninety-third pass — swept the case-sensitivity bug pass 192 first caught across
+  the rest of `CalDavIcs.cs`.** Pass 192 fixed a case-sensitive `RELATED == "END"` check and flagged
+  the same weakness elsewhere as a known follow-up. This pass found and fixed 5 more instances of
+  the identical bug — `VALUE=DATE`/`DATE-TIME`, `ROLE`, `PARTSTAT`, and `STATUS` were all compared
+  case-sensitively against RFC 5545 parameter-value tokens, so a real server sending lowercase or
+  mixed-case values (permitted by the RFC) would silently mismatch — consolidated behind a new
+  `ParamEquals` helper. 4 new regression tests, each confirmed as a genuine discriminator via
+  revert-and-reproduce. `invariant-review`: no findings against the diff; flagged one residual,
+  out-of-scope case-sensitivity spot (`value.EndsWith('Z')` in `ParseDateTime`, a property-value
+  suffix rather than a parameter-value token) as a follow-up for a future pass. `dotnet test` 436
+  passed/0 failed (up from 432). `pnpm check` clean.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
