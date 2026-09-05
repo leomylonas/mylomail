@@ -2562,6 +2562,29 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   manually confirmed as genuine discriminators for what they actually prove via
   revert-and-reproduce. `dotnet test` 416 passed/0 failed (up from 414). `pnpm check` clean, 318
   dotnet tests, vitest 100.
+- **Hundred-and-eighty-fourth pass — the same §3 gap as 183, in two sibling loops.**
+  `ChangeStreamService.ReplayStagedAsync`'s fix (pass 183) turned out not to be the only loop with
+  this shape: `ChangeStreamService.SyncAsync`'s own ordinary incremental-sync `while(true)` loop,
+  and `CalendarSyncService.SynchronizeCalendarAsync`'s page loop, both only had `Account.IsEnabled`
+  checked once by whatever job wrapper invoked them, not per iteration — the identical violation of
+  "a worker already running when an account was removed cannot commit for it," just in the two
+  loops pass 183 didn't touch. Fixed both with the same per-iteration check at the top of each
+  loop: `SyncAsync`'s `break` falls through to the same `AnnounceMailboxAsync`/outcome-construction
+  path its normal `!HasMore` exit already uses, and `SynchronizeCalendarAsync`'s early `return` has
+  no post-loop cleanup to skip. Two new regression tests crash (via the existing
+  `SyncPageAfterCommit` fault point) after a first page commits, disable the account, then resume
+  and assert the second page never commits — for the calendar side, this needed extending
+  `FakeCalendarProvider` with a new `PagesRemaining` setting (default 1, so no existing test is
+  affected) to force a genuine multi-page sync within one call, since no existing fake could
+  produce one. Both tests were manually confirmed as genuine discriminators via
+  revert-and-reproduce, and both doc comments are honest — per the discipline pass 183 established
+  — that `ScriptedFaultInjector`'s throw-only design means they prove re-evaluation on a resumed
+  call, not strict per-iteration placement within one uninterrupted call (separately correct by
+  inspection). A single `invariant-review` round this time found no issues: fix placement, the
+  `PagesRemaining` default's non-interference with existing tests, the 51-message/50-per-page split
+  producing the claimed two pages, and the intermediate-page/`commitCursor` cursor-null assertion
+  were all independently confirmed correct. `dotnet test` 418 passed/0 failed (up from 416).
+  `pnpm check` clean under Node 22: format/tsc/eslint/stylelint/build, 320 dotnet tests, vitest 100.
 
 ## Next task
 
