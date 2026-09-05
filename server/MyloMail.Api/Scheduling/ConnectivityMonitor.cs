@@ -1,5 +1,8 @@
+using System.IO;
+using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using MailKit.Security;
 using MyloMail.Api.Hubs;
 
 namespace MyloMail.Api.Scheduling;
@@ -40,6 +43,22 @@ public sealed class ConnectivityMonitor : IDisposable
 	}
 
 	public bool IsOnline => online;
+
+	/// <summary>
+	/// Whether an exception represents the socket/DNS/TLS-handshake layer being unreachable,
+	/// not a provider rejecting the request — the distinction the background job classes use
+	/// to reschedule quietly instead of surfacing every offline poll attempt as a fresh failure
+	/// (§ Offline behaviour), without threading this monitor into provider construction itself
+	/// (see the class remarks above for why that stays out of scope).
+	/// </summary>
+	/// <remarks>
+	/// Deliberately exception-shape-based, not gated on <see cref="IsOnline"/>: the probe only
+	/// samples once a minute, so a job hitting a real network failure right after the last
+	/// "online" sample must still be treated as network-class immediately, not misfiled as a
+	/// genuine application bug until the next probe tick catches up.
+	/// </remarks>
+	public static bool IsNetworkFailure(Exception ex) =>
+		ex is IOException or SocketException or HttpRequestException or SslHandshakeException;
 
 	private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
 	{

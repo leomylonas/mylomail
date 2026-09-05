@@ -47,6 +47,13 @@ public sealed class SyncJobs(
 )
 {
 	/// <summary>
+	/// How long a network-class failure (§ Offline behaviour) waits before its poll loop
+	/// retries — short enough that connectivity returning is noticed promptly, long enough
+	/// that a genuinely offline machine isn't hammering a dead socket every few seconds.
+	/// </summary>
+	private static readonly TimeSpan NetworkRetryDelay = TimeSpan.FromSeconds(30);
+
+	/// <summary>
 	/// The calendar loop is account-scoped, not mailbox-scoped, so it borrows the mail poll
 	/// registry with this sentinel rather than a second registry for one extra scope.
 	/// </summary>
@@ -94,6 +101,14 @@ public sealed class SyncJobs(
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			// Quietly retried rather than surfaced as a fresh job failure every offline poll
+			// (§ Offline behaviour) — the poll loop stays alive so it resumes on its own once
+			// connectivity returns, instead of needing something else to restart it.
+			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), NetworkRetryDelay);
 			return;
 		}
 		catch (Exception)
@@ -160,6 +175,11 @@ public sealed class SyncJobs(
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), NetworkRetryDelay);
 			return;
 		}
 		catch (Exception)
@@ -262,6 +282,11 @@ public sealed class SyncJobs(
 			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), ex.RetryAfter);
 			return;
 		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), NetworkRetryDelay);
+			return;
+		}
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{
@@ -312,6 +337,11 @@ public sealed class SyncJobs(
 			// would simply end here, since retry is disabled — and live sync for this scope
 			// would never resume.
 			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), NetworkRetryDelay);
 			return;
 		}
 		catch (Exception)
@@ -367,6 +397,11 @@ public sealed class SyncJobs(
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), NetworkRetryDelay);
 			return;
 		}
 		catch (Exception)

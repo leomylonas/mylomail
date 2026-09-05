@@ -33,6 +33,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private Exception? draftPushFailure;
 	private Exception? mailboxOperationFailure;
 	private Exception? deleteDraftFailure;
+	private Exception? listMailboxesFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
 	private MutationProblemDetails? authFailureProblem;
@@ -73,6 +74,9 @@ public sealed class FakeMailProvider : IMailProvider
 	/// <summary>Makes the next folder create/rename/move/delete throw, so a provider rejection
 	/// (a duplicate name, a namespace it won't accept) can be exercised.</summary>
 	public void FailMailboxOperationWith(Exception failure) => mailboxOperationFailure = failure;
+
+	/// <summary>One-shot: fails the next <see cref="ListMailboxesAsync"/> call, then clears.</summary>
+	public void FailListMailboxesWith(Exception failure) => listMailboxesFailure = failure;
 
 	/// <summary>
 	/// Makes a later draft push throw after minting a provider id (a real remote draft was
@@ -161,6 +165,12 @@ public sealed class FakeMailProvider : IMailProvider
 
 	public Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct)
 	{
+		if (listMailboxesFailure is { } failure)
+		{
+			listMailboxesFailure = null;
+			throw failure;
+		}
+
 		IReadOnlyList<MailboxDto> result = [.. mailboxes.Values.Select(Describe)];
 		return Task.FromResult(result);
 	}

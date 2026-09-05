@@ -77,6 +77,16 @@ public sealed class ContentJobs(
 			logger.LogWarning("Account {AccountId}'s credential store could not be reached.", accountId);
 			return;
 		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			// Same "acquisition already recorded it" reasoning as below, but at Debug: a
+			// network-class failure recurs every fetch while offline, and a Warning per message
+			// per fetch is exactly the per-job noise § Offline behaviour asks to be suppressed
+			// until connectivity returns. (The attempt-budget consequence of a network failure
+			// against ContentAcquisition's retry cap is a separate, pre-existing concern —
+			// tracked in docs/handover.md's Next-task list rather than folded into this pass.)
+			logger.LogDebug(ex, "Skipping content for message {MessageId} (offline).", pending.Value);
+		}
 		catch (Exception ex)
 		{
 			// The message is marked Failed by the acquisition itself. One unreadable message

@@ -108,6 +108,65 @@ public sealed class TopologyReschedulingTests
 		Assert.DoesNotContain(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
 	}
 
+	/// <summary>
+	/// Hundred-and-forty-fifth pass: § Offline behaviour promises network-class failures
+	/// "suppress normal per-job retry noise/logging until connectivity returns, rather than
+	/// surfacing every offline poll attempt as a fresh failure" — but nothing actually
+	/// distinguished a network failure from a genuine bug here; both hit the same
+	/// <c>catch (Exception) { polls.Stop(...); throw; }</c>, ending the loop and letting
+	/// Hangfire log a job failure on every single offline poll. A network-class failure must
+	/// now reschedule quietly instead, keeping the loop's claim on <see cref="PollRegistry"/>
+	/// so it resumes on its own once connectivity returns.
+	/// </summary>
+	[Fact]
+	public async Task A_network_class_failure_reschedules_without_releasing_the_loops_claim()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.FailListMailboxesWith(new System.Net.Sockets.SocketException());
+
+		await harness.UsingAsync(async scope =>
+		{
+			scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope);
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+		});
+
+		var created = await CreatedJobsAsync(harness);
+		Assert.Contains(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
+
+		// Still claimed: a second TryStart for the same scope must fail, proving polls.Stop
+		// was never called for this failure.
+		var stillClaimed = await harness.UsingAsync(scope =>
+			Task.FromResult(!scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope))
+		);
+		Assert.True(stillClaimed);
+	}
+
+	/// <summary>
+	/// The contrasting case: a genuine bug (not network-class) must still stop the loop and
+	/// propagate, exactly as before this pass — the new catch clause's <c>when</c> guard must
+	/// not accidentally swallow real application errors along with network ones.
+	/// </summary>
+	[Fact]
+	public async Task A_non_network_failure_still_stops_the_loop_and_propagates()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.FailListMailboxesWith(new InvalidOperationException("not a network problem"));
+
+		await harness.UsingAsync(async scope =>
+		{
+			scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope);
+			await Assert.ThrowsAsync<InvalidOperationException>(
+				() => scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
+			);
+		});
+
+		// Released: a fresh TryStart for the same scope must succeed, proving polls.Stop ran.
+		var released = await harness.UsingAsync(scope =>
+			Task.FromResult(scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope))
+		);
+		Assert.True(released);
+	}
+
 	private static AccountSettingsDto AccountSettings(Account account, bool pollingEnabled) =>
 		new(
 			account.Id,

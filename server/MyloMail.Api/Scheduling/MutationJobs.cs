@@ -111,6 +111,14 @@ public sealed class MutationJobs(
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
 				return;
 			}
+			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+			{
+				// Same "attempt already marked ambiguous" reasoning as below, but logged at
+				// Debug rather than Error: a network-class failure recurs every drain while
+				// offline, and an Error per batch per drain would be exactly the per-job noise
+				// § Offline behaviour asks to be suppressed until connectivity returns.
+				logger.LogDebug(ex, "A mutation batch for account {AccountId} failed (offline).", accountId);
+			}
 			catch (Exception ex)
 			{
 				// The attempt is already marked ambiguous by the executor. One batch failing

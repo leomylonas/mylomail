@@ -119,6 +119,14 @@ public sealed class OutboxJobs(
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
 				return;
 			}
+			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+			{
+				// Same "already ambiguous" reasoning as below, but at Debug: a network-class
+				// failure recurs every run while offline, and an Error per item per run is
+				// exactly the per-job noise § Offline behaviour asks to be suppressed until
+				// connectivity returns.
+				logger.LogDebug(ex, "Send for outbox item {OutboxItemId} failed (offline).", item.Id);
+			}
 			catch (Exception ex)
 			{
 				// SendExecutor has already recorded the ambiguity. One send failing must not
