@@ -14,4 +14,12 @@ export interface MenuAction {
 	unavailable?: string;
 
 	danger?: boolean;
+
+	/**
+	 * A nested submenu, when present, instead of `run` — Carbon's `Menu`/`MenuItem` render this
+	 * as a keyboard-navigable flyout with no extra positioning of its own to manage. Used for
+	 * "Move to <folder>" (§13's full-keyboard-operability requirement: dragging a message onto
+	 * a sidebar folder was previously the only way to move it anywhere other than trash).
+	 */
+	children?: readonly MenuAction[];
 }

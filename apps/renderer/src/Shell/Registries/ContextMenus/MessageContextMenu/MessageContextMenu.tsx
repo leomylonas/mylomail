@@ -27,6 +27,24 @@ export function MessageContextMenu({
 				action.label === "-" ? (
 					// eslint-disable-next-line react/no-array-index-key
 					<MenuItemDivider key={`divider-${index}`} />
+				) : action.children ? (
+					<MenuItem
+						key={action.label}
+						label={action.label}
+						disabled={Boolean(action.unavailable)}
+					>
+						<Menu label={action.label}>
+							{action.children.map((child) => (
+								<MenuItem
+									key={child.label}
+									label={child.label}
+									disabled={Boolean(child.unavailable)}
+									kind={child.danger ? "danger" : "default"}
+									onClick={child.run}
+								/>
+							))}
+						</Menu>
+					</MenuItem>
 				) : (
 					<MenuItem
 						key={action.label}

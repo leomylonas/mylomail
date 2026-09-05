@@ -46,6 +46,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			vi.fn(),
 			deletePermanently,
+			vi.fn(),
+			[],
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -70,6 +72,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			vi.fn(),
 			deletePermanently,
+			vi.fn(),
+			[],
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -92,6 +96,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			vi.fn(),
 			vi.fn(),
+			vi.fn(),
+			[],
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -105,5 +111,63 @@ describe("messageActions — Delete permanently confirmation", () => {
 			expect.stringContaining("2 messages"),
 		);
 		confirmSpy.mockRestore();
+	});
+});
+
+// §13's full-keyboard-operability requirement had no keyboard path for moving a message to an
+// arbitrary folder — dragging it onto a sidebar folder was the only way. This submenu is that
+// path's keyboard equivalent.
+describe("messageActions — Move to", () => {
+	it("offers each non-synthesized mailbox and moves the targets when one is chosen", () => {
+		const moveMessages = vi.fn();
+		const targets = [message({ id: "m1" }), message({ id: "m2" })];
+
+		const actions = messageActions(
+			targets,
+			vi.fn(),
+			vi.fn(),
+			vi.fn(),
+			moveMessages,
+			[
+				{ id: "inbox", name: "Inbox", isSynthesized: false },
+				{ id: "archive", name: "Archive", isSynthesized: false },
+				{ id: "gmail-group", name: "Nested", isSynthesized: true },
+			],
+			{} as HubConnection,
+			{} as QueryClient,
+			vi.fn(),
+			vi.fn(),
+			"me@example.test",
+			() => () => undefined,
+		);
+
+		const moveTo = findAction(actions, "Move to");
+		const labels = (moveTo.children ?? []).map((child) => child.label);
+		expect(labels).toEqual(["Archive", "Inbox"]);
+
+		moveTo.children?.find((child) => child.label === "Archive")?.run();
+		expect(moveMessages).toHaveBeenCalledWith({
+			messages: targets,
+			targetMailboxId: "archive",
+		});
+	});
+
+	it("is unavailable with no other folders to offer", () => {
+		const actions = messageActions(
+			[message()],
+			vi.fn(),
+			vi.fn(),
+			vi.fn(),
+			vi.fn(),
+			[],
+			{} as HubConnection,
+			{} as QueryClient,
+			vi.fn(),
+			vi.fn(),
+			"me@example.test",
+			() => () => undefined,
+		);
+
+		expect(findAction(actions, "Move to").unavailable).toBeTruthy();
 	});
 });

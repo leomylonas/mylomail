@@ -80,6 +80,15 @@ interface PendingChange {
 	desiredValue: boolean;
 }
 
+/** Just enough of `GetMailboxes`' response to populate the "Move to" submenu. */
+interface MailboxOption {
+	id: string;
+	name: string;
+	/** A Gmail nested-label intermediate with no real folder to move a message into (§1) —
+	 * excluded from "Move to" the same way it's excluded as a drag-and-drop target. */
+	isSynthesized: boolean;
+}
+
 const isReadField = 0;
 
 const columnHelper = createColumnHelper<MessageSummary>();
@@ -296,6 +305,34 @@ export function MessageList({
 			),
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
 		onError: reportFailure("The message could not be deleted"),
+	});
+
+	// Shared with MailboxTree's own drag-and-drop query (same cache entry) so this menu's
+	// "Move to" submenu costs no extra round trip once the sidebar has already loaded it.
+	const mailboxes = useQuery({
+		queryKey: queryKeys.mailboxes(accountId),
+		queryFn: () => hub.invoke<MailboxOption[]>("GetMailboxes", accountId),
+	});
+
+	// The keyboard-reachable equivalent of dragging a message onto a sidebar folder (§13's full
+	// keyboard operability requirement) — before this, moving a message anywhere other than
+	// trash had no path except drag-and-drop.
+	const moveMessages = useMutation({
+		mutationFn: (input: {
+			messages: MessageSummary[];
+			targetMailboxId: string;
+		}) =>
+			hub.invoke(
+				"MoveMessages",
+				accountId,
+				input.messages.map((message) => message.id),
+				input.targetMailboxId,
+			),
+		onSettled: () => {
+			queryClient.invalidateQueries({ queryKey: ["messages"] });
+			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) });
+		},
+		onError: reportFailure("The message could not be moved"),
 	});
 
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
@@ -710,6 +747,8 @@ export function MessageList({
 						setFlags.mutate,
 						trash.mutate,
 						deletePermanently.mutate,
+						moveMessages.mutate,
+						mailboxes.data ?? [],
 						hub,
 						queryClient,
 						onPrint,
@@ -739,6 +778,11 @@ export function messageActions(
 	}) => void,
 	trash: (messages: MessageSummary[]) => void,
 	deletePermanently: (messages: MessageSummary[]) => void,
+	moveMessages: (input: {
+		messages: MessageSummary[];
+		targetMailboxId: string;
+	}) => void,
+	mailboxOptions: MailboxOption[],
 	hub: HubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
@@ -788,6 +832,20 @@ export function messageActions(
 				setFlags({ messages: targets, isRead: null, isFlagged: !allFlagged }),
 		},
 		{ label: "-", run: () => undefined },
+		{
+			label: `Move to${suffix}`,
+			run: () => undefined,
+			unavailable:
+				mailboxOptions.length === 0 ? "No other folders yet." : undefined,
+			children: mailboxOptions
+				.filter((mailbox) => !mailbox.isSynthesized)
+				.sort((a, b) => a.name.localeCompare(b.name))
+				.map((mailbox) => ({
+					label: mailbox.name,
+					run: () =>
+						moveMessages({ messages: targets, targetMailboxId: mailbox.id }),
+				})),
+		},
 		{
 			label: `Move to trash${suffix}`,
 			run: () => trash(targets),
