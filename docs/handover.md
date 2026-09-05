@@ -2466,6 +2466,25 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   a shared `AccountCalendarIdsAsync` helper. Three new regression tests, one manually confirmed
   as a genuine discriminator via revert-and-reproduce. `dotnet test` 413 passed/0 failed (up
   from 410). `pnpm check` clean, 315 dotnet tests, vitest 100.
+- **Hundred-and-sixty-ninth pass — field-scoped search (`from:`, per Epic 5) silently returned
+  zero results instead of matching.** First judged pass 168's flagged DTSTAMP-tiebreaker gap
+  genuinely schema-change-sized (a new persisted `Attendee` field) and left it deferred, then
+  continued the Epic-by-Epic read-through. `MessageSearch.cs`'s own doc comment claimed
+  `from:alice` worked "because the index has real columns" — but the FTS5 table's real columns
+  are `FromAddresses`/`ToAddresses`/`CcAddresses`/`BodyText`, not `from`/`to`/`cc`/`body`. FTS5's
+  column-filter syntax requires an exact name match with no aliasing, so `from:alice` threw
+  "no such column: from," silently swallowed by `MatchAsync`'s existing syntax-error catch into
+  an empty result set — confirmed empirically via a standalone SQLite probe that `Subject:invoice`
+  (whose name already matches) works while `from:alice` genuinely throws. Fixed with a compiled
+  regex rewrite applied before parameterization, translating `from`/`to`/`cc`/`body` at a genuine
+  filter position (start of query, after whitespace, or after an open paren) to their real column
+  names; `Subject:` was already correct and untouched. `invariant-review` confirmed the regex's
+  variable-length lookbehind is valid and correct .NET syntax, no regression to bare `from` or
+  `Subject:` queries, no new injection surface (still a bound parameter), and that extending the
+  fix to `to:`/`cc:`/`body:` beyond the doc's illustrative "e.g. `from:`" is a reasonable
+  extension of the identical bug, not scope creep. New regression test confirmed as a genuine
+  discriminator via revert-and-reproduce. `dotnet test` 414 passed/0 failed (up from 413).
+  `pnpm check` clean, 316 dotnet tests, vitest 100.
 
 ## Next task
 
