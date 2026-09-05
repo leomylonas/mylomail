@@ -2719,6 +2719,24 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   suffix rather than a parameter-value token) as a follow-up for a future pass. `dotnet test` 436
   passed/0 failed (up from 432). `pnpm check` clean.
 
+- **Hundred-and-ninety-fourth pass — a lowercase UTC `z` suffix crashed CalDAV date-time
+  parsing.** Following pass 193's invariant-review flag: `ParseDateTime`'s `value.EndsWith('Z')`
+  check was case-sensitive, but RFC 5234 §2.3 makes the quoted `Z` literal in RFC 5545's grammar
+  case-insensitive — a compliant server sending a lowercase `z` suffix fell through to the
+  floating-time branch and threw `FormatException`, crashing on a grammatically valid value.
+  Fixed by checking the last character case-insensitively and stripping it before parsing with
+  `DateTimeStyles.AssumeUniversal`, eliminating the case problem structurally rather than patching
+  around it. New test manually confirmed as a genuine discriminator via revert-and-reproduce (round
+  trips through the real `ParseEvents` entry point, not `ParseDateTime` directly). The implementing
+  fork could not spawn `invariant-review` itself; the parent ran it afterward — no changes
+  requested, confirmed correct and untouching any frozen invariant. It flagged a new, related
+  observation for a future pass: `TryParseDuration`'s `P`/`T`/`D`/`W`/`H`/`M`/`S` designator checks
+  are the same case-sensitive-literal-against-case-insensitive-ABNF-terminal bug shape already
+  fixed twice elsewhere in this file, not yet audited. A full read-through of `CalDavIcs.cs` beyond
+  this fix found no other unaddressed parse/render asymmetries — passes 190-194 appear to have
+  exhausted this file except for that one flagged follow-up. `dotnet test` 437 passed/0 failed (up
+  from 436). `pnpm check` clean under Node 22: 339 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
