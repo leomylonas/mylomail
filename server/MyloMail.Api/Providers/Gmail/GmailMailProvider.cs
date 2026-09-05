@@ -1,4 +1,5 @@
 using Google;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using Google.Apis.Services;
@@ -212,12 +213,26 @@ public sealed partial class GmailMailProvider(
 
 	private async Task<GmailService> ServiceAsync(Account account, CancellationToken ct)
 	{
-		var credential = await oauth.AuthorizeAsync(account, ct);
-		return new GmailService(new BaseClientService.Initializer
+		try
 		{
-			HttpClientInitializer = credential,
-			ApplicationName = "MyloMail",
-		});
+			var credential = await oauth.AuthorizeAsync(account, ct);
+			return new GmailService(new BaseClientService.Initializer
+			{
+				HttpClientInitializer = credential,
+				ApplicationName = "MyloMail",
+			});
+		}
+		// Same gap pass 196/197 fixed for IMAP/SMTP: AuthorizeAsync throws this raw when a
+		// refresh token is revoked or expired, but only GmailOAuthAuthenticator.AuthenticateAsync
+		// (the initial account-setup path) translated it. Every other Gmail operation — sync,
+		// mailboxes, send, drafts, mutations — funnels through this one method, so a revoked
+		// token mid-session propagated uncaught past SyncJobs.GuardAsync's specific
+		// ProviderAuthenticationException catch, landing in its generic fallback instead and
+		// silently stopping the poll loop rather than setting AuthState.NeedsReauth (§3, §7).
+		catch (TokenResponseException ex)
+		{
+			throw new ProviderAuthenticationException(ex.Message, ex);
+		}
 	}
 
 	private static async Task<IReadOnlyList<MessageDto>> MessagesAsync(

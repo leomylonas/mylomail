@@ -86,7 +86,7 @@ public sealed class GraphOAuthAuthenticator
 	/// <c>AADSTS90094</c> (admin consent required for this specific app), neither of which
 	/// MSAL itself further classifies (§5).
 	/// </summary>
-	private static bool IsAdminConsentRequired(MsalException ex) =>
+	internal static bool IsAdminConsentRequired(MsalException ex) =>
 		ex is MsalUiRequiredException { Classification: UiRequiredExceptionClassification.ConsentRequired }
 		|| (ex is MsalServiceException { Message: var message }
 			&& (message.Contains("AADSTS65001", StringComparison.Ordinal)
