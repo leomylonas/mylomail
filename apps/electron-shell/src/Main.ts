@@ -156,6 +156,16 @@ export async function startShell(): Promise<void> {
 			throw new Error("A valid notification request is required.");
 		}
 
+		// The renderer's own confirm-only-once-shown contract (HubConnection.ts) depends on
+		// this call rejecting when the notification genuinely didn't appear — `new
+		// Notification(...).show()` neither throws nor reports failure on a platform where
+		// notifications aren't supported (a headless/CI Linux box, most commonly), so without
+		// this check the promise would resolve, MarkNotificationDelivered would fire, and the
+		// notification would be silently lost rather than redelivered on the next startup.
+		if (!Notification.isSupported()) {
+			throw new Error("Notifications are not supported on this platform.");
+		}
+
 		const notification = new Notification({
 			title: request.title,
 			body: request.body,
