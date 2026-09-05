@@ -328,6 +328,19 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					}
 				/>
 			)}
+			{form.providerType === ProviderType.Microsoft365 &&
+			form.initialSyncMode !== InitialSyncMode.Full ? (
+				// §3: a count/date bound isn't a stable Graph delta predicate, so a bounded
+				// initial sync here only limits what gets materialised locally sooner — the
+				// full mailbox is still walked in the background before incremental sync can
+				// start. Stated here so "last 3 months" doesn't imply a speed benefit this
+				// provider won't deliver.
+				<p className={styles.helper}>
+					For Microsoft 365, this limits what appears locally at first, not how
+					much of your mailbox is scanned — the full account is still walked in
+					the background either way.
+				</p>
+			) : null}
 
 			{add.isError && add.error instanceof AddAccountError ? (
 				add.error.presentation.action === "trust-certificate" &&
