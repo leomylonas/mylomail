@@ -505,9 +505,14 @@ internal static partial class CalDavIcs
 		{
 			return new DateTimeOffset(DateTime.ParseExact(value, "yyyyMMdd", CultureInfo.InvariantCulture), TimeSpan.Zero);
 		}
-		if (value.EndsWith('Z'))
+		// RFC 5234 §2.3: a quoted ABNF literal is case-insensitive unless marked %s, which
+		// RFC 5545 never does for the UTC designator — a compliant server may send a lowercase
+		// 'z' just as validly as 'Z'. A case-sensitive check here would fall through to the
+		// floating-time branch below, which then throws (the trailing lowercase 'z' doesn't fit
+		// that branch's own format string either).
+		if (value.Length > 0 && (value[^1] == 'Z' || value[^1] == 'z'))
 		{
-			return DateTime.ParseExact(value, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+			return DateTime.ParseExact(value[..^1], "yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 		}
 		var local = DateTime.ParseExact(value, "yyyyMMdd'T'HHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None);
 		if (parameters.GetValueOrDefault("TZID") is { } tzid)

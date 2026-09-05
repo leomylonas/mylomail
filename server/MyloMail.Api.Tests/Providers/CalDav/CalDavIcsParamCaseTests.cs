@@ -120,4 +120,31 @@ public sealed class CalDavIcsParamCaseTests
 
 		Assert.Equal(EventStatus.Cancelled, parsed.Status);
 	}
+
+	/// <summary>
+	/// Hundred-and-ninety-fourth pass: the same case-sensitivity bug shape, but on a
+	/// property-value suffix rather than a parameter-value token — RFC 5234 §2.3 makes the UTC
+	/// designator "z" just as valid as "Z". Confirmed as a genuine discriminator: reverting
+	/// <c>ParseDateTime</c>'s check back to <c>value.EndsWith('Z')</c> makes this throw a
+	/// <see cref="FormatException"/> instead of parsing (the lowercase suffix fits neither the
+	/// UTC format string nor the floating-time one below it).
+	/// </summary>
+	[Fact]
+	public void A_utc_date_time_is_recognised_when_the_server_sends_a_lowercase_z_suffix()
+	{
+		var ics =
+			"BEGIN:VCALENDAR\r\n"
+			+ "VERSION:2.0\r\n"
+			+ "BEGIN:VEVENT\r\n"
+			+ "UID:event-1\r\n"
+			+ "DTSTART:20260310T090000z\r\n"
+			+ "DTEND:20260310T093000z\r\n"
+			+ "SUMMARY:Standup\r\n"
+			+ "END:VEVENT\r\n"
+			+ "END:VCALENDAR\r\n";
+
+		var parsed = Assert.Single(CalDavIcs.ParseEvents(ics, "href", "etag"));
+
+		Assert.Equal(new DateTimeOffset(2026, 3, 10, 9, 0, 0, TimeSpan.Zero), parsed.Start);
+	}
 }
