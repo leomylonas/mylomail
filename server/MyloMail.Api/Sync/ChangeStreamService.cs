@@ -58,6 +58,20 @@ public sealed class ChangeStreamService(
 		{
 			while (true)
 			{
+				// Same §3 requirement as ReplayStagedAsync's own loop: this call can span many
+				// pages and commits for a large incremental-sync walk, so a worker already
+				// running when the account was disabled or removed cannot keep committing for
+				// it — a check only at job entry, before this method started, would miss every
+				// later page.
+				var stillEnabled = await context
+					.Accounts.Where(a => a.Id == account.Id)
+					.Select(a => a.IsEnabled)
+					.FirstOrDefaultAsync(ct);
+				if (!stillEnabled)
+				{
+					break;
+				}
+
 				// Captured before the call, so it records the topology the page was issued
 				// against rather than whatever topology exists once it returns.
 				var generations = GenerationSnapshot.Capture(

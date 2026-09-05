@@ -126,6 +126,19 @@ public sealed class CalendarSyncService(
 		var resetForInvalidCursor = false;
 		while (true)
 		{
+			// Same §3 requirement as ChangeStreamService.SyncAsync/ReplayStagedAsync: this
+			// call can span many calendar sync pages and commits in one go, so a worker
+			// already running when the account was disabled or removed cannot keep
+			// committing for it — a check only at job entry would miss every later page.
+			var stillEnabled = await context
+				.Accounts.Where(a => a.Id == account.Id)
+				.Select(a => a.IsEnabled)
+				.FirstOrDefaultAsync(ct);
+			if (!stillEnabled)
+			{
+				return;
+			}
+
 			CalendarSyncResult page;
 			try
 			{

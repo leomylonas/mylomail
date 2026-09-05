@@ -149,6 +149,10 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 
 	public bool InvalidateFirstBaselineContinuation { get; set; }
 
+	/// <summary>When &gt; 1, <see cref="SyncCalendarAsync"/> hands back a non-null continuation
+	/// for every page but the last, so a test can exercise a multi-page sync in one call.</summary>
+	public int PagesRemaining { get; set; } = 1;
+
 	private bool baselineContinuationReturned;
 
 	public ProviderType Type => ProviderType.Imap;
@@ -168,6 +172,13 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 		{
 			baselineContinuationReturned = true;
 			return Task.FromResult(new CalendarSyncResult(null, "baseline-next", [Event("partial")], []));
+		}
+		if (PagesRemaining > 1)
+		{
+			PagesRemaining--;
+			return Task.FromResult(
+				new CalendarSyncResult(null, $"page-{PagesRemaining}", [Event($"multi-{PagesRemaining}")], [])
+			);
 		}
 		return Task.FromResult(
 			cursor is null

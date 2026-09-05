@@ -405,6 +405,121 @@ public sealed class SyncTests
 	}
 
 	/// <summary>
+	/// §3, same shape as <see cref="ChangeStreamService.ReplayStagedAsync"/>'s own fix: a
+	/// single <see cref="ChangeStreamService.SyncAsync"/> call can walk many pages of a large
+	/// incremental sync (the fake provider pages at 50 messages), committing each one, so
+	/// disabling the account partway through a multi-page walk must stop later pages from
+	/// still committing — a check only when the enclosing job started would miss them.
+	/// </summary>
+	/// <remarks>
+	/// As with the <c>ReplayStagedAsync</c> tests above, <see cref="ScriptedFaultInjector"/> can
+	/// only throw to simulate a kill, not run a side effect mid-call and let the same call
+	/// continue — so this proves the check is re-evaluated on a resumed sync attempt, not that
+	/// it fires between two iterations of one uninterrupted call. The per-iteration placement
+	/// itself is correct by inspection of the loop.
+	/// </remarks>
+	[Fact]
+	public async Task Disabling_the_account_between_two_change_stream_pages_stops_the_later_one()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await ReconcileAsync(harness);
+		for (var i = 0; i < 51; i++)
+		{
+			harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddSeconds(i));
+		}
+
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SyncAsync(harness));
+
+		var (messagesAfterFirstPage, cursorAfterFirstPage) = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			return (
+				await context.Messages.CountAsync(),
+				await context.ChangeStreamStates.Select(s => s.CursorState).SingleAsync()
+			);
+		});
+		// The first page's own commit already landed — a real crash cannot un-commit it — and
+		// with only 50 (of 51) messages fetched so far, the cursor is still null (mid-walk).
+		Assert.Equal(50, messagesAfterFirstPage);
+		Assert.Null(cursorAfterFirstPage);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			account.IsEnabled = false;
+			await context.SaveChangesAsync();
+		});
+
+		var outcome = await SyncAsync(harness);
+
+		Assert.Equal(0, outcome.Pages);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			// Still 50 — the second page never committed the remaining message.
+			Assert.Equal(messagesAfterFirstPage, await context.Messages.CountAsync());
+		});
+	}
+
+	/// <summary>
+	/// Same §3 requirement, same honest caveat as the two tests above, this time for
+	/// <see cref="CalendarSyncService"/>'s own page loop (pass 184, extending pass 183's fix to
+	/// its sibling sync loops): a single <see cref="CalendarSyncService.SynchronizeAsync"/> call
+	/// can walk many calendar pages before a token is committed, so disabling the account
+	/// partway through must stop later pages from still committing.
+	/// </summary>
+	[Fact]
+	public async Task Disabling_the_account_between_two_calendar_sync_pages_stops_the_later_one()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.CalendarProvider.PagesRemaining = 2;
+
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(async scope =>
+				await scope
+					.GetRequiredService<CalendarSyncService>()
+					.SynchronizeAsync(await harness.AccountInScopeAsync(scope))
+			)
+		);
+
+		// The first page's own commit already landed — a real crash cannot un-commit it — and
+		// with a continuation still pending, no cursor has been committed to the calendar yet.
+		var eventsAfterFirstPage = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Null((await context.Calendars.SingleAsync()).SyncCursor);
+			return await context.CalendarEvents.CountAsync();
+		});
+		Assert.Equal(1, eventsAfterFirstPage);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			account.IsEnabled = false;
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<CalendarSyncService>()
+				.SynchronizeAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			// Still just the one event from the first page — the second page never committed.
+			Assert.Equal(eventsAfterFirstPage, await context.CalendarEvents.CountAsync());
+			Assert.Null((await context.Calendars.SingleAsync()).SyncCursor);
+		});
+	}
+
+	/// <summary>
 	/// The change stream applies what it observes. Coverage is a separate concern, and a test
 	/// that reaches the local rows through backfill proves nothing about incremental sync.
 	/// </summary>
