@@ -2258,6 +2258,33 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   introduced, and no frozen-invariant entry is touched. No test added: no render-harness
   precedent for this component. `pnpm check` clean, 308 dotnet tests (unaffected), vitest 87
   (unaffected).
+- **Hundred-and-forty-fifth pass — built the "offline behaviour" log-suppression feature pass
+  144 found undocumented-but-unimplemented.** `docs/architecture.md` promises network-class
+  failures "suppress normal per-job retry noise/logging until connectivity returns," but
+  `ConnectivityMonitor.IsOnline` was only ever read by the renderer's offline-banner hub method —
+  never by a background job. Asked the user; they chose to build it now. Added
+  `ConnectivityMonitor.IsNetworkFailure(Exception)`, a static classifier for
+  `IOException`/`SocketException`/`HttpRequestException`/`SslHandshakeException`, verified
+  against both provider SDKs that a genuine HTTP-level rejection (401/403/429) always surfaces
+  as a provider-specific type instead (`GoogleApiException`/Kiota's `ApiException`), so the
+  classifier can't misfire and suppress a real, actionable error. Used in a new catch clause
+  across `SyncJobs.cs`'s five self-scheduling loops — a network-class failure now reschedules
+  quietly after a fixed 30s delay instead of stopping the loop and rethrowing to Hangfire (one
+  logged "failure" per poll, and the loop not resuming on its own once connectivity returned) —
+  and, more narrowly, as a Debug-level log ahead of the existing Error/Warning in
+  `MutationJobs.cs`/`OutboxJobs.cs`/`ContentJobs.cs`, where the existing per-item catch already
+  continued correctly and only the log severity needed to change. `invariant-review` confirmed
+  the classifier's correctness against real SDK behavior, correct catch-clause ordering at all
+  five `SyncJobs.cs` sites, no frozen-invariant hit, no interaction with `AccountGate`'s separate
+  throttle mechanism, and `CoveragePageAsync`'s reschedule is safe since `CoverageService
+.RunPageAsync` is already documented as idempotent per page. One accepted, low-risk gap: four
+  of the five `SyncJobs.cs` sites share a textually identical, mechanically-applied clause with
+  the one site (`TopologyAsync`) that has a dedicated discriminator test, rather than each
+  getting its own. New regression tests confirmed as a genuine discriminator via
+  revert-and-reproduce. Also surfaced, not fixed, a related pre-existing gap (tracked as
+  Next-task item 7): a network-class content-fetch failure still burns `ContentAcquisition`'s
+  retry-attempt budget the same as a genuine unreadable-content failure. `dotnet test` 408
+  passed/0 failed (up from 406). `pnpm check` clean, 310 dotnet tests, vitest 87.
 
 ## Next task
 
@@ -2302,6 +2329,14 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
    exists, and no query filters by it. Building real threading needs each provider's own
    thread-id concept (a design decision, not dictated by strong precedent) plus new UI; the field
    should either be built out properly or removed, not left in this half state indefinitely.
+7. **A network-class failure during content fetch burns `ContentAcquisition`'s per-message
+   retry-attempt budget the same as a genuine unreadable-content failure** (found while building
+   pass 145's offline log-suppression feature). `ContentJobs.FetchNextAsync` now logs a
+   network-class failure at Debug instead of Warning, but the message's `Attempts` counter still
+   increments identically either way, so a sustained outage can exhaust the cap and mark content
+   permanently `Failed` for a message that was never actually unreadable — the same shape pass
+   64 already fixed for `CredentialStoreUnavailableException` specifically. Worth extending that
+   same "don't consume retry budget" treatment to network-class failures too, in its own pass.
 
 ## Read first
 
