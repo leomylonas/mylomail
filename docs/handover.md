@@ -2208,6 +2208,22 @@ check` clean, 308 dotnet tests, vitest 70.
   exercised on any machine running the suite, not only one that happens to sit west of UTC
   already. Both confirmed as genuine discriminators via revert-and-reproduce. `pnpm check` clean,
   308 dotnet tests (unaffected), vitest 83 (up from 82).
+- **Hundred-and-fortieth pass — 139 was clean (i18n/locale formatting, resizable-layout
+  persistence, both confirmed matching docs exactly); this pass found and fixed a real gap in
+  `Main.ts`'s attachment-open safety warning.** `isDangerousAttachment` only recognized 7
+  executable extensions (`.bat`, `.cmd`, `.desktop`, `.exe`, `.msi`, `.ps1`, `.sh`) — missing many
+  well-known extensions used in real email-attachment attacks: `.scr`, `.js`, `.jse`, `.vbs`,
+  `.vbe`, `.wsf`, `.wsh`, `.jar`, `.lnk`, `.hta`, `.cpl`, `.com`, `.pif`, `.reg`, `.msc`,
+  `.gadget`, `.application`, `.msp`, `.vb`. Extracted the check into a new `DangerousAttachment.ts`
+  with no `electron` import, following the `CloseBehavior.ts` precedent from an earlier pass
+  (`Main.ts` can't be imported in a test — it has a module-level `app.whenReady()` side effect).
+  `invariant-review` confirmed the extraction is behaviorally identical for every
+  already-covered extension, that this remains a warn-only heuristic (choosing "Open" always
+  falls through to `shell.openPath()` regardless of which list flagged it, so widening it only
+  adds warnings, never removes capability), `.com` is the intentional legacy DOS/Windows
+  executable extension and not a mistake, and no frozen-invariant table entry is touched. New
+  tests cover original/newly-added/safe extensions plus a double-extension edge case. `pnpm
+check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
 
 ## Next task
 
