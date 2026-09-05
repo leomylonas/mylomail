@@ -2485,6 +2485,21 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   extension of the identical bug, not scope creep. New regression test confirmed as a genuine
   discriminator via revert-and-reproduce. `dotnet test` 414 passed/0 failed (up from 413).
   `pnpm check` clean, 316 dotnet tests, vitest 100.
+- **Hundred-and-seventy-third pass — the master-password fallback's real limitations went
+  undisclosed, against an explicit §4 requirement.** §4 requires two things be communicated in
+  the master-password setup UI, "not discovered": that this fallback path is weaker and less
+  convenient than an OS keychain (with guidance on enabling one), and that with it active the
+  backend cannot start until unlocked each launch, so background sync/notifications/scheduled
+  sends can't run first. `MasterPasswordPrompt.html`'s setup-mode explanation said only that the
+  password "is never stored" — neither disclosure was present anywhere in the dialog. The
+  implementing fork diagnosed this fully but couldn't apply it itself (its context forbade
+  spawning the mandatory `invariant-review` subagent within the same invocation), so it was
+  applied directly in the parent session instead: extended the explanation text with both
+  disclosures plus a concrete example (enabling a Secret Service provider on Linux).
+  `invariant-review` confirmed the new copy is factually accurate against `Program.cs`'s actual
+  startup-exit-and-restart mechanics for this path, pure text change with no logic impact, no
+  stale references to the old string anywhere, no frozen-invariant hit. `pnpm check` clean, 316
+  dotnet tests, vitest 100 (both unaffected — this file has no test harness reaching it).
 
 ## Next task
 
