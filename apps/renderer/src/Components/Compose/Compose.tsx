@@ -21,7 +21,10 @@ import type {
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { OutboxStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { describeSentState } from "@mylomail/renderer/Components/Compose/SentStatus";
-import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
+import {
+	mentionsAttachmentOutsideQuote,
+	type ComposeSeed,
+} from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
@@ -403,7 +406,7 @@ export function Compose({
 		}
 		if (
 			!attachments.length &&
-			/\b(attached|attachment|attach)\b/i.test(body) &&
+			mentionsAttachmentOutsideQuote(body) &&
 			!window.confirm(
 				"Your message mentions an attachment, but none is attached. Send anyway?",
 			)

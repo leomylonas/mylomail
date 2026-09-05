@@ -111,6 +111,24 @@ export function resolveOriginalHtml(body: MessageBody): string {
 		: "<p><em>(This message's content is still downloading and cannot be quoted yet — try again in a moment.)</em></p>";
 }
 
+/**
+ * Whether the compose body mentions an attachment, ignoring quoted/forwarded content: both
+ * {@link buildReplySeed} and {@link buildForwardSeed} always wrap the original message in a
+ * `<blockquote>`, and forwarded mail in particular almost always says "see attached" about
+ * *its own* attachments — scanning the raw HTML would make Epic 6's missing-attachment warning
+ * fire on nearly every reply/forward regardless of what the user actually typed, which isn't
+ * a heuristic anyone would keep switched on.
+ */
+export function mentionsAttachmentOutsideQuote(html: string): boolean {
+	const document = new DOMParser().parseFromString(html, "text/html");
+	document
+		.querySelectorAll("blockquote")
+		.forEach((element) => element.remove());
+	return /\b(attached|attachment|attach)\b/i.test(
+		document.body.textContent ?? "",
+	);
+}
+
 function formatAddress(address: Address): string {
 	return address.name
 		? `${escapeHtml(address.name)} &lt;${escapeHtml(address.email)}&gt;`

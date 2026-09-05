@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// The only test file in this package that needs a DOM global (`window.confirm`) — everything
-// else here runs under vitest's default node environment, which has none. jsdom is an existing
-// devDependency (pulled in for vitest's own default toolchain) but otherwise unused: no
-// @testing-library/react or full component-render harness exists in this repo (see passes
-// 91-93/133), so this stays scoped to one file rather than switching the global environment.
+// One of a small handful of test files in this package that need a DOM global (here,
+// `window.confirm`) — everything else runs under vitest's default node environment, which has
+// none. jsdom is an existing devDependency (pulled in for vitest's own default toolchain) but
+// otherwise unused: no @testing-library/react or full component-render harness exists in this
+// repo (see passes 91-93/133), so this stays scoped per-file rather than switching the global
+// environment.
 import { describe, expect, it, vi } from "vitest";
 import type { HubConnection } from "@microsoft/signalr";
 import type { QueryClient } from "@tanstack/react-query";

@@ -1,6 +1,11 @@
+// @vitest-environment jsdom
+//
+// mentionsAttachmentOutsideQuote needs a real DOMParser, same DOM-global exception documented
+// in MessageActions.test.ts.
 import { describe, expect, it } from "vitest";
 import {
 	buildReplyRecipients,
+	mentionsAttachmentOutsideQuote,
 	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 
@@ -75,5 +80,27 @@ describe("buildReplyRecipients", () => {
 		);
 
 		expect(cc).toEqual([]);
+	});
+});
+
+describe("mentionsAttachmentOutsideQuote", () => {
+	it("ignores an attachment mention that only appears in quoted/forwarded content", () => {
+		const html =
+			"<p>Hi there</p>" +
+			'<blockquote style="margin:0">Please see the attached invoice.</blockquote>';
+
+		expect(mentionsAttachmentOutsideQuote(html)).toBe(false);
+	});
+
+	it("still detects an attachment mention the user actually typed", () => {
+		const html =
+			"<p>I forgot to attach the file, adding it now.</p>" +
+			"<blockquote>Original message</blockquote>";
+
+		expect(mentionsAttachmentOutsideQuote(html)).toBe(true);
+	});
+
+	it("detects a mention with no quote present at all", () => {
+		expect(mentionsAttachmentOutsideQuote("<p>See attached.</p>")).toBe(true);
 	});
 });
