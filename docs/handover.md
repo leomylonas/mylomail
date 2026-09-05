@@ -2335,6 +2335,18 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   UX, not a data-safety bug. Fixed alongside by gating Delete on `identity.isDefault`, mirroring
   how "Make default" is already hidden for it. New test confirmed as a genuine discriminator via
   revert-and-reproduce. `pnpm check` clean, 310 dotnet tests (unaffected), vitest 92 (up from 90).
+- **Hundred-and-fifty-third pass — one error message broke the app's otherwise near-universal
+  tone.** Surveyed ~35 user-facing error strings across outbox, drafts, calendar, mailboxes,
+  settings, and accounts (`reportFailure` calls plus `notify()` titles) and found near-universal
+  adherence to a "The X could not be Y" / "This X could not be Y" passive-voice convention.
+  `ReauthenticateAccount.tsx`'s fallback title — used only when the backend's error response has
+  no structured `problem.title` at all, a generic network/parse-failure path, not the normal one
+  — read "Could not reauthenticate," an imperative, dropped-subject phrasing found nowhere else.
+  Changed to "This account could not be reauthenticated," matching sibling strings in the same
+  file. Purely a string-literal change: `invariant-review` confirmed the `problem?.category`
+  branch condition and the `problem?.title ??` fallback ordering are untouched, and no test
+  anywhere references the old string. `pnpm check` clean, 310 dotnet tests (unaffected), vitest
+  92 (unaffected).
 
 ## Next task
 
