@@ -22,7 +22,7 @@ public sealed partial class GmailMailProvider
 	{
 		var service = await ServiceAsync(account, ct);
 		var message = new GmailMessage { Raw = ToBase64Url(Compose(draft, stableMessageId)) };
-		await service.Users.Messages.Send(message, UserId).ExecuteAsync(ct);
+		await service.Users.Messages.Send(message, UserId).ExecuteThrottleAwareAsync(ct);
 	}
 
 	/// <summary>Builds the MIME message from the draft's structured fields (§1).</summary>

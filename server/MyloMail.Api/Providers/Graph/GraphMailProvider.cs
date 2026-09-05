@@ -5,6 +5,7 @@ using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
+using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
@@ -42,19 +43,21 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		var folders = await client.Me.MailFolders.GetAsync(
-			configuration =>
-			{
-				configuration.QueryParameters.Select =
-				[
-					"id",
-					"displayName",
-					"parentFolderId",
-					"totalItemCount",
-					"unreadItemCount",
-				];
-			},
-			ct
+		var folders = await ThrottleAwareAsync(
+			() => client.Me.MailFolders.GetAsync(
+				configuration =>
+				{
+					configuration.QueryParameters.Select =
+					[
+						"id",
+						"displayName",
+						"parentFolderId",
+						"totalItemCount",
+						"unreadItemCount",
+					];
+				},
+				ct
+			)
 		);
 		var specialUses = await SpecialUsesAsync(client, ct);
 
@@ -82,9 +85,11 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		var folder = await client.Me.MailFolders[ProviderMailboxId(mailbox)].GetAsync(
-			configuration => configuration.QueryParameters.Select = ["totalItemCount"],
-			ct
+		var folder = await ThrottleAwareAsync(
+			() => client.Me.MailFolders[ProviderMailboxId(mailbox)].GetAsync(
+				configuration => configuration.QueryParameters.Select = ["totalItemCount"],
+				ct
+			)
 		);
 		return folder?.TotalItemCount ?? 0;
 	}
@@ -102,16 +107,18 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		var client = await ClientAsync(account, ct);
 		var messages = client.Me.MailFolders[ProviderMailboxId(mailbox)].Messages;
 		var page = resumeToken is null
-			? await messages.GetAsync(
-				configuration =>
-				{
-					configuration.QueryParameters.Top = Math.Min(pageSize, bound ?? pageSize);
-					configuration.QueryParameters.Orderby = ["receivedDateTime desc"];
-					configuration.QueryParameters.Select = MessageSelect;
-				},
-				ct
+			? await ThrottleAwareAsync(
+				() => messages.GetAsync(
+					configuration =>
+					{
+						configuration.QueryParameters.Top = Math.Min(pageSize, bound ?? pageSize);
+						configuration.QueryParameters.Orderby = ["receivedDateTime desc"];
+						configuration.QueryParameters.Select = MessageSelect;
+					},
+					ct
+				)
 			)
-			: await messages.WithUrl(resumeToken).GetAsync(null, ct);
+			: await ThrottleAwareAsync(() => messages.WithUrl(resumeToken).GetAsync(null, ct));
 
 		return new InitialSyncPage(
 			[.. (page?.Value ?? []).Where(message => message.Id is not null).Select(ToDto)],
@@ -141,11 +148,13 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		try
 		{
 			var page = url is null
-				? await delta.GetAsDeltaGetResponseAsync(
-					configuration => configuration.QueryParameters.Select = MessageSelect,
-					ct
+				? await ThrottleAwareAsync(
+					() => delta.GetAsDeltaGetResponseAsync(
+						configuration => configuration.QueryParameters.Select = MessageSelect,
+						ct
+					)
 				)
-				: await delta.WithUrl(url).GetAsDeltaGetResponseAsync(null, ct);
+				: await ThrottleAwareAsync(() => delta.WithUrl(url).GetAsDeltaGetResponseAsync(null, ct));
 			IReadOnlyList<GraphMessage> values = page?.Value ?? [];
 			IReadOnlyList<OccurrenceRemoval> removed =
 			[
@@ -316,7 +325,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		{
 			try
 			{
-				var folder = await client.Me.MailFolders[id].GetAsync(null, ct);
+				var folder = await ThrottleAwareAsync(() => client.Me.MailFolders[id].GetAsync(null, ct));
 				if (folder?.Id is not null)
 				{
 					resolved[folder.Id] = specialUse;

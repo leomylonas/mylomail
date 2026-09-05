@@ -1,6 +1,7 @@
 using Microsoft.Kiota.Abstractions;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
+using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Providers.Graph;
@@ -25,17 +26,19 @@ public sealed partial class GraphMailProvider
 		if (expectedRevision is null || draft.ProviderDraftId is null)
 		{
 			var created =
-				await client.Me.Messages.PostAsync(message, cancellationToken: ct)
+				await ThrottleAwareAsync(() => client.Me.Messages.PostAsync(message, cancellationToken: ct))
 				?? throw new InvalidOperationException("Graph did not return the created draft.");
 			return DraftResultOf(created);
 		}
 
 		try
 		{
-			var updated = await client.Me.Messages[draft.ProviderDraftId].PatchAsync(
-				message,
-				configuration => configuration.Headers.Add("If-Match", expectedRevision),
-				ct
+			var updated = await ThrottleAwareAsync(
+				() => client.Me.Messages[draft.ProviderDraftId].PatchAsync(
+					message,
+					configuration => configuration.Headers.Add("If-Match", expectedRevision),
+					ct
+				)
 			);
 			return DraftResultOf(updated, draft.ProviderDraftId);
 		}
@@ -50,7 +53,7 @@ public sealed partial class GraphMailProvider
 		var client = await ClientAsync(account, ct);
 		try
 		{
-			await client.Me.Messages[providerDraftId].DeleteAsync(null, ct);
+			await ThrottleAwareAsync(() => client.Me.Messages[providerDraftId].DeleteAsync(null, ct));
 		}
 		catch (ApiException ex) when (ex.ResponseStatusCode == 404)
 		{

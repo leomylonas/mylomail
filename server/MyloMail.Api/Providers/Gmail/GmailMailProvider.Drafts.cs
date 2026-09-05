@@ -32,14 +32,14 @@ public sealed partial class GmailMailProvider
 		if (expectedRevision is null || draft.ProviderDraftId is null)
 		{
 			var created = await service.Users.Drafts.Create(new GmailDraft { Message = message }, UserId)
-				.ExecuteAsync(ct);
+				.ExecuteThrottleAwareAsync(ct);
 			return DraftResultOf(created);
 		}
 
 		GmailDraft existing;
 		try
 		{
-			existing = await service.Users.Drafts.Get(UserId, draft.ProviderDraftId).ExecuteAsync(ct);
+			existing = await service.Users.Drafts.Get(UserId, draft.ProviderDraftId).ExecuteThrottleAwareAsync(ct);
 		}
 		catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
 		{
@@ -53,7 +53,7 @@ public sealed partial class GmailMailProvider
 
 		var updated = await service.Users.Drafts
 			.Update(new GmailDraft { Message = message }, UserId, draft.ProviderDraftId)
-			.ExecuteAsync(ct);
+			.ExecuteThrottleAwareAsync(ct);
 		return DraftResultOf(updated, draft.ProviderDraftId);
 	}
 
@@ -62,7 +62,7 @@ public sealed partial class GmailMailProvider
 		var service = await ServiceAsync(account, ct);
 		try
 		{
-			await service.Users.Drafts.Delete(UserId, providerDraftId).ExecuteAsync(ct);
+			await service.Users.Drafts.Delete(UserId, providerDraftId).ExecuteThrottleAwareAsync(ct);
 		}
 		catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
 		{

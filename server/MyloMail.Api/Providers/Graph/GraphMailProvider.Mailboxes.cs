@@ -2,6 +2,7 @@ using Microsoft.Graph.Me.MailFolders.Item.Move;
 using Microsoft.Graph.Models;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
+using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
 
 namespace MyloMail.Api.Providers.Graph;
@@ -24,10 +25,12 @@ public sealed partial class GraphMailProvider
 		var folder = new MailFolder { DisplayName = name };
 		var created =
 			parent is null
-				? await client.Me.MailFolders.PostAsync(folder, cancellationToken: ct)
-				: await client.Me.MailFolders[ProviderMailboxId(parent)].ChildFolders.PostAsync(
-					folder,
-					cancellationToken: ct
+				? await ThrottleAwareAsync(() => client.Me.MailFolders.PostAsync(folder, cancellationToken: ct))
+				: await ThrottleAwareAsync(
+					() => client.Me.MailFolders[ProviderMailboxId(parent)].ChildFolders.PostAsync(
+						folder,
+						cancellationToken: ct
+					)
 				);
 		return ToDto(created ?? throw new InvalidOperationException("Graph did not return the created folder."));
 	}
@@ -40,9 +43,11 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		var updated = await client.Me.MailFolders[ProviderMailboxId(mailbox)].PatchAsync(
-			new MailFolder { DisplayName = newName },
-			cancellationToken: ct
+		var updated = await ThrottleAwareAsync(
+			() => client.Me.MailFolders[ProviderMailboxId(mailbox)].PatchAsync(
+				new MailFolder { DisplayName = newName },
+				cancellationToken: ct
+			)
 		);
 		return ToDto(updated ?? throw new InvalidOperationException("Graph did not return the renamed folder."));
 	}
@@ -58,9 +63,11 @@ public sealed partial class GraphMailProvider
 		// "msgfolderroot" is Graph's well-known id for the mailbox root — accepted anywhere a
 		// folder id is, the same way Gmail's well-known label names are.
 		var destinationId = newParent is null ? "msgfolderroot" : ProviderMailboxId(newParent);
-		var moved = await client.Me.MailFolders[ProviderMailboxId(mailbox)].Move.PostAsync(
-			new MovePostRequestBody { DestinationId = destinationId },
-			cancellationToken: ct
+		var moved = await ThrottleAwareAsync(
+			() => client.Me.MailFolders[ProviderMailboxId(mailbox)].Move.PostAsync(
+				new MovePostRequestBody { DestinationId = destinationId },
+				cancellationToken: ct
+			)
 		);
 		return ToDto(moved ?? throw new InvalidOperationException("Graph did not return the moved folder."));
 	}
@@ -68,7 +75,7 @@ public sealed partial class GraphMailProvider
 	public async Task DeleteMailboxAsync(Account account, DomainMailbox mailbox, CancellationToken ct)
 	{
 		var client = await ClientAsync(account, ct);
-		await client.Me.MailFolders[ProviderMailboxId(mailbox)].DeleteAsync(null, ct);
+		await ThrottleAwareAsync(() => client.Me.MailFolders[ProviderMailboxId(mailbox)].DeleteAsync(null, ct));
 	}
 
 	private static MailboxDto ToDto(MailFolder folder) =>

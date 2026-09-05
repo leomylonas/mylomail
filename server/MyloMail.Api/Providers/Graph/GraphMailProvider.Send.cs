@@ -2,6 +2,7 @@ using Microsoft.Graph;
 using Microsoft.Graph.Me.Messages.Item.Attachments.CreateUploadSession;
 using Microsoft.Graph.Models;
 using MyloMail.Api.Domain;
+using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Providers.Graph;
@@ -38,7 +39,7 @@ public sealed partial class GraphMailProvider
 		message.Attachments = [.. small.Select(ToFileAttachment)];
 
 		var created =
-			await client.Me.Messages.PostAsync(message, cancellationToken: ct)
+			await ThrottleAwareAsync(() => client.Me.Messages.PostAsync(message, cancellationToken: ct))
 			?? throw new InvalidOperationException("Graph did not return the created draft.");
 		var draftId = created.Id ?? throw new InvalidOperationException("Graph's created draft has no id.");
 
@@ -47,7 +48,7 @@ public sealed partial class GraphMailProvider
 			await UploadLargeAttachmentAsync(client, draftId, attachment, ct);
 		}
 
-		await client.Me.Messages[draftId].Send.PostAsync(cancellationToken: ct);
+		await ThrottleAwareAsync(() => client.Me.Messages[draftId].Send.PostAsync(cancellationToken: ct));
 	}
 
 	/// <summary>
@@ -61,18 +62,20 @@ public sealed partial class GraphMailProvider
 		CancellationToken ct
 	)
 	{
-		var session = await client.Me.Messages[draftId].Attachments.CreateUploadSession.PostAsync(
-			new CreateUploadSessionPostRequestBody
-			{
-				AttachmentItem = new AttachmentItem
+		var session = await ThrottleAwareAsync(
+			() => client.Me.Messages[draftId].Attachments.CreateUploadSession.PostAsync(
+				new CreateUploadSessionPostRequestBody
 				{
-					AttachmentType = AttachmentType.File,
-					Name = attachment.Filename,
-					Size = attachment.Content.LongLength,
-					ContentType = attachment.MimeType,
+					AttachmentItem = new AttachmentItem
+					{
+						AttachmentType = AttachmentType.File,
+						Name = attachment.Filename,
+						Size = attachment.Content.LongLength,
+						ContentType = attachment.MimeType,
+					},
 				},
-			},
-			cancellationToken: ct
+				cancellationToken: ct
+			)
 		);
 		var uploadUrl =
 			session?.UploadUrl ?? throw new InvalidOperationException("Graph did not return an upload session URL.");
@@ -93,6 +96,19 @@ public sealed partial class GraphMailProvider
 			);
 			request.Content.Headers.ContentLength = length;
 			var response = await http.SendAsync(request, ct);
+			// This one chunk-upload PUT bypasses the Graph SDK entirely (session.UploadUrl is a
+			// bare pre-authenticated URL, not a client-relative request), so it can't go through
+			// ThrottleAwareAsync - a 429 here surfaces as a raw HttpResponseMessage, not an
+			// ApiException, and has to be translated from the response directly instead.
+			if ((int)response.StatusCode == 429)
+			{
+				var retryAfter = response.Headers.RetryAfter?.Delta
+					?? (response.Headers.RetryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
+				throw new ProviderThrottledException(
+					retryAfter is { } value && value > TimeSpan.Zero ? value : DefaultRetryAfter,
+					"Microsoft Graph throttled this attachment upload."
+				);
+			}
 			response.EnsureSuccessStatusCode();
 		}
 	}

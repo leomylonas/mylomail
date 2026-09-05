@@ -5,6 +5,7 @@ using Microsoft.Kiota.Abstractions;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
+using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
@@ -19,9 +20,8 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		await using var stream = await client.Me.Messages[occurrence.ProviderOccurrenceId].Content.GetAsync(
-			null,
-			ct
+		await using var stream = await ThrottleAwareAsync(
+			() => client.Me.Messages[occurrence.ProviderOccurrenceId].Content.GetAsync(null, ct)
 		);
 		if (stream is null)
 		{
@@ -78,7 +78,7 @@ public sealed partial class GraphMailProvider
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
-			var response = await client.Batch.PostAsync(batch, ct);
+			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
 			var statuses = await response.GetResponsesStatusCodesAsync();
 			foreach (var (id, reference) in steps)
 			{
@@ -117,7 +117,7 @@ public sealed partial class GraphMailProvider
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
-			var response = await client.Batch.PostAsync(batch, ct);
+			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
 			foreach (var (id, reference) in steps)
 			{
 				using var itemResponse = await response.GetResponseByIdAsync(id);
@@ -182,7 +182,7 @@ public sealed partial class GraphMailProvider
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
-			var response = await client.Batch.PostAsync(batch, ct);
+			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
 			foreach (var (id, reference) in steps)
 			{
 				using var itemResponse = await response.GetResponseByIdAsync(id);
@@ -231,7 +231,7 @@ public sealed partial class GraphMailProvider
 		{
 			try
 			{
-				await client.Me.Messages[reference.ProviderOccurrenceId].DeleteAsync(null, ct);
+				await ThrottleAwareAsync(() => client.Me.Messages[reference.ProviderOccurrenceId].DeleteAsync(null, ct));
 				items.Add(
 					new BatchItemResult(
 						reference.MessageId,

@@ -76,7 +76,7 @@ public sealed partial class GmailMailProvider
 		{
 			try
 			{
-				await service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId).ExecuteAsync(ct);
+				await service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId).ExecuteThrottleAwareAsync(ct);
 				items.Add(
 					new BatchItemResult(
 						reference.MessageId,
@@ -110,7 +110,7 @@ public sealed partial class GmailMailProvider
 			items.AddRange(missing);
 			await service.Users.Messages
 				.BatchDelete(new BatchDeleteMessagesRequest { Ids = [.. existing.Select(r => r.ProviderOccurrenceId)] }, UserId)
-				.ExecuteAsync(ct);
+				.ExecuteThrottleAwareAsync(ct);
 			items.AddRange(
 				existing.Select(reference =>
 					new BatchItemResult(
@@ -170,7 +170,7 @@ public sealed partial class GmailMailProvider
 		{
 			try
 			{
-				await service.Users.Messages.Get(UserId, reference.ProviderOccurrenceId).ExecuteAsync(ct);
+				await service.Users.Messages.Get(UserId, reference.ProviderOccurrenceId).ExecuteThrottleAwareAsync(ct);
 				existing.Add(reference);
 			}
 			catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
@@ -200,7 +200,7 @@ public sealed partial class GmailMailProvider
 				},
 				UserId
 			)
-			.ExecuteAsync(ct);
+			.ExecuteThrottleAwareAsync(ct);
 
 	private static IList<string> LabelsToAdd(FlagUpdate update)
 	{

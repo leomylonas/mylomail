@@ -50,7 +50,7 @@ public sealed partial class GmailMailProvider(
 	)
 	{
 		var service = await ServiceAsync(account, ct);
-		var response = await service.Users.Labels.List(UserId).ExecuteAsync(ct);
+		var response = await service.Users.Labels.List(UserId).ExecuteThrottleAwareAsync(ct);
 
 		return
 		[
@@ -80,7 +80,7 @@ public sealed partial class GmailMailProvider(
 		var request = service.Users.Messages.List(UserId);
 		request.LabelIds = new Google.Apis.Util.Repeatable<string>([ProviderMailboxId(mailbox)]);
 		request.MaxResults = 1;
-		var response = await request.ExecuteAsync(ct);
+		var response = await request.ExecuteThrottleAwareAsync(ct);
 		return checked((int)(response.ResultSizeEstimate ?? 0));
 	}
 
@@ -104,7 +104,7 @@ public sealed partial class GmailMailProvider(
 			request.Q = $"after:{DateTimeOffset.UtcNow.AddMonths(-months).ToUnixTimeSeconds()}";
 		}
 
-		var page = await request.ExecuteAsync(ct);
+		var page = await request.ExecuteThrottleAwareAsync(ct);
 		var messages = await MessagesAsync(service, page.Messages ?? [], ct);
 		return new InitialSyncPage(
 			messages,
@@ -135,7 +135,7 @@ public sealed partial class GmailMailProvider(
 
 		try
 		{
-			var page = await request.ExecuteAsync(ct);
+			var page = await request.ExecuteThrottleAwareAsync(ct);
 			var changedMessageIds = (page.History ?? [])
 				.SelectMany(item => item.MessagesAdded ?? [])
 				.Select(item => item.Message?.Id)
@@ -204,7 +204,7 @@ public sealed partial class GmailMailProvider(
 		var service = await ServiceAsync(account, ct);
 		var request = service.Users.Messages.Get(UserId, occurrence.ProviderOccurrenceId);
 		request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Raw;
-		var message = await request.ExecuteAsync(ct);
+		var message = await request.ExecuteThrottleAwareAsync(ct);
 		return new RawMessageResult(FromBase64Url(message.Raw));
 	}
 
@@ -216,11 +216,13 @@ public sealed partial class GmailMailProvider(
 		try
 		{
 			var credential = await oauth.AuthorizeAsync(account, ct);
-			return new GmailService(new BaseClientService.Initializer
+			var service = new GmailService(new BaseClientService.Initializer
 			{
 				HttpClientInitializer = credential,
 				ApplicationName = "MyloMail",
 			});
+			service.AttachThrottleTracker(new GmailThrottleTracker());
+			return service;
 		}
 		// Same gap pass 196/197 fixed for IMAP/SMTP: AuthorizeAsync throws this raw when a
 		// refresh token is revoked or expired, but only GmailOAuthAuthenticator.AuthenticateAsync
@@ -251,7 +253,7 @@ public sealed partial class GmailMailProvider(
 
 			var request = service.Users.Messages.Get(UserId, summary.Id);
 			request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
-			messages.Add(ToDto(await request.ExecuteAsync(ct)));
+			messages.Add(ToDto(await request.ExecuteThrottleAwareAsync(ct)));
 		}
 
 		return messages;

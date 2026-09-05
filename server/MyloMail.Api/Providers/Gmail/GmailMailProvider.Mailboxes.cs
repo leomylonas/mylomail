@@ -31,7 +31,7 @@ public sealed partial class GmailMailProvider
 		var fullName = parent is null ? name : $"{mailboxes.LocalPath(parent.Id, PathSeparator)}{PathSeparator}{name}";
 		var created = await service.Users.Labels
 			.Create(new Label { Name = fullName, LabelListVisibility = "labelShow", MessageListVisibility = "show" }, UserId)
-			.ExecuteAsync(ct);
+			.ExecuteThrottleAwareAsync(ct);
 		return ToDto(created);
 	}
 
@@ -49,7 +49,7 @@ public sealed partial class GmailMailProvider
 				: newName;
 		var updated = await service.Users.Labels
 			.Patch(new Label { Name = fullName }, UserId, ProviderMailboxId(mailbox))
-			.ExecuteAsync(ct);
+			.ExecuteThrottleAwareAsync(ct);
 		return ToDto(updated);
 	}
 
@@ -67,14 +67,14 @@ public sealed partial class GmailMailProvider
 				: $"{mailboxes.LocalPath(newParent.Id, PathSeparator)}{PathSeparator}{mailbox.Name}";
 		var updated = await service.Users.Labels
 			.Patch(new Label { Name = fullName }, UserId, ProviderMailboxId(mailbox))
-			.ExecuteAsync(ct);
+			.ExecuteThrottleAwareAsync(ct);
 		return ToDto(updated);
 	}
 
 	public async Task DeleteMailboxAsync(Account account, Mailbox mailbox, CancellationToken ct)
 	{
 		var service = await ServiceAsync(account, ct);
-		await service.Users.Labels.Delete(UserId, ProviderMailboxId(mailbox)).ExecuteAsync(ct);
+		await service.Users.Labels.Delete(UserId, ProviderMailboxId(mailbox)).ExecuteThrottleAwareAsync(ct);
 	}
 
 	private static MailboxDto ToDto(Label label) =>
