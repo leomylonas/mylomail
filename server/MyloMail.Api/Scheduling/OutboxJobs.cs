@@ -47,6 +47,7 @@ public sealed class OutboxJobs(
 	AccountGate gate,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
+	TimeProvider clock,
 	ILogger<OutboxJobs> logger
 )
 {
@@ -149,6 +150,51 @@ public sealed class OutboxJobs(
 			await context.SaveChangesAsync(ct);
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, afterRun, ct);
 		}
+
+		await ScheduleReconciliationCheckAsync(accountId, ct);
+	}
+
+	/// <summary>
+	/// Guarantees <see cref="SendReconciler.ReconcileAsync"/> is invoked again before
+	/// <see cref="SendReconciler.ReconciliationWindow"/> elapses for any item still waiting,
+	/// even when nothing new is ever queued to send for this account in the meantime.
+	/// </summary>
+	/// <remarks>
+	/// Without this, an ambiguous send with no other outbox activity afterward would only ever
+	/// be re-checked as a side effect of some unrelated future job for the same account — <see
+	/// cref="RunAsync"/> is otherwise enqueued only when a new item becomes due or at startup.
+	/// <see cref="SendReconciler"/>'s own doc comment describes an active, time-bound decision
+	/// ("how long to keep looking before giving up and asking the user"), so the check that
+	/// makes that decision must run on its own schedule, not wait on unrelated traffic. Once an
+	/// item's window has already elapsed — its "give up" message already delivered — there is
+	/// nothing further this job needs to guarantee for it, so it is excluded from scheduling a
+	/// further check.
+	/// </remarks>
+	private async Task ScheduleReconciliationCheckAsync(Guid accountId, CancellationToken ct)
+	{
+		var now = clock.GetUtcNow();
+		// The addition below is client-evaluated (SQLite can't translate DateTimeOffset
+		// arithmetic), so materialise the raw timestamps first and compute deadlines after.
+		var reconcilingSince = await context
+			.OutboxItems.Where(o =>
+				o.AccountId == accountId
+				&& (o.Status == OutboxStatus.Sending || o.Status == OutboxStatus.AmbiguousOutcome)
+				&& o.ReconcilingSince != null
+			)
+			.Select(o => o.ReconcilingSince!.Value)
+			.ToListAsync(ct);
+
+		var deadlines = reconcilingSince
+			.Select(since => since + SendReconciler.ReconciliationWindow)
+			.Where(deadline => deadline > now)
+			.ToList();
+
+		if (deadlines.Count == 0)
+		{
+			return;
+		}
+
+		jobs.Schedule<OutboxJobs>(j => j.RunAsync(accountId, default), deadlines.Min() - now);
 	}
 
 	/// <summary>
