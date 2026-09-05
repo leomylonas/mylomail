@@ -2534,6 +2534,34 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   a distinct, unrelated pair of fields). New assertion manually confirmed as a genuine
   discriminator via revert-and-reproduce. `dotnet test` 414 passed/0 failed (unaffected count —
   extended an existing test). `pnpm check` clean, 316 dotnet tests, vitest 100.
+- **Hundred-and-eighty-third pass — a long staged backlog could keep committing after its
+  account was disabled or removed.** Passes 177-182 were a clean run (sibling reset-block audit,
+  outbox/mutation state-pairing audit, relative-time display, fault-injection/certificate/export
+  scope checks, per-window state and deleted-account handling, shortcut discoverability and temp
+  file cleanup — no gaps found in any of them). This pass found `ChangeStreamService
+.ReplayStagedAsync`'s internal `while(true)` loop — which can span many staged pages and their
+  own commits in one call — never re-checked `Account.IsEnabled` between iterations, only the
+  caller checked it once before invoking the method, violating §3's "a worker already running
+  when an account was removed cannot commit for it." Fixed by adding a per-iteration check at
+  the top of the loop, breaking if the account is no longer enabled (the default-to-false on a
+  missing row also correctly covers account removal, not just disabling). Two rounds of
+  `invariant-review` were needed: the first confirmed the fix's placement, N+1 safety, and
+  frozen-invariant clearance, but found the accompanying regression test only proved the
+  account-already-disabled-before-any-call case (already handled by the pre-existing caller-side
+  check) — it never reached a second loop iteration, so it couldn't discriminate "checked once
+  per call" from "checked every iteration." A second test was added reusing the existing
+  `FaultPoints.SyncPageAfterCommit` fault point inside the loop, staging two pages via two
+  `SyncAsync` calls, crashing after the first page's commit, disabling the account, then
+  resuming. The second `invariant-review` round caught that even this crash-then-resume
+  structure only ever executes one iteration per call, so it still couldn't distinguish the two
+  placements — the stricter per-iteration guarantee is correct by inspection of the loop but
+  isn't independently exercised by either test, since doing so needs a fault-injection mechanism
+  that can run a side effect and let the same call continue rather than only throw. Documented
+  honestly in the test's own remarks rather than left overclaimed, rather than force a bigger
+  fault-injection-infrastructure change for a guarantee already correct by inspection. Both tests
+  manually confirmed as genuine discriminators for what they actually prove via
+  revert-and-reproduce. `dotnet test` 416 passed/0 failed (up from 414). `pnpm check` clean, 318
+  dotnet tests, vitest 100.
 
 ## Next task
 
