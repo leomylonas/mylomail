@@ -216,6 +216,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public List<OutboxItemDto> OutboxStatuses { get; } = [];
 
+	public List<MutationFailureDto> SyncFailures { get; } = [];
+
 	public void Clear()
 	{
 		Received.Clear();
@@ -229,6 +231,7 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Notifications.Clear();
 		AccountStatuses.Clear();
 		OutboxStatuses.Clear();
+		SyncFailures.Clear();
 	}
 
 	public Task MessageReceivedAsync(MessageSummaryDto message)
@@ -287,7 +290,11 @@ internal sealed class RecordingHubEvents : IHubEvents
 		return Task.CompletedTask;
 	}
 
-	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
+	public Task MessageSyncFailedAsync(MutationFailureDto failure)
+	{
+		SyncFailures.Add(failure);
+		return Task.CompletedTask;
+	}
 
 	public Task AccountStatusChangedAsync(AccountDto account)
 	{

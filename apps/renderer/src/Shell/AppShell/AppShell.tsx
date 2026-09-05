@@ -27,6 +27,7 @@ import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBa
 import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
+import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -81,7 +82,12 @@ export function AppShell() {
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
 	// "New message" — the two are mutually exclusive seeds for the same compose pane.
 	const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>();
-	const [reauthenticating, setReauthenticating] = useState(false);
+	// Which account's ReauthenticateAccount dialog is open, if any — not always
+	// selectedAccountId: a MessageSyncFailed event (§15) can request this for a different
+	// account than whichever one this window currently has selected.
+	const [reauthenticatingAccountId, setReauthenticatingAccountId] = useState<
+		string | null
+	>(null);
 	const store = useWindowStore();
 	const { store: notifications } = useWindowNotifications();
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
@@ -119,6 +125,28 @@ export function AppShell() {
 		if (!selectedAccountId && accounts.data?.length)
 			store.setState("selectedAccountId", accounts.data[0].id);
 	}, [accounts.data, selectedAccountId, store]);
+
+	// A MessageSyncFailed event (§15) asked this window to open ReauthenticateAccount for a
+	// specific account — not necessarily whichever one is currently selected. An external-event
+	// subscription, the same shape as the notification-click listener below, not a React-state
+	// sync: the write happens in response to that external event firing, not during render.
+	useEffect(
+		() =>
+			queryClient.getQueryCache().subscribe((event) => {
+				if (
+					event.type !== "updated" ||
+					event.query.queryKey[0] !== "reauth-requested-account"
+				) {
+					return;
+				}
+				const accountId = event.query.state.data as string | null;
+				if (accountId) {
+					setReauthenticatingAccountId(accountId);
+					queryClient.setQueryData(queryKeys.reauthRequestedAccountId(), null);
+				}
+			}),
+		[queryClient],
+	);
 
 	// The front door: with nothing set up yet, the form is what the user should see, not an
 	// empty reading pane with no way to get past it. Derived rather than synced via an effect,
@@ -280,7 +308,9 @@ export function AppShell() {
 					hideCloseButton
 					inline
 					actionButtonLabel="Reauthenticate"
-					onActionButtonClick={() => setReauthenticating(true)}
+					onActionButtonClick={() =>
+						setReauthenticatingAccountId(selectedAccountId ?? null)
+					}
 				/>
 			) : null}
 
@@ -483,12 +513,12 @@ export function AppShell() {
 				</Group>
 			)}
 
-			{reauthenticating && hub && selectedAccountId ? (
+			{reauthenticatingAccountId && hub ? (
 				<ReauthenticateAccount
 					hub={hub}
-					accountId={selectedAccountId}
-					onReauthenticated={() => setReauthenticating(false)}
-					onClose={() => setReauthenticating(false)}
+					accountId={reauthenticatingAccountId}
+					onReauthenticated={() => setReauthenticatingAccountId(null)}
+					onClose={() => setReauthenticatingAccountId(null)}
 				/>
 			) : null}
 		</div>

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using Xunit;
@@ -323,6 +324,38 @@ public sealed class MutationExecutionTests
 				await services.GetRequiredService<MutationExecutor>().ExecuteAsync(harness.Account, [.. group]);
 			}
 		});
+	}
+
+	/// <summary>
+	/// Hundred-and-fifty-sixth pass: <see cref="MutationFailureDto"/> carried a message's
+	/// failure category but not which account it belonged to, so a client-side
+	/// reauthenticate/trust-certificate action had no account to act on and always fell back
+	/// to a generic refetch. Confirms both new fields — <c>AccountId</c> and the certificate
+	/// extensions a rejected-certificate problem carries — are threaded through correctly from
+	/// the provider's raw <see cref="MutationProblemDetails"/>.
+	/// </summary>
+	[Fact]
+	public async Task A_failed_mutation_carries_the_accountId_and_certificate_extensions()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		var occurrenceId = await OccurrenceIdAsync(harness);
+		var certificateProblem = MyloMail.Api.Security.CertificateTrust.Problem(
+			"imap.example.test",
+			"deadbeef",
+			"Example CA"
+		);
+		harness.Provider.FailNextBatchItemWith(occurrenceId, certificateProblem);
+
+		await ExecuteAsync(harness);
+
+		var failure = Assert.Single(harness.Events.SyncFailures);
+		Assert.Equal(harness.AccountId, failure.AccountId);
+		Assert.Equal(harness.MessageId, failure.MessageId);
+		Assert.Equal(ErrorCategory.Validation, failure.Category);
+		Assert.Equal("imap.example.test", failure.CertificateHostname);
+		Assert.Equal("deadbeef", failure.CertificateSha256Fingerprint);
 	}
 
 	private static async Task<string> OccurrenceIdAsync(MutationHarness harness) =>

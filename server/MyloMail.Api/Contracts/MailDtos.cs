@@ -247,8 +247,27 @@ public record AccountSettingsDto(
 	bool? AppendToSentOnSend
 );
 
+/// <param name="AccountId">
+/// Which account's mutation failed — needed so a client-side reauthenticate/trust-certificate
+/// action knows which account to act on, rather than assuming it's whichever one happens to be
+/// selected in the window that receives this event (§15).
+/// </param>
+/// <param name="CertificateHostname">
+/// Present only alongside <see cref="Errors.CertificateTrust"/>'s rejected-certificate problem
+/// (a <see cref="ErrorCategory.Validation"/> failure) — the same hostname/fingerprint pair a
+/// REST-surfaced auth failure already carries in <c>ProblemDetails.Extensions</c>, threaded
+/// through here so a mutation-level rejection can drive the identical trust-certificate flow
+/// instead of a generic "try again."
+/// </param>
 [TranspilationSource]
-public record MutationFailureDto(Guid MessageId, ErrorCategory Category, string? Detail);
+public record MutationFailureDto(
+	Guid MessageId,
+	Guid AccountId,
+	ErrorCategory Category,
+	string? Detail,
+	string? CertificateHostname = null,
+	string? CertificateSha256Fingerprint = null
+);
 
 /// <param name="ReconcilingSince">
 /// When an <see cref="OutboxStatus.AmbiguousOutcome"/> reconciliation window started, if any

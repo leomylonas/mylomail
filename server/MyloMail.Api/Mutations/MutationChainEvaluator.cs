@@ -58,9 +58,12 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 
 			// The user asked for this and it will not happen. Saying so is the whole reason
 			// the failure carries the originating cause (§6).
+			// No Extensions here: only the persisted Category/LastError survive a cancelled
+			// downstream item, not the originating failure's raw problem details.
 			await events.MessageSyncFailedAsync(
 				new MutationFailureDto(
 					item.MessageId,
+					item.AccountId,
 					item.FailureCategory ?? ErrorCategory.Unknown,
 					item.LastError
 				)

@@ -32,6 +32,13 @@ export const queryKeys = {
 	 * below, which only fires on a transition (§7, §15).
 	 */
 	connectivity: () => ["connectivity"] as const,
+	/**
+	 * Cache-only, never fetched: written by `MessageSyncFailed` below when a mutation fails
+	 * for a reason a reauthenticate/trust-certificate flow can actually fix, so `AppShell` can
+	 * open that flow for the right account without `HubConnection` needing to reach into
+	 * shell-level UI state directly (§15).
+	 */
+	reauthRequestedAccountId: () => ["reauth-requested-account"] as const,
 };
 
 export interface SyncProgress {
@@ -136,19 +143,46 @@ export function connectHub(
 		"MessageSyncFailed",
 		(failure: {
 			messageId: string;
+			accountId: string;
 			category: ErrorCategory;
 			detail: string | null;
+			certificateHostname?: string;
+			certificateSha256Fingerprint?: string;
 		}) => {
-			const presentation = present(failure.category, failure.detail);
+			const presentation = present(
+				failure.category,
+				failure.detail,
+				failure.certificateHostname && failure.certificateSha256Fingerprint
+					? {
+							hostname: failure.certificateHostname,
+							sha256Fingerprint: failure.certificateSha256Fingerprint,
+						}
+					: undefined,
+			);
+			// "reauthenticate" and "trust-certificate" both route to the same dialog:
+			// ReauthenticateAccount already has its own internal trust-certificate flow,
+			// triggered when a blank-password retry hits the same rejected certificate — so
+			// there is nothing further to build for the cert case specifically, only a way to
+			// open that dialog for the account this failure actually belongs to (§15).
+			const opensReauthenticate =
+				presentation.action === "reauthenticate" ||
+				presentation.action === "trust-certificate";
 			notify(notifications, {
 				kind: "error",
 				title: presentation.title,
 				detail: presentation.detail,
 				action: presentation.action
 					? {
-							label: "Details",
-							run: () =>
-								void queryClient.invalidateQueries({ queryKey: ["messages"] }),
+							label: opensReauthenticate ? "Reauthenticate" : "Details",
+							run: () => {
+								if (opensReauthenticate) {
+									queryClient.setQueryData(
+										queryKeys.reauthRequestedAccountId(),
+										failure.accountId,
+									);
+								}
+								void queryClient.invalidateQueries({ queryKey: ["messages"] });
+							},
 						}
 					: undefined,
 			});

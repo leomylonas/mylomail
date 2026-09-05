@@ -28,6 +28,7 @@ public sealed class FakeMailProvider : IMailProvider
 
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
+	private readonly Dictionary<string, MutationProblemDetails> forcedBatchFailures = [];
 	private Exception? sendFailure;
 	private Exception? fetchRawMessageFailure;
 	private Exception? draftPushFailure;
@@ -64,6 +65,16 @@ public sealed class FakeMailProvider : IMailProvider
 	/// than successful, and partial batch results are the normal case, not an edge one.
 	/// </summary>
 	public void OmitFromBatchResults(string providerOccurrenceId) => omitted.Add(providerOccurrenceId);
+
+	/// <summary>
+	/// Makes the fake report a specific, caller-supplied problem for one occurrence's batch
+	/// item instead of applying the mutation — for exercising a failure whose exact
+	/// <see cref="MutationProblemDetails.Category"/>/<see cref="ProblemDetails.Extensions"/>
+	/// shape (a rejected-certificate problem, say) needs to be controlled precisely, rather
+	/// than whatever an ordinary not-found/omitted failure happens to carry.
+	/// </summary>
+	public void FailNextBatchItemWith(string providerOccurrenceId, MutationProblemDetails problem) =>
+		forcedBatchFailures[providerOccurrenceId] = problem;
 
 	/// <summary>Makes the next send throw, so a rejection path can be exercised.</summary>
 	public void FailSendWith(Exception failure) => sendFailure = failure;
@@ -415,6 +426,14 @@ public sealed class FakeMailProvider : IMailProvider
 		{
 			if (omitted.Contains(reference.ProviderOccurrenceId))
 			{
+				continue;
+			}
+
+			if (forcedBatchFailures.Remove(reference.ProviderOccurrenceId, out var forcedProblem))
+			{
+				items.Add(
+					new BatchItemResult(reference.MessageId, reference.MailboxId, Succeeded: false, forcedProblem, [])
+				);
 				continue;
 			}
 

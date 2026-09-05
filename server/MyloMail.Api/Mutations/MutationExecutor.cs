@@ -175,11 +175,17 @@ public sealed class MutationExecutor(
 					item.LeaseExpiresAt = null;
 					await chains.RevertDesiredStateAsync(item, ct);
 					failed.Add(item);
+					var extensions = outcome.Problem?.Extensions;
 					failures.Add(
 						new MutationFailureDto(
 							item.MessageId,
+							item.AccountId,
 							item.FailureCategory ?? ErrorCategory.Unknown,
-							item.LastError
+							item.LastError,
+							extensions?.TryGetValue("hostname", out var hostname) == true ? hostname as string : null,
+							extensions?.TryGetValue("sha256Fingerprint", out var fingerprint) == true
+								? fingerprint as string
+								: null
 						)
 					);
 				}

@@ -356,10 +356,16 @@ export type AccountSettingsDto = {
 export type MutationFailureDto = {
     /** Transpiled from System.Guid */
     messageId: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
     /** Transpiled from MyloMail.Api.Errors.ErrorCategory */
     category: ErrorCategory;
     /** Transpiled from string? */
     detail?: string;
+    /** Transpiled from string? */
+    certificateHostname?: string;
+    /** Transpiled from string? */
+    certificateSha256Fingerprint?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.OutboxItemDto */
