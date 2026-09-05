@@ -715,6 +715,7 @@ export function MessageList({
 						onPrint,
 						onCompose,
 						ownAddress,
+						reportFailure,
 					)}
 				/>
 			) : null}
@@ -743,6 +744,7 @@ function messageActions(
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
 	onCompose: (seed: ComposeSeed) => void,
 	ownAddress: string,
+	reportFailure: (title: string) => (error: unknown) => void,
 ): MenuAction[] {
 	const single = targets.length === 1 ? targets[0] : undefined;
 	const suffix = targets.length > 1 ? ` (${targets.length})` : "";
@@ -798,12 +800,20 @@ function messageActions(
 		},
 		{
 			label: "Save as .eml",
-			run: () => single && void saveAsEml(hub, single),
+			run: () =>
+				single &&
+				void saveAsEml(hub, single).catch(
+					reportFailure("The message could not be saved"),
+				),
 			unavailable: singleUnavailable,
 		},
 		{
 			label: "Print",
-			run: () => single && void printMessage(hub, queryClient, single, onPrint),
+			run: () =>
+				single &&
+				void printMessage(hub, queryClient, single, onPrint).catch(
+					reportFailure("The message could not be printed"),
+				),
 			unavailable: singleUnavailable,
 		},
 	];
