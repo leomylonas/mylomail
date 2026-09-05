@@ -2936,6 +2936,29 @@ test` 444 passed/0 failed (up from 438). `pnpm check` clean.
   genuine discriminator via revert-and-reproduce. `pnpm check` clean: vitest 114 (up from 109; no
   backend change, `dotnet test` stays at 356).
 
+- **Two-hundred-and-fourth pass — the missing-attachment warning fired on almost every
+  reply/forward.** Confirmed the drag-and-drop/keyboard-parity theme from passes 201-203 is now
+  exhausted: a repo-wide check found only three drag sources in the renderer (message row, mailbox
+  row, account section header), all already given keyboard/context-menu equivalents; the calendar
+  views have no drag-to-reschedule at all (edit is modal-only), so there was no fourth case.
+  Investigating fresh, found Epic 6's missing-attachment heuristic ("if the body mentions an
+  attachment but none is attached, warn before sending") tested the _entire_ compose body HTML —
+  but `buildReplySeed`/`buildForwardSeed` always splice the quoted original message into that same
+  body inside a `<blockquote>`. Any original message mentioning "attached" (extremely common —
+  "please see the attached invoice," or virtually every forwarded message referencing its own
+  attachments) triggered a false "you mentioned an attachment" confirmation on every reply or
+  forward, regardless of what the user actually typed. Fixed with a new
+  `mentionsAttachmentOutsideQuote(html)` in `ComposeReplyForward.ts` that parses the HTML via
+  `DOMParser`, removes every `<blockquote>` (the only quote-construction site in this codebase),
+  and runs the same regex against the remaining `textContent`; `Compose.tsx`'s send-time check now
+  calls this instead of testing the raw HTML, with the `!attachments.length`/`window.confirm`
+  gating around it untouched. 3 new tests, each manually confirmed as a genuine discriminator via
+  revert-and-reproduce. `invariant-review`: no issues — confirmed blockquote removal correctly
+  handles nested/multiple blockquotes in one pass, `DOMParser` is safe here (parsing the user's own
+  draft, not §13 Epic 5's isolated untrusted-mail rendering path), and no frozen-table entry
+  touched (pure renderer/compose-flow change). `pnpm check` clean: vitest 117 (up from 114; no
+  backend change, `dotnet test` stays at 356).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
