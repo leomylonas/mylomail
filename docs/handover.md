@@ -2585,6 +2585,25 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   producing the claimed two pages, and the intermediate-page/`commitCursor` cursor-null assertion
   were all independently confirmed correct. `dotnet test` 418 passed/0 failed (up from 416).
   `pnpm check` clean under Node 22: format/tsc/eslint/stylelint/build, 320 dotnet tests, vitest 100.
+- **Hundred-and-eighty-fifth pass — a stalled content-fetch backlog had no path back onto the
+  queue after a crash.** §6's startup-reconciliation table lists `MessageContentState` in
+  `Queued`/`Fetching` as a source of outstanding work startup "must enumerate"; every other listed
+  source was covered, but `StartupScheduler.ScheduleAsync` never enqueued
+  `ContentJobs.FetchNextAsync` at all. That job self-schedules its own successor only while
+  content remains pending and stops silently the instant the queue drains — it only ever restarts
+  because `SyncJobs` re-kicks it after a live sync page. A crash leaving messages `Queued`/
+  `Fetching` on an account that's otherwise fully caught up, or idling on IMAP IDLE with no new
+  mail arriving, had no way to resume that backlog after restart; it would sit inert indefinitely.
+  Fixed by unconditionally enqueuing `ContentJobs.FetchNextAsync` per enabled account in the same
+  startup loop, following the already-accepted pattern of `MutationJobs.DrainAsync`/
+  `OutboxJobs.RunAsync` (both enqueued regardless of whether work is actually pending; the job
+  itself no-ops harmlessly if none is). New `StartupContentReschedulingTests` seeds a message
+  stuck `Fetching` and asserts `ScheduleAsync`'s created-job list picks it back up; manually
+  confirmed as a genuine discriminator via revert-and-reproduce. `invariant-review`: no findings —
+  confirmed the gap, the fix's consistency with the existing pattern, no meaningful
+  double-scheduling risk given content fetch's idempotency, and no frozen-table entries touched.
+  `dotnet test` 419 passed/0 failed (up from 418). `pnpm check` clean under Node 22: format/tsc/
+  eslint/stylelint/build, 321 dotnet tests, vitest 100.
 
 ## Next task
 
