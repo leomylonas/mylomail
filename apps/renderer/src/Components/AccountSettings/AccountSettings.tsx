@@ -63,6 +63,10 @@ export function AccountSettings({
 	const [saved, setSaved] = useState(false);
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
 	const [removing, setRemoving] = useState(false);
+	// Set only when a first, unforced removal attempt reports a still-running export — a
+	// second, separate confirmation asks whether to stop it (§13 Export) rather than silently
+	// either blocking the removal or abandoning the export.
+	const [exportConflict, setExportConflict] = useState(false);
 	const { store: notifications } = useWindowNotifications();
 
 	const save = async () => {
@@ -84,15 +88,24 @@ export function AccountSettings({
 		}
 	};
 
-	const remove = async () => {
+	const remove = async (force = false) => {
 		setRemoving(true);
 		try {
-			const response = await fetch(`/accounts/${values.id}`, {
-				method: "DELETE",
-			});
+			const response = await fetch(
+				`/accounts/${values.id}${force ? "?force=true" : ""}`,
+				{ method: "DELETE" },
+			);
+			if (response.status === 409 && !force) {
+				// A bulk export is still running for this account — ask separately whether to
+				// stop it rather than either silently blocking or silently abandoning it.
+				setConfirmingRemove(false);
+				setExportConflict(true);
+				return;
+			}
 			if (!response.ok)
 				throw new Error(`accounts responded ${response.status}`);
 			setConfirmingRemove(false);
+			setExportConflict(false);
 			onRemoved();
 		} catch (error) {
 			notify(notifications, {
@@ -260,6 +273,27 @@ export function AccountSettings({
 						message already being sent, or a move or delete already under way —
 						may still complete on the server even after the account is gone from
 						MyloMail; removing the account does not reliably cancel it.
+					</p>
+				</Modal>
+			) : null}
+			{exportConflict ? (
+				<Modal
+					open
+					danger
+					modalHeading="This account has an export still running"
+					primaryButtonText="Remove anyway"
+					secondaryButtonText="Let the export finish"
+					primaryButtonDisabled={removing}
+					onRequestSubmit={() => void remove(true)}
+					onRequestClose={() => setExportConflict(false)}
+					onSecondarySubmit={() => setExportConflict(false)}
+				>
+					<p>
+						Removing this account now will stop the export partway through
+						&mdash; any messages not yet written won&rsquo;t be. Choose
+						&ldquo;Let the export finish&rdquo; to keep the account for now, or
+						&ldquo;Remove anyway&rdquo; to stop the export and remove the
+						account immediately.
 					</p>
 				</Modal>
 			) : null}

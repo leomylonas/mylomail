@@ -150,11 +150,30 @@ public class AccountsController(
 	/// Removes an account. Disabling and deletion happen inside the service so that jobs stop
 	/// cleanly first (§3).
 	/// </summary>
+	/// <param name="force">
+	/// Pass <c>true</c> once the user has confirmed removal despite a running export
+	/// (<see cref="ExportInProgressException"/>) — the first call without it is how the
+	/// renderer discovers that export exists at all.
+	/// </param>
 	[HttpDelete("{accountId:guid}")]
-	public async Task<IActionResult> Remove(Guid accountId, CancellationToken ct)
+	public async Task<IActionResult> Remove(Guid accountId, [FromQuery] bool force, CancellationToken ct)
 	{
-		await provisioning.RemoveAsync(accountId, ct);
-		return NoContent();
+		try
+		{
+			await provisioning.RemoveAsync(accountId, force, ct);
+			return NoContent();
+		}
+		catch (ExportInProgressException ex)
+		{
+			var problem = new ProblemDetails
+			{
+				Title = "Export in progress",
+				Detail = "This account has a bulk export still running. Remove anyway to stop it, or wait for the export to finish first.",
+				Status = StatusCodes.Status409Conflict,
+			};
+			problem.Extensions["exportId"] = ex.ExportId;
+			return new ObjectResult(problem) { StatusCode = StatusCodes.Status409Conflict };
+		}
 	}
 
 	/// <summary>

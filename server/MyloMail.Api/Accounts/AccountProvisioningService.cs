@@ -235,7 +235,15 @@ public sealed class AccountProvisioningService(
 	/// It does not make every job harmless: a provider call already in flight may still
 	/// complete remotely.
 	/// </remarks>
-	public async Task RemoveAsync(Guid accountId, CancellationToken ct = default)
+	/// <param name="force">
+	/// A running <see cref="ExportJob"/> writes local `.eml` files for the account being
+	/// removed — nothing about that is remote or reconciliation-relevant, but the user should
+	/// still get a say rather than losing an in-progress export silently. When an export is
+	/// still <see cref="ExportJobStatus.Running"/> or <see cref="ExportJobStatus.CancelRequested"/>
+	/// and <paramref name="force"/> is <c>false</c>, this throws <see cref="ExportInProgressException"/>
+	/// instead of removing anything, so the caller can ask first.
+	/// </param>
+	public async Task RemoveAsync(Guid accountId, bool force = false, CancellationToken ct = default)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null)
@@ -243,9 +251,35 @@ public sealed class AccountProvisioningService(
 			return;
 		}
 
+		// SQLite can't translate ORDER BY over DateTimeOffset (ExportJob.CreatedAt), so this
+		// picks whichever active export happens to sort first locally rather than the most
+		// recent — fine for surfacing "an export is running", and the force branch below acts
+		// on every active export for the account, not just this one, so nothing is missed if
+		// StartAsync's caller ever allows more than one concurrently.
+		var activeExports = await context
+			.ExportJobs.Where(j =>
+				j.AccountId == accountId
+				&& (j.Status == ExportJobStatus.Running || j.Status == ExportJobStatus.CancelRequested)
+			)
+			.ToListAsync(ct);
+		if (activeExports.Count > 0 && !force)
+		{
+			throw new ExportInProgressException(activeExports[0].Id);
+		}
+
 		account.IsEnabled = false;
 		account.LastAuthError = null;
 		await context.SaveChangesAsync(ct);
+
+		if (activeExports.Count > 0)
+		{
+			// The user chose to remove anyway: stop every active export explicitly rather than
+			// let it race the deletion below and fail with a raw exception once the account is
+			// gone.
+			await context
+				.ExportJobs.Where(j => j.AccountId == accountId && j.Status == ExportJobStatus.Running)
+				.ExecuteUpdateAsync(u => u.SetProperty(j => j.Status, ExportJobStatus.CancelRequested), ct);
+		}
 
 		// Before the account goes: messages cascade from it, and a message cannot be deleted
 		// while it is still indexed — the index would otherwise be left describing rows that
@@ -342,4 +376,14 @@ public sealed class AccountAuthenticationFailedException(Errors.MutationProblemD
 	: Exception(problem?.Detail ?? "Authentication was rejected.")
 {
 	public Errors.MutationProblemDetails? Problem { get; } = problem;
+}
+
+/// <summary>
+/// Thrown by <see cref="AccountProvisioningService.RemoveAsync"/> when a bulk export is still
+/// running for the account and the caller did not ask to remove anyway.
+/// </summary>
+public sealed class ExportInProgressException(Guid exportId)
+	: Exception("This account has a bulk export still in progress.")
+{
+	public Guid ExportId { get; } = exportId;
 }

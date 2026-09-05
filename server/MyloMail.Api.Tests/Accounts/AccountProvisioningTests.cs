@@ -309,6 +309,96 @@ public sealed class AccountProvisioningTests
 		});
 	}
 
+	/// <summary>
+	/// A running export writes local files for the account being removed — the user should get
+	/// a say (per an explicit product decision) rather than losing it silently. An unforced
+	/// removal must refuse, leaving both the account and the export untouched.
+	/// </summary>
+	[Fact]
+	public async Task Removing_an_account_with_a_running_export_refuses_unless_forced()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await AddAsync(harness, "someone@example.org", Secret());
+		var exportId = Guid.NewGuid();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.ExportJobs.Add(
+				new ExportJob
+				{
+					Id = exportId,
+					AccountId = account.Id,
+					DestinationPath = "/tmp/export",
+					Status = ExportJobStatus.Running,
+					TotalCount = 10,
+					WrittenCount = 3,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var ex = await Assert.ThrowsAsync<ExportInProgressException>(
+				() => services.GetRequiredService<AccountProvisioningService>().RemoveAsync(account.Id)
+			);
+			Assert.Equal(exportId, ex.ExportId);
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.NotNull(await context.Accounts.FirstOrDefaultAsync(a => a.Id == account.Id));
+			Assert.Equal(ExportJobStatus.Running, (await context.ExportJobs.SingleAsync(j => j.Id == exportId)).Status);
+		});
+	}
+
+	/// <summary>
+	/// Forcing removal despite a running export lets removal proceed instead of throwing
+	/// <see cref="ExportInProgressException"/>. This does not independently observe the
+	/// explicit cancel-before-delete step in <c>RemoveAsync</c> — cascade delete removes the
+	/// <see cref="ExportJob"/> row along with the account either way, so a test asserting the
+	/// row is gone can't tell that step apart from simply not throwing.
+	/// </summary>
+	[Fact]
+	public async Task Removing_an_account_with_a_running_export_when_forced_stops_the_export_and_removes_it()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await AddAsync(harness, "someone@example.org", Secret());
+		var exportId = Guid.NewGuid();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.ExportJobs.Add(
+				new ExportJob
+				{
+					Id = exportId,
+					AccountId = account.Id,
+					DestinationPath = "/tmp/export",
+					Status = ExportJobStatus.Running,
+					TotalCount = 10,
+					WrittenCount = 3,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<AccountProvisioningService>().RemoveAsync(account.Id, force: true)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Null(await context.Accounts.FirstOrDefaultAsync(a => a.Id == account.Id));
+			// Cascade delete removes the row along with the account — what matters here is that
+			// force actually let removal proceed rather than throwing.
+			Assert.Null(await context.ExportJobs.FirstOrDefaultAsync(j => j.Id == exportId));
+		});
+	}
+
 	[Fact]
 	public async Task A_bounded_initial_sync_choice_is_persisted_on_the_account()
 	{
