@@ -2347,6 +2347,34 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   branch condition and the `problem?.title ??` fallback ordering are untouched, and no test
   anywhere references the old string. `pnpm check` clean, 310 dotnet tests (unaffected), vitest
   92 (unaffected).
+- **Passes 154-156 — a message-mutation failure's reauthenticate/trust-certificate action did
+  nothing useful.** Pass 154's systematic §15 cross-check found `MessageSyncFailed`'s handler
+  always wired its action button to a generic refetch, regardless of the actual failure category
+  — for reauthenticate/trust-certificate specifically that never addresses the underlying cause,
+  so the same error just recurs. Pass 155 confirmed it was a real gap, not intentional design:
+  `MutationFailureDto` carried no `AccountId` and no certificate extensions, so there was no way
+  to route to the account-specific flows `ReauthenticateAccount.tsx`/`AddAccount.tsx` already
+  have. Asked the user; they chose to build it. Pass 156 added `AccountId` (from `MutationItem`,
+  always available) and nullable `CertificateHostname`/`CertificateSha256Fingerprint` (threaded
+  from `outcome.Problem?.Extensions` — the same hostname/fingerprint pair
+  `CertificateTrust.Problem` already populates — only at `MutationExecutor`'s direct-failure
+  site, since `MutationChainEvaluator`'s downstream chain-cancellation site has nothing more than
+  the persisted category/error to work with). `HubConnection.ts` now threads the cert fields into
+  `ErrorPresentation.ts`'s existing `present()` (which already computed the correct
+  `"trust-certificate"` action whenever both fields are present — it just never received them
+  from this call site) and routes both `"reauthenticate"` and `"trust-certificate"` to the same
+  `ReauthenticateAccount` dialog, since it already has a complete internal trust-certificate
+  sub-flow rather than needing a second, parallel one. `AppShell.tsx` replaced its
+  selected-account-implicit `reauthenticating` boolean with an explicit
+  `reauthenticatingAccountId`, populated by a `QueryCache` subscription on a new cache-only query
+  key rather than a `useQuery`+effect (which tripped an eslint `set-state-in-effect` rule).
+  `invariant-review` confirmed the cache subscription fires correctly with no observer needed,
+  the self-clearing guard doesn't infinite-loop, `ReauthenticateAccount`'s blank-password retry
+  genuinely re-exercises the same connection a mutation would (so trusting a certificate there
+  fixes future mutations too), and no frozen-invariant entry is touched. New regression test
+  (`FakeMailProvider.FailNextBatchItemWith` + a `MutationExecutionTests` case) confirmed as a
+  genuine discriminator via revert-and-reproduce. `dotnet test` 409 passed/0 failed (up from
+  408). `pnpm check` clean, 311 dotnet tests, vitest 92.
 
 ## Next task
 
