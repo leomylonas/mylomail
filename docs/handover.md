@@ -2390,6 +2390,23 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   existing credential-store test's shape, manually confirmed as a genuine discriminator via
   revert-and-reproduce. `dotnet test` 410 passed/0 failed (up from 409). `pnpm check` clean, 312
   dotnet tests, vitest 92.
+- **Hundred-and-sixty-first pass — Epic 1's "view per-account connection status" had no sidebar
+  indicator at all.** Continuing the Epic-by-Epic doc read-through (passes 160/158 covered Epic
+  2 and the stage-C/timezone backlog respectively), found that with every account's mailboxes
+  shown at once (Epic 2 — no account switcher), a `NeedsReauth`/`Error`/
+  `CredentialStoreUnavailable` account looked identical to a `Connected` one in `Sidebar.tsx` —
+  the only status indicator anywhere was `AppShell.tsx`'s own banner, which only renders for the
+  currently-selected account, so a problem on any other account went unnoticed until the user
+  happened to click into it. Added a ⚠️ icon next to the account name, keyed off
+  `account.authState`, with a distinct message per state via a new pure `authStateWarning()`
+  function. `invariant-review` confirmed the type flows through real, live query data (not a
+  placeholder), the `undefined` guard exactly mirrors `AppShell.tsx`'s existing `needsAttention`
+  check, the switch covers all four real `AuthState` values, this doesn't conflict with
+  `AppShell`'s banner (consistent reinforcement, not duplication — the banner explains/acts on
+  the selected account, this flags the same fact for accounts that aren't selected, which is the
+  actual gap), and no frozen-invariant entry is touched; one cosmetic nit (computing the warning
+  string once instead of twice per row) applied. `pnpm check` clean, 312 dotnet tests
+  (unaffected), vitest 95 (up from 92).
 
 ## Next task
 
