@@ -226,11 +226,14 @@ export async function startShell(): Promise<void> {
 	void promptForMailtoDefaultAsync(origin, first);
 
 	// The backend is a child of this process, so it must not outlive it. Quitting is
-	// intercepted once to ask about pending scheduled/undo-send messages (§15) — a message
-	// still inside its undo-send delay has no durable existence yet job storage would recover
-	// on the next launch (§9), so quitting past it loses it silently. Confirmed once, the
-	// second before-quit (from the app.quit() call inside confirmQuit's continuation) proceeds
-	// for real rather than asking again.
+	// intercepted once to ask about pending scheduled/undo-send messages (§15) — the
+	// OutboxItem row itself is durable from the moment it's queued, but Hangfire's job storage
+	// is in-memory (§9), so the scheduled dispatch that would fire it is gone the moment this
+	// process exits. Startup reconciliation re-enqueues it next launch, so nothing is lost —
+	// only delayed until the app runs again — but a user quitting expecting an imminent send
+	// to have gone out should be told that plainly rather than left to discover it later.
+	// Confirmed once, the second before-quit (from the app.quit() call inside confirmQuit's
+	// continuation) proceeds for real rather than asking again.
 	let confirmedQuit = false;
 	// Set while confirmQuit is in flight, so a second before-quit arriving before the first
 	// resolves (a rapid double Cmd+Q, say) does not stack a second dialog on top of the first.
@@ -333,8 +336,8 @@ async function confirmQuit(origin: string): Promise<boolean> {
 				? "One message hasn't sent yet."
 				: `${pending} messages haven't sent yet.`,
 		detail:
-			"Quitting now will lose it — MyloMail keeps no record of a scheduled or undo-send " +
-			"message until it actually sends.",
+			"It won't be lost, but it won't send until MyloMail is running again — scheduled " +
+			"and undo-send messages only fire while the app is open.",
 	};
 	const result = window
 		? await dialog.showMessageBox(window, options)
