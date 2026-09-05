@@ -2690,6 +2690,23 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   the DESCRIPTION-collision bug invariant-review found. `dotnet test` 429 passed/0 failed (up from
   425). `pnpm check` clean under Node 22.
 
+- **Hundred-and-ninety-second pass — a VALARM reminder anchored to the wrong instant when
+  `RELATED=END` was set.** Continuing 190/191's property-by-property audit of `CalDavIcs.cs`'s
+  VEVENT parse/render round trip: a duration-relative `TRIGGER` defaults to `RELATED=START` per
+  RFC 5545 §3.8.6.3, but a server may explicitly send `RELATED=END` (e.g. "15 minutes before an
+  all-day event's end"); `TryParseTrigger` always anchored to the event's start regardless,
+  silently firing such a reminder at the wrong time whenever end differs from start. Fixed by
+  anchoring to end when `RELATED=END` is present — read-path only, since this codebase's own
+  writer (fixed in pass 191) only ever emits implicit-START triggers. `invariant-review` found no
+  violation but caught a real bug in the fix's own comparison: `ParseLine` uppercases parameter
+  _names_ but never case-normalizes parameter _values_, so a case-sensitive `== "END"` check would
+  miss a real server sending lowercase `related=end` — fixed with a case-insensitive comparison.
+  Noted, not fixed here (a separate, broader pattern issue across the whole file, left as a known
+  follow-up): the identical case-sensitivity weakness already exists in this same function's
+  pre-existing `VALUE == "DATE-TIME"` check and elsewhere in the file. 3 new regression tests, each
+  manually confirmed as a genuine discriminator via revert-and-reproduce. `dotnet test` 432
+  passed/0 failed (up from 429). `pnpm check` clean under Node 22: 334 dotnet tests, vitest 100.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
