@@ -2429,6 +2429,21 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   `<use>` are already lowercase) was added. Five new regression tests, two confirmed as genuine
   discriminators via revert-and-reproduce. `pnpm check` clean, 312 dotnet tests (unaffected),
   vitest 100 (up from 95).
+- **Hundred-and-sixty-fifth pass — re-read Epic 6 (Mail Actions) line-by-line against the
+  actual code.** Passes 113/114/118/119/147-149/159 had already covered most of Epic 6's bullet
+  list piecemeal (attachment batch-abort, bulk actions, reply/forward recipients,
+  permanent-delete confirmation, missing-attachment detection); this pass checked the two
+  remaining claims. Multi-select's shift/ctrl-click convention in `MessageList.tsx` is correctly
+  implemented (shift extends a range from `anchorIndex`, ctrl/meta toggles one row, a plain click
+  replaces the selection and opens the message) — no bug found. "Compose (plain text or HTML)"
+  is satisfied automatically for IMAP and Gmail via MimeKit's `BodyBuilder`, which builds a real
+  `multipart/alternative` from `HtmlBody`/a derived `TextBody` — but found a real, Next-task-list
+  item: `GraphMailProvider.Send.cs` sets only an HTML `ItemBody`, no plain-text alternative,
+  because Graph's typed message model has no multipart shape at all; a real fix needs a raw-MIME
+  send path, a design decision, not a small patch, and currently unreachable since no Graph
+  account can exist yet (recorded as Next-task item 7, alongside the already-tracked item 5 this
+  is blocked by the same deferred-OAuth item). No code changes this pass — a genuine finding
+  recorded, not fixed.
 
 ## Next task
 
@@ -2473,6 +2488,18 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
    exists, and no query filters by it. Building real threading needs each provider's own
    thread-id concept (a design decision, not dictated by strong precedent) plus new UI; the field
    should either be built out properly or removed, not left in this half state indefinitely.
+7. **Graph's send path has no plain-text alternative body** (found by pass 165, during the
+   Epic-by-Epic docs/architecture.md read-through). Epic 6's "Compose (plain text or HTML)" is
+   satisfied for IMAP and Gmail by `BodyBuilder`'s automatic `multipart/alternative`
+   construction — both `ImapMailProvider.Send.cs` and `GmailMailProvider.Send.cs` set
+   `HtmlBody`/`TextBody = ToPlainText(draft.BodyHtml)` — but `GraphMailProvider.Send.cs`'s
+   `ToOutgoingMessage` sets only `Body = new ItemBody { ContentType = BodyType.Html, ... }`.
+   This isn't a one-line omission: Graph's typed `Message`/`ItemBody` model only carries a
+   single content type, with no `multipart/alternative` shape at all — building one for real
+   would mean switching Graph's send path from the typed `client.Me.Messages.PostAsync(message)`
+   call to a raw-MIME upload (`message/rfc822` content, a materially different implementation),
+   a real design decision, not dictated by strong precedent. Currently dead code, same as item 5:
+   no Graph account can exist yet pending item 1's OAuth registration.
 
 ## Read first
 
