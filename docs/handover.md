@@ -3072,6 +3072,30 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   ("fires only while the app is running," relying on startup reconciliation to resume) is already
   explicitly documented as accepted, not a silent gap. No fix, no diff, no invariant-review needed.
 
+- **Two-hundred-and-eleventh pass — a notification could be silently lost, not just delayed, on
+  a platform where Electron notifications aren't supported.** §13 Epic 9's crash-safety contract
+  is "confirm delivery only once the shell has actually shown it" — `HubConnection.ts` only calls
+  `MarkNotificationDelivered` after `window.notifications.show()` resolves, deliberately leaving a
+  record unmarked on rejection so `NotificationService.RedispatchPendingAsync` retries it at the
+  next startup instead of losing it. `Main.ts`'s `showNotificationChannel` handler never upheld its
+  half of that contract: `new Notification({...}).show()` neither throws nor reports failure when
+  notifications aren't supported on the current platform (most commonly a headless/CI Linux
+  environment with no notification daemon — this repo's own tracked, still-unresolved "OS
+  notification dispatch has not been verified against a real notification daemon" item), so the IPC
+  promise always resolved successfully regardless of whether anything actually appeared —
+  `MarkNotificationDelivered` would fire, and the notification would be silently and permanently
+  lost rather than surfaced or redelivered. Fixed by checking `Notification.isSupported()` before
+  constructing/showing and throwing if false, so the promise rejects and the existing renderer
+  catch/redispatch machinery does its job. Investigated first: whether editing a recurring event's
+  virtual occurrence could bypass passes 97/98's fixes and create a stray duplicate event instead
+  of properly targeting the master — confirmed this is not possible, since `Calendar.tsx`'s
+  `openEditModal` already substitutes the virtual occurrence's id with the real master's id before
+  the edit modal ever opens, so `CalendarEventService.SaveAsync` always finds the existing master
+  row rather than falling through to `CreateAsync`. No new test: this file has no seam reachable
+  from a unit test for its inline `ipcMain.handle` callbacks, the same limitation already accepted
+  for this file's other IPC-handler fixes — verified by code review and `pnpm check`. `pnpm check`
+  clean: format/tsc/eslint/stylelint/build/tests(361)/vitest(117) (no new test, count unchanged).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
