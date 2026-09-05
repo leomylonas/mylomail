@@ -2604,6 +2604,18 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   double-scheduling risk given content fetch's idempotency, and no frozen-table entries touched.
   `dotnet test` 419 passed/0 failed (up from 418). `pnpm check` clean under Node 22: format/tsc/
   eslint/stylelint/build, 321 dotnet tests, vitest 100.
+- **Hundred-and-eighty-sixth pass — clean.** Traced §6's mutation-attempt ambiguity reconciliation
+  (`MutationExecutor`/`MutationClaimService`/`MutationReconciler` — `DrainAsync` correctly settles
+  `Dispatched`/`Ambiguous` attempts before any blind retry), §9's attachment temp-file handling
+  (sanitization, permissions, path-escape guard) and pre-migration `VACUUM INTO` backup, §7's
+  hub-event producer table (`CalendarEventUpdated`/`CalendarConflictDetected` call sites), Gmail's
+  folder-nesting emulation, the outbox cancel/claim race (`OutboxService.TryCancelAsync`/
+  `TryClaimForSendAsync` via shared `TransitionAsync`), and per-account `NotificationsEnabled`/
+  `PollIntervalSeconds` wiring — all matched the doc. One non-blocking observation, not fixed:
+  `StartupReconciliation.AmbiguousItemsAsync` is dead code in production, called only from two
+  test files; `MutationReconciler.ReconcileAsync` independently duplicates its purpose correctly.
+  Worth a deliberate cleanup pass, not an opportunistic one given mutation code's frozen-caution
+  status — left for a dedicated decision rather than touched here.
 
 ## Next task
 
