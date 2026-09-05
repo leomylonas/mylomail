@@ -378,7 +378,7 @@ internal static partial class CalDavIcs
 				_ => EventStatus.Confirmed,
 			},
 			Reminders = All("TRIGGER")
-				.Select(t => TryParseTrigger(t.Params, t.Value, start))
+				.Select(t => TryParseTrigger(t.Params, t.Value, start, end))
 				.Where(r => r is not null)
 				.Select(r => r!.Value)
 				.ToList(),
@@ -399,13 +399,22 @@ internal static partial class CalDavIcs
 	private static string StripMailto(string value) =>
 		value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? value["mailto:".Length..] : value;
 
-	private static DateTimeOffset? TryParseTrigger(IReadOnlyDictionary<string, string> parameters, string value, DateTimeOffset start)
+	private static DateTimeOffset? TryParseTrigger(IReadOnlyDictionary<string, string> parameters, string value, DateTimeOffset start, DateTimeOffset end)
 	{
 		if (parameters.GetValueOrDefault("VALUE") == "DATE-TIME")
 		{
 			return ParseDateTime(parameters, value);
 		}
-		return TryParseDuration(value, out var duration) ? start + duration : null;
+		if (!TryParseDuration(value, out var duration))
+		{
+			return null;
+		}
+		// RFC 5545 §3.8.6.3: RELATED defaults to START, but a server may explicitly say a
+		// duration-relative trigger is relative to the event's END instead (e.g. "15 minutes
+		// before an all-day event's end") — anchoring to start unconditionally silently fires
+		// the reminder at the wrong instant for any event whose end differs from its start.
+		var anchor = string.Equals(parameters.GetValueOrDefault("RELATED"), "END", StringComparison.OrdinalIgnoreCase) ? end : start;
+		return anchor + duration;
 	}
 
 	/// <summary>The inverse of <see cref="TryParseDuration"/>, for a VALARM's own TRIGGER.</summary>
