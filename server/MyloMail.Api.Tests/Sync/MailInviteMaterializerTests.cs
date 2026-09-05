@@ -140,6 +140,72 @@ public sealed class MailInviteMaterializerTests
 		});
 	}
 
+	[Fact]
+	public async Task A_reply_updates_the_matching_attendees_response_status()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, messageId) = await SeedAsync(database);
+
+		await Materialize(
+			database,
+			accountId,
+			messageId,
+			InviteMime("uid-5", "Standup", sequence: 0, attendee: "bob@example.org")
+		);
+		await Materialize(database, accountId, messageId, ReplyMime("uid-5", "bob@example.org", "ACCEPTED"));
+
+		await UsingAsync(database, async context =>
+		{
+			var ev = await context.CalendarEvents.SingleAsync(e => e.ICalUid == "uid-5");
+			var bob = Assert.Single(ev.Attendees, a => a.Email == "bob@example.org");
+			Assert.Equal(ResponseStatus.Accepted, bob.ResponseStatus);
+			return true;
+		});
+	}
+
+	[Fact]
+	public async Task A_reply_from_an_address_not_on_the_attendee_list_is_ignored()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, messageId) = await SeedAsync(database);
+
+		await Materialize(
+			database,
+			accountId,
+			messageId,
+			InviteMime("uid-6", "Standup", sequence: 0, attendee: "bob@example.org")
+		);
+		await Materialize(database, accountId, messageId, ReplyMime("uid-6", "stranger@example.org", "ACCEPTED"));
+
+		await UsingAsync(database, async context =>
+		{
+			var ev = await context.CalendarEvents.SingleAsync(e => e.ICalUid == "uid-6");
+			var bob = Assert.Single(ev.Attendees);
+			Assert.Equal("bob@example.org", bob.Email);
+			Assert.Equal(ResponseStatus.NeedsAction, bob.ResponseStatus);
+			return true;
+		});
+	}
+
+	[Fact]
+	public async Task A_reply_to_an_unknown_event_uid_is_ignored_without_error()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, messageId) = await SeedAsync(database);
+
+		// No matching invite was ever materialised for this UID.
+		await Materialize(database, accountId, messageId, ReplyMime("uid-does-not-exist", "bob@example.org", "ACCEPTED"));
+
+		await UsingAsync(database, async context =>
+		{
+			Assert.False(await context.CalendarEvents.AnyAsync());
+			return true;
+		});
+	}
+
 	private static Task Materialize(TestDatabase database, Guid accountId, Guid messageId, MimeMessage mime) =>
 		UsingAsync(database, async context =>
 		{
@@ -168,17 +234,42 @@ public sealed class MailInviteMaterializerTests
 			return (account.Id, messageId);
 		});
 
-	private static MimeMessage InviteMime(string uid, string title, int sequence, string method = "REQUEST")
+	private static MimeMessage InviteMime(
+		string uid,
+		string title,
+		int sequence,
+		string method = "REQUEST",
+		string? attendee = null
+	)
 	{
+		var attendeeLine = attendee is null ? "" : $"ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:{attendee}\r\n";
 		var ics =
 			$"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:{method}\r\n"
 			+ $"BEGIN:VEVENT\r\nUID:{uid}\r\nSEQUENCE:{sequence}\r\nSUMMARY:{title}\r\n"
 			+ "DTSTART:20260601T090000Z\r\nDTEND:20260601T093000Z\r\n"
-			+ "ORGANIZER;CN=Jane Doe:mailto:jane@example.org\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+			+ $"ORGANIZER;CN=Jane Doe:mailto:jane@example.org\r\n{attendeeLine}END:VEVENT\r\nEND:VCALENDAR\r\n";
 
+		return WrapAsMessage(ics);
+	}
+
+	/// <summary>An iTIP <c>METHOD:REPLY</c> as an attendee's mail client would send it back.</summary>
+	private static MimeMessage ReplyMime(string uid, string replyingAttendee, string partstat)
+	{
+		var ics =
+			"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REPLY\r\n"
+			+ $"BEGIN:VEVENT\r\nUID:{uid}\r\nSEQUENCE:0\r\nSUMMARY:Standup\r\n"
+			+ "DTSTART:20260601T090000Z\r\nDTEND:20260601T093000Z\r\n"
+			+ "ORGANIZER;CN=Jane Doe:mailto:jane@example.org\r\n"
+			+ $"ATTENDEE;PARTSTAT={partstat}:mailto:{replyingAttendee}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+		return WrapAsMessage(ics);
+	}
+
+	private static MimeMessage WrapAsMessage(string ics)
+	{
 		var mime = new MimeMessage();
 		mime.From.Add(MailboxAddress.Parse("jane@example.org"));
-		var body = new BodyBuilder { TextBody = "You're invited." };
+		var body = new BodyBuilder { TextBody = "Calendar update." };
 		body.Attachments.Add(
 			"invite.ics",
 			System.Text.Encoding.UTF8.GetBytes(ics),
