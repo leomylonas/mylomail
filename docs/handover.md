@@ -2285,6 +2285,25 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   Next-task item 7): a network-class content-fetch failure still burns `ContentAcquisition`'s
   retry-attempt budget the same as a genuine unreadable-content failure. `dotnet test` 408
   passed/0 failed (up from 406). `pnpm check` clean, 310 dotnet tests, vitest 87.
+- **Hundred-and-forty-sixth pass — the quit-confirmation dialog falsely claimed a pending send
+  would be lost.** Cross-checked pass 145's "Undo send & delayed send" doc section against
+  `Main.ts`'s `confirmQuit` and found a direct contradiction: the doc states a scheduled send
+  "will not send if the app is closed" but is "re-enqueued from OutboxItem by startup
+  reconciliation, which is what makes it survive a restart at all" — durable, merely delayed,
+  never lost. `confirmQuit`'s dialog told the user the opposite: "Quitting now will lose it —
+  MyloMail keeps no record of a scheduled or undo-send message until it actually sends." Verified
+  false by reading `OutboxService.QueueAsync` (adds the row and calls `SaveChangesAsync`
+  immediately) and `StartupScheduler` (unconditionally re-enqueues `OutboxJobs` for every resumed
+  account on every launch) — only Hangfire's in-memory job storage disappears on quit; the row
+  and startup reconciliation together mean nothing is actually lost. A code comment right above
+  the `before-quit` handler made the identical wrong claim. Fixed both, correcting the copy to
+  "It won't be lost, but it won't send until MyloMail is running again" and the comment to
+  explain the real durable-row/in-memory-job-storage/reconciliation mechanism. `invariant-review`
+  confirmed the durability claim against the actual code, found no edge case where a row is
+  genuinely lost before the dialog could show it, and confirmed no frozen-invariant table entry
+  touched. No test added (no existing precedent for testing Electron dialog copy in this
+  codebase). `pnpm check` clean, 310 dotnet tests, vitest 87 (both unaffected — renderer/shell
+  only). `dotnet test` 408 passed, unaffected (sanity check).
 
 ## Next task
 
