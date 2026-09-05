@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
+import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
@@ -35,6 +36,11 @@ export function Sidebar({
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
+	const [menu, setMenu] = useState<{
+		x: number;
+		y: number;
+		account: SidebarAccount;
+	} | null>(null);
 
 	// Without this a failed drag-to-reorder or collapse toggle just silently reverted on the
 	// next accounts refetch, indistinguishable from the app having ignored the action —
@@ -88,6 +94,10 @@ export function Sidebar({
 									collapsed: !isCollapsed,
 								})
 							}
+							onContextMenu={(event) => {
+								event.preventDefault();
+								setMenu({ x: event.clientX, y: event.clientY, account });
+							}}
 							onDragStart={(event) => {
 								event.dataTransfer.setData(accountDragType, account.id);
 								event.dataTransfer.effectAllowed = "move";
@@ -142,8 +152,58 @@ export function Sidebar({
 					</section>
 				);
 			})}
+			{menu ? (
+				<MessageContextMenu
+					open
+					x={menu.x}
+					y={menu.y}
+					onClose={() => setMenu(null)}
+					actions={accountMoveActions(accounts, menu.account, (orderedIds) =>
+						reorder.mutate(orderedIds),
+					)}
+				/>
+			) : null}
 		</nav>
 	);
+}
+
+/**
+ * Reordering an account among its siblings previously had no keyboard/context-menu path at all
+ * — only reachable by dragging its section header onto another (§13 Epic 2), the identical gap
+ * pass 201 closed for moving a message and pass 202 closed for a mailbox's own reorder/reparent.
+ * A pure function, like `mailboxMoveActions`, so the menu contents are testable without
+ * rendering the sidebar.
+ */
+export function accountMoveActions(
+	accounts: SidebarAccount[],
+	account: SidebarAccount,
+	reorder: (orderedAccountIds: string[]) => void,
+) {
+	const ids = accounts.map((a) => a.id);
+	const index = ids.indexOf(account.id);
+
+	const swapWith = (otherIndex: number) => {
+		const reordered = [...ids];
+		[reordered[index], reordered[otherIndex]] = [
+			reordered[otherIndex],
+			reordered[index],
+		];
+		reorder(reordered);
+	};
+
+	return [
+		{
+			label: "Move up",
+			run: () => swapWith(index - 1),
+			unavailable: index <= 0 ? "Already first" : undefined,
+		},
+		{
+			label: "Move down",
+			run: () => swapWith(index + 1),
+			unavailable:
+				index === -1 || index >= ids.length - 1 ? "Already last" : undefined,
+		},
+	];
 }
 
 /**
