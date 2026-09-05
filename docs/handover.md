@@ -2623,6 +2623,32 @@ check` clean, 308 dotnet tests (unaffected), vitest 87 (up from 83).
   `Covered` gate was already explicitly reviewed and accepted in an earlier pass), and
   credential-slot cleanup on account removal — all matched the doc or were already deliberate,
   previously-reviewed decisions. No fix, no diff, no invariant-review needed.
+- **Hundred-and-eighty-eighth pass — a running export had no path back to the user when the
+  account it belonged to was removed.** `ExportJobs.RunBatchAsync` never checked
+  `Account.IsEnabled`, only `ExportJob.Status`, so removing an account with an export in
+  progress left it silently writing local `.eml` files until it happened to hit the account
+  row's actual deletion (which then failed the job cleanly, but with no warning beforehand).
+  Asked the user how to resolve this; the explicit decision was a two-choice prompt rather than
+  an automatic stop. `AccountProvisioningService.RemoveAsync` gained a `force` parameter
+  (default `false`): before disabling the account it checks for any `ExportJob` still `Running`/
+  `CancelRequested`; if one exists and `force` is `false`, it throws a new
+  `ExportInProgressException` untouched. `AccountsController.Remove` accepts `?force=true` and
+  translates that exception into a 409 with the export id in `ProblemDetails.Extensions`,
+  matching the existing certificate-untrusted/admin-consent extension pattern. Forcing proceeds
+  as before and additionally marks every running export for the account `CancelRequested` right
+  after disabling it, so the export stops explicitly rather than racing the account's own
+  deletion. `AccountSettings.tsx`'s remove flow shows a second confirmation modal on an
+  unforced 409 — "Remove anyway" (retries forced) or "Let the export finish" (closes the modal,
+  no action taken) — the literal two choices asked for. Two new regression tests cover both
+  paths, manually confirmed as genuine discriminators via revert-and-reproduce (a stale build
+  initially masked the first test's failure; a clean `rm -rf obj/bin` rebuild caught it).
+  `invariant-review`: no correctness defects — confirmed the throw happens before any state is
+  touched, the `CancelRequested` update doesn't introduce a new race beyond the one already
+  inherent to `RequestCancelAsync`'s own compare-and-swap, and `ExportJobs.StartAsync` has no
+  guard against concurrent exports per account (a real but currently inert gap, since the force
+  branch cancels every running export for the account and the renderer never reads the reported
+  export id). `dotnet test` 421 passed/0 failed (up from 419). `pnpm check` clean under Node 22:
+  format/tsc/eslint/stylelint/build, 323 dotnet tests, vitest 100.
 
 ## Next task
 
