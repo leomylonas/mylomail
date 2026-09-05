@@ -17,6 +17,17 @@ const blankIdentity: EditingIdentity = {
 	signatureHtml: "",
 };
 
+/** Pulled out of the click handler so the confirmation copy is directly testable without a
+ * component-render harness (this repo has none — see passes 91-93/133/147). */
+export function confirmDeleteSendIdentity(
+	identity: Pick<SendIdentityDto, "displayName" | "emailAddress">,
+	confirm: (message: string) => boolean,
+): boolean {
+	return confirm(
+		`Delete the send-as identity "${identity.displayName} <${identity.emailAddress}>"? This cannot be undone.`,
+	);
+}
+
 /**
  * Send-as identity management (§1, §15): a real alias scenario (e.g. an address on the same
  * account distinct from the default) needs its own display name, address and signature —
@@ -138,16 +149,23 @@ export function SendIdentityManager({
 									Make default
 								</Button>
 							)}
-							<Button
-								size="sm"
-								kind="danger--ghost"
-								disabled={busy}
-								onClick={() =>
-									void run(() => hub.invoke("DeleteSendIdentity", identity.id))
-								}
-							>
-								Delete
-							</Button>
+							{identity.isDefault ? null : (
+								<Button
+									size="sm"
+									kind="danger--ghost"
+									disabled={busy}
+									onClick={() => {
+										if (!confirmDeleteSendIdentity(identity, window.confirm)) {
+											return;
+										}
+										void run(() =>
+											hub.invoke("DeleteSendIdentity", identity.id),
+										);
+									}}
+								>
+									Delete
+								</Button>
+							)}
 						</span>
 					</li>
 				))}
