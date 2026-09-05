@@ -47,6 +47,39 @@ public sealed class ImapAuthenticateLiveTests
 		Assert.Equal(ErrorCategory.Network, result.Problem?.Category);
 	}
 
+	/// <summary>
+	/// A rejected password reaching a sync-path caller (not <see cref="ImapMailProvider.AuthenticateAsync"/>,
+	/// which already had its own translation) must still surface as <see cref="ProviderAuthenticationException"/>,
+	/// not the raw MailKit exception — that's what lets <c>SyncJobs.GuardAsync</c> recognise it and set
+	/// <see cref="AuthState.NeedsReauth"/> instead of silently stopping the poll loop.
+	/// </summary>
+	[SkippableFact]
+	public async Task A_rejected_password_surfaces_as_provider_authentication_from_a_sync_call()
+	{
+		Skip.If(
+			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
+			"TEST_IMAP_QRESYNC_HOST/PORT not set — start the matrix with `pnpm imap:up`"
+		);
+
+		var provider = new ImapMailProvider(
+			new ImapConnectionSettings(
+				Host!,
+				int.Parse(Port!),
+				UseSsl: false,
+				Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+				"definitely-the-wrong-password"
+			),
+			new ThrowingMailboxResolver()
+		);
+
+		await Assert.ThrowsAsync<ProviderAuthenticationException>(
+			() => provider.ListMailboxesAsync(
+				new Account { Id = Guid.NewGuid(), ProviderType = ProviderType.Imap },
+				CancellationToken.None
+			)
+		);
+	}
+
 	private sealed class ThrowingMailboxResolver : IProviderMailboxResolver
 	{
 		public string ProviderMailboxId(Guid mailboxId) => throw new NotSupportedException();

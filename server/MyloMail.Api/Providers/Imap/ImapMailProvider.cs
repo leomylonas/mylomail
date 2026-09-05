@@ -113,6 +113,19 @@ public sealed partial class ImapMailProvider : IMailProvider
 				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer).Detail!
 			);
 		}
+		// Same reasoning, for rejected credentials rather than a rejected certificate: a
+		// password that stops working mid-session (changed on the server, a revoked app
+		// password) previously propagated as a raw MailKit AuthenticationException past every
+		// sync caller — none of which catch it — all the way to SyncJobs.GuardAsync, whose
+		// generic fallback just stops the poll loop silently, never setting
+		// AuthState.NeedsReauth or announcing anything live (§3, §7). Translating here means
+		// every caller gets the same NeedsReauth handling AuthenticateAsync's own explicit
+		// catch already gave the initial account-setup path.
+		catch (AuthenticationException ex)
+		{
+			client.Dispose();
+			throw new ProviderAuthenticationException(ex.Message);
+		}
 		catch
 		{
 			client.Dispose();
@@ -128,14 +141,6 @@ public sealed partial class ImapMailProvider : IMailProvider
 			await client.DisconnectAsync(true, ct);
 			return new AuthResult(true, AuthState.Connected, null);
 		}
-		catch (AuthenticationException ex)
-		{
-			return new AuthResult(
-				false,
-				AuthState.NeedsReauth,
-				Problem(ErrorCategory.Auth, "Authentication failed", ex.Message)
-			);
-		}
 		catch (ProviderAuthenticationException) when (rejectedCertificate is { } rejected)
 		{
 			// ConnectAsync already translated the rejection into this same exception type;
@@ -147,6 +152,16 @@ public sealed partial class ImapMailProvider : IMailProvider
 				false,
 				AuthState.Error,
 				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer)
+			);
+		}
+		catch (ProviderAuthenticationException ex)
+		{
+			// ConnectAsync now translates a rejected credential the same way it translates a
+			// rejected certificate; this is the plain case (rejectedCertificate unset).
+			return new AuthResult(
+				false,
+				AuthState.NeedsReauth,
+				Problem(ErrorCategory.Auth, "Authentication failed", ex.Message)
 			);
 		}
 		catch (Exception ex)
