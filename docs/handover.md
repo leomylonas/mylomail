@@ -3014,6 +3014,22 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   attempt to launch `invariant-review` itself this time — it flagged the diff as needing the
   parent to run that mandatory review before the pass is fully closed, rather than repeating pass
   206's launch-and-hope pattern.
+- **Two-hundred-and-eighth pass — closed out pass 207's speculative flag, then confirmed the
+  FTS5-sanitization series is genuinely exhausted.** Pass 207's invariant-review flagged, but did
+  not confirm, that FTS5's leading `^` anchor and `{col}`-style column-filter syntax appearing
+  mid-bareword might be an unsanitized syntax hazard. Verified directly against sqlite3's FTS5
+  extension: a bare `{brace}` token does throw ("no such column: brace"), the same failure shape as
+  passes 206/207's bugs — but tracing `SanitizeForFts5`'s existing `SafeBarewordPattern` check
+  (`^[\w*]+$`) confirms both `{...}` and `^...` already fall outside it and get quoted by the
+  general "anything outside `[\w*]`" rule pass 206 introduced, verified to match correctly once
+  quoted. Non-issue, already covered — no fix needed. Also checked whether `RewriteFieldPrefixes`
+  is missing a `subject:` mapping, since Epic 5's own doc text names "subject-only" as a supported
+  field-scoped example alongside `from:`/`to:`/`cc:`/`body:`, and the rewrite function only handles
+  the latter four. Confirmed empirically that FTS5's column-filter syntax matches column names
+  case-insensitively, so `subject:query` already resolves correctly against the real `Subject`
+  column with no rewrite needed — also a non-issue. No code change this pass; the FTS5-sanitization
+  theme started in pass 205 is now considered genuinely exhausted after three real fixes and two
+  confirmed non-issues.
 
 ## Next task
 
