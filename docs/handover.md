@@ -3855,6 +3855,24 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs to
   run it before this pass is fully closed.
 
+- **Two-hundred-and-forty-fourth pass — genuinely clean; a plausible Bcc-leak concern
+  investigated and disproven.** Continuing 242/243's RFC-compliance-in-the-send-path angle:
+  suspected that MailKit's `SmtpClient.SendAsync(message)` in `ImapMailProvider.Send.cs` might
+  write the `Bcc:` header into the actual DATA content sent to every recipient — a serious privacy
+  bug if true, since every Bcc'd address would then be visible to the primary recipient. Verified
+  empirically against the real Mailpit SMTP test container (`mylomail-smtp`, port 11025): a message
+  sent via a throwaway MailKit client with a `Bcc` set showed `Bcc: secret@example.com` in
+  Mailpit's own `/raw` API response — but a raw manual SMTP session (hand-crafted `DATA` with no
+  Bcc header at all, sent over a raw socket) showed the _same_ synthetic `Bcc:` line in Mailpit's
+  display for a recipient named only in `RCPT TO`, proving Mailpit itself injects that header into
+  its test UI for convenience and it is never actually present on the wire. Confirmed `MailKit`'s
+  real behavior is correct: `SmtpClient.SendAsync(message)` does not include `Bcc` in the DATA it
+  transmits. Also checked Gmail's send path (raw MIME upload, matching Gmail API's own documented
+  behavior of stripping Bcc before delivery) and Graph's (a distinct typed `BccRecipients` field,
+  never embedded in raw headers) — both correct by construction, no divergence to fix. No code
+  change; documented here so a future pass doesn't have to re-investigate the same plausible-
+  looking false alarm.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
