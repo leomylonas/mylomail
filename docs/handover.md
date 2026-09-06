@@ -3712,6 +3712,27 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   verbatim-matches the existing toast, and no frozen-table entry is touched. `dotnet test` 480
   passed/0 failed (up from 478). `pnpm check` clean: 382 dotnet tests, vitest 130.
 
+- **Two-hundred-and-thirty-sixth pass — genuinely clean; no other synthesized-mailbox-guard
+  sibling found, and no fresh bug turned up elsewhere.** Checked first whether the 233-235
+  synthesized-mailbox theme had any instance left: `GetMessages` against a synthesized mailbox is
+  already correct by construction (no `MessageMailbox` row ever references a synthesized row, so
+  it just returns empty — nothing to guard); `ReorderMailboxes`/`MailboxManagement.ReorderAsync`
+  only ever writes `LocalSortOrder`, never touches a provider, so a synthesized row is no
+  different from a real one there; `ExportJobs.BuildFolderPaths` recreates the mailbox tree purely
+  from `ParentId`/`Name`, so a synthesized intermediate just becomes an ordinary folder on disk —
+  correct, not a gap. Also checked `ExportJobs.RunBatchAsync`'s outer `catch (Exception ex)` for
+  the "does this conflate a graceful cancellation with a real failure" shape: it does not
+  special-case `OperationCanceledException` from a genuine cancellation-token trip, but neither
+  does any other job file in `Scheduling/` (`SyncJobs`/`MutationJobs`/`ContentJobs`/`OutboxJobs`
+  all have the identical bare `catch (Exception)` shape) — consistent house style given
+  `[AutomaticRetry(Attempts = 0)]` means nothing retries regardless, not a unique bug here.
+  Checked whether Graph's send path (Next-task item 6, plain-text-alternative gap) or a
+  recurrence-rule End-before-Start case (mirroring pass 227's event-level check) existed as fresh
+  angles: the former is already tracked and confirmed still dead code pending OAuth; the latter
+  doesn't apply — this codebase has no `RecurrenceRule`/RRULE-editing field anywhere, recurrence
+  is modelled purely via `RecurrenceMasterId`/override rows, so there is no analogous
+  UNTIL-before-DTSTART input to validate. No fix, no diff, no invariant-review needed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
