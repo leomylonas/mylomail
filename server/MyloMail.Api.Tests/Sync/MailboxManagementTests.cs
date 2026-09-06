@@ -219,4 +219,70 @@ public class MailboxManagementTests
 			Assert.Null(reloaded.ParentId);
 		});
 	}
+
+	/// <summary>
+	/// Two-hundred-and-thirty-fourth pass: pass 233 disabled the "Move to"/"Move to top level"
+	/// keyboard actions and the drag reparent for a synthesized mailbox row (no real provider
+	/// id — a local nested Gmail-label-group intermediate), but only in the renderer. A direct
+	/// Rename/Move/Delete hub call for one still reached the provider's own internal
+	/// "always have a provider id" assertion, surfaced as a confusing HubException rather than
+	/// the clean guidance the renderer already gives for this exact row shape.
+	/// </summary>
+	[Fact]
+	public async Task Renaming_moving_or_deleting_a_synthesized_mailbox_is_rejected_with_clear_guidance()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+
+			var synthesized = new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				ProviderMailboxId = null,
+				Name = "Projects",
+			};
+			var otherParent = new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				ProviderMailboxId = "OtherParent",
+				Name = "OtherParent",
+			};
+			context.Mailboxes.AddRange(synthesized, otherParent);
+			await context.SaveChangesAsync();
+
+			var mailboxes = scope.GetRequiredService<MailboxManagement>();
+
+			var renameEx = await Assert.ThrowsAsync<HubException>(
+				() => mailboxes.RenameAsync(synthesized.Id, "Renamed")
+			);
+			Assert.Equal(
+				"Gmail doesn't support renaming a nested label group directly — rename the label itself in Gmail.",
+				renameEx.Message
+			);
+
+			var moveEx = await Assert.ThrowsAsync<HubException>(
+				() => mailboxes.MoveAsync(synthesized.Id, otherParent.Id)
+			);
+			Assert.Equal(
+				"Gmail doesn't support moving a nested label group directly — move the label itself in Gmail.",
+				moveEx.Message
+			);
+
+			var deleteEx = await Assert.ThrowsAsync<HubException>(() => mailboxes.DeleteAsync(synthesized.Id));
+			Assert.Equal(
+				"Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail.",
+				deleteEx.Message
+			);
+
+			// None of the rejected calls reached the provider or changed anything locally.
+			var reloaded = await context.Mailboxes.FirstAsync(m => m.Id == synthesized.Id);
+			Assert.Equal("Projects", reloaded.Name);
+			Assert.Null(reloaded.ParentId);
+		});
+	}
 }

@@ -65,6 +65,8 @@ public sealed class MailboxManagement(
 		}
 
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
+		RequireNotSynthesized(mailbox, "renaming a nested label group directly — rename the label itself in Gmail");
+
 		var renamed = await RunProviderCallAsync(
 			() => providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct)
 		);
@@ -76,6 +78,7 @@ public sealed class MailboxManagement(
 	public async Task MoveAsync(Guid mailboxId, Guid? newParentId, CancellationToken ct = default)
 	{
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
+		RequireNotSynthesized(mailbox, "moving a nested label group directly — move the label itself in Gmail");
 
 		// The client's own drag UI already guards this, but it is not the only caller a hub
 		// method has to assume — a cyclic ParentId chain is a tree with no way back out for
@@ -94,6 +97,23 @@ public sealed class MailboxManagement(
 
 		await AdoptAsync(mailbox, moved, ct);
 		await ReconcileAsync(account, ct);
+	}
+
+	/// <summary>
+	/// A synthesized mailbox (<see cref="Mailbox.ProviderMailboxId"/> null — a local nested
+	/// Gmail-label-group intermediate the sidebar derives by splitting a label name on "/", with
+	/// no real label backing it) has no provider identity to rename, move or delete. The renderer
+	/// already disables these actions with the matching guidance text; this is the same guard for
+	/// any other caller of these hub methods, so a direct call fails cleanly instead of reaching
+	/// the provider's own internal "always have a provider id" assertion (§2 Epic 2's "sensible
+	/// handling where a provider doesn't support an operation").
+	/// </summary>
+	private static void RequireNotSynthesized(Mailbox mailbox, string action)
+	{
+		if (mailbox.ProviderMailboxId is null)
+		{
+			throw new HubException($"Gmail doesn't support {action}.");
+		}
 	}
 
 	/// <summary>
@@ -154,6 +174,7 @@ public sealed class MailboxManagement(
 	public async Task<bool> DeleteAsync(Guid mailboxId, CancellationToken ct = default)
 	{
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
+		RequireNotSynthesized(mailbox, "deleting a nested label group directly — delete the label itself in Gmail");
 		var provider = providers.For(account);
 
 		await RunProviderCallAsync(() => provider.DeleteMailboxAsync(account, mailbox, ct));
