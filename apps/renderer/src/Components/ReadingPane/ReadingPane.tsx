@@ -40,6 +40,7 @@ export function ReadingPane({
 	subject,
 	senderAddress,
 	onOpenInNewWindow,
+	onReply,
 }: {
 	hub: HubConnection;
 	messageId: string;
@@ -56,6 +57,13 @@ export function ReadingPane({
 	senderAddress?: string;
 	/** Absent inside a window that is already just this one message (§13 Epic 10). */
 	onOpenInNewWindow?: () => void;
+	/**
+	 * Absent in the main window, where the message list's own context menu already offers
+	 * Reply/Reply all/Forward — present only for a popped-out message window (§13 Epic 10),
+	 * which has no list row of its own to hang a context menu off, and would otherwise offer no
+	 * way to reply at all short of switching back to the main window.
+	 */
+	onReply?: (mode: "reply" | "replyAll" | "forward") => void;
 }) {
 	const body = useQuery({
 		queryKey: ["body", messageId],
@@ -78,6 +86,19 @@ export function ReadingPane({
 		<article className={styles.pane} aria-label="Message">
 			<div className={styles.subjectRow}>
 				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
+				{onReply ? (
+					<>
+						<Button size="sm" kind="ghost" onClick={() => onReply("reply")}>
+							Reply
+						</Button>
+						<Button size="sm" kind="ghost" onClick={() => onReply("replyAll")}>
+							Reply all
+						</Button>
+						<Button size="sm" kind="ghost" onClick={() => onReply("forward")}>
+							Forward
+						</Button>
+					</>
+				) : null}
 				<Button size="sm" kind="ghost" onClick={() => window.print()}>
 					Print
 				</Button>

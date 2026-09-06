@@ -129,9 +129,15 @@ public record AttachmentDto(
 /// fetched independently through the existing content path rather than duplicated here.
 /// </summary>
 /// <param name="ReplyTo">Reply routing prefers this over <paramref name="From"/> when present (§1).</param>
+/// <param name="AccountId">
+/// Which account to save the new reply/forward draft against — a popped-out message window
+/// (§13 Epic 10) has no message-list selection to read this from, unlike the main window's own
+/// reply/forward, so it has to travel with the context it already fetches for that same reply.
+/// </param>
 [TranspilationSource]
 public record MessageReplyContextDto(
 	Guid MessageId,
+	Guid AccountId,
 	IReadOnlyList<Address> From,
 	IReadOnlyList<Address> To,
 	IReadOnlyList<Address> Cc,

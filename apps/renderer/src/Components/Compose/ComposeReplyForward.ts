@@ -9,6 +9,7 @@ export interface Address {
  * `MessageReplyContextDto` (§13). */
 export interface MessageReplyContext {
 	messageId: string;
+	accountId: string;
 	from: Address[];
 	to: Address[];
 	cc: Address[];
@@ -243,4 +244,39 @@ export function buildForwardSeed(
 				? { sourceMessageId: context.messageId, attachments: forwardable }
 				: undefined,
 	};
+}
+
+/**
+ * Copies a forward's non-inline attachments onto a just-created draft — there is no
+ * "attach this other message's attachment" concept, only "upload bytes," so this reads each one
+ * back from the original message and re-uploads it the same way a dropped file would be. Shared
+ * by `Compose`'s own inline forward flow and a popped-out message window's own reply/forward,
+ * which has no `Compose` instance mounted to run that flow for it (§13 Epic 10). Each attachment
+ * is copied independently: one failing (a since-deleted attachment, a network blip) must not
+ * silently drop the rest of a multi-attachment forward — the caller decides what to do with the
+ * list of names that failed.
+ */
+export async function copyForwardAttachments(
+	draftId: string,
+	toCopy: NonNullable<ComposeSeed["forwardAttachments"]>,
+): Promise<string[]> {
+	const failed: string[] = [];
+	for (const attachment of toCopy.attachments) {
+		try {
+			const response = await fetch(
+				`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
+			);
+			if (!response.ok) throw new Error("fetch failed");
+			const form = new FormData();
+			form.append("file", await response.blob(), attachment.filename);
+			const uploadResponse = await fetch(`/drafts/${draftId}/attachments`, {
+				method: "POST",
+				body: form,
+			});
+			if (!uploadResponse.ok) throw new Error("upload failed");
+		} catch {
+			failed.push(attachment.filename);
+		}
+	}
+	return failed;
 }

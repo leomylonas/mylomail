@@ -478,6 +478,7 @@ public class MailHub(
 		var message = await context.Messages.FirstAsync(m => m.Id == messageId);
 		return new MessageReplyContextDto(
 			message.Id,
+			message.AccountId,
 			message.From,
 			message.To,
 			message.Cc,

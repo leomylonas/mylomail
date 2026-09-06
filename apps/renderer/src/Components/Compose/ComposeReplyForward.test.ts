@@ -2,10 +2,12 @@
 //
 // mentionsAttachmentOutsideQuote needs a real DOMParser, same DOM-global exception documented
 // in MessageActions.test.ts.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildReplyRecipients,
+	copyForwardAttachments,
 	mentionsAttachmentOutsideQuote,
+	type ForwardAttachment,
 	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 
@@ -14,6 +16,7 @@ function context(
 ): MessageReplyContext {
 	return {
 		messageId: "m1",
+		accountId: "a1",
 		from: [{ name: "Alice", email: "alice@example.test" }],
 		to: [{ name: "Me", email: "me@example.test" }],
 		cc: [],
@@ -102,5 +105,51 @@ describe("mentionsAttachmentOutsideQuote", () => {
 
 	it("detects a mention with no quote present at all", () => {
 		expect(mentionsAttachmentOutsideQuote("<p>See attached.</p>")).toBe(true);
+	});
+});
+
+describe("copyForwardAttachments", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	function attachment(id: string, filename: string): ForwardAttachment {
+		return {
+			id,
+			filename,
+			mimeType: "application/octet-stream",
+			isInline: false,
+		};
+	}
+
+	it("copies every attachment independently, reporting only the ones that fail", async () => {
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === "/messages/m1/attachments/good") {
+				return { ok: true, blob: async () => new Blob(["ok"]) } as Response;
+			}
+			if (url === "/messages/m1/attachments/bad") {
+				return { ok: false } as Response;
+			}
+			// The upload leg for the one attachment that made it past the fetch above.
+			return { ok: true } as Response;
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const failed = await copyForwardAttachments("draft1", {
+			sourceMessageId: "m1",
+			attachments: [
+				attachment("bad", "missing.pdf"),
+				attachment("good", "report.pdf"),
+			],
+		});
+
+		expect(failed).toEqual(["missing.pdf"]);
+		// Both attachments were attempted — a failing one didn't stop the loop early.
+		expect(fetchMock).toHaveBeenCalledWith("/messages/m1/attachments/good");
+		expect(fetchMock).toHaveBeenCalledWith("/messages/m1/attachments/bad");
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/drafts/draft1/attachments",
+			expect.objectContaining({ method: "POST" }),
+		);
 	});
 });

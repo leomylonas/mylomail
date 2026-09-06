@@ -230,6 +230,8 @@ export type AttachmentDto = {
 export type MessageReplyContextDto = {
     /** Transpiled from System.Guid */
     messageId: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
     from: Address[];
     /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Domain.Address> */
