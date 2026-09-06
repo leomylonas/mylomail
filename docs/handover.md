@@ -3673,6 +3673,24 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   `isTypingTarget` blind spot, `useShortcuts`'s own per-window/per-document scoping means this
   can't conflict with `MessageList.tsx`'s own r/a/f bindings, and no frozen-table entry touched.
   `pnpm check` clean: 379 dotnet tests (unchanged), vitest 130 (unchanged, no new test file).
+- **A synthesized mailbox had no server-side guard against rename/move/delete.** Found alongside
+  pass 234's work by a long-running fork covering an overlapping angle: the renderer already
+  disables Rename/Delete/Move-to on a synthesized mailbox (`ProviderMailboxId` null — a local
+  nested Gmail-label-group intermediate the sidebar derives by splitting a label name on "/", with
+  no real label backing it) with clear guidance text, but `MailboxManagement`'s
+  `RenameAsync`/`MoveAsync`/`DeleteAsync` had no guard of their own — a caller reaching these hub
+  methods directly would fall through to the Gmail provider's internal "always have a provider id"
+  assertion instead of a clean rejection. Added `RequireNotSynthesized(mailbox, action)`, called
+  before any provider call or DB mutation in all three methods, throwing the same "Gmail doesn't
+  support ..." guidance shape the renderer already gives — using the exact same
+  `ProviderMailboxId is null` condition `MailHub.cs`/`ChangeStreamService.cs` already compute and
+  hand to the renderer as `isSynthesized`, a single source of truth rather than a re-derived
+  definition. New test constructs a real synthesized mailbox and confirms `HubException` is thrown
+  for all three operations with no DB mutation. `invariant-review`: no issues — confirmed guard
+  placement precedes every provider call/mutation, the synthesized definition can't drift from the
+  renderer's, existing non-synthesized-mailbox tests are unaffected, and no frozen-table entry is
+  touched. `dotnet test` 478 passed/73 skipped/0 failed (551 total). `pnpm check` clean under Node
+  22: 380 dotnet tests, vitest 130.
 
 ## Next task
 
