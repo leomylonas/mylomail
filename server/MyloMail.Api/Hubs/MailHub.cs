@@ -524,17 +524,38 @@ public class MailHub(
 		string displayName,
 		string emailAddress,
 		string? signatureHtml
-	) => ToSendIdentityDto(await identities.AddAsync(accountId, displayName, emailAddress, signatureHtml));
+	)
+	{
+		try
+		{
+			return ToSendIdentityDto(
+				await identities.AddAsync(accountId, displayName, emailAddress, signatureHtml)
+			);
+		}
+		catch (InvalidOperationException ex)
+		{
+			throw new HubException(ex.Message);
+		}
+	}
 
 	public async Task<SendIdentityDto> UpdateSendIdentity(
 		Guid identityId,
 		string displayName,
 		string emailAddress,
 		string? signatureHtml
-	) =>
-		ToSendIdentityDto(
-			await identities.UpdateAsync(identityId, displayName, emailAddress, signatureHtml)
-		);
+	)
+	{
+		try
+		{
+			return ToSendIdentityDto(
+				await identities.UpdateAsync(identityId, displayName, emailAddress, signatureHtml)
+			);
+		}
+		catch (InvalidOperationException ex)
+		{
+			throw new HubException(ex.Message);
+		}
+	}
 
 	public async Task<SendIdentityDto> SetDefaultSendIdentity(Guid identityId) =>
 		ToSendIdentityDto(await identities.SetDefaultAsync(identityId));

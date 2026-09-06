@@ -122,6 +122,54 @@ public sealed class SendIdentityServiceTests
 		);
 	}
 
+	[Theory]
+	[InlineData("", "work@example.com")]
+	[InlineData("   ", "work@example.com")]
+	[InlineData("Work", "")]
+	[InlineData("Work", "   ")]
+	public async Task Adding_an_identity_with_a_blank_name_or_address_is_rejected(
+		string displayName,
+		string emailAddress
+	)
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = await SeedAccountAsync(database);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			UsingAsync(
+				database,
+				context => new SendIdentityService(context).AddAsync(accountId, displayName, emailAddress, null)
+			)
+		);
+
+		await UsingAsync(database, async context =>
+			Assert.False(await context.SendIdentities.AnyAsync(i => i.AccountId == accountId))
+		);
+	}
+
+	[Fact]
+	public async Task Updating_an_identity_to_a_blank_name_or_address_is_rejected()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = await SeedAccountAsync(database);
+		var identity = await UsingAsync(database, context =>
+			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+		);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			UsingAsync(
+				database,
+				context => new SendIdentityService(context).UpdateAsync(identity.Id, "", "work@example.com", null)
+			)
+		);
+
+		// The rejected update never touched the stored row.
+		await UsingAsync(database, async context =>
+			Assert.Equal("Work", (await context.SendIdentities.SingleAsync(i => i.Id == identity.Id)).DisplayName)
+		);
+	}
 
 	private static async Task<T> UsingAsync<T>(TestDatabase database, Func<MyloMailDbContext, Task<T>> work)
 	{

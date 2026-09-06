@@ -20,6 +20,8 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 		CancellationToken ct = default
 	)
 	{
+		RequireNonBlank(displayName, emailAddress);
+
 		// The first identity an account ever gets is its default by construction — nothing
 		// else would ever set it, and an account with no default identity has no answer to
 		// "who is this account" (§1).
@@ -46,12 +48,34 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 		CancellationToken ct = default
 	)
 	{
+		RequireNonBlank(displayName, emailAddress);
+
 		var identity = await context.SendIdentities.FirstAsync(i => i.Id == identityId, ct);
 		identity.DisplayName = displayName;
 		identity.EmailAddress = emailAddress;
 		identity.SignatureHtml = signatureHtml;
 		await context.SaveChangesAsync(ct);
 		return identity;
+	}
+
+	/// <summary>
+	/// Mirrors the client's own disabled-Save-button gate (blank display name or address)
+	/// server-side. A direct hub call — or a race with a not-yet-hydrated form — would
+	/// otherwise create or update an identity with a blank <c>EmailAddress</c>, which
+	/// downstream code treats as a real address: it's matched against inbound "From" headers
+	/// during draft materialisation and handed to the provider as the outgoing "From" at send
+	/// time, where a blank/unparseable address fails as an unexpected exception rather than a
+	/// clean rejection.
+	/// </summary>
+	/// <exception cref="InvalidOperationException">Either field is blank.</exception>
+	private static void RequireNonBlank(string displayName, string emailAddress)
+	{
+		if (string.IsNullOrWhiteSpace(displayName) || string.IsNullOrWhiteSpace(emailAddress))
+		{
+			throw new InvalidOperationException(
+				"A send-as identity needs both a display name and an email address."
+			);
+		}
 	}
 
 	/// <summary>
