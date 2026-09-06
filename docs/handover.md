@@ -3153,6 +3153,31 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   pre-queue validation), and nothing in AGENTS.md's frozen table is touched. `dotnet test`
   461 passed (up from 459), `pnpm check` clean: format/tsc/eslint/stylelint/build/tests(363)/
   vitest(120) (vitest unchanged — no renderer files touched this pass).
+- **Two-hundred-and-fifteenth pass — sending a draft with no recipients was never rejected
+  server-side.** Same shape as pass 214's attachment-size gap, different requirement: `Compose
+.tsx` only disables its Send button while the raw "To" text field is empty, never checks that
+  the text actually parsed to a real address (`parseAddresses` silently drops anything without
+  an "@"), and never looks at Cc/Bcc at all. `DraftService.SendAsync` had no recipient check of
+  its own, so a direct `SendDraft` call — or a "To" field that parsed to zero addresses — would
+  queue an outbox item for a message with nowhere to go. Worse than a silent no-op: the
+  provider's own "no recipients" rejection would land in `SendExecutor`'s generic catch-all,
+  which marks any unexpected thrown exception `OutboxStatus.AmbiguousOutcome` ("not evidence
+  that nothing was sent," per §15) and starts reconciliation — actively misrepresenting a send
+  that provably never happened. Added a guard in `DraftService.SendAsync` rejecting an empty
+  To/Cc/Bcc before `OutboxService.QueueAsync`, placed after the existing `SyncConflict` check
+  (conflict resolution can replace the recipient list with the remote copy's, so the conflict
+  message should surface first) and before the attachment-size checks (cheaper, and independent
+  of the provider round-trip those need). 3 new tests in `DraftServiceSendValidationTests.cs`
+  (empty rejected; Cc-only and Bcc-only both accepted), the rejection case discriminated by
+  reverting the guard and confirming an outbox item gets queued instead. Also fixed
+  `DraftConflictResolutionTests.cs`'s shared draft fixture, which had no recipients at all and
+  would otherwise have tripped the new guard before its own tests ever reached the
+  conflict-resolution logic they're actually about. `invariant-review` came back clean: a pure
+  pre-flight validation that never touches mutation ordering, leases, execution identity, or
+  outbox state transitions; it also confirmed the ordering relative to the conflict check is
+  deliberate, not an oversight, and that Bcc-only correctly counts as having a recipient.
+  `dotnet test` 463 passed (up from 462), `pnpm check` clean: format/tsc/eslint/stylelint/
+  build/tests(363)/vitest(120) (renderer untouched this pass).
 
 ## Next task
 
