@@ -346,8 +346,8 @@ internal static partial class CalDavIcs
 			Description = Unescape(Single("DESCRIPTION")),
 			Start = start,
 			End = end,
-			StartTimeZoneId = SingleWithParams("DTSTART")?.Params.GetValueOrDefault("TZID"),
-			EndTimeZoneId = SingleWithParams("DTEND")?.Params.GetValueOrDefault("TZID"),
+			StartTimeZoneId = KnownTimeZoneId(SingleWithParams("DTSTART")?.Params.GetValueOrDefault("TZID")),
+			EndTimeZoneId = KnownTimeZoneId(SingleWithParams("DTEND")?.Params.GetValueOrDefault("TZID")),
 			IsAllDay = isAllDay,
 			Organizer = SingleWithParams("ORGANIZER") is { } organizer
 				? new Address(organizer.Params.GetValueOrDefault("CN"), StripMailto(organizer.Value))
@@ -502,6 +502,40 @@ internal static partial class CalDavIcs
 		}
 		duration = negative ? -total : total;
 		return true;
+	}
+
+	/// <summary>
+	/// A TZID this runtime's own <see cref="TimeZoneInfo"/> database can't resolve is exactly
+	/// the case <see cref="ParseDateTime"/> already falls back to treating as a floating/UTC
+	/// instant rather than throwing — but storing the unresolvable id anyway meant a later
+	/// <see cref="RenderVEvent"/> (any edit that re-saves this event, even one touching only its
+	/// title) would write it straight back into a <c>TZID=</c> parameter while
+	/// <see cref="FormatLocal"/> silently fell back to writing the raw UTC instant under it, since
+	/// it hits the exact same unresolvable-zone case. The result declares a time zone the value
+	/// was never actually converted into — a mismatch a compliant reader (this app included, on
+	/// its own next parse) would then apply the wrong offset to. Returning null here instead
+	/// keeps what was already parsed as the honest floating/UTC interpretation, consistent all
+	/// the way through a write-back.
+	/// </summary>
+	private static string? KnownTimeZoneId(string? tzid)
+	{
+		if (string.IsNullOrEmpty(tzid))
+		{
+			return null;
+		}
+		try
+		{
+			TimeZoneInfo.FindSystemTimeZoneById(tzid);
+			return tzid;
+		}
+		catch (TimeZoneNotFoundException)
+		{
+			return null;
+		}
+		catch (InvalidTimeZoneException)
+		{
+			return null;
+		}
 	}
 
 	private static DateTimeOffset ParseDateTime(IReadOnlyDictionary<string, string> parameters, string value)
