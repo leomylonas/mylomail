@@ -3629,6 +3629,28 @@ check` clean: 379 dotnet tests, vitest 129. This pass's implementing fork was un
   but a row that never gets re-synced before a local edit would reproduce the original bug once for
   that row. Not worth a migration for a deploy-gap this narrow.
 
+- **Two-hundred-and-thirty-third pass — reparenting a synthesized Gmail label group crashed the
+  provider call with an internal assertion message.** Epic 2 requires "sensible handling/error
+  messaging where a provider doesn't support an operation (e.g. Gmail's lack of true nesting)." A
+  synthesized mailbox row (`IsSynthesized` = `ProviderMailboxId is null` — a local nested-label-
+  group intermediate the sidebar derives by splitting a Gmail label name on `/`) already has
+  Rename/Delete correctly disabled with clear guidance, but reparenting one — via pass 202's "Move
+  to"/"Move to top level" keyboard actions, or the pre-existing drag-and-drop reparent — was never
+  guarded. `MailboxManagement.MoveAsync` calls the provider's `MoveMailboxAsync` with the mailbox
+  being moved; `GmailMailProvider`'s `ProviderMailboxId()` helper throws when that mailbox's
+  `ProviderMailboxId` is null — exactly the synthesized case. `RunProviderCallAsync` does turn
+  that into a clean `HubException` rather than a raw crash, but the message ("Gmail mailboxes
+  always have a provider id") is an internal assertion, not the guidance Rename/Delete already
+  give for this exact row shape. Fixed by disabling reparent for a synthesized row in both places
+  — `mailboxMoveActions()`'s "Move to"/"Move to top level" and `dropOnMailbox()`'s drag reparent
+  branch — with the same "move the label itself in Gmail" wording; "Move up"/"Move down" stay
+  available since `ReorderAsync` only writes `LocalSortOrder` and never touches the provider.
+  New test manually confirmed as a genuine discriminator via revert-and-reproduce. `invariant-
+review`: no issues — confirmed `MoveMailbox` is the only mutation that ever reparents a mailbox
+  (so disabling it for a synthesized row blocks no legitimate path), the drag guard's condition
+  never fires on the safe same-parent-reorder branch, and no frozen-table entry touched (pure
+  renderer change). `pnpm check` clean: 379 dotnet tests (unchanged), vitest 130 (up from 129).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
