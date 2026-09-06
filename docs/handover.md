@@ -4019,6 +4019,31 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
   `ContentId`, so even removing the forward-side filter would just turn the broken embed into a
   broken embed plus a stray plain attachment. Recorded as Next-task item 11 rather than fixed — no
   diff, no invariant-review.
+- **Next-task item 11 resolved — inline images now survive a reply or forward.** The user was
+  asked whether to build the fix now or leave it tracked, and chose to build it. Closing this
+  needed the plumbing pass 252 scoped: `AttachmentDto`/`ForwardAttachment` gained a `ContentId`
+  field, `DraftService.AddAttachmentAsync`/`DraftAttachmentsController.Upload` gained optional
+  `isInline`/`contentId` parameters (default false/null, so the one existing plain-upload caller
+  is unaffected). `ComposeSeed.forwardAttachments` was renamed `attachmentsToCopy` since it's now
+  shared by both flows: `buildReplySeed` gained an `attachments` parameter and copies only the
+  original's inline attachments (a reply has no reason to carry along its ordinary ones);
+  `buildForwardSeed`'s old `!isInline` filter — the actual bug — was removed, so a forward now
+  copies every attachment, inline and ordinary alike. `copyForwardAttachments` (renamed
+  `copyAttachments`) and `Compose.tsx`'s own separate copy effect both now send `isInline`/
+  `contentId` on the re-upload; `MessageList.tsx`'s `replyTo` and `MessageWindow.tsx`'s popped-out
+  reply flow both now fetch attachment metadata for reply mode too, not just forward. Verified
+  end-to-end that a `cid:` value survives unmodified from the original `Attachment.ContentId`
+  through to the copied `DraftAttachment.ContentId`, and that `SanitiseMessageHtml.prepare` never
+  rewrites `cid:` references during quoting — confirming the copy's `ContentId` genuinely matches
+  what the quoted HTML already references. This feeds pass 243's already-fixed send-path logic
+  (`BodyBuilder.LinkedResources`) with no further changes needed there. New backend and frontend
+  tests, each manually confirmed as a genuine discriminator via revert-and-reproduce (a stale
+  build cache initially masked a real failure; a clean rebuild confirmed it fails exactly as
+  predicted without the fix). `invariant-review`: no issues — confined to draft-attachment
+  upload/copy plumbing and reply/forward seed construction, outside the mutation/sync/persistence
+  invariant surface; `DraftAttachment.ContentId`/`IsInline` are pre-existing domain fields simply
+  populated for the first time, not a new persisted identity concept. `dotnet test` 510 passed/0
+  failed (up from 503). `pnpm check` clean: 412 dotnet tests, vitest 135.
 
 ## Next task
 
@@ -4097,22 +4122,6 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
     resurface it, not deterministically. A one-time backfill (re-materialise every draft with a
     Drafts-mailbox occurrence still on record) would close this, but is a genuinely separate
     scoped task, not a one-line follow-up.
-11. **Replying to or forwarding a message with an inline image produces a broken image for the
-    recipient** (found by pass 252, following on from 243/251's inline-attachment fixes).
-    `SanitiseMessageHtml.prepare`'s hook deliberately keeps a `cid:` image `src` intact through
-    quoting (its own comment: "cid: is not remote... it survives sanitisation"), so
-    `buildReplySeed`/`buildForwardSeed` both bake the original message's unresolved `cid:`
-    references straight into the new draft's quoted `<blockquote>`. But nothing copies the
-    original inline image's bytes onto the new draft: `buildForwardSeed` explicitly filters to
-    `!attachment.isInline` before building `forwardAttachments`, and `buildReplySeed` has no
-    attachment-copying path at all. Even removing that filter wouldn't be enough —
-    `DraftAttachmentsController.Upload`/`DraftService.AddAttachmentAsync` have no way to mark an
-    uploaded attachment as inline or set its `ContentId`, so a naively-copied inline image would
-    land as a plain, un-embedded attachment while the `cid:` reference in the body stayed broken.
-    Closing this needs new plumbing (an `isInline`/`contentId` parameter through the upload
-    endpoint and `AddAttachmentAsync`, then wiring both `buildForwardSeed` and a new attachment-
-    copy path for `buildReplySeed`) — a real, moderate-scope feature addition, not a one-line fix
-    like 243/251's own MIME-walk corrections. Not fixed this pass; no diff, no invariant-review.
 
 ## Read first
 
