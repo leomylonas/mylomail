@@ -15,6 +15,8 @@ export const openWindowChannel = "window:open";
 export const pickExportFolderChannel = "export:pick-folder";
 export const updateCloseBehaviorChannel =
 	"shell-settings:close-behavior-changed";
+export const reportDraftStateChannel = "draft:state-changed";
+export const focusDraftWindowChannel = "draft:focus-if-open";
 
 /**
  * What the renderer hands the shell to show a native OS notification (§13 Epic 9).

@@ -1,10 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
 	backendConnectionChannel,
+	focusDraftWindowChannel,
 	notificationClickedChannel,
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
 	type BackendConnection,
@@ -59,6 +61,10 @@ contextBridge.exposeInMainWorld("windows", {
 		ipcRenderer.invoke(openWindowChannel, {
 			query,
 		} satisfies OpenWindowRequest) as Promise<void>,
+	reportDraftState: (draftId: string | null): Promise<void> =>
+		ipcRenderer.invoke(reportDraftStateChannel, draftId) as Promise<void>,
+	focusDraftIfOpen: (draftId: string): Promise<boolean> =>
+		ipcRenderer.invoke(focusDraftWindowChannel, draftId) as Promise<boolean>,
 });
 
 /**

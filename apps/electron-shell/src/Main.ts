@@ -13,10 +13,12 @@ import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
 	backendConnectionChannel,
+	focusDraftWindowChannel,
 	notificationClickedChannel,
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
 	type BackendConnection,
@@ -27,6 +29,7 @@ import {
 import { promptForMasterPassword } from "@mylomail/electron-shell/MasterPassword/MasterPasswordPrompt";
 import { destroyTray, ensureTray } from "@mylomail/electron-shell/Tray";
 import { closeBehaviorFromValue } from "@mylomail/electron-shell/CloseBehavior";
+import { windowAlreadyEditing } from "@mylomail/electron-shell/DraftWindows";
 import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachment";
 
 export const backendMode =
@@ -43,6 +46,17 @@ let closeBehavior: "QuitApp" | "MinimizeToTray" = "QuitApp";
 /** Set once an actual quit is underway, so a window's `close` handler lets it through instead
  * of hiding it to the tray a second time. */
 let quitting = false;
+
+/**
+ * Which draft (if any) each open window is currently editing — reported by the renderer
+ * whenever a window's own compose pane changes, inline or detached. Runtime-only, cleared on
+ * restart: this exists purely to stop the same draft being edited independently in two windows
+ * at once, which would otherwise autosave as a silent last-write-wins race with no revision
+ * check (there is no cross-window coordination or conflict detection on the save path itself).
+ * Keyed by window id rather than the `BrowserWindow` object so a destroyed window's entry can
+ * be found and removed without holding a reference to it.
+ */
+const draftWindows = new Map<number, string | null>();
 
 /**
  * Launches the backend, then the window.
@@ -218,6 +232,37 @@ export async function startShell(): Promise<void> {
 				bounds: opener ? offsetBounds(opener.getBounds()) : undefined,
 			});
 			trackBoundsPersistence(window, origin);
+		},
+	);
+
+	// Reported by every compose pane, inline or detached, whenever the draft it's showing
+	// changes (including `null` when it's showing none). This is the only cross-window
+	// visibility into "which draft is open where" — see `draftWindows`'s own remarks.
+	ipcMain.handle(reportDraftStateChannel, (event, draftId: unknown): void => {
+		const window = BrowserWindow.fromWebContents(event.sender);
+		if (window && (draftId === null || typeof draftId === "string")) {
+			draftWindows.set(window.id, draftId);
+		}
+	});
+
+	// Called before a window opens or detaches a draft, so it can focus an existing editor
+	// instead of starting a second one that would silently race the first on autosave.
+	ipcMain.handle(
+		focusDraftWindowChannel,
+		(event, draftId: unknown): boolean => {
+			if (typeof draftId !== "string") {
+				return false;
+			}
+
+			const requester = BrowserWindow.fromWebContents(event.sender);
+			const id = windowAlreadyEditing(draftWindows, requester?.id, draftId);
+			const window = id === undefined ? undefined : BrowserWindow.fromId(id);
+			if (window && !window.isDestroyed()) {
+				window.focus();
+				return true;
+			}
+
+			return false;
 		},
 	);
 
@@ -545,6 +590,10 @@ async function createWindow(
 			ensureTray();
 		}
 	});
+
+	// Otherwise a stale entry would keep claiming this draft is still open here after the
+	// window that reported it is gone, permanently blocking a real re-open of it elsewhere.
+	window.on("closed", () => draftWindows.delete(window.id));
 
 	window.once("ready-to-show", () => window.show());
 	window.webContents.on("did-fail-load", (_e, code, description, url) =>

@@ -21,6 +21,8 @@ declare global {
 		};
 		windows?: {
 			open(query?: string): Promise<void>;
+			reportDraftState(draftId: string | null): Promise<void>;
+			focusDraftIfOpen(draftId: string): Promise<boolean>;
 		};
 		dialogs?: {
 			pickExportFolder(): Promise<string | null>;

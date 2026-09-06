@@ -167,6 +167,17 @@ export function AppShell() {
 		selectedAccount.authState !== AuthState.Connected &&
 		!credentialStoreUnavailable;
 
+	// Reports this window's own currently-editing draft to the shell, so a different window
+	// can check `focusDraftIfOpen` before opening the same one — the two exist together to stop
+	// a draft being edited independently in two windows at once, which would otherwise autosave
+	// as a silent last-write-wins race (§13, §15). Only an existing draft (never a brand-new,
+	// unsaved compose seed, which has no id to collide on) is worth reporting.
+	const openDraftId =
+		effectivePane === "compose" ? (openDraft?.id ?? null) : null;
+	useEffect(() => {
+		void window.windows?.reportDraftState(openDraftId);
+	}, [openDraftId]);
+
 	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
 	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
 	// update happens inside the callback, in response to that external event, not during
@@ -423,18 +434,27 @@ export function AppShell() {
 								onDetach={
 									window.windows
 										? (draftId) => {
-												void window.windows
-													?.open(
-														`compose=${draftId}&account=${selectedAccountId}`,
-													)
-													.catch(() => {
+												void (async () => {
+													const focusedExisting =
+														await window.windows?.focusDraftIfOpen(draftId);
+													if (focusedExisting) {
+														setPane("reading");
+														return;
+													}
+
+													try {
+														await window.windows?.open(
+															`compose=${draftId}&account=${selectedAccountId}`,
+														);
+														setPane("reading");
+													} catch {
 														notify(notifications, {
 															kind: "error",
 															title: "Could not open in a new window",
 															detail: "The draft is still open here instead.",
 														});
-													});
-												setPane("reading");
+													}
+												})();
 											}
 										: undefined
 								}
@@ -446,9 +466,23 @@ export function AppShell() {
 									hub={hub}
 									accountId={selectedAccountId}
 									onOpen={(draft) => {
-										setOpenDraft(draft);
-										setComposeSeed(undefined);
-										setPane("compose");
+										void (async () => {
+											const focusedExisting =
+												await window.windows?.focusDraftIfOpen(draft.id);
+											if (focusedExisting) {
+												notify(notifications, {
+													kind: "info",
+													title: "Already open",
+													detail:
+														"This draft is being edited in another window.",
+												});
+												return;
+											}
+
+											setOpenDraft(draft);
+											setComposeSeed(undefined);
+											setPane("compose");
+										})();
 									}}
 								/>
 							</div>

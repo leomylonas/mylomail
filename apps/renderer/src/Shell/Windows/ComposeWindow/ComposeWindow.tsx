@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
 	Compose,
@@ -28,6 +29,15 @@ export function ComposeWindow({
 		enabled: !!hub,
 	});
 	const draft = drafts.data?.find((candidate) => candidate.id === draftId);
+
+	// Reports this window's own draft the same way AppShell's inline compose pane does, so a
+	// different window checks against it before opening the same draft independently — see
+	// `draftWindows`'s own remarks in Main.ts for why. Cleared on unmount as a courtesy;
+	// closing the window already clears it on the shell's side too.
+	useEffect(() => {
+		void window.windows?.reportDraftState(draftId);
+		return () => void window.windows?.reportDraftState(null);
+	}, [draftId]);
 
 	return (
 		<div className={styles.window}>
