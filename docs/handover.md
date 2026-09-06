@@ -3832,6 +3832,28 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   order with an exact fallback, Graph's raw-header approach matches how it already stores an
   inbound message's own `ReferencesHeader`, and no frozen-table entry is touched. `dotnet test` 484
   passed/0 failed (up from 483). `pnpm check` clean: 386 dotnet tests, vitest 130.
+- **Two-hundred-and-forty-third pass — an inline image sent via IMAP or Gmail lost its
+  `Content-Id` and reappeared as a stray visible attachment.** `RemoteDraftMaterializer` sets
+  `DraftAttachment.IsInline`/`ContentId` for any provider's materialised remote drafts (a draft
+  synced in from a Gmail/IMAP/Graph Drafts folder that already had an inline image), but
+  `ImapMailProvider.Send.cs` and `GmailMailProvider.Send.cs` both ignored those fields entirely,
+  dumping every attachment — inline or not — into `BodyBuilder.Attachments`, which never sets a
+  `Content-ID` header. A `cid:` reference in the draft's `BodyHtml` would resolve to nothing on the
+  wire, and the image would also reappear as an unwanted visible attachment in the sent message.
+  Graph's own send path already handled this correctly via its typed `IsInline`/`ContentId`
+  fields — IMAP and Gmail were the only two gaps. Fixed by routing an `IsInline` attachment through
+  `BodyBuilder.LinkedResources` instead, setting its `ContentId` from the draft's own value —
+  verified directly against MimeKit's actual wire output to produce the correct
+  `multipart/related` shape with `Content-Disposition: inline`. `Compose()` in both files was
+  `private static` with no test seam; made `internal` (this project already has
+  `InternalsVisibleTo` the test project) so the fix could be tested directly. Three new tests cover
+  both providers' inline handling and confirm a non-inline attachment is unaffected, manually
+  confirmed as a genuine discriminator via revert-and-reproduce (reverting just the
+  attachment-handling branch made the failure exactly as predicted: the image showed up as
+  `Content-Disposition: attachment`). `dotnet test` 487 passed/0 failed (up from 484). `pnpm check`
+  clean: 389 dotnet tests, vitest 130. This pass's implementing fork was under a hard
+  no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs to
+  run it before this pass is fully closed.
 
 ## Next task
 
