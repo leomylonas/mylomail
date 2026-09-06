@@ -83,6 +83,25 @@ public sealed class CalDavCalendarProviderTests
 		Assert.Equal(["/dav/personal/gone.ics"], page.DeletedProviderEventIds);
 	}
 
+	/// <summary>
+	/// A rejected Basic-auth credential must surface as <see cref="ProviderAuthenticationException"/>,
+	/// not a raw <see cref="HttpRequestException"/> from <c>EnsureSuccessStatusCode</c> — the
+	/// latter is unconditionally classified as a transient network blip by
+	/// <see cref="Scheduling.ConnectivityMonitor.IsNetworkFailure"/>, which would retry a wrong
+	/// or revoked password forever instead of ever setting <c>AuthState.NeedsReauth</c>.
+	/// </summary>
+	[Fact]
+	public async Task A_401_response_surfaces_as_a_provider_authentication_failure()
+	{
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("") });
+		var provider = Provider(handler);
+
+		await Assert.ThrowsAsync<ProviderAuthenticationException>(
+			() => provider.ListCalendarsAsync(Account(), default)
+		);
+	}
+
 	[Fact]
 	public async Task A_rejected_sync_token_is_reported_as_an_invalid_cursor()
 	{

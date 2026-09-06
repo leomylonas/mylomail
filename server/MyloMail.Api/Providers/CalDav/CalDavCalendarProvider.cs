@@ -54,6 +54,27 @@ public sealed class CalDavCalendarProvider(
 
 	public ProviderType Type => ProviderType.Imap;
 
+	/// <summary>
+	/// Every CalDAV request this provider sends routes through here, so a rejected Basic-auth
+	/// credential is translated into <see cref="ProviderAuthenticationException"/> exactly once
+	/// rather than at each of the eight call sites below — matching §"Auth failures set
+	/// AuthState = NeedsReauth" for CalDAV the same way passes 196-198 already did for IMAP,
+	/// SMTP, Gmail and Graph. Left unhandled, a 401 reaches <c>EnsureSuccessStatusCode</c> as a
+	/// generic <see cref="HttpRequestException"/>, which <see cref="Scheduling.ConnectivityMonitor.IsNetworkFailure"/>
+	/// unconditionally classifies as a transient network blip — a wrong or revoked CalDAV
+	/// password would then retry silently forever instead of ever pausing the account's jobs.
+	/// </summary>
+	private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+	{
+		var response = await http.SendAsync(request, ct);
+		if (response.StatusCode == HttpStatusCode.Unauthorized)
+		{
+			response.Dispose();
+			throw new ProviderAuthenticationException("The CalDAV server rejected these credentials.");
+		}
+		return response;
+	}
+
 	public async Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct)
 	{
 		var endpoint = Endpoint(account);
@@ -63,7 +84,7 @@ public sealed class CalDavCalendarProvider(
 			"""<?xml version="1.0" encoding="utf-8" ?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/></D:prop></D:propfind>"""
 		);
 
-		using var response = await http.SendAsync(request, ct);
+		using var response = await SendAsync(request, ct);
 		response.EnsureSuccessStatusCode();
 		var body = await response.Content.ReadAsStringAsync(ct);
 		var name = CalDavMultiStatusParser.Parse(body).FirstOrDefault()?.DisplayName ?? "Calendar";
@@ -92,7 +113,7 @@ public sealed class CalDavCalendarProvider(
 			"""
 		);
 
-		using var response = await http.SendAsync(request, ct);
+		using var response = await SendAsync(request, ct);
 		if (
 			cursor is not null
 			&& response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed
@@ -136,7 +157,7 @@ public sealed class CalDavCalendarProvider(
 		request.Headers.TryAddWithoutValidation("If-None-Match", "*");
 		request.Content = new StringContent(CalDavIcs.ToIcs(ev.ICalUid, ev), System.Text.Encoding.UTF8, "text/calendar");
 
-		using var response = await http.SendAsync(request, ct);
+		using var response = await SendAsync(request, ct);
 		response.EnsureSuccessStatusCode();
 		return (response.Headers.Location ?? target).ToString();
 	}
@@ -155,7 +176,7 @@ public sealed class CalDavCalendarProvider(
 		CalDavWebDavRequest.SetIfMatch(request, expectedETag);
 		request.Content = new StringContent(CalDavIcs.ToIcs(ev.ICalUid, ToDto(ev)), System.Text.Encoding.UTF8, "text/calendar");
 
-		using var response = await http.SendAsync(request, ct);
+		using var response = await SendAsync(request, ct);
 		if (response.StatusCode == HttpStatusCode.PreconditionFailed)
 		{
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
@@ -183,7 +204,7 @@ public sealed class CalDavCalendarProvider(
 	)
 	{
 		var getRequest = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
-		using var getResponse = await http.SendAsync(getRequest, ct);
+		using var getResponse = await SendAsync(getRequest, ct);
 		if (getResponse.StatusCode == HttpStatusCode.NotFound)
 		{
 			throw new ProviderConflictException("The recurring event this instance belongs to no longer exists.");
@@ -197,7 +218,7 @@ public sealed class CalDavCalendarProvider(
 		CalDavWebDavRequest.SetIfMatch(putRequest, expectedETag);
 		putRequest.Content = new StringContent(merged, System.Text.Encoding.UTF8, "text/calendar");
 
-		using var putResponse = await http.SendAsync(putRequest, ct);
+		using var putResponse = await SendAsync(putRequest, ct);
 		if (putResponse.StatusCode == HttpStatusCode.PreconditionFailed)
 		{
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
@@ -218,7 +239,7 @@ public sealed class CalDavCalendarProvider(
 		var request = await requests.CreateAsync(account, HttpMethod.Delete, target, ct);
 		CalDavWebDavRequest.SetIfMatch(request, ev.ProviderRevision);
 
-		using var response = await http.SendAsync(request, ct);
+		using var response = await SendAsync(request, ct);
 		if (response.StatusCode == HttpStatusCode.PreconditionFailed)
 		{
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
@@ -241,7 +262,7 @@ public sealed class CalDavCalendarProvider(
 	private async Task CancelOverrideAsync(Account account, CalendarEvent ev, Uri target, CancellationToken ct)
 	{
 		var getRequest = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
-		using var getResponse = await http.SendAsync(getRequest, ct);
+		using var getResponse = await SendAsync(getRequest, ct);
 		if (getResponse.StatusCode == HttpStatusCode.NotFound)
 		{
 			// The series is already gone — there is nothing left to cancel an instance of.
@@ -257,7 +278,7 @@ public sealed class CalDavCalendarProvider(
 		CalDavWebDavRequest.SetIfMatch(putRequest, ev.ProviderRevision);
 		putRequest.Content = new StringContent(merged, System.Text.Encoding.UTF8, "text/calendar");
 
-		using var putResponse = await http.SendAsync(putRequest, ct);
+		using var putResponse = await SendAsync(putRequest, ct);
 		if (putResponse.StatusCode == HttpStatusCode.PreconditionFailed)
 		{
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
