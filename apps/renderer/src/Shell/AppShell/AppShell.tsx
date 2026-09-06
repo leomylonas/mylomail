@@ -33,6 +33,7 @@ import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValu
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
+import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
 import {
 	AuthState,
 	CertificateTrustMode,
@@ -221,6 +222,20 @@ export function AppShell() {
 		[hub, store, notifications],
 	);
 
+	// "c" for compose is the one standard Outlook/Gmail shortcut this shell never wired
+	// (§13) — every other shell-level action already has its own affordance, and the
+	// message-list actions (u/i/s/Delete/r/a/f) live in their own registry scoped to that
+	// component. Guarded identically to the button's own `disabled` condition below.
+	const openComposeShortcut = () => {
+		if (!selectedAccountId) return;
+		setOpenDraft(undefined);
+		setComposeSeed(undefined);
+		setPane("compose");
+	};
+	useShortcuts([
+		{ key: "c", description: "New message", run: openComposeShortcut },
+	]);
+
 	return (
 		<div className={styles.shell}>
 			<header className={styles.header}>
@@ -231,11 +246,7 @@ export function AppShell() {
 				<Button
 					size="sm"
 					disabled={!selectedAccountId}
-					onClick={() => {
-						setOpenDraft(undefined);
-						setComposeSeed(undefined);
-						setPane("compose");
-					}}
+					onClick={openComposeShortcut}
 				>
 					New message
 				</Button>
