@@ -46,8 +46,12 @@ export function ReadingPane({
 	subject: string;
 	/**
 	 * The message's first `From` address, for the remote-content allow list (§13 Epic 5).
-	 * Empty in a popped-out message window, which has no message-list selection to carry it
-	 * from — the pane still works there, just without the "always allow this sender" option.
+	 * A popped-out message window has no message-list selection to read this from directly,
+	 * so it is carried over that window's query string instead (see `MessageWindow`) — without
+	 * it, an already-trusted sender's mail would be blocked and re-prompted there too, which
+	 * would contradict the allow list's whole point. Still genuinely optional: absent only if
+	 * the caller truly has no sender to offer, in which case the pane still works, just without
+	 * the "always allow this sender" option.
 	 */
 	senderAddress?: string;
 	/** Absent inside a window that is already just this one message (§13 Epic 10). */

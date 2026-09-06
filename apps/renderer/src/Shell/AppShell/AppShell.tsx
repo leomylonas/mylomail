@@ -526,7 +526,11 @@ export function AppShell() {
 													?.open(
 														`message=${selectedMessageId}&subject=${encodeURIComponent(
 															selectedMessageSubject,
-														)}`,
+														)}${
+															selectedMessageSenderAddress
+																? `&sender=${encodeURIComponent(selectedMessageSenderAddress)}`
+																: ""
+														}`,
 													)
 													.catch(() => {
 														notify(notifications, {

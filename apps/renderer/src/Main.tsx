@@ -5,6 +5,7 @@ import { MessageWindow } from "@mylomail/renderer/Shell/Windows/MessageWindow/Me
 import { ComposeWindow } from "@mylomail/renderer/Shell/Windows/ComposeWindow/ComposeWindow";
 import { WindowScope } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { ThemeProvider } from "@mylomail/renderer/Shell/ThemeProvider/ThemeProvider";
+import { parseWindowRoute } from "@mylomail/renderer/Shell/WindowRoute";
 import "@carbon/react/index.scss";
 
 export const applicationName = "MyloMail";
@@ -18,24 +19,23 @@ if (!container) throw new Error("The renderer root element is missing.");
  * ordinary main window; present, it is a single message or a popped-out draft and nothing else.
  */
 function chooseRoot() {
-	const params = new URLSearchParams(window.location.search);
-	const message = params.get("message");
-	if (message) {
-		return (
-			<MessageWindow
-				messageId={message}
-				subject={params.get("subject") ?? ""}
-			/>
-		);
+	const route = parseWindowRoute(window.location.search);
+	switch (route.kind) {
+		case "message":
+			return (
+				<MessageWindow
+					messageId={route.messageId}
+					subject={route.subject}
+					senderAddress={route.senderAddress}
+				/>
+			);
+		case "compose":
+			return (
+				<ComposeWindow draftId={route.draftId} accountId={route.accountId} />
+			);
+		case "shell":
+			return <AppShell />;
 	}
-
-	const compose = params.get("compose");
-	const account = params.get("account");
-	if (compose && account) {
-		return <ComposeWindow draftId={compose} accountId={account} />;
-	}
-
-	return <AppShell />;
 }
 
 createRoot(container).render(
