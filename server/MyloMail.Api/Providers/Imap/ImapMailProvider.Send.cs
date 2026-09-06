@@ -178,9 +178,20 @@ public sealed partial class ImapMailProvider
 		if (draft.InReplyToHeader is string inReplyTo)
 		{
 			// Both, because a reply that sets only In-Reply-To breaks threading in clients that
-			// follow References, and vice versa (RFC 5322).
+			// follow References, and vice versa (RFC 5322). References is the parent's own
+			// chain (whitespace-separated ids) with its own Message-ID already appended by the
+			// caller — not just the immediate parent — so a client threading solely on
+			// References can still reconstruct a thread more than one reply deep.
 			message.InReplyTo = inReplyTo;
-			message.References.Add(inReplyTo);
+			foreach (
+				var id in (draft.ReferencesHeader ?? inReplyTo).Split(
+					(char[]?)null,
+					StringSplitOptions.RemoveEmptyEntries
+				)
+			)
+			{
+				message.References.Add(id);
+			}
 		}
 
 		// A plain-text alternative alongside the HTML, because a message with no text part is

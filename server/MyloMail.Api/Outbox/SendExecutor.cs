@@ -78,10 +78,24 @@ public sealed class SendExecutor(
 
 		if (draft.InReplyToMessageId is Guid inReplyTo)
 		{
-			draft.InReplyToHeader = await context
+			var parent = await context
 				.Messages.Where(m => m.Id == inReplyTo)
-				.Select(m => m.MessageIdHeader)
+				.Select(m => new { m.MessageIdHeader, m.ReferencesHeader })
 				.FirstOrDefaultAsync(ct);
+			draft.InReplyToHeader = parent?.MessageIdHeader;
+			// RFC 5322 §3.6.4: References is the parent's own References chain with the
+			// parent's Message-ID appended — not just the immediate parent's id — so a client
+			// that threads solely on References (rather than In-Reply-To) can still reconstruct
+			// a thread more than one reply deep. IMAP's ENVELOPE fetch never carries References
+			// at all (RFC 3501 does not include it), so this is empty more often for a reply to
+			// an IMAP-sourced message than a Gmail/Graph one — a real, accepted transport
+			// limitation, not something this fix can close.
+			if (parent?.MessageIdHeader is string parentMessageId)
+			{
+				draft.ReferencesHeader = string.IsNullOrWhiteSpace(parent.ReferencesHeader)
+					? parentMessageId
+					: $"{parent.ReferencesHeader} {parentMessageId}";
+			}
 		}
 
 		// Step 2 — the attempt, with exactly one item by construction.

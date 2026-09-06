@@ -126,12 +126,20 @@ public sealed partial class GraphMailProvider
 			BccRecipients = [.. draft.Bcc.Select(ToRecipient)],
 			Subject = draft.Subject,
 			Body = new ItemBody { ContentType = BodyType.Html, Content = draft.BodyHtml },
+			// References is the parent's own chain with its own Message-ID already appended by
+			// the caller (RFC 5322 §3.6.4) — not just the immediate parent — so a client
+			// threading solely on References can still reconstruct a thread more than one reply
+			// deep, the same fix applied to IMAP/Gmail's own MimeKit-built References list.
 			InternetMessageHeaders =
 				draft.InReplyToHeader is string inReplyTo
 					?
 					[
 						new InternetMessageHeader { Name = "In-Reply-To", Value = inReplyTo },
-						new InternetMessageHeader { Name = "References", Value = inReplyTo },
+						new InternetMessageHeader
+						{
+							Name = "References",
+							Value = draft.ReferencesHeader ?? inReplyTo,
+						},
 					]
 					: null,
 		};

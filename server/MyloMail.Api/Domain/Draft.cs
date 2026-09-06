@@ -70,6 +70,14 @@ public class Draft
 	/// </summary>
 	[NotMapped]
 	public string? InReplyToHeader { get; set; }
+
+	/// <summary>
+	/// The RFC 5322 <c>References</c> value to send: the replied-to message's own
+	/// <c>References</c> chain with its <c>Message-ID</c> appended (RFC 5322 §3.6.4), resolved
+	/// at send time alongside <see cref="InReplyToHeader"/>. Not persisted, for the same reason.
+	/// </summary>
+	[NotMapped]
+	public string? ReferencesHeader { get; set; }
 }
 
 public class DraftAttachment

@@ -196,6 +196,74 @@ public sealed class OutboxTests
 		});
 	}
 
+	/// <summary>
+	/// RFC 5322 §3.6.4: a reply's References must carry the parent's own References chain with
+	/// the parent's Message-ID appended, not just the immediate parent's id — otherwise a client
+	/// that threads solely on References (rather than In-Reply-To) can't reconstruct a thread
+	/// more than one reply deep.
+	/// </summary>
+	[Fact]
+	public async Task A_reply_carries_the_parents_full_references_chain()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var itemId = await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+
+			var parent = new Message
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				MessageIdHeader = "<parent@example.org>",
+				ReferencesHeader = "<grandparent@example.org>",
+			};
+			context.Messages.Add(parent);
+
+			var identity = new SendIdentity
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				DisplayName = "Test",
+				EmailAddress = "test@example.org",
+				IsDefault = true,
+			};
+			context.SendIdentities.Add(identity);
+
+			var draft = new Draft
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				SendIdentityId = identity.Id,
+				InReplyToMessageId = parent.Id,
+				Subject = "Re: Hello",
+				SavedAt = DateTimeOffset.UnixEpoch,
+			};
+			context.Drafts.Add(draft);
+			await context.SaveChangesAsync();
+
+			var item = await services
+				.GetRequiredService<OutboxService>()
+				.QueueAsync(account, draft.Id);
+			return item.Id;
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			await services.GetRequiredService<SendExecutor>().SendAsync(account, itemId);
+		});
+
+		var sent = harness.Provider.LastSentDraft;
+		Assert.NotNull(sent);
+		Assert.Equal("<parent@example.org>", sent!.InReplyToHeader);
+		Assert.Equal(
+			"<grandparent@example.org> <parent@example.org>",
+			sent.ReferencesHeader
+		);
+	}
+
 	internal static async Task<OutboxItem> QueueAsync(MutationHarness harness, DateTimeOffset? at = null) =>
 		await harness.UsingAsync(async services =>
 		{
