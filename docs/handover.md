@@ -3953,6 +3953,23 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   7 new tests, each manually confirmed as a genuine discriminator via revert-and-reproduce.
   `dotnet test` 503 passed/0 failed (up from 496; 576 total including skips). `pnpm check` clean:
   405 dotnet tests, vitest 130.
+- **Two-hundred-and-forty-ninth pass — genuinely clean; the field-by-field `MessageDto` vein
+  (245-248) is exhausted.** One more field-by-field comparison found `SenderAddress` (RFC 5322
+  `Sender`) is set only by `GraphMailProvider.ToDto` (from `message.Sender`); IMAP's `ToDto` never
+  reads MailKit's own `Envelope.Sender` (confirmed present in the installed 4.17.0 package), and
+  Gmail's `ToDto` never reads its own already-available `Sender` header despite pulling `From`/
+  `To`/`Cc`/`Bcc`/`Reply-To` from that exact same headers dictionary. Unlike every field passes
+  245-248 fixed, though, `SenderAddress` has no consumer anywhere: it's persisted onto `Message`
+  (`MessageIngestor.cs:305`) but never read back by any query, reconciliation path, DTO, or UI —
+  grepped the whole server and renderer trees to confirm. This is the same "half-built,
+  provider-inconsistent field with no consumer" shape as `Message.ThreadId` (Next-task item 5),
+  which the user explicitly chose to leave as a documented gap rather than build out — fixing
+  IMAP/Gmail's population here would produce no observable behaviour change, just quieter
+  inconsistency, so it's noted rather than fixed pending the same kind of explicit decision.
+  Also confirmed, not a gap: `ReferencesHeader` is correctly absent from IMAP's `ToDto` — MailKit's
+  `Envelope` type has no `References` property at all, since RFC 3501's ENVELOPE structure itself
+  never includes it; IMAP genuinely cannot report incoming References the way Gmail/Graph's raw
+  header access can. No diff, no code change.
 
 ## Next task
 
@@ -4015,6 +4032,14 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
    decision (header block layout, long-recipient-list handling, and possibly new fields on
    `GetMessageBody`'s DTO since To/Cc today only exist on the list's summary projection),
    not a one-line addition.
+9. **`Message.SenderAddress` (RFC 5322 `Sender`) is provider-inconsistent with no consumer**
+   (found by pass 249). Only `GraphMailProvider.ToDto` sets it; IMAP's `ToDto` never reads
+   MailKit's own `Envelope.Sender`, and Gmail's `ToDto` never reads its own already-available
+   `Sender` header despite pulling every other address field from that same headers dictionary.
+   Persisted (`MessageIngestor.cs:305`) but never read back anywhere — no query, DTO, or UI
+   consumes it. The same "half-built, provider-inconsistent field with no consumer" shape as
+   `Message.ThreadId` (item 5) — either build it out with a real consumer or drop it, not a
+   silent fix with no observable effect.
 
 ## Read first
 
