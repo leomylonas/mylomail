@@ -3300,6 +3300,36 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   passed (up from 473), `pnpm check` clean:
   format/tsc/eslint/stylelint/build/tests(376)/vitest(120).
 
+- **Two-hundred-and-twentieth pass — genuinely clean; item 7 confirmed as a real UI
+  design decision, not a one-line fix; no other CalDAV/local-DB delete-path asymmetry
+  found.** Continued pass 219's angle first: read `CalendarEventOccurrences.ForCalendarAsync`
+  end to end and confirmed the cancelled-override row it now keeps (post pass 219) is
+  deliberately still included in the summaries handed to the renderer — verified against
+  `CalendarEventServiceTests.cs`'s own pass-219 test, which asserts `Assert.Single(window)`
+  containing the cancelled row with `Status == Cancelled`, not its absence. Filtering
+  `Status == Cancelled` out server-side (the "obviously correct default" this pass
+  initially suspected) would have silently broken that existing, intentional assertion —
+  confirming pass 219's own note that the display treatment (strikethrough, badge, or
+  filter) is a genuine product choice belonging in the renderer, not a bug to fix here.
+  Also checked `CalendarSyncService.ApplyPageAsync`'s `DeletedProviderEventIds` path
+  against `CalendarEventService.DeleteAsync`'s override/master branch pass 219 added: a
+  provider-reported resource deletion is handled generically (remove the row plus any
+  children) with no override-specific case, which is correct rather than missing, because
+  CalDAV's own sync surfaces a cancelled override as an ordinary `Upserted` DTO with
+  `Status = Cancelled` (going through `Apply()`, which copies `Status` like every other
+  field) rather than ever appearing in `DeletedProviderEventIds` — the same distinction
+  `DeleteAsync` makes for the locally-initiated case. Read `MailInviteMaterializer.cs` for
+  a similar CalDAV-only-provider gap (`ICalendarProvider` currently has exactly one
+  implementation, so any such gap would be latent rather than live) and found its
+  `METHOD:CANCEL` handling, `ApplyReplyAsync`'s conservative-application rules, and
+  `UpsertAsync`'s `Sequence` regression guard already correctly and honestly documented as
+  deliberate, including an explicitly-acknowledged known limitation (no `DTSTAMP` to order
+  out-of-sequence replies). Checked `CalendarRecurrenceExpander` for `ExceptionDates`
+  (`EXDATE`) handling alongside the override-suppression map pass 219 touched — present
+  and correct. No code change this pass. `dotnet test` unchanged at 474,
+  `pnpm check` not rerun (no source touched). `invariant-review` not invoked — nothing to
+  review.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
