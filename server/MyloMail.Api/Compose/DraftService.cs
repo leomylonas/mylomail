@@ -276,6 +276,15 @@ public sealed class DraftService(
 	/// directly. An unknown limit is never blocking, only a known, exceeded one (§15's "where
 	/// the limit is unknown, the user is warned rather than blocked" applies to this server-side
 	/// check too, not just the client's confirmation dialog).
+	/// Also thrown when the draft has no recipients at all. Compose.tsx only disables its Send
+	/// button while the raw "To" text field is empty — it never guarantees that text actually
+	/// parsed into an address (see `parseAddresses`'s "@" filter) and does not consider Cc/Bcc.
+	/// A caller invoking `SendDraft` directly, or a Send click racing a To field that parsed to
+	/// nothing, would otherwise reach <see cref="SendExecutor"/> and have the provider's own
+	/// "no recipients" rejection land in its generic catch-all, which treats a thrown send as
+	/// <see cref="OutboxStatus.AmbiguousOutcome"/> (§15: "not evidence that nothing was sent").
+	/// That is actively wrong here — a message with no recipients is never sent — so this is
+	/// rejected up front instead of being allowed to masquerade as an ambiguous outcome.
 	/// </exception>
 	public async Task<OutboxItem> SendAsync(
 		Guid draftId,
@@ -289,6 +298,10 @@ public sealed class DraftService(
 			throw new InvalidOperationException(
 				"This draft has an unresolved sync conflict. Resolve it before sending."
 			);
+		}
+		if (draft.To.Count == 0 && draft.Cc.Count == 0 && draft.Bcc.Count == 0)
+		{
+			throw new InvalidOperationException("Add at least one recipient before sending.");
 		}
 		var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
 

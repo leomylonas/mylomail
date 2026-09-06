@@ -302,6 +302,7 @@ public sealed class DraftConflictResolutionTests
 					SendIdentityId = identity.Id,
 					Subject = "My local subject",
 					BodyHtml = "<p>My local body</p>",
+					To = [new Address(null, "recipient@example.test")],
 					SavedAt = DateTimeOffset.UnixEpoch,
 					PushedAt = DateTimeOffset.UnixEpoch,
 					ProviderDraftId = providerDraftId,
