@@ -3542,6 +3542,28 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   second invariant-review round confirmed the fix closes the race in both directions and needs no
   reset, since a Compose instance's `draftId` never changes within its own lifetime.
 
+- **Two-hundred-and-twenty-ninth pass — a reading pane could show a deleted message's stale
+  content forever.** `GetMessageBody`'s own existence check exists specifically so a reading pane
+  left open on a message that's since been deleted reports "no longer exists" rather than polling
+  a blank body forever (see its own comment) — but that guard was never actually reached in
+  practice: `ReadingPane`'s own `refetchInterval` correctly stops polling once a body is first
+  fetched successfully (a fetched body never changes on its own), and nothing ever invalidated the
+  `["body", messageId]` query cache on deletion. Deleting a message currently open in a reading
+  pane (either window's own Delete/`DeletePermanently` action, or a remote deletion syncing in via
+  tombstone GC) left the pane showing the now-gone message's stale content indefinitely,
+  discoverable only by reselecting it — the same "open session doesn't learn about a relevant
+  background change" shape pass 228 already found and fixed for Compose/`SyncConflict`. Fixed by
+  adding a `MessageDeleted` listener in `HubConnection.ts` invalidating the `["body"]` query
+  prefix, mirroring the existing messages/search invalidation pattern on the same event —
+  deliberately scoped to `MessageDeleted` only, not `MessageReceived`/`MessageUpdated`, since body
+  content is immutable once fetched. No new test: no test seam exists for `HubConnection.ts` (no
+  existing test file, and the same no-component-render-harness limitation already accepted for
+  `ReadingPane`/`Compose`/`MessageWindow`) — verified by code inspection and `pnpm check`. `pnpm
+check` clean under Node 22: 377 dotnet tests (unchanged, pure renderer), vitest 125 (unchanged,
+  no new test file). This pass's implementing fork was under a hard no-subagent-spawning rule and
+  could not launch `invariant-review` at all — the parent session needs to run it before this pass
+  is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
