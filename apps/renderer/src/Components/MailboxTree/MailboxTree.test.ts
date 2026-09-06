@@ -153,6 +153,39 @@ describe("mailboxMoveActions — Move to", () => {
 	});
 });
 
+// A synthesized row (a Gmail nested-label-group intermediate the sidebar derives, with no real
+// label of its own) has nothing for MoveMailboxAsync's provider PATCH to act on — reparenting
+// one would surface RunProviderCallAsync's internal assertion message ("Gmail mailboxes always
+// have a provider id") instead of the same clear guidance Rename/Delete already give for this
+// exact row shape.
+describe("mailboxMoveActions — synthesized rows can't be reparented", () => {
+	it("disables Move to and Move to top level, but not Move up/down", () => {
+		const synthesized = mailbox({
+			id: "work",
+			name: "Work",
+			parentId: "root",
+			isSynthesized: true,
+		});
+		const all = [
+			mailbox({ id: "root", name: "Root" }),
+			synthesized,
+			mailbox({ id: "other", name: "Other", parentId: "root" }),
+		];
+
+		const actions = mailboxMoveActions(all, synthesized, vi.fn(), vi.fn());
+
+		expect(findAction(actions, "Move to").unavailable).toBe(
+			"Gmail doesn't support moving a nested label group directly — move the label itself in Gmail.",
+		);
+		expect(findAction(actions, "Move to top level").unavailable).toBe(
+			"Gmail doesn't support moving a nested label group directly — move the label itself in Gmail.",
+		);
+		// A same-parent reorder never touches the provider (LocalSortOrder only), so it stays
+		// available even for a synthesized row.
+		expect(findAction(actions, "Move down").unavailable).toBeFalsy();
+	});
+});
+
 describe("mailboxMoveActions — Move to top level", () => {
 	it("reparents to null and is unavailable when already at the top level", () => {
 		const nested = mailbox({ id: "nested", parentId: "root" });

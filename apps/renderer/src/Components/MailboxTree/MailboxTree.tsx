@@ -275,6 +275,23 @@ export function MailboxTree({
 		if (!dragged || isDescendantOf(mailboxes.data, target, draggedMailboxId))
 			return;
 
+		// A synthesized intermediate has no real label of its own to move — the same reason
+		// Rename/Delete are unavailable on it (§13 Epic 2). A same-parent reorder is still just
+		// local LocalSortOrder bookkeeping and never touches the provider, so only a genuine
+		// reparent (the moveMailbox branch below) needs this guard.
+		if (
+			dragged.isSynthesized &&
+			(dragged.parentId ?? null) !== (target.parentId ?? null)
+		) {
+			notify(notifications, {
+				kind: "error",
+				title: "Can't move this folder",
+				detail:
+					"This is a nested label group, not a real Gmail label — move the label itself in Gmail instead.",
+			});
+			return;
+		}
+
 		if ((dragged.parentId ?? null) === (target.parentId ?? null)) {
 			// Same parent: a reorder, dropped mailbox lands immediately before the target.
 			const siblingIds = children(target.parentId ?? null)
@@ -743,10 +760,10 @@ export function mailboxMoveActions(
 	// "Move to" lists every mailbox this folder could legally reparent under: not itself, not
 	// its current parent (a no-op MoveMailbox call), and not one of its own descendants —
 	// reparenting under a descendant would cycle ParentId, which renderLevel's recursion has
-	// no way back out of. This mirrors exactly what dropOnMailbox's own folder-drag branch
-	// already permits: no isSynthesized guard on either side, since drag-and-drop never added
-	// one for a folder-to-folder move (only for dropping a *message* onto a synthesized
-	// target).
+	// no way back out of. This mirrors dropOnMailbox's own folder-drag branch, which likewise
+	// never guarded the *target* against being synthesized — reparenting a real folder under a
+	// synthesized Gmail label-group intermediate is fine, since MoveMailboxAsync only needs
+	// that target's local path, not a real label id of its own.
 	const reparentTargets = mailboxes
 		.filter(
 			(candidate) =>
@@ -755,6 +772,18 @@ export function mailboxMoveActions(
 				!isDescendantOf(mailboxes, candidate, mailbox.id),
 		)
 		.sort((a, b) => a.name.localeCompare(b.name));
+
+	// Reparenting the mailbox *being moved* is a different story when it's synthesized: Gmail's
+	// MoveMailboxAsync needs that mailbox's own provider id to PATCH, and a synthesized row has
+	// none (it's a local label-group intermediate the sidebar derived, not a real label) —
+	// GmailMailProvider.ProviderMailboxId() throws for it. RunProviderCallAsync does turn that
+	// into a clean HubException rather than a raw crash, but its message ("Gmail mailboxes
+	// always have a provider id") is an internal assertion, not the same guidance rename/delete
+	// already give for this exact row shape — so it's disabled here the same way, rather than
+	// letting the user reach a confusing error.
+	const synthesizedReparentMessage = mailbox.isSynthesized
+		? "Gmail doesn't support moving a nested label group directly — move the label itself in Gmail."
+		: undefined;
 
 	return [
 		{
@@ -774,9 +803,10 @@ export function mailboxMoveActions(
 			label: "Move to",
 			run: () => undefined,
 			unavailable:
-				reparentTargets.length === 0
+				synthesizedReparentMessage ??
+				(reparentTargets.length === 0
 					? "No other folders to move this into"
-					: undefined,
+					: undefined),
 			children: reparentTargets.map((target) => ({
 				label: target.name,
 				run: () => reparent(target.id),
@@ -786,7 +816,8 @@ export function mailboxMoveActions(
 			label: "Move to top level",
 			run: () => reparent(null),
 			unavailable:
-				mailbox.parentId === null ? "Already at the top level" : undefined,
+				synthesizedReparentMessage ??
+				(mailbox.parentId === null ? "Already at the top level" : undefined),
 		},
 	];
 }
