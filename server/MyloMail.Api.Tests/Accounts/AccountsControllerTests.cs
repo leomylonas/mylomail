@@ -58,6 +58,73 @@ public sealed class AccountsControllerTests
 	}
 
 	/// <summary>
+	/// An empty host used to reach MailKit's <c>ImapClient.ConnectAsync</c>, which throws a
+	/// bare <see cref="ArgumentException"/> — a type none of <c>ImapMailProvider</c>'s or this
+	/// controller's catch clauses recognise, so it surfaced as an unhandled 500 rather than the
+	/// same clean 400 every other rejected input gets. <c>AddAccount.tsx</c>'s "imapReady" gate
+	/// keeps a blank host out of the normal UI flow, but nothing mirrored that server-side.
+	/// </summary>
+	[Fact]
+	public async Task An_imap_account_with_a_blank_host_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Imap,
+					"someone@example.org",
+					"hunter2",
+					new ImapAccountSettings("", 993, true, "someone@example.org", "smtp.example.org", 465)
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	/// <summary>Same failure mode as the blank IMAP host, on the SMTP connection Send.cs opens.</summary>
+	[Fact]
+	public async Task An_imap_account_with_a_blank_smtp_host_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Imap,
+					"someone@example.org",
+					"hunter2",
+					new ImapAccountSettings("imap.example.org", 993, true, "someone@example.org", "", 465)
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	/// <summary>
+	/// <c>Account</c> has no address column (§1) — this becomes the default <c>SendIdentity</c>'s
+	/// address, the authoritative one for the account. Nothing downstream re-checks it, so a
+	/// blank email address would otherwise silently create an account with no usable address.
+	/// </summary>
+	[Fact]
+	public async Task An_account_with_a_blank_email_address_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(new AddAccountRequest("Test", ProviderType.Gmail, "", null, null), default)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	/// <summary>
 	/// A rejected credential is the user's to fix; a missing client registration is not, and
 	/// the two must not present as the same failure.
 	/// </summary>

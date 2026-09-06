@@ -73,6 +73,39 @@ public class AccountsController(
 				title: "Missing IMAP settings"
 			);
 		}
+		if (string.IsNullOrWhiteSpace(request.EmailAddress))
+		{
+			// `Account` has no address column (§1) — this becomes the default `SendIdentity`'s
+			// address, the authoritative one for the account. Nothing downstream re-checks it,
+			// so an empty string here would silently create an account with no usable address.
+			return Problem(
+				"An account needs an email address.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing email address"
+			);
+		}
+		if (request.ProviderType == ProviderType.Imap && request.Imap is { Host: null or "" })
+		{
+			// AddAccount.tsx's "imapReady" gate keeps a blank host out of the normal flow, but
+			// nothing mirrors that here. An empty host reaches MailKit's ImapClient.ConnectAsync,
+			// which throws a bare ArgumentException — a type none of AuthenticateAsync's or this
+			// controller's catch clauses recognise, so it used to surface as an unhandled 500
+			// instead of the clean 400 every other rejected input gets.
+			return Problem(
+				"IMAP accounts need a host.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing IMAP host"
+			);
+		}
+		if (request.ProviderType == ProviderType.Imap && request.Imap is { SmtpHost: null or "" })
+		{
+			// Same failure mode as the IMAP host above, on the SMTP connection Send.cs opens.
+			return Problem(
+				"IMAP accounts need an SMTP host.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing SMTP host"
+			);
+		}
 		if (request.CalDav is { ReuseImapCredential: false, Secret: null or "" })
 		{
 			return Problem("Independent CalDAV credentials need a password.", statusCode: 400, title: "Missing CalDAV credential");
