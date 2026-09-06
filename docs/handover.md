@@ -3691,6 +3691,26 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   renderer's, existing non-synthesized-mailbox tests are unaffected, and no frozen-table entry is
   touched. `dotnet test` 478 passed/73 skipped/0 failed (551 total). `pnpm check` clean under Node
   22: 380 dotnet tests, vitest 130.
+- **Two-hundred-and-thirty-fifth pass — the same synthesized-mailbox theme in the message-move
+  path.** `MailHub.MoveMessages` never checked whether `targetMailboxId` was synthesized before
+  enqueuing `MutationQueue.MoveAsync` for each message — the renderer's own "Move to" menu and
+  drag-and-drop already filter synthesized targets, but a direct hub call bypasses that. Traced the
+  consequence: `MutationExecutor.CallAsync`'s move case would call
+  `GmailMailProvider.MoveMessagesAsync`, which throws `InvalidOperationException` via its private
+  provider-id helper; `MutationExecutor`'s generic catch marks the attempt `Ambiguous` and routes it
+  to reconciliation — but this specific failure is deterministic (the target will never gain a
+  provider id), so every retry hits the identical exception forever: a permanently-stuck
+  reconciliation loop, not a genuinely ambiguous outcome. Fixed by resolving the target mailbox in
+  `MoveMessages` and throwing a clean `HubException` — the same wording the renderer's own
+  drag-and-drop error toast already uses — before `EnqueueEachAsync` runs, so nothing is ever
+  queued for a synthesized target. `MutationHarness` gained `.AddScoped<MailHub>()` to exercise hub
+  methods directly, mirroring `SyncHarness`'s existing pattern. Two new tests, one confirmed as a
+  genuine discriminator via revert-and-reproduce (removing the guard made it fail with "No
+  exception was thrown"). `invariant-review`: no issues — confirmed the guard precedes any enqueue,
+  the stuck-retry consequence by reading `MutationExecutor.cs` directly, every `MailHub` constructor
+  dependency is explicitly registered, both tests are genuine discriminators, the error text
+  verbatim-matches the existing toast, and no frozen-table entry is touched. `dotnet test` 480
+  passed/0 failed (up from 478). `pnpm check` clean: 382 dotnet tests, vitest 130.
 
 ## Next task
 
