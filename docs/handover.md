@@ -3365,6 +3365,39 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   474 (no C# touched this pass), `pnpm check` clean:
   format/tsc/eslint/stylelint/build/tests(376)/vitest(124), up from 120.
 
+- **Two-hundred-and-twenty-second pass — genuinely clean of small bugs, but found a
+  feature-sized gap: `ReadingPane.tsx` never displays who a message is from, when it
+  arrived, or who else received it, anywhere in the app.** Continued pass 221's
+  "per-window/per-message state that should be consistent but might not survive the
+  pop-out boundary" angle first: traced whether read/unread state, flags, or anything else
+  `MessageWindow.tsx` might construct independently of the main window's source of truth
+  has the same "lost on pop-out" shape as pass 221's sender-address bug. It does not —
+  `SetFlags` is only ever invoked from `MessageList.tsx`'s own toolbar/context-menu actions
+  (there is no auto-mark-read-on-open anywhere in the renderer, in either window, so there
+  is no "lost" transition to find), and `ReadingPane` has no flag-toggle UI at all; both
+  windows read `GetMessageBody`/`GetAttachmentMetadata` fresh from the hub, so there is
+  nothing for a popped-out window to construct independently. Also checked whether opening
+  the same message twice creates two redundant windows the way pass 212 found for drafts:
+  it does (`Main.ts`'s `openWindowChannel` handler has no `windowAlreadyEditing`-style dedup
+  for `message=` routes, only for drafts), but unlike a draft this is harmless — a message
+  window has no local mutable state to race, so two windows on the same read-only message
+  is at worst a minor UX redundancy, not a correctness bug, and not fixed here. Widened to a
+  fresh angle: read `ReadingPane.tsx` end to end for what it actually renders, and found it
+  shows only the subject line, the body, an invite banner and an attachment list — no
+  sender name/address, no received date, no To/Cc recipients, anywhere. This is masked in
+  the main window only because `MessageList.tsx`'s row for the selected message (with its
+  own `From` and `receivedAt` columns) stays visible beside the pane; a popped-out
+  `MessageWindow` has no such row, so its reading pane alone gives no way to tell who sent
+  the open message or when. Confirmed by reading `MessageHtml.tsx`, `AttachmentList.tsx`
+  and `ReadingPane.module.css` for a header block that might render elsewhere in the same
+  layout: none exists, and no test (`ReadingPane`'s own or otherwise) asserts a sender/date
+  display. Not fixed: this needs a design decision (a header block's layout, what to do for
+  long recipient lists, whether `GetMessageBody`'s DTO needs new fields for To/Cc that
+  today only exist on the list's summary projection) rather than a one-line addition, so
+  per the standing instruction this is reported, not patched. No code change this pass;
+  `dotnet test`/`pnpm check` not rerun (nothing touched). `invariant-review` not invoked —
+  nothing to review.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
@@ -3417,6 +3450,15 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
    sync before this pass), and not fixed here since it is a UI design decision (show it
    struck through? filter it out entirely? show it with a "cancelled" tag?), not a
    one-line omission.
+8. **`ReadingPane.tsx` never displays a message's sender, received date, or To/Cc
+   recipients** (found by pass 222, while checking whether other per-message state has
+   pass 221's "lost on pop-out" shape). In the main window this is masked by
+   `MessageList.tsx`'s own row for the selected message staying visible beside the pane;
+   a popped-out `MessageWindow` has no such row, so its reading pane alone gives no way to
+   tell who a message is from or when it arrived. Not fixed since it needs a design
+   decision (header block layout, long-recipient-list handling, and possibly new fields on
+   `GetMessageBody`'s DTO since To/Cc today only exist on the list's summary projection),
+   not a one-line addition.
 
 ## Read first
 
