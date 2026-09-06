@@ -3732,6 +3732,19 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   doesn't apply — this codebase has no `RecurrenceRule`/RRULE-editing field anywhere, recurrence
   is modelled purely via `RecurrenceMasterId`/override rows, so there is no analogous
   UNTIL-before-DTSTART input to validate. No fix, no diff, no invariant-review needed.
+- **Two-hundred-and-thirty-seventh pass — genuinely clean; no fresh small bug found.** Checked
+  several candidate angles against `docs/architecture.md`: a popped-out `MessageWindow`'s own
+  Reply/Reply-all/Forward path (`onReply` in `MessageWindow.tsx`) already handles a failed/empty
+  attachment copy, a failed window-open (discarding the orphaned draft rather than leaving debris),
+  and content-fetch failure the same way the main window's `Compose.tsx` does — no divergence.
+  Compose's file-drag-and-drop (`addFiles`) not enforcing the attachment size limit at attach time
+  (only at send time) matches main-window behaviour exactly, not a `MessageWindow`-specific gap.
+  §501's "removal attempts cancellation of in-flight work" is already implemented via the
+  per-iteration `IsEnabled` checks fixed exhaustively in passes 183-184, not literal
+  `CancellationToken` cancellation — doc wording is loose, not a gap. Confirmed no calendar
+  drag-to-reschedule requirement exists in the doc (§13's drag-and-drop list only covers folder
+  reorder/message-move/attachment-drop/panel-resize), so `CalendarAgenda`'s lack of one isn't a
+  gap either. No unambiguous small bug found; no fix, no diff, no invariant-review needed.
 
 ## Next task
 
