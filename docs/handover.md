@@ -3811,6 +3811,27 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   every other status branch, no leak/double-dispose in the dispose-then-throw pattern, and no
   frozen-table entry touched. `dotnet test` 483 passed/0 failed (up from 482). `pnpm check` clean:
   385 dotnet tests, vitest 130.
+- **Two-hundred-and-forty-second pass — a reply's `References` header only ever carried its
+  immediate parent's id, not the full RFC 5322 §3.6.4 chain.** All three send paths
+  (`ImapMailProvider.Send.cs`, `GmailMailProvider.Send.cs`, `GraphMailProvider.Send.cs`) built
+  `References` from `draft.InReplyToHeader` alone, so a client that threads solely on `References`
+  — rather than `In-Reply-To` — could not reconstruct a thread more than one reply deep. `Draft`
+  gains a new `[NotMapped] ReferencesHeader` sibling to the existing `[NotMapped] InReplyToHeader`
+  (no migration needed, resolved at send time only); `SendExecutor` now also reads the parent
+  `Message`'s own `ReferencesHeader` and appends its `MessageIdHeader`, per RFC 5322's stated
+  convention. Each provider now uses the combined chain (falling back to the single id when none
+  is known, preserving exact prior behaviour for that case) — IMAP/Gmail split it on whitespace
+  into MimeKit's `References` list, Graph writes it directly as the raw header value. IMAP's own
+  `MessageDto` never populates `ReferencesHeader` at all — RFC 3501's ENVELOPE structure doesn't
+  include it, only In-Reply-To — so a reply to an IMAP-sourced message still only gets a single-id
+  chain; an accepted, documented transport limitation, not something this fix claims to close.
+  New test manually confirmed as a genuine discriminator via revert-and-reproduce (reverting
+  `SendExecutor.cs` alone made it fail with `null` instead of the expected combined string).
+  `invariant-review`: no issues — confirmed the concatenation format matches RFC 5322's
+  whitespace-separated msg-id convention, both MimeKit providers' whitespace-split preserves token
+  order with an exact fallback, Graph's raw-header approach matches how it already stores an
+  inbound message's own `ReferencesHeader`, and no frozen-table entry is touched. `dotnet test` 484
+  passed/0 failed (up from 483). `pnpm check` clean: 386 dotnet tests, vitest 130.
 
 ## Next task
 
