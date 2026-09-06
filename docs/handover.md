@@ -3207,6 +3207,33 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   `provisioning.AddAsync` is called, touching none of AGENTS.md's frozen table and no
   mutation/outbox/reconciliation path. `dotnet test` 467 passed (up from 463), `pnpm check` clean:
   format/tsc/eslint/stylelint/build/tests(369)/vitest(120) (renderer untouched this pass).
+- **Two-hundred-and-seventeenth pass — a blank send-identity name or address had no
+  server-side rejection either.** Fourth instance of pass 214/215/216's shape: continued the
+  sweep into `SendIdentityManager.tsx`, not covered by pass 216's `AddAccount`/`AccountSettings`/
+  `EventModal` sweep. Its Save button disables while `editing.displayName` or
+  `editing.emailAddress` is empty, but `SendIdentityService.AddAsync`/`UpdateAsync` wrote
+  whatever was handed to them with no check of their own — a direct `AddSendIdentity`/
+  `UpdateSendIdentity` hub call, or a race with a not-yet-hydrated form, could create or update
+  an identity with a blank email address. Traced where that address is actually used rather than
+  assuming it's inert: `RemoteDraftMaterializer` matches it (case-insensitively) against inbound
+  "From" headers to pick the right identity for a synced draft, and `SendExecutor` hands it to
+  the provider as the outgoing "From" at send time — a blank/unparseable address there fails as
+  an unexpected exception rather than the clean rejection every other validated field on this
+  endpoint gets. Added a `RequireNonBlank` check (rejecting empty or whitespace-only values) as
+  the first statement in both `SendIdentityService.AddAsync` and `UpdateAsync`, throwing
+  `InvalidOperationException`, and wrapped `MailHub.AddSendIdentity`/`UpdateSendIdentity` in
+  try/catch translating that to `HubException`, matching the existing `DeleteSendIdentity`
+  pattern (those two hub methods previously had no catch at all, unlike `DeleteSendIdentity`).
+  5 new tests in `SendIdentityServiceTests.cs` (blank/whitespace name, blank/whitespace address,
+  and an update case), discriminated by reverting `SendIdentityService.cs` alone and confirming
+  all 5 failed — blank/whitespace input was accepted and written instead of rejected.
+  `invariant-review` came back clean: no overlap with AGENTS.md's frozen table (pure request
+  validation on a CRUD path, nothing touching mutation ordering, leases, outbox, or
+  `MessageOccurrenceRef`), the check placed before any write in both methods, and no change to
+  default-identity promotion logic. `dotnet test` 472 passed (up from 467), `pnpm check` clean:
+  format/tsc/eslint/stylelint/build/tests(374)/vitest(120) (vitest unchanged — no renderer files
+  touched this pass; the client-side gate in `SendIdentityManager.tsx` was already correct and
+  needed no change).
 
 ## Next task
 
