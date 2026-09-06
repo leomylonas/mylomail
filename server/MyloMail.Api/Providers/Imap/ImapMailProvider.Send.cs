@@ -152,7 +152,7 @@ public sealed partial class ImapMailProvider
 	}
 
 	/// <summary>Builds the MIME message from the draft's structured fields (§1).</summary>
-	private static MimeMessage Compose(Draft draft, string stableMessageId)
+	internal static MimeMessage Compose(Draft draft, string stableMessageId)
 	{
 		var message = new MimeMessage { MessageId = stableMessageId.Trim('<', '>') };
 
@@ -203,7 +203,18 @@ public sealed partial class ImapMailProvider
 		};
 		foreach (var attachment in draft.Attachments)
 		{
-			body.Attachments.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType));
+			// An inline image (a cid: reference embedded in BodyHtml, e.g. from a materialised
+			// remote draft — RemoteDraftMaterializer sets IsInline/ContentId for any provider's
+			// drafts) must round-trip through LinkedResources, not Attachments: the latter has no
+			// Content-ID header at all, so the cid: reference in the HTML would resolve to
+			// nothing on the wire and the image would also show up as a stray visible attachment.
+			var part = attachment.IsInline
+				? body.LinkedResources.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType))
+				: body.Attachments.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType));
+			if (attachment.IsInline && attachment.ContentId is { } contentId)
+			{
+				part.ContentId = contentId;
+			}
 		}
 		message.Body = body.ToMessageBody();
 
