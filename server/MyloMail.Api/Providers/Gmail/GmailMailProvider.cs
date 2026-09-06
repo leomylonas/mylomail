@@ -9,6 +9,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
 using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
+using GmailMessagePart = Google.Apis.Gmail.v1.Data.MessagePart;
 
 namespace MyloMail.Api.Providers.Gmail;
 
@@ -305,7 +306,32 @@ public sealed partial class GmailMailProvider(
 			IsDraft = labels.Contains("DRAFT"),
 			IsAnswered = false,
 			SizeEstimate = message.SizeEstimate,
+
+			// Full format's Payload already carries the whole MIME part tree, so this needs no
+			// extra fetch — but without it this defaulted to false for every Gmail message
+			// forever, since nothing re-announces the list once ContentAcquisition later
+			// corrects it from the real MIME.
+			HasNonInlineAttachments = HasNonInlineAttachment(message.Payload),
 		};
+	}
+
+	private static bool HasNonInlineAttachment(GmailMessagePart? part)
+	{
+		if (part is null)
+		{
+			return false;
+		}
+		if (!string.IsNullOrEmpty(part.Filename))
+		{
+			var disposition = part.Headers?.FirstOrDefault(h =>
+				string.Equals(h.Name, "Content-Disposition", StringComparison.OrdinalIgnoreCase)
+			);
+			if (!(disposition?.Value?.StartsWith("inline", StringComparison.OrdinalIgnoreCase) ?? false))
+			{
+				return true;
+			}
+		}
+		return part.Parts?.Any(HasNonInlineAttachment) ?? false;
 	}
 
 	private static string? Header(IReadOnlyDictionary<string, string> headers, string name) =>

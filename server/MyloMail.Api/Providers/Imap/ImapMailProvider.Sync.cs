@@ -216,7 +216,8 @@ public sealed partial class ImapMailProvider
 				| MessageSummaryItems.Flags
 				| MessageSummaryItems.InternalDate
 				| MessageSummaryItems.Size
-				| MessageSummaryItems.ModSeq,
+				| MessageSummaryItems.ModSeq
+				| MessageSummaryItems.BodyStructure,
 			ct
 		);
 
@@ -261,8 +262,21 @@ public sealed partial class ImapMailProvider
 			IsAnswered = flags.HasFlag(MessageFlags.Answered),
 
 			SizeEstimate = summary.Size.HasValue ? (long)summary.Size.Value : null,
+
+			// BODYSTRUCTURE (no full-body fetch needed) reveals attachment shape cheaply;
+			// without it this defaulted to false for every IMAP message forever, since nothing
+			// re-announces the list once ContentAcquisition later corrects it from the real MIME.
+			HasNonInlineAttachments = HasNonInlineAttachment(summary.Body),
 		};
 	}
+
+	internal static bool HasNonInlineAttachment(BodyPart? part) =>
+		part switch
+		{
+			BodyPartMultipart multipart => multipart.BodyParts.Any(HasNonInlineAttachment),
+			BodyPartBasic basic => basic.ContentDisposition?.IsAttachment == true,
+			_ => false,
+		};
 
 	private static IReadOnlyList<Address> Addresses(InternetAddressList? list) =>
 		list is null

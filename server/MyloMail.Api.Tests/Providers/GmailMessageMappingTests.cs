@@ -54,6 +54,68 @@ public sealed class GmailMessageMappingTests
 		Assert.Empty(dto.ReplyToAddresses);
 	}
 
+	[Fact]
+	public void A_non_inline_attachment_part_is_detected()
+	{
+		var message = new GmailMessage
+		{
+			Id = "msg-2",
+			Payload = new MessagePart
+			{
+				Headers = [],
+				Parts =
+				[
+					new MessagePart { MimeType = "text/plain", Body = new MessagePartBody() },
+					new MessagePart
+					{
+						Filename = "invoice.pdf",
+						MimeType = "application/pdf",
+						Body = new MessagePartBody { AttachmentId = "att-1" },
+					},
+				],
+			},
+		};
+
+		var dto = GmailMailProvider.ToDto(message);
+
+		Assert.True(dto.HasNonInlineAttachments);
+	}
+
+	[Fact]
+	public void An_inline_image_part_is_not_counted_as_an_attachment()
+	{
+		var message = new GmailMessage
+		{
+			Id = "msg-3",
+			Payload = new MessagePart
+			{
+				Headers = [],
+				Parts =
+				[
+					new MessagePart { MimeType = "text/html", Body = new MessagePartBody() },
+					new MessagePart
+					{
+						Filename = "logo.png",
+						MimeType = "image/png",
+						Headers =
+						[
+							new MessagePartHeader
+							{
+								Name = "Content-Disposition",
+								Value = "inline; filename=\"logo.png\"",
+							},
+						],
+						Body = new MessagePartBody { AttachmentId = "att-2" },
+					},
+				],
+			},
+		};
+
+		var dto = GmailMailProvider.ToDto(message);
+
+		Assert.False(dto.HasNonInlineAttachments);
+	}
+
 	private static IEnumerable<(string? Name, string Email)> Names(
 		IReadOnlyList<MyloMail.Api.Domain.Address> addresses
 	) => addresses.Select(a => (a.Name, a.Email));
