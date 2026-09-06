@@ -3603,6 +3603,25 @@ check` clean: 377 dotnet tests, vitest 129 (up from 125). This pass was run unde
   no-subagent-spawning rule and could not launch `invariant-review` at all — the parent session
   needs to run it before this pass is fully closed.
 
+- **Two-hundred-and-thirty-second pass — an unresolvable TZID could be written back
+  mislabeled.** `ParseDateTime` already falls back to a floating/UTC interpretation when a
+  VEVENT's TZID can't be resolved via this runtime's `TimeZoneInfo` database (a legacy
+  Windows-style id from an older client, say), but `ParseEvents` stored that same unresolvable id
+  on `StartTimeZoneId`/`EndTimeZoneId` verbatim. Any later edit re-saving the event — even one
+  touching only its title — routed through `RenderVEvent` and wrote the unresolvable id straight
+  back into a `TZID=` parameter, while `FormatLocal` hit the identical unresolvable-zone case and
+  silently fell back to writing the raw UTC instant under it: a resource declaring a zone the
+  value was never actually converted into, which a compliant reader (this app itself, on its own
+  next parse) would then apply the wrong offset to. Added `KnownTimeZoneId`, checked before
+  `StartTimeZoneId`/`EndTimeZoneId` are ever assigned at parse time — only a TZID this runtime can
+  actually resolve is kept, otherwise null, consistent with what `ParseDateTime` already computed
+  for the value itself. Two new tests, manually confirmed as a genuine discriminator via
+  revert-and-reproduce (reverting the helper to a passthrough made the unresolvable-TZID test fail
+  with the raw string instead of null). `dotnet test` 477 passed/0 failed (up from 475). `pnpm
+check` clean: 379 dotnet tests, vitest 129. This pass's implementing fork was under a hard
+  no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs to
+  run it before this pass is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
