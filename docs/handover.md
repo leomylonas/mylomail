@@ -3120,6 +3120,15 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   callbacks themselves have none. 3 new tests, each confirmed as a genuine discriminator via
   revert-and-reproduce. `pnpm check` clean: vitest up from 117 to 120 (dotnet tests unchanged at
   361 — pure renderer/electron-shell change, no backend/DTO touched).
+- **Two-hundred-and-thirteenth pass — clean.** Checked whether pass 212's "same draft edited in
+  two windows" race has any sibling elsewhere in multi-window shared state: `AccountSettings.tsx`
+  is a plain, explicit-save form (no autosave), so two windows independently saving account
+  settings is an infrequent, deliberate action with an ordinary last-write-wins outcome — no
+  documented requirement calls for conflict detection there, and the severity is far lower than
+  the draft race (no silent per-2-second background loss). Also read `AttachmentService.cs`'s
+  read/materialise path and `AttachmentTempDirectory.WriteAsync`'s zero-byte handling — an empty
+  attachment writes an empty file cleanly, no special-casing needed or missing. No unambiguous
+  bug found this pass; nothing fixed, no diff.
 
 ## Next task
 
