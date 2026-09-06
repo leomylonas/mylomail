@@ -3895,6 +3895,28 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   site has no Gmail-specific branching that relied on the old gap, and no frozen-table entry is
   touched. `dotnet test` 489 passed/0 failed (up from 487). `pnpm check` clean: 391 dotnet tests,
   vitest 130.
+- **Two-hundred-and-forty-sixth pass — `HasNonInlineAttachments` (the paperclip icon) was never
+  set by IMAP's or Gmail's `ToDto`.** Continuing pass 245's field-by-field comparison: it always
+  defaulted to `false` for both, while Graph correctly set it from `message.HasAttachments`.
+  `ContentAcquisition.AcquireAsync` does later correct this field once a message's raw body is
+  fetched, but nothing broadcasts a `MessageUpdated`-style event after that correction, so the
+  message list never learns about it — the icon effectively never appeared for IMAP/Gmail
+  messages under normal usage. Fixed by adding `MessageSummaryItems.BodyStructure` to IMAP's
+  existing `FetchAsync` call (no extra round trip) and a new `HasNonInlineAttachment(BodyPart?)`
+  walking MailKit's body-part tree; Gmail's Full format already returns the whole part tree, so a
+  new `HasNonInlineAttachment(GmailMessagePart?)` walks `message.Payload` directly, treating a
+  part with a filename and no explicit `inline` disposition as an attachment (a bare filename with
+  no Content-Disposition header at all — common for real Gmail parts — is still correctly counted,
+  not skipped). Both helpers made `internal` for direct testability, matching the `Compose()`/
+  `ToDto` precedent from passes 243/245; new tests for both providers, manually confirmed as
+  genuine discriminators via revert-and-reproduce. `invariant-review`: no issues — confirmed
+  recursion reaches arbitrarily nested attachments in both trees, `BodyPartMessage` does inherit
+  `BodyPartBasic` (verified via reflection against the real installed MailKit package, not
+  assumed), pass 245's address parsing is untouched, and no frozen-table entry is touched. It
+  flagged a separate, still-open gap: `ContentAcquisition`'s own correction of this field still has
+  no re-broadcast to the message list — this fix makes that far less consequential (the field is
+  now usually correct from ingest for all three providers) but doesn't close it; tracked below.
+  `dotnet test` 494 passed/0 failed (up from 489). `pnpm check` clean: 396 dotnet tests, vitest 130.
 
 ## Next task
 
@@ -3957,6 +3979,16 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
    decision (header block layout, long-recipient-list handling, and possibly new fields on
    `GetMessageBody`'s DTO since To/Cc today only exist on the list's summary projection),
    not a one-line addition.
+9. **`ContentAcquisition`'s correction of `Message.HasNonInlineAttachments` is never
+   re-broadcast to the message list** (found by pass 246's invariant-review, while fixing
+   the field's ingest-time defaults). Pass 246 made IMAP/Gmail set the field correctly at
+   ingest for the common case, so this is far less consequential now, but the underlying
+   gap remains: if the ingest-time structural guess (BODYSTRUCTURE for IMAP, the Payload
+   part tree for Gmail) ever disagrees with the real MIME `ContentAcquisition` later
+   fetches, the corrected value sits in the database with no `MessageUpdated`-style event
+   telling an already-open message list to refetch it — a mechanical fix (emit the
+   existing broadcast after the correction), not a design decision, just not bundled into
+   246's own scope.
 
 ## Read first
 
