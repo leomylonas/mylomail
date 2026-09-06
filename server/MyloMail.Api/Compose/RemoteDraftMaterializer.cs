@@ -223,12 +223,26 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 	private static IReadOnlyList<Address> Addresses(InternetAddressList addresses) =>
 		[.. addresses.Mailboxes.Select(mailbox => new Address(mailbox.Name, mailbox.Address))];
 
-	private static IEnumerable<DraftAttachment> Attachments(MimeMessage mime)
+	// `MimeMessage.Attachments` only enumerates parts whose Content-Disposition is literally
+	// "attachment" (MimeKit's own documented behaviour) — an inline image (Content-Disposition:
+	// inline, or no disposition at all, referenced from the body by cid:) is invisible to it
+	// entirely, not merely misclassified. Walking every leaf MimePart directly, the same way
+	// ContentAcquisition.cs already does for received messages, is what actually captures an
+	// inline image's bytes instead of silently dropping them from the materialised draft.
+	internal static IEnumerable<DraftAttachment> Attachments(MimeMessage mime)
 	{
-		foreach (var part in mime.Attachments.OfType<MimePart>())
+		var iterator = new MimeIterator(mime);
+		while (iterator.MoveNext())
 		{
-			if (part.Content is null)
+			if (iterator.Current is not MimePart part || part.Content is null)
 			{
+				continue;
+			}
+
+			var isInline = part.ContentDisposition?.IsAttachment != true;
+			if (isInline && part.ContentId is null && part.FileName is null)
+			{
+				// A body part rather than something the user would recognise as attached.
 				continue;
 			}
 
@@ -241,7 +255,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 				MimeType = part.ContentType.MimeType,
 				Size = content.Length,
 				ContentId = part.ContentId,
-				IsInline = part.ContentDisposition?.IsAttachment == false,
+				IsInline = isInline,
 				Content = content.ToArray(),
 			};
 		}
