@@ -3330,6 +3330,41 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   `pnpm check` not rerun (no source touched). `invariant-review` not invoked — nothing to
   review.
 
+- **Two-hundred-and-twenty-first pass — a popped-out message window silently lost the
+  remote-content trust check for its sender.** Fresh angle, away from passes 214-220's
+  validation-parity and calendar-recurrence themes: swept `RemoteContentController.cs`'s
+  persisted remote-content allow list (§13 Epic 5), untouched by any prior pass, end to end
+  from the server table through to its renderer consumer. Its own doc comment is explicit:
+  "a message showing a load-remote-content prompt in one window for a sender just trusted in
+  another must not keep asking." `MessageHtml.tsx`'s `useIsTrustedSender` correctly checks
+  the allow list by `senderAddress`, and `ReadingPane.tsx` correctly threads that prop
+  through — but tracing where `senderAddress` actually came from in `AppShell.tsx` found the
+  break: `onOpenInNewWindow` built the popped-out window's query string as
+  `message=<id>&subject=<subject>`, carrying the subject but never the sender, and
+  `Main.tsx`'s query-string router only ever read `message`/`subject` for that route.
+  `MessageWindow.tsx` had no `senderAddress` prop at all. The result: a sender already
+  permanently trusted from the main window still had their remote content blocked and
+  re-prompted every time in a popped-out window, exactly the "keep asking" case the allow
+  list's own doc comment says must not happen. Fixed by threading `sender` through the query
+  string from `AppShell`'s window-open call, and extracted `Main.tsx`'s inline
+  `chooseRoot()` param parsing into a new pure `Shell/WindowRoute.ts::parseWindowRoute`
+  (`Main.tsx` itself calls `createRoot()`/`document.getElementById` at import time, so it
+  cannot be imported from a test) consumed by both `Main.tsx` and the new
+  `WindowRoute.test.ts`. New tests cover all four route shapes (message with/without a
+  sender, compose, shell fallback), discriminated by reverting only the parser's
+  `senderAddress` line and confirming the "carries the sender address" test failed
+  (received `undefined`) while "omits it" still passed. `invariant-review` came back clean:
+  no overlap with AGENTS.md's frozen table (pure renderer query-string plumbing, no
+  mutation/outbox/sync code in the diff at all), and confirmed `window.windows.open()`
+  loads the popped-out window's same-origin document via `loadURL` with no OS-visible
+  address bar or process-argv exposure — carrying `sender` this way is no new exposure
+  category than `subject` already was. No other pop-out site (a second bare
+  "new blank window" opener, and the compose-draft opener) carries a message/sender and
+  needed no change; the message list's own "print" path stays in the same window via the
+  shared store, never popping out, so it was already unaffected. `dotnet test` unchanged at
+  474 (no C# touched this pass), `pnpm check` clean:
+  format/tsc/eslint/stylelint/build/tests(376)/vitest(124), up from 120.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
