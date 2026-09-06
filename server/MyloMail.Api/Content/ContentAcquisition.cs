@@ -186,6 +186,7 @@ public sealed class ContentAcquisition(
 
 		Message? messageForBroadcast = null;
 		var hasNonInlineAttachmentsChanged = false;
+		var snippetChanged = false;
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -217,6 +218,22 @@ public sealed class ContentAcquisition(
 				messageForBroadcast = message;
 			}
 
+			// IMAP's ToDto never sets MessageDto.Snippet at all (ENVELOPE carries no preview
+			// text), so every IMAP message would show a permanently blank list preview otherwise
+			// — docs/architecture.md §13 lists "snippet" as one of the message list's own sortable/
+			// filterable columns. Only fills a genuinely blank snippet: Gmail/Graph already supply
+			// their own provider-computed preview at ingest time, which is not second-guessed here.
+			if (string.IsNullOrWhiteSpace(message.Snippet))
+			{
+				var computedSnippet = ComputeSnippet(body.TextBody, body.HtmlBody);
+				if (!string.IsNullOrEmpty(computedSnippet))
+				{
+					message.Snippet = computedSnippet;
+					snippetChanged = true;
+					messageForBroadcast = message;
+				}
+			}
+
 			state.Status = ContentStatus.Indexed;
 			state.LastError = null;
 
@@ -226,12 +243,52 @@ public sealed class ContentAcquisition(
 
 		// After the commit, never before: an event announcing a correction a crash then
 		// discarded would leave the UI showing something the database does not have.
-		if (hasNonInlineAttachmentsChanged && messageForBroadcast is not null)
+		if ((hasNonInlineAttachmentsChanged || snippetChanged) && messageForBroadcast is not null)
 		{
 			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(messageForBroadcast));
 		}
 
 		return mime;
+	}
+
+	/// <summary>
+	/// A short, whitespace-collapsed preview of the message body — plain text preferred, HTML
+	/// stripped of tags as a fallback for an HTML-only message, matching the same simple
+	/// tag-stripping approach already used for a plain-text send alternative
+	/// (<c>ImapMailProvider.Send.cs</c>'s own <c>ToPlainText</c>).
+	/// </summary>
+	internal static string ComputeSnippet(string? text, string? html)
+	{
+		const int maxLength = 200;
+		// An empty (not just null) plain-text part is a real MIME shape - a stub first
+		// alternative alongside the real HTML-only content - so falling back on
+		// IsNullOrEmpty, not a bare null check, actually reaches the HTML body in that case.
+		var source = string.IsNullOrEmpty(text)
+			? (html is null ? null : System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " "))
+			: text;
+		if (string.IsNullOrWhiteSpace(source))
+		{
+			return string.Empty;
+		}
+
+		var collapsed = string.Join(
+			' ',
+			source.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+		);
+		if (collapsed.Length <= maxLength)
+		{
+			return collapsed;
+		}
+
+		// A raw code-unit slice can land inside a surrogate pair (an emoji, say); back off one
+		// character rather than leave an unpaired low surrogate that renders as a replacement
+		// character or corrupts the string downstream.
+		var cut = maxLength;
+		if (char.IsHighSurrogate(collapsed[cut - 1]))
+		{
+			cut--;
+		}
+		return collapsed[..cut];
 	}
 
 	private async Task UpsertRawAsync(Guid messageId, byte[] rawBytes, CancellationToken ct)

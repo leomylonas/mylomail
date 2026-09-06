@@ -11,26 +11,26 @@ using Xunit;
 namespace MyloMail.Api.Tests.Scheduling;
 
 /// <summary>
-/// Two-hundred-and-forty-seventh pass, closing the gap tracked since pass 246's own
-/// invariant-review: when <see cref="ContentAcquisition"/>'s later fetch of the real MIME
-/// disagrees with a provider's own ingest-time guess for
-/// <see cref="Message.HasNonInlineAttachments"/> (IMAP's BODYSTRUCTURE, Gmail's Payload part
-/// tree), the correction is written to the database but nothing tells an already-open message
-/// list to refetch it — no <c>MessageUpdated</c> broadcast follows the fix.
+/// Two-hundred-and-forty-eighth pass: <see cref="ImapMailProvider.Sync"/>'s own <c>ToDto</c>
+/// never sets <see cref="MessageDto.Snippet"/> at all — IMAP's ENVELOPE structure carries no
+/// preview text, unlike Gmail's <c>Snippet</c>/Graph's <c>BodyPreview</c> — so an IMAP message
+/// would show a permanently blank list preview otherwise, the same "ingest-time guess never
+/// corrected/announced" shape pass 246/247 already fixed for
+/// <see cref="Message.HasNonInlineAttachments"/>.
 /// </summary>
-public sealed class ContentAcquisitionAttachmentCorrectionTests
+public sealed class ContentAcquisitionSnippetTests
 {
 	[Fact]
-	public async Task Correcting_the_attachment_guess_re_announces_the_message()
+	public async Task A_blank_snippet_is_filled_from_the_real_body_and_re_announced()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		var mailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		var messageId = Guid.NewGuid();
 		var occurrence = harness.Provider.SeedMessage("INBOX", messageId, DateTimeOffset.UnixEpoch);
-		mailbox.Messages[occurrence].RawBytes = MimeBytesWithAttachment();
+		mailbox.Messages[occurrence].RawBytes = MimeBytesWithBody();
 
 		var dbMailboxId = await SeedMailboxAsync(harness);
-		await SeedMessageAsync(harness, dbMailboxId, messageId, occurrence);
+		await SeedMessageAsync(harness, dbMailboxId, messageId, occurrence, snippet: string.Empty);
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -44,23 +44,23 @@ public sealed class ContentAcquisitionAttachmentCorrectionTests
 		var stored = await harness.UsingAsync(scope =>
 			scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync(m => m.Id == messageId)
 		);
-		Assert.True(stored.HasNonInlineAttachments);
+		Assert.Equal("Please review the attached invoice before Friday.", stored.Snippet);
 
 		var announced = Assert.Single(harness.Events.Updated, m => m.Id == messageId);
-		Assert.True(announced.HasNonInlineAttachments);
+		Assert.Equal("Please review the attached invoice before Friday.", announced.Snippet);
 	}
 
 	[Fact]
-	public async Task An_unchanged_attachment_guess_is_not_re_announced()
+	public async Task A_provider_supplied_snippet_is_never_overwritten()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		var mailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		var messageId = Guid.NewGuid();
 		var occurrence = harness.Provider.SeedMessage("INBOX", messageId, DateTimeOffset.UnixEpoch);
-		mailbox.Messages[occurrence].RawBytes = MimeBytesWithoutAttachment();
+		mailbox.Messages[occurrence].RawBytes = MimeBytesWithBody();
 
 		var dbMailboxId = await SeedMailboxAsync(harness);
-		await SeedMessageAsync(harness, dbMailboxId, messageId, occurrence);
+		await SeedMessageAsync(harness, dbMailboxId, messageId, occurrence, snippet: "Gmail's own preview");
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -71,7 +71,41 @@ public sealed class ContentAcquisitionAttachmentCorrectionTests
 			await acquisition.AcquireAsync(account, messageId, CancellationToken.None);
 		});
 
+		var stored = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync(m => m.Id == messageId)
+		);
+		Assert.Equal("Gmail's own preview", stored.Snippet);
 		Assert.DoesNotContain(harness.Events.Updated, m => m.Id == messageId);
+	}
+
+	[Theory]
+	[InlineData("Hello   world\n\nnewlines", null, "Hello world newlines")]
+	[InlineData(null, "<p>Hi <b>there</b></p>", "Hi there")]
+	[InlineData(null, null, "")]
+	public void ComputeSnippet_collapses_whitespace_and_strips_html(string? text, string? html, string expected)
+	{
+		Assert.Equal(expected, ContentAcquisition.ComputeSnippet(text, html));
+	}
+
+	[Fact]
+	public void ComputeSnippet_falls_back_to_html_when_the_text_part_is_empty_not_null()
+	{
+		// An empty (not null) plain-text part is a real MIME shape - a stub first alternative
+		// alongside the real HTML-only content - and must still reach the HTML fallback.
+		Assert.Equal("Hi there", ContentAcquisition.ComputeSnippet("", "<p>Hi <b>there</b></p>"));
+	}
+
+	[Fact]
+	public void ComputeSnippet_does_not_split_a_surrogate_pair_at_the_truncation_boundary()
+	{
+		var padding = new string('a', 199);
+		// U+1F600 GRINNING FACE - a surrogate pair - placed exactly across the 200-char cut.
+		var result = ContentAcquisition.ComputeSnippet(padding + "\U0001F600" + "more text", null);
+
+		Assert.Equal(199, result.Length);
+		Assert.Equal(padding, result);
+		Assert.False(char.IsHighSurrogate(result[^1]));
+		Assert.False(char.IsLowSurrogate(result[^1]));
 	}
 
 	private static async Task<Guid> SeedMailboxAsync(SyncHarness harness)
@@ -99,7 +133,8 @@ public sealed class ContentAcquisitionAttachmentCorrectionTests
 		SyncHarness harness,
 		Guid mailboxId,
 		Guid messageId,
-		string providerOccurrenceId
+		string providerOccurrenceId,
+		string snippet
 	)
 	{
 		await harness.UsingAsync(async scope =>
@@ -111,11 +146,7 @@ public sealed class ContentAcquisitionAttachmentCorrectionTests
 					Id = messageId,
 					AccountId = harness.Account.Id,
 					ReceivedAt = DateTimeOffset.UnixEpoch,
-					HasNonInlineAttachments = false,
-					// Non-empty so pass 248's snippet-backfill (a second, independent reason
-					// StoreAsync can broadcast) never fires here — this test isolates the
-					// attachment-guess dimension only.
-					Snippet = "Pre-existing snippet",
+					Snippet = snippet,
 					Occurrences =
 					[
 						new MessageMailbox
@@ -138,27 +169,13 @@ public sealed class ContentAcquisitionAttachmentCorrectionTests
 		});
 	}
 
-	private static byte[] MimeBytesWithAttachment()
-	{
-		var builder = new BodyBuilder { HtmlBody = "<p>Body</p>" };
-		builder.Attachments.Add("report.pdf", "%PDF-1.4"u8.ToArray());
-		var message = new MimeMessage();
-		message.From.Add(MailboxAddress.Parse("author@example.test"));
-		message.To.Add(MailboxAddress.Parse("recipient@example.test"));
-		message.Subject = "Has an attachment";
-		message.Body = builder.ToMessageBody();
-		using var stream = new MemoryStream();
-		message.WriteTo(stream);
-		return stream.ToArray();
-	}
-
-	private static byte[] MimeBytesWithoutAttachment()
+	private static byte[] MimeBytesWithBody()
 	{
 		var message = new MimeMessage();
 		message.From.Add(MailboxAddress.Parse("author@example.test"));
 		message.To.Add(MailboxAddress.Parse("recipient@example.test"));
-		message.Subject = "No attachment";
-		message.Body = new TextPart("html") { Text = "<p>Body</p>" };
+		message.Subject = "Invoice due";
+		message.Body = new TextPart("plain") { Text = "Please review the attached invoice before Friday." };
 		using var stream = new MemoryStream();
 		message.WriteTo(stream);
 		return stream.ToArray();
