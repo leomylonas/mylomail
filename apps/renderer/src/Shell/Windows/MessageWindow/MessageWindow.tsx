@@ -11,6 +11,7 @@ import {
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
 import styles from "@mylomail/renderer/Shell/Windows/StandaloneWindow.module.css";
 
 interface Account {
@@ -135,6 +136,33 @@ export function MessageWindow({
 			});
 		}
 	};
+
+	// This window has no MessageList/AppShell of its own to inherit r/a/f from — a bare
+	// standalone window per §13 Epic 10 — so it never got the shortcut wiring pass 224 added
+	// there. Same single-message guard as that array's own Reply/Reply-all/Forward entries
+	// (trivially satisfied here: there is exactly one message, this window's own), and the same
+	// "no window object, no reply" guard onReply's own wiring above already applies to the button.
+	useShortcuts(
+		window.windows
+			? [
+					{
+						key: "r",
+						description: "Reply",
+						run: () => void onReply("reply"),
+					},
+					{
+						key: "a",
+						description: "Reply all",
+						run: () => void onReply("replyAll"),
+					},
+					{
+						key: "f",
+						description: "Forward",
+						run: () => void onReply("forward"),
+					},
+				]
+			: [],
+	);
 
 	return (
 		<div className={styles.window}>
