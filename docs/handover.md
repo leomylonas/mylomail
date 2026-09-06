@@ -3761,6 +3761,16 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   (unchanged), vitest 130 (unchanged, no new test file). This pass's implementing fork was under a
   hard no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs
   to run it before this pass is fully closed.
+- **Two-hundred-and-thirty-ninth pass — genuinely clean; no fresh small bug found.** Checked
+  account removal's cascade completeness (`AccountProvisioningService.RemoveAsync` — search index,
+  mailbox parent-unlink-before-cascade, credential deletion ordering, export-in-progress guard all
+  already correct and previously reviewed), both attachment controllers
+  (`DraftAttachmentsController`/`MessageAttachmentsController` — no cross-draft/message id
+  confusion, `RemoveAttachmentAsync` is a safe no-op for an unknown id), and
+  `DangerousAttachment.ts`'s extension-matching logic (the `lastIndexOf(".")` / `slice(-1)`
+  no-extension fallback is intentional and harmless, not a bypass — confirmed by tracing several
+  filename shapes by hand). No unambiguous small bug found; no fix, no diff, no invariant-review
+  needed.
 
 ## Next task
 
