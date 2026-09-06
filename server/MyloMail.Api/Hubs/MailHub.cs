@@ -811,8 +811,26 @@ public class MailHub(
 			messageId => mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged))
 		);
 
-	public Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId) =>
-		EnqueueEachAsync(messageIds, messageId => mutations.MoveAsync(accountId, messageId, targetMailboxId));
+	public async Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId)
+	{
+		// A synthesized mailbox (ProviderMailboxId null — a local nested Gmail-label-group
+		// intermediate, no real label backing it) has no provider identity to receive a
+		// message into. The renderer's own "Move to" menu and drag-and-drop already exclude
+		// synthesized targets (§13 Epic 2), but a direct hub call bypasses that — without this
+		// check the mutation would enqueue, dispatch, and only then hit
+		// GmailMailProvider.ProviderMailboxId's internal assertion, which MutationExecutor's
+		// generic catch treats as Ambiguous and retries — a deterministic failure that would
+		// keep re-throwing identically forever, not a transient one reconciliation can resolve.
+		// Rejecting before enqueue means nothing is ever queued for it to get stuck on.
+		var target = await context.Mailboxes.FirstAsync(m => m.Id == targetMailboxId);
+		if (target.ProviderMailboxId is null)
+		{
+			throw new HubException(
+				"This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead."
+			);
+		}
+		await EnqueueEachAsync(messageIds, messageId => mutations.MoveAsync(accountId, messageId, targetMailboxId));
+	}
 
 	public Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId) =>
 		EnqueueEachAsync(

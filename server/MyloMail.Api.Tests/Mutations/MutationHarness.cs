@@ -81,6 +81,7 @@ internal sealed class MutationHarness : IAsyncDisposable
 			.AddMutations()
 			.AddSync()
 			.AddScheduling()
+			.AddScoped<MailHub>()
 			// Registered last so it wins: see RecordingJobClient for why a real Hangfire
 			// client must not be constructed in tests.
 			.AddSingleton<Hangfire.IBackgroundJobClient>(new Fakes.RecordingJobClient())
