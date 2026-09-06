@@ -482,6 +482,34 @@ public sealed class CalendarEventServiceTests
 		});
 	}
 
+	/// <summary>
+	/// Two-hundred-and-twenty-seventh pass: EventModal.tsx's Start/End fields are plain text
+	/// inputs with no min/max tying one to the other, so nothing stopped a direct
+	/// SaveCalendarEvent call (or a client bug) from creating an event whose End is before its
+	/// Start — a shape RFC 5545 has no way to express, which CalDavIcs.RenderVEvent would have
+	/// turned into a malformed resource rather than a clean rejection.
+	/// </summary>
+	[Fact]
+	public async Task Saving_an_event_that_ends_before_it_starts_is_rejected()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+
+		var ex = await Assert.ThrowsAsync<HubException>(
+			() => harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch.AddHours(1), DateTimeOffset.UnixEpoch, false)
+				)
+			)
+		);
+		Assert.Equal("An event cannot end before it starts.", ex.Message);
+
+		await harness.UsingAsync(async scope =>
+		{
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().CalendarEvents.ToListAsync());
+		});
+	}
+
 	private sealed class Harness : IAsyncDisposable
 	{
 		private readonly TestDatabase database;

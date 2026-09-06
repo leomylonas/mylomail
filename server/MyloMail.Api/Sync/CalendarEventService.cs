@@ -66,6 +66,15 @@ public sealed class CalendarEventService(
 			);
 		}
 
+		// EventModal.tsx's Start/End fields are plain text inputs with no min/max tying one to
+		// the other — nothing stops a user (or a direct SaveCalendarEvent call) from picking an
+		// End before Start. RFC 5545 has no negative-duration VEVENT shape, so this would reach
+		// CalDavIcs.RenderVEvent as a malformed resource rather than a clean rejection here.
+		if (input.End < input.Start)
+		{
+			throw new HubException("An event cannot end before it starts.");
+		}
+
 		return existing is null
 			? await CreateAsync(account, calendar, input, provider, ct)
 			: await UpdateAsync(account, existing, input, provider, ct);
