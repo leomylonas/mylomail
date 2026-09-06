@@ -3532,8 +3532,15 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   the fetch-failure path is a genuine no-op rather than an unhandled rejection. `pnpm check`
   clean under Node 22: 377 dotnet tests (unchanged, pure renderer), vitest 125 (unchanged, no new
   test file). This pass's implementing fork was under a hard no-subagent-spawning rule and could
-  not launch `invariant-review` at all — the parent session needs to run it before this pass is
-  fully closed.
+  not launch `invariant-review` at all — the parent ran it afterward and it found a real race:
+  nothing ordered the new listener's `GetDrafts` response against a concurrent `resolveConflict()`
+  call, so a stale, pre-resolution response landing after the user resolved the conflict could
+  silently re-flip the banner back on. Fixed with a `resolutionGeneration` ref, incremented as the
+  first statement inside `resolveConflict` (before its own await) and snapshotted by the listener
+  before dispatching `GetDrafts`, so any resolution starting after the snapshot — even one that
+  starts and finishes entirely during the in-flight fetch — correctly invalidates that response. A
+  second invariant-review round confirmed the fix closes the race in both directions and needs no
+  reset, since a Compose instance's `draftId` never changes within its own lifetime.
 
 ## Next task
 
