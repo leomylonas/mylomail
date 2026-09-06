@@ -3129,6 +3129,30 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   read/materialise path and `AttachmentTempDirectory.WriteAsync`'s zero-byte handling — an empty
   attachment writes an empty file cleanly, no special-casing needed or missing. No unambiguous
   bug found this pass; nothing fixed, no diff.
+- **Two-hundred-and-fourteenth pass — §15's attachment size check was entirely client-side.**
+  The doc says the base64-overhead-aware size check "is applied before send is attempted," but
+  the only implementation was in `Compose.tsx`'s `send()` handler: it reads `attachmentConstraints
+.data` from a React Query hook and silently skips the whole check if that query hasn't resolved
+  yet (`if (attachments.length && constraints)` — no `constraints` means no check, not a blocked
+  send), and nothing on the server enforced it independently. A caller invoking the `SendDraft`
+  hub method directly, or racing the query, could queue an outbox item for an attachment the
+  account's own provider had already reported as too large. `DraftService.SendAsync` now runs
+  the identical check server-side — a known `ApiPerFileLimit` against each attachment's raw
+  size, and `ConfiguredOverride` (or `KnownMessageSizeLimit`) against the base64-inflated total,
+  mirroring `Compose.tsx`'s own `ceil(size * 4/3)` arithmetic exactly; an unknown limit still
+  never blocks, per the doc's explicit "warned rather than blocked" policy. `MailHub.SendDraft`
+  now wraps the call in a try/catch rethrowing `InvalidOperationException` as `HubException`,
+  matching the existing `DeleteSendIdentity` pattern — as a side effect this also fixes the
+  pre-existing `SyncConflict` throw silently losing its message text to SignalR's default error
+  genericization (no `EnableDetailedErrors`), which had been the case since that check was added
+  and had gone unnoticed. 2 new tests (over-per-file-limit and over-total-once-base64-inflated),
+  both confirmed as genuine discriminators via revert-and-reproduce against `DraftService.cs`
+  alone. `invariant-review` came back clean: the new checks are pure reads placed before any
+  write or `outbox.QueueAsync` call, so they don't touch the "terminal failure re-evaluates a
+  chain, not cancels it" invariant (that's about failures during dispatch/execution, not
+  pre-queue validation), and nothing in AGENTS.md's frozen table is touched. `dotnet test`
+  461 passed (up from 459), `pnpm check` clean: format/tsc/eslint/stylelint/build/tests(363)/
+  vitest(120) (vitest unchanged — no renderer files touched this pass).
 
 ## Next task
 
