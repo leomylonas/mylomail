@@ -117,8 +117,10 @@ export function connectHub(
 	// reading pane would otherwise keep showing a deleted message's stale content indefinitely,
 	// discoverable only by reselecting it. Body content itself is immutable once fetched, so
 	// this deliberately only refetches on deletion, not on every MessageReceived/MessageUpdated.
-	hub.on("MessageDeleted", () => {
-		void queryClient.invalidateQueries({ queryKey: ["body"] });
+	// Scoped to the deleted message's own key — MessageDeleted carries a messageId, so there is
+	// no reason to force every other currently-open reading pane to refetch its own body too.
+	hub.on("MessageDeleted", (messageId: string) => {
+		void queryClient.invalidateQueries({ queryKey: ["body", messageId] });
 	});
 
 	// A draft created, saved, deleted, pushed to the server, or materialised locally by sync
