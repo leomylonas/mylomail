@@ -3656,6 +3656,24 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   never fires on the safe same-parent-reorder branch, and no frozen-table entry touched (pure
   renderer change). `pnpm check` clean: 379 dotnet tests (unchanged), vitest 130 (up from 129).
 
+- **Two-hundred-and-thirty-fourth pass — a popped-out message window's Reply/Reply-all/Forward
+  had no keyboard shortcut.** Continuing pass 224's "shortcuts wired as each feature is built"
+  theme (§13) into a surface it didn't cover: pass 223 gave a popped-out `MessageWindow` its own
+  Reply/Reply-all/Forward via an `onReply` handler and buttons in `ReadingPane`, but pass 224 only
+  added r/a/f to `MessageList.tsx`'s `useShortcuts` array — scoped to the main window's message
+  list, not this standalone per-message window. Pressing "r" in a popped-out message window did
+  nothing, despite the same action being one click away. Fixed by adding a `useShortcuts` call in
+  `MessageWindow.tsx` binding r/a/f to the same `onReply` function the buttons already call, gated
+  on `window.windows` existing — the same guard the buttons already use. No new test: no test file
+  exists anywhere under `apps/renderer/src/Shell/Windows`, the same no-component-render-harness
+  limitation already accepted for this file's other recent additions. `invariant-review`: no
+  issues — confirmed an empty shortcut array (when `window.windows` is absent) never misbehaves
+  and isn't a stale-closure risk since the array is freshly constructed every render, `onReply`
+  safely no-ops when `hub` is null, no iframe is used for the message body so there's no
+  `isTypingTarget` blind spot, `useShortcuts`'s own per-window/per-document scoping means this
+  can't conflict with `MessageList.tsx`'s own r/a/f bindings, and no frozen-table entry touched.
+  `pnpm check` clean: 379 dotnet tests (unchanged), vitest 130 (unchanged, no new test file).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
