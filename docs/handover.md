@@ -3771,6 +3771,28 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   no-extension fallback is intentional and harmless, not a bypass — confirmed by tracing several
   filename shapes by hand). No unambiguous small bug found; no fix, no diff, no invariant-review
   needed.
+- **Two-hundred-and-fortieth pass — a slow/unresponsive server could permanently stop an
+  account's poll loop instead of retrying.** `ConnectivityMonitor.IsNetworkFailure` is the
+  shared classifier every background job scheduler (mail sync/change-stream/coverage/calendar
+  poll in `SyncJobs`, plus `MutationJobs`/`ContentJobs`/`OutboxJobs`/`ContentAcquisition`) uses to
+  decide whether a caught exception is a transient network blip worth quietly rescheduling, or a
+  fatal error that stops the poll loop. It only recognized `IOException`/`SocketException`/
+  `HttpRequestException`/`SslHandshakeException`. `HttpClient`'s own request timeout — CalDAV's
+  transport directly, and what the Gmail/Graph SDKs use underneath — throws
+  `OperationCanceledException` wrapping a `TimeoutException` as its `InnerException`, a shape none
+  of those four covered; left unclassified, a slow server would fall through to each scheduler's
+  fatal-error catch and permanently stop that account's poll loop, the same as a genuine permanent
+  failure. Added `|| ex is OperationCanceledException { InnerException: TimeoutException }` — a
+  strict widening, narrow enough that a genuine caller-triggered cancellation (a plain
+  cancellation's `InnerException` is always null) can never collide with it. Two new tests confirm
+  both directions, one manually confirmed as a genuine discriminator via revert-and-reproduce.
+  `invariant-review`: no issues — confirmed the .NET timeout-shape claim is accurate documented
+  behaviour, all 9 call sites route the widened classification into their reschedule branch
+  correctly with nothing else intercepting `OperationCanceledException` first, no other
+  exception-classification helper in this codebase needs the same widening (IMAP's own classifiers
+  operate over MailKit/sockets, which can't produce this shape), and no frozen-table entry is
+  touched. `dotnet test` 482 passed/0 failed (up from 480). `pnpm check` clean: 384 dotnet tests,
+  vitest 130.
 
 ## Next task
 
