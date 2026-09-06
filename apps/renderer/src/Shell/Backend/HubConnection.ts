@@ -108,6 +108,19 @@ export function connectHub(
 		});
 	}
 
+	// GetMessageBody's own existence check exists specifically so a reading pane left open on
+	// a message that's since been deleted reports "no longer exists" rather than polling a
+	// blank body forever (see its own comment) — but that guard is useless if the pane's query
+	// never runs again once a body is first fetched successfully (ReadingPane's own
+	// refetchInterval correctly stops polling a fetched body, since one never changes on its
+	// own). Nothing else invalidates ["body", messageId] on deletion, so a currently-open
+	// reading pane would otherwise keep showing a deleted message's stale content indefinitely,
+	// discoverable only by reselecting it. Body content itself is immutable once fetched, so
+	// this deliberately only refetches on deletion, not on every MessageReceived/MessageUpdated.
+	hub.on("MessageDeleted", () => {
+		void queryClient.invalidateQueries({ queryKey: ["body"] });
+	});
+
 	// A draft created, saved, deleted, pushed to the server, or materialised locally by sync
 	// (§7) — the event only carries draftId, not accountId, so this invalidates by prefix
 	// like the message events above rather than trying to scope it.
