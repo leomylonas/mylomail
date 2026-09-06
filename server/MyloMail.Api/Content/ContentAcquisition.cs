@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MimeKit;
 using MimeKit.Text;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -31,6 +32,7 @@ public sealed class ContentAcquisition(
 	IMailProviderFactory providers,
 	SearchIndexer search,
 	MailInviteMaterializer invites,
+	IHubEvents events,
 	ILogger<ContentAcquisition> logger
 )
 {
@@ -182,6 +184,9 @@ public sealed class ContentAcquisition(
 		using var stream = new MemoryStream(rawBytes);
 		var mime = await MimeMessage.LoadAsync(stream, ct);
 
+		Message? messageForBroadcast = null;
+		var hasNonInlineAttachmentsChanged = false;
+
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -200,7 +205,17 @@ public sealed class ContentAcquisition(
 
 			var message = await context.Messages.FirstAsync(m => m.Id == messageId, ct);
 			message.RawFetched = true;
-			message.HasNonInlineAttachments = mime.Attachments.Any();
+
+			// The ingest-time structural guess (IMAP's BODYSTRUCTURE, Gmail's Payload part tree)
+			// is usually already right, so this only differs on a genuine disagreement — an
+			// already-open message list has no other way to learn its guess was wrong (§7).
+			var correctedHasNonInlineAttachments = mime.Attachments.Any();
+			if (message.HasNonInlineAttachments != correctedHasNonInlineAttachments)
+			{
+				message.HasNonInlineAttachments = correctedHasNonInlineAttachments;
+				hasNonInlineAttachmentsChanged = true;
+				messageForBroadcast = message;
+			}
 
 			state.Status = ContentStatus.Indexed;
 			state.LastError = null;
@@ -208,6 +223,13 @@ public sealed class ContentAcquisition(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+
+		// After the commit, never before: an event announcing a correction a crash then
+		// discarded would leave the UI showing something the database does not have.
+		if (hasNonInlineAttachmentsChanged && messageForBroadcast is not null)
+		{
+			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(messageForBroadcast));
+		}
 
 		return mime;
 	}
