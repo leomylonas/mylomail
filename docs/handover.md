@@ -3970,6 +3970,25 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   `Envelope` type has no `References` property at all, since RFC 3501's ENVELOPE structure itself
   never includes it; IMAP genuinely cannot report incoming References the way Gmail/Graph's raw
   header access can. No diff, no code change.
+- **Two-hundred-and-fiftieth pass — CalDAV never translated a 429 into `ProviderThrottledException`.**
+  Passes 241/242 fixed CalDAV's missing 401-to-`ProviderAuthenticationException` translation at its
+  single `SendAsync` choke point; this pass found the identical gap for throttling, which pass 199
+  had already closed for Gmail/Graph but never touched for CalDAV. A throttled CalDAV response
+  reached `EnsureSuccessStatusCode` as a generic `HttpRequestException`, giving
+  `ConnectivityMonitor.IsNetworkFailure` no way to distinguish it from a genuine outage and no way
+  to honour the server's own requested delay. Added a 429 branch right after the existing 401
+  branch, extracting `Retry-After` (numeric-seconds via `.Delta`, or an HTTP-date via `.Date` minus
+  now) and throwing `ProviderThrottledException` with that delay, falling back to a 30s default
+  when absent — mirroring `GraphThrottleAwareRequests`'s own pattern, simplified here by the
+  strongly-typed `HttpResponseHeaders.RetryAfter` a real `HttpResponseMessage` gives for free (Graph
+  has to reparse a raw string since Kiota's `ApiException` carries no typed header). Two new tests,
+  each manually confirmed as a genuine discriminator via revert-and-reproduce. `invariant-review`:
+  no issues — confirmed the response is disposed before throwing (matching the 401 branch), a 429
+  can never reach `SyncCalendarAsync`'s own Forbidden/Conflict/PreconditionFailed check since
+  `SendAsync` throws first, and `SyncJobs.CalendarAsync` already has the identical
+  `catch (ProviderThrottledException)` pattern used elsewhere in that file — the newly-thrown
+  exception lands on an already-correct handler, not a new gap. `dotnet test` 505 passed/0 failed
+  (up from 503). `pnpm check` clean: 407 dotnet tests, vitest 130.
 
 ## Next task
 
