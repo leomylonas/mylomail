@@ -3178,6 +3178,35 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   deliberate, not an oversight, and that Bcc-only correctly counts as having a recipient.
   `dotnet test` 463 passed (up from 462), `pnpm check` clean: format/tsc/eslint/stylelint/
   build/tests(363)/vitest(120) (renderer untouched this pass).
+- **Two-hundred-and-sixteenth pass — a blank IMAP host, SMTP host or email address had no
+  server-side rejection either.** Third instance of pass 214/215's shape: swept `AddAccount.tsx`,
+  `AccountSettings.tsx` and `EventModal.tsx` for other client-only gates with no server mirror.
+  `AccountSettings.tsx` and `EventModal.tsx` were clean (the former's numeric fields are already
+  clamped server-side in `MailHub.UpdateAccount`; the latter has no client-side gate to mirror at
+  all). `AddAccount.tsx`'s `imapReady` disables Create Account while `displayName`, `emailAddress`,
+  `host`, `secret` or `smtpHost` is empty, but `AccountsController.Add` never re-checked any of
+  them. Confirmed the actual failure mode rather than assuming: wrote a throwaway MailKit repro
+  (`ImapClient.ConnectAsync("", 993, SslOnConnect)`) and got a bare `System.ArgumentException:
+The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s catch clauses don't
+  recognise (only `SslHandshakeException` and `AuthenticationException` are translated there) and
+  `AccountsController.Add`'s catch clauses don't recognise either, so a blank host previously
+  reached an unhandled 500 instead of the same clean 400 every other rejected input on this
+  endpoint gets. A blank `SmtpHost` has the same failure mode at first send (`ImapMailProvider
+.Send.cs`'s own `SmtpClient.ConnectAsync`); a blank `EmailAddress` doesn't crash but would
+  silently create an account with no usable default `SendIdentity` address, since `Account` has
+  no address column of its own (§1) and nothing downstream re-checks it. Added three early-return
+  400s in `AccountsController.Add` — blank `EmailAddress`, blank `Imap.Host`, blank
+  `Imap.SmtpHost` — placed above the existing CalDAV/SMTP-credential checks and above the
+  `provisioning.AddAsync` try block, so validation fails before any credential is stored or
+  provider connection attempted. 3 new tests in `AccountsControllerTests.cs`, discriminated by
+  reverting the fix: all three failed with the account actually created (`CreatedAtActionResult`)
+  rather than rejected, confirming the harness's `FakeMailProvider` doesn't itself reproduce the
+  real MailKit crash but the validation gap is real regardless (verified separately by the MailKit
+  repro above, honestly reported since the harness-level discrimination alone doesn't prove the
+  500). `invariant-review` came back clean: pure request-validation early returns before
+  `provisioning.AddAsync` is called, touching none of AGENTS.md's frozen table and no
+  mutation/outbox/reconciliation path. `dotnet test` 467 passed (up from 463), `pnpm check` clean:
+  format/tsc/eslint/stylelint/build/tests(369)/vitest(120) (renderer untouched this pass).
 
 ## Next task
 
