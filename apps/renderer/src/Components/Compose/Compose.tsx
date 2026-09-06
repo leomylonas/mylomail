@@ -126,6 +126,9 @@ export function Compose({
 	const [syncConflict, setSyncConflict] = useState(
 		draft?.syncConflict ?? false,
 	);
+	// Guards the DraftUpdated listener below against applying a GetDrafts response read from
+	// before the user's own resolveConflict() call against one dispatched after it.
+	const resolutionGeneration = useRef(0);
 	// Checked before send (§15) — reported honestly rather than as a single number, since a
 	// tenant's real Exchange message-size cap frequently isn't discoverable at all.
 	const attachmentConstraints = useQuery({
@@ -335,6 +338,10 @@ export function Compose({
 	const resolveConflict = async (keepMine: boolean) => {
 		if (!draftId) return;
 		try {
+			// Bumped before the resolve's own await, not after: a DraftUpdated refetch already
+			// in flight when the user clicks resolve must not re-flip the banner back on with
+			// data read before this resolution happened (see the generation guard below).
+			resolutionGeneration.current += 1;
 			const resolved = await hub.invoke<OpenDraft>(
 				"ResolveDraftConflict",
 				draftId,
@@ -563,9 +570,16 @@ export function Compose({
 	useEffect(() => {
 		if (!draftId) return;
 		const onDraftUpdated = () => {
+			// A resolve started after this fetch was dispatched can still be in flight when
+			// GetDrafts' response — read before that resolution — comes back, since nothing
+			// orders a broadcast-triggered refetch against a concurrent resolveConflict() call.
+			// Snapshotting the generation here and rejecting a stale response below stops that
+			// race from re-flipping the banner back on immediately after the user resolved it.
+			const generation = resolutionGeneration.current;
 			void hub
 				.invoke<OpenDraft[]>("GetDrafts", accountId)
 				.then((drafts) => {
+					if (resolutionGeneration.current !== generation) return;
 					const match = drafts.find((item) => item.id === draftId);
 					if (match?.syncConflict) {
 						setSyncConflict(true);
