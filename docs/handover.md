@@ -3989,6 +3989,23 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   `catch (ProviderThrottledException)` pattern used elsewhere in that file — the newly-thrown
   exception lands on an already-correct handler, not a new gap. `dotnet test` 505 passed/0 failed
   (up from 503). `pnpm check` clean: 407 dotnet tests, vitest 130.
+- **Two-hundred-and-fifty-first pass — a materialised remote draft silently lost an inline
+  image's bytes entirely, worse than pass 243's send-side version of the same bug.**
+  `RemoteDraftMaterializer.Attachments` walked `MimeMessage.Attachments`, which MimeKit's own
+  docs state enumerates only parts whose Content-Disposition is literally "attachment" — an
+  inline image (Content-Disposition: inline, or no disposition header at all, referenced from
+  the HTML body via cid:) was invisible to it entirely, not merely misclassified. Fixed by
+  walking every leaf `MimePart` via a `MimeIterator` instead, mirroring `ContentAcquisition.cs`'s
+  own existing correct pattern for received messages. Three new tests, two manually confirmed as
+  genuine discriminators via revert-and-reproduce (reverting to the old walk made both fail with
+  an empty collection — the image's bytes completely absent, exactly as predicted).
+  `invariant-review`: no issues — confirmed the walk matches `ContentAcquisition.cs` exactly, the
+  non-inline case is unaffected, `internal` visibility has exactly one call site, and no
+  frozen-table entry is touched. One residual, non-blocking note added as Next-task item 10: an
+  already-corrupted draft (materialised before this fix) only self-heals when a future
+  sync/backfill batch happens to resurface it, not deterministically — a one-time backfill for
+  pre-existing affected drafts is a real but separate, deliberately-scoped follow-up. `dotnet
+test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, vitest 130.
 
 ## Next task
 
@@ -4059,6 +4076,14 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
    consumes it. The same "half-built, provider-inconsistent field with no consumer" shape as
    `Message.ThreadId` (item 5) — either build it out with a real consumer or drop it, not a
    silent fix with no observable effect.
+10. **Drafts materialised before pass 251's fix may have already lost an inline image's bytes**
+    (found during pass 251's invariant-review). `RemoteDraftMaterializer.Attachments` now
+    correctly captures an inline image, but a draft already persisted before this fix ran had
+    that image silently dropped at materialisation time — `ApplyAsync` has no revision-gated
+    re-fetch, so such a draft only gets fixed if a future sync/backfill batch happens to
+    resurface it, not deterministically. A one-time backfill (re-materialise every draft with a
+    Drafts-mailbox occurrence still on record) would close this, but is a genuinely separate
+    scoped task, not a one-line follow-up.
 
 ## Read first
 
