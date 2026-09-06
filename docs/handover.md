@@ -3564,6 +3564,22 @@ check` clean under Node 22: 377 dotnet tests (unchanged, pure renderer), vitest 
   could not launch `invariant-review` at all — the parent session needs to run it before this pass
   is fully closed.
 
+- **Two-hundred-and-thirtieth pass — tightened pass 229's `MessageDeleted` invalidation to the
+  deleted message only.** Pass 229's own invariant-review flagged (non-blocking) that the new
+  `MessageDeleted` listener ignored the event's payload and blanket-invalidated the whole
+  `["body"]` query prefix, forcing every currently-open reading pane to refetch on any deletion
+  anywhere. Confirmed `MessageDeleted` genuinely carries a `messageId`
+  (`IMailClient.MessageDeleted(Guid messageId)`, verified through the generated TypedSignalR
+  client) and that `ReadingPane.tsx`/`MessageList.tsx` both key their body query as
+  `["body", messageId]`, so the handler now reads the payload and invalidates only that key — the
+  same targeted pattern `MailboxTreeChanged` already uses for its own `accountId` payload.
+  `invariant-review` (genuinely run and completed within this pass, not just launched): no
+  issues — confirmed the callback signature matches the generated client's typed signature and
+  the `MailboxTreeChanged` precedent, the key shape matches exactly, React Query's default prefix
+  matching makes this strictly narrower with no over/under-invalidation risk, and no frozen
+  AGENTS.md table entry is touched. `pnpm check` clean: 377 dotnet tests, vitest 125 (both
+  unchanged, pure renderer change).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
