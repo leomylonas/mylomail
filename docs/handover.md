@@ -3450,6 +3450,31 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   `invariant-review` at all (not even launch-and-report, unlike some earlier passes) — the parent
   session needs to run it before this pass is fully closed.
 
+- **Two-hundred-and-twenty-fifth pass — `Compose.tsx` had no keyboard shortcuts at all, not
+  even Ctrl+Enter/Cmd+Enter to send.** Continuing 223/224's "shortcuts wired as each feature is
+  built" audit into the one remaining major feature surface that had zero coverage: the existing
+  `Shortcuts.ts`/`useShortcuts` registry (used only by `MessageList.tsx`) is built around
+  bare-letter shortcuts suppressed while typing, the opposite of what a compose-window send
+  shortcut needs — it must fire even while the editor has focus, the same way Ctrl+A in a text
+  field is already left to the browser per that registry's own doc comment. Added a `useEffect`
+  attaching a `window` keydown listener for the component's lifetime; a JSX `onKeyDown` on the
+  outer div was tried first but rejected by `eslint-plugin-jsx-a11y`'s
+  `no-static-element-interactions` rule, which would have required an unwanted interactive
+  role/tabIndex on a plain layout div. The handler checks Ctrl/Cmd+Enter and guards with the
+  exact same condition the Send button's own `disabled` prop already uses
+  (`busy || !to || syncConflict`), calling the same `send()` the button's `onClick` calls; it
+  does nothing once a send has already gone out. No new test: this codebase has no
+  component-render test harness at all (confirmed via `MessageActions.test.ts`'s own doc
+  comment), the same limitation already accepted for `MessageList.tsx`'s shortcuts (224) and
+  `MessageWindow.tsx`'s orchestration (223). `pnpm check` clean under Node 22: 376 dotnet tests
+  (unchanged, pure renderer), vitest 125 (unchanged, no new test file). `invariant-review`: no
+  issues — confirmed the guard exactly matches the Send button's own `disabled` condition, the
+  effect's dependency array is exhaustive with no staleness risk (cleanup always runs before a
+  new listener attaches), only one `Compose` instance can ever be mounted per window so there is
+  no listener leakage, Lexical's editor registers no Enter/keydown command of its own so
+  `preventDefault()` suppresses nothing the editor needs, no frozen-table entry touched, and the
+  "no test seam" claim is accurate.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
