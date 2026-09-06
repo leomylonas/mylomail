@@ -290,6 +290,22 @@ public sealed class CalendarEventService(
 
 		await RunProviderCallAsync(() => provider.DeleteEventAsync(account, ev, ct));
 
+		// A recurrence-override instance is not removed: the CalDAV provider's own
+		// DeleteEventAsync (and every provider's, per §1) marks it STATUS:CANCELLED in place
+		// rather than deleting anything, since the override's "resource" is the whole series —
+		// the row this app keeps locally must reflect the same outcome. Deleting the local row
+		// instead would leave `CalendarEventOccurrences.ForCalendarAsync`'s override map without
+		// this occurrence's RecurrenceId until the next sync happens to pull the cancelled
+		// instance back down, and in that window `CalendarRecurrenceExpander` regenerates a
+		// "ghost" virtual occurrence at the exact slot the user just deleted.
+		if (ev.RecurrenceMasterId is not null)
+		{
+			ev.Status = EventStatus.Cancelled;
+			await context.SaveChangesAsync(ct);
+			await events.CalendarEventUpdatedAsync(eventId);
+			return;
+		}
+
 		var children = await context.CalendarEvents.Where(e => e.RecurrenceMasterId == ev.Id).ToListAsync(ct);
 		context.CalendarEvents.RemoveRange(children);
 		context.CalendarEvents.Remove(ev);

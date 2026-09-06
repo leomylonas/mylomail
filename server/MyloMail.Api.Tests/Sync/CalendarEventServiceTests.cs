@@ -303,6 +303,79 @@ public sealed class CalendarEventServiceTests
 		Assert.Equal(1, provider.DeleteCalls);
 	}
 
+	/// <summary>
+	/// Two-hundred-and-nineteenth pass: deleting one occurrence of a recurring series must not
+	/// let the deleted slot reappear as a "ghost" occurrence before the next sync. The CalDAV
+	/// provider's own <c>DeleteEventAsync</c> marks a recurrence-override instance
+	/// <c>STATUS:CANCELLED</c> in place rather than deleting the resource (§1) — the local row
+	/// must reflect that same outcome, not be removed outright, since
+	/// <see cref="CalendarEventOccurrences.ForCalendarAsync"/> only suppresses a generated
+	/// occurrence at a slot that still has an override row keyed by that <c>RecurrenceId</c>.
+	/// </summary>
+	[Fact]
+	public async Task Deleting_a_recurrence_override_cancels_it_in_place_instead_of_resurrecting_a_ghost_occurrence()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var firstOccurrence = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
+		var secondOccurrence = firstOccurrence.AddDays(7);
+
+		var overrideId = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var master = new CalendarEvent
+			{
+				Id = Guid.NewGuid(),
+				CalendarId = harness.CalendarId,
+				Title = "Standup",
+				ProviderEventId = "master-1",
+				Start = firstOccurrence,
+				End = firstOccurrence.AddMinutes(30),
+				RecurrenceRules = ["FREQ=WEEKLY;COUNT=6"],
+				Status = EventStatus.Confirmed,
+			};
+			var overrideEvent = new CalendarEvent
+			{
+				Id = Guid.NewGuid(),
+				CalendarId = harness.CalendarId,
+				Title = "Standup (moved to the afternoon)",
+				ProviderEventId = "master-1#override",
+				Start = secondOccurrence.AddHours(6),
+				End = secondOccurrence.AddHours(6.5),
+				RecurrenceMasterId = master.Id,
+				RecurrenceId = secondOccurrence,
+				Status = EventStatus.Confirmed,
+			};
+			context.CalendarEvents.AddRange(master, overrideEvent);
+			await context.SaveChangesAsync();
+			return overrideEvent.Id;
+		});
+
+		await harness.UsingAsync(scope => scope.GetRequiredService<CalendarEventService>().DeleteAsync(overrideId));
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+
+			// The row survives, cancelled in place — not removed.
+			var row = await context.CalendarEvents.SingleAsync(e => e.Id == overrideId);
+			Assert.Equal(EventStatus.Cancelled, row.Status);
+
+			// And no virtual "ghost" occurrence is generated at the slot it used to occupy.
+			var window = await CalendarEventOccurrences.ForCalendarAsync(
+				context,
+				harness.CalendarId,
+				secondOccurrence.AddDays(-1),
+				secondOccurrence.AddDays(1)
+			);
+			Assert.DoesNotContain(window, e => e.IsVirtualOccurrence);
+			var atThatSlot = Assert.Single(window);
+			Assert.Equal(overrideId, atThatSlot.Id);
+			Assert.Equal(EventStatus.Cancelled, atThatSlot.Status);
+		});
+		Assert.Equal(1, provider.DeleteCalls);
+	}
+
 	[Fact]
 	public async Task Deleting_an_event_the_provider_rejects_leaves_it_in_place()
 	{
