@@ -3397,6 +3397,36 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   per the standing instruction this is reported, not patched. No code change this pass;
   `dotnet test`/`pnpm check` not rerun (nothing touched). `invariant-review` not invoked —
   nothing to review.
+- **Two-hundred-and-twenty-third pass — a popped-out message window had no way to reply at
+  all.** `MessageWindow.tsx` was a minimal component (just `ReadingPane`, no pane-switching
+  machinery, no `Compose` import) with no equivalent to `AppShell.tsx`'s Reply/Reply-all/Forward
+  wiring — reading a message in its own window worked fine, but acting on it required switching
+  back to the main window, a genuine missing capability rather than a cosmetic gap. The user was
+  asked how to close it and chose: have these actions open a new detached Compose window (reusing
+  the existing `GetMessageReplyContext` + `window.windows.open()` pattern), not an inline
+  compose-pane switch duplicating `AppShell`'s own logic. `MessageReplyContextDto` gained an
+  `AccountId` field (a popped-out window has no message-list selection to read it from); `
+ReadingPane` gained an optional `onReply` prop rendering the three actions, left unwired in the
+  main window's own usage since it already has them via the context menu; `MessageWindow.tsx`
+  fetches the accounts list, builds a seed via the existing `buildReplySeed`/`buildForwardSeed`,
+  creates the draft directly via `SaveDraft` (no `Compose` instance exists here to seed), copies
+  forward attachments via a newly-extracted `copyForwardAttachments` helper (shared with, but
+  deliberately not adopted by, `Compose.tsx`'s own inline copy loop — unifying them was more churn
+  than this fix warranted, since that loop is threaded through `Compose`'s own `save()`/`setBusy`
+  state), then opens the new window. `invariant-review` found the diff architecturally safe but
+  caught a real gap: a `SaveDraft` success followed by a `window.windows.open()` failure would
+  orphan the freshly-created draft server-side with no window ever showing it, and a retry would
+  create a second orphan on top — fixed by scoping a nested try/catch around just the `open()` call
+  so that specific failure discards the draft via `DeleteDraft` before reporting the error; an
+  attachment-copy failure deliberately leaves the draft alone, matching `Compose.tsx`'s own
+  precedent of a still-usable, visible draft. New `copyForwardAttachments` test confirms a failing
+  attachment doesn't stop the rest from being attempted, manually confirmed as a genuine
+  discriminator via revert-and-reproduce. `MessageWindow.tsx`'s own new orchestration (including
+  the `DeleteDraft` cleanup path) has no test seam reachable from a unit test — the same limitation
+  already accepted for this window's code in earlier passes — verified by code inspection instead.
+  `dotnet test` 474 passed/0 failed (unchanged — a pure additive DTO field with one construction
+  site needs no new backend test). `pnpm check` clean under Node 22: 376 dotnet tests, vitest 125
+  (up from 124).
 
 ## Next task
 
