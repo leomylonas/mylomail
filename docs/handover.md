@@ -4006,6 +4006,19 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   sync/backfill batch happens to resurface it, not deterministically — a one-time backfill for
   pre-existing affected drafts is a real but separate, deliberately-scoped follow-up. `dotnet
 test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, vitest 130.
+- **Two-hundred-and-fifty-second pass — found a real, reachable inline-image bug in reply/forward,
+  scoped it, and confirmed it's feature-sized rather than a one-line fix.** Continuing 243/251's
+  inline-attachment work: `SanitiseMessageHtml.prepare` deliberately keeps `cid:` image references
+  intact through quoting, so both `buildReplySeed` and `buildForwardSeed` bake the original
+  message's unresolved `cid:` references into the new draft's quoted content — but nothing copies
+  the original inline image's bytes onto the new draft (`buildForwardSeed` explicitly excludes
+  `isInline` attachments from its copy list; `buildReplySeed` has no attachment-copying path at
+  all), so a reply or forward to a message with an inline image sends with a broken image for the
+  recipient. Confirmed this isn't a quick fix: `DraftAttachmentsController.Upload`/
+  `DraftService.AddAttachmentAsync` have no way to mark an uploaded attachment inline or set its
+  `ContentId`, so even removing the forward-side filter would just turn the broken embed into a
+  broken embed plus a stray plain attachment. Recorded as Next-task item 11 rather than fixed — no
+  diff, no invariant-review.
 
 ## Next task
 
@@ -4084,6 +4097,22 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
     resurface it, not deterministically. A one-time backfill (re-materialise every draft with a
     Drafts-mailbox occurrence still on record) would close this, but is a genuinely separate
     scoped task, not a one-line follow-up.
+11. **Replying to or forwarding a message with an inline image produces a broken image for the
+    recipient** (found by pass 252, following on from 243/251's inline-attachment fixes).
+    `SanitiseMessageHtml.prepare`'s hook deliberately keeps a `cid:` image `src` intact through
+    quoting (its own comment: "cid: is not remote... it survives sanitisation"), so
+    `buildReplySeed`/`buildForwardSeed` both bake the original message's unresolved `cid:`
+    references straight into the new draft's quoted `<blockquote>`. But nothing copies the
+    original inline image's bytes onto the new draft: `buildForwardSeed` explicitly filters to
+    `!attachment.isInline` before building `forwardAttachments`, and `buildReplySeed` has no
+    attachment-copying path at all. Even removing that filter wouldn't be enough —
+    `DraftAttachmentsController.Upload`/`DraftService.AddAttachmentAsync` have no way to mark an
+    uploaded attachment as inline or set its `ContentId`, so a naively-copied inline image would
+    land as a plain, un-embedded attachment while the `cid:` reference in the body stayed broken.
+    Closing this needs new plumbing (an `isInline`/`contentId` parameter through the upload
+    endpoint and `AddAttachmentAsync`, then wiring both `buildForwardSeed` and a new attachment-
+    copy path for `buildReplySeed`) — a real, moderate-scope feature addition, not a one-line fix
+    like 243/251's own MIME-walk corrections. Not fixed this pass; no diff, no invariant-review.
 
 ## Read first
 
