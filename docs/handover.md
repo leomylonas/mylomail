@@ -3095,6 +3095,31 @@ check` clean: 359 dotnet tests, vitest 117. This pass's implementing fork commit
   from a unit test for its inline `ipcMain.handle` callbacks, the same limitation already accepted
   for this file's other IPC-handler fixes — verified by code review and `pnpm check`. `pnpm check`
   clean: format/tsc/eslint/stylelint/build/tests(361)/vitest(117) (no new test, count unchanged).
+- **Two-hundred-and-twelfth pass — the same draft could be edited independently in two windows
+  at once, silently losing whichever side autosaved last.** Followed pass 211's angle first: an
+  audit of every `ipcMain.handle` callback in `Main.ts` for the same "resolves regardless of
+  actual success" shape found nothing further — `openAttachmentChannel` correctly returns
+  `shell.openPath`'s error-string convention, which the renderer already treats as failure, and
+  every other handler either throws properly or has no meaningful failure mode. That theme is
+  now exhausted. A separate, genuinely fresh finding instead: `AppShell.tsx` has no cross-window
+  awareness of which drafts are open, so an ordinary sequence — detach a draft to its own window,
+  then separately open the same draft from another window's Drafts panel — puts two independent
+  `Compose` instances autosaving the same draft every ~2s with no coordination; `DraftService
+.SaveAsync` does an unconditional full-field overwrite with no revision check, so whichever
+  window's autosave lands last silently discards the other's edits with no warning anywhere. The
+  user was asked how to handle this and explicitly chose the simplest option — prevent opening
+  the same draft twice, not build full conflict-detection on the save path. Added two new IPC
+  channels (`reportDraftStateChannel`, `focusDraftWindowChannel`) and a `Main.ts`-owned, runtime-
+  only `draftWindows: Map<windowId, draftId | null>`: every compose pane (inline in `AppShell`, or
+  a detached `ComposeWindow`) reports which draft it's showing, and both the Drafts panel's
+  "open" action and the detach action now check `focusDraftIfOpen` first — if another window is
+  already editing that draft, it's focused instead of starting a second, silently racing session.
+  The actual "is someone else already editing this" lookup is a new pure `windowAlreadyEditing`
+  function (`DraftWindows.ts`), following this codebase's existing `CloseBehavior.ts` pattern of
+  extracting IPC-handler logic into something with a real test seam, since `Main.ts`'s inline
+  callbacks themselves have none. 3 new tests, each confirmed as a genuine discriminator via
+  revert-and-reproduce. `pnpm check` clean: vitest up from 117 to 120 (dotnet tests unchanged at
+  361 — pure renderer/electron-shell change, no backend/DTO touched).
 
 ## Next task
 
