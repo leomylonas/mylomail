@@ -548,6 +548,38 @@ export function Compose({
 		return () => hub.off("OutboxStatusChanged", onStatusChanged);
 	}, [hub]);
 
+	// A draft already open here can be flagged SyncConflict by a background sync running
+	// concurrently (a remote materialisation, or another client's own push) — DraftSyncService
+	// then correctly refuses to push this window's edits until it's resolved (§1, §15), but
+	// without this listener the open window never learns that happened: it would keep
+	// accepting Send/local-save with no banner and no indication anything stopped syncing,
+	// discoverable only by closing and reopening the draft. DraftUpdated carries no draftId
+	// (§7 — broadcast is by prefix, not scoped), so this re-fetches the account's draft list
+	// and checks whether the one open here is affected, the same shape DraftList.tsx's own
+	// listener already uses. Deliberately one-directional: it only ever flips syncConflict
+	// false -> true, never touches to/cc/bcc/subject/body, so it can't clobber the very edits
+	// the conflict banner exists to protect — going back false happens only through the
+	// existing explicit resolveConflict() call.
+	useEffect(() => {
+		if (!draftId) return;
+		const onDraftUpdated = () => {
+			void hub
+				.invoke<OpenDraft[]>("GetDrafts", accountId)
+				.then((drafts) => {
+					const match = drafts.find((item) => item.id === draftId);
+					if (match?.syncConflict) {
+						setSyncConflict(true);
+					}
+				})
+				.catch(() => {
+					// Best-effort: a failed refresh here leaves the window exactly as
+					// informed as it already was, not worse off.
+				});
+		};
+		hub.on("DraftUpdated", onDraftUpdated);
+		return () => hub.off("DraftUpdated", onDraftUpdated);
+	}, [hub, accountId, draftId]);
+
 	// Standard Gmail/Outlook convention (§13): Ctrl+Enter, or Cmd+Enter on macOS, sends
 	// from anywhere in the compose window, including inside the editor itself. A window
 	// listener rather than a JSX onKeyDown, since the latter needs an interactive role/
