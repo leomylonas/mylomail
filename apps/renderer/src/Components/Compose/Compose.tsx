@@ -461,6 +461,18 @@ export function Compose({
 		if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
 		const target = new Date(scheduleDate);
 		target.setHours(hours, minutes, 0, 0);
+		// DatePicker's minDate only excludes past *days* — picking today plus an earlier time
+		// than now still reaches here. OutboxService.QueueAsync/OutboxDispatcher.RequestSend
+		// both clamp a past ScheduledSendAt to an immediate send rather than rejecting it, so
+		// silently proceeding here would send right now while the user still believes they
+		// picked a future moment and can walk away — the opposite of what clicking "Schedule"
+		// (as distinct from the ordinary Send button) communicates.
+		if (target.getTime() <= Date.now()) {
+			window.alert(
+				"That time has already passed. Pick a time later than now, or use Send instead.",
+			);
+			return;
+		}
 		void send(target);
 	};
 
