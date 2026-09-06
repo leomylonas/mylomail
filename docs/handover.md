@@ -3872,6 +3872,29 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   never embedded in raw headers) — both correct by construction, no divergence to fix. No code
   change; documented here so a future pass doesn't have to re-investigate the same plausible-
   looking false alarm.
+- **Two-hundred-and-forty-fifth pass — Gmail never parsed From/To/Cc/Bcc/Reply-To from a
+  message's own headers.** `GmailMailProvider.ToDto` parsed Message-ID/In-Reply-To/References/
+  Subject from the raw headers Gmail's Full format returns, but never touched From/To/Cc/Bcc/
+  Reply-To at all — those `MessageDto` fields were always left at their default empty lists for
+  every Gmail message. `MessageIngestor.cs` copies `dto.From`/`To`/etc. straight onto the persisted
+  `Message`, so every Gmail message would persist with a blank sender/recipients: the message list
+  showing nothing for From, `from:`/`to:`/`cc:` field-scoped search never matching a single Gmail
+  message, and reply routing (which prefers `ReplyToAddresses` over `From` per §1) silently falling
+  through to an empty From. IMAP (structured ENVELOPE) and Graph (typed
+  from/toRecipients/etc. fields) both already populated these correctly — only Gmail had the gap.
+  Added a private `Addresses(string? headerValue)` helper parsing an RFC 5322 address-list header
+  via MimeKit's `InternetAddressList.TryParse` (never throws, degrades to empty on malformed
+  input), mirroring `ImapMailProvider.Sync.cs`'s own equivalent helper — same `Address(Name,
+Email)` mapping, so a nameless mailbox address yields `""` not `null` identically across both
+  providers. `ToDto` changed from `private static` to `internal static` for testability, matching
+  the precedent set by `Compose()` in the Imap/Gmail Send files (pass 243). Two new tests, both
+  manually confirmed as genuine discriminators via revert-and-reproduce (reverting just the five
+  field-assignment lines made the populated-headers test fail with `[]` instead of the expected
+  addresses). `invariant-review`: no issues — confirmed the mapping matches IMAP's own helper
+  exactly so downstream consumers see consistent data across providers, the single `ToDto` call
+  site has no Gmail-specific branching that relied on the old gap, and no frozen-table entry is
+  touched. `dotnet test` 489 passed/0 failed (up from 487). `pnpm check` clean: 391 dotnet tests,
+  vitest 130.
 
 ## Next task
 
