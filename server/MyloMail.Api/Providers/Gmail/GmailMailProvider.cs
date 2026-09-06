@@ -3,6 +3,7 @@ using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using Google.Apis.Services;
+using MimeKit;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
@@ -259,7 +260,7 @@ public sealed partial class GmailMailProvider(
 		return messages;
 	}
 
-	private static MessageDto ToDto(GmailMessage message)
+	internal static MessageDto ToDto(GmailMessage message)
 	{
 		var headers = (message.Payload?.Headers ?? [])
 			.Where(header => header.Name is not null)
@@ -281,6 +282,19 @@ public sealed partial class GmailMailProvider(
 			MessageIdHeader = Header(headers, "Message-ID"),
 			InReplyToHeader = Header(headers, "In-Reply-To"),
 			ReferencesHeader = Header(headers, "References"),
+			// Gmail's Full format hands back every RFC 5322 header verbatim in Payload.Headers,
+			// but leaves parsing them to the caller — unlike IMAP's own ENVELOPE (already
+			// structured) and Graph's own typed from/toRecipients/etc. fields. Without this,
+			// every Gmail message ingested (MessageIngestor.cs: message.From = dto.From, and
+			// likewise To/Cc/Bcc) would persist with empty address lists: a blank sender/
+			// recipients in the message list, "from:"/"to:"/"cc:" search never matching a single
+			// Gmail message, and reply routing (ReplyToAddresses, preferred over From per §1)
+			// silently falling through to an empty From.
+			ReplyToAddresses = Addresses(Header(headers, "Reply-To")),
+			From = Addresses(Header(headers, "From")),
+			To = Addresses(Header(headers, "To")),
+			Cc = Addresses(Header(headers, "Cc")),
+			Bcc = Addresses(Header(headers, "Bcc")),
 			Subject = Header(headers, "Subject") ?? string.Empty,
 			Snippet = message.Snippet ?? string.Empty,
 			ReceivedAt = message.InternalDate is long milliseconds
@@ -296,6 +310,14 @@ public sealed partial class GmailMailProvider(
 
 	private static string? Header(IReadOnlyDictionary<string, string> headers, string name) =>
 		headers.TryGetValue(name, out var value) ? value : null;
+
+	/// <summary>Parses an RFC 5322 address-list header value the same way IMAP's own envelope
+	/// addresses are converted — a malformed value (rare, but real servers do send one) yields an
+	/// empty list rather than throwing and losing the whole message.</summary>
+	private static IReadOnlyList<Address> Addresses(string? headerValue) =>
+		headerValue is not null && InternetAddressList.TryParse(headerValue, out var list)
+			? [.. list.Mailboxes.Select(m => new Address(m.Name, m.Address))]
+			: [];
 
 	private static string ProviderMailboxId(Mailbox mailbox) =>
 		mailbox.ProviderMailboxId
