@@ -3475,6 +3475,21 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   `preventDefault()` suppresses nothing the editor needs, no frozen-table entry touched, and the
   "no test seam" claim is accurate.
 
+- **Two-hundred-and-twenty-sixth pass — the "New message" button had no keyboard shortcut,
+  closing out the 223-225 shortcut audit.** `AppShell.tsx`'s `Button` for composing a new message
+  had no keyboard equivalent at all — "c" for compose is one of the most standard Outlook/Gmail
+  conventions §13 names, but it lived at the shell level rather than inside
+  `MessageList.tsx`'s own registry (which covers message actions specifically), so none of the
+  prior three shortcut passes touched it. Extracted the button's `onClick` body into
+  `openComposeShortcut`, reused by both the button and a new `useShortcuts` binding for `c`,
+  guarded identically to the button's own `disabled` condition (no selected account). A bare-letter
+  shortcut like the others already added, so `UseShortcuts.ts`'s existing `isTypingTarget()`
+  suppression applies unchanged. No new test, for the same reason 223-225 already accepted: no
+  component-render test harness exists in this codebase. `pnpm check` clean under Node 22: 376
+  dotnet tests (unchanged, pure renderer), vitest 125 (unchanged, no new test file). This pass's
+  implementing fork was under a hard no-subagent-spawning rule and could not launch
+  `invariant-review` at all — the parent session needs to run it before this pass is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
