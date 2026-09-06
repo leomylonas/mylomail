@@ -494,6 +494,36 @@ export function MessageList({
 			description: "Move to trash",
 			run: () => selectedMessages.length > 0 && trash.mutate(selectedMessages),
 		},
+		// Reply/reply-all/forward are single-message actions (§13's own context-menu entries
+		// disable them for a multi-selection too), so these no-op on anything but exactly one
+		// selected message rather than guessing which one a shortcut should act on.
+		{
+			key: "r",
+			description: "Reply",
+			run: () =>
+				selectedMessages.length === 1 &&
+				void replyTo(hub, selectedMessages[0]!, "reply", ownAddress, onCompose),
+		},
+		{
+			key: "a",
+			description: "Reply all",
+			run: () =>
+				selectedMessages.length === 1 &&
+				void replyTo(
+					hub,
+					selectedMessages[0]!,
+					"replyAll",
+					ownAddress,
+					onCompose,
+				),
+		},
+		{
+			key: "f",
+			description: "Forward",
+			run: () =>
+				selectedMessages.length === 1 &&
+				void forward(hub, selectedMessages[0]!, onCompose),
+		},
 	]);
 
 	if (messages.isPending) return <SkeletonText paragraph lineCount={6} />;
