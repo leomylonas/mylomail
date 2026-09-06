@@ -22,7 +22,7 @@ interface CalendarSummary {
 	isDefault: boolean;
 }
 
-interface CalendarEventSummary {
+export interface CalendarEventSummary {
 	id: string;
 	calendarId: string;
 	title: string;
@@ -51,10 +51,32 @@ interface CalendarEventSummary {
 	isRecurrenceMaster: boolean;
 }
 
-type ModalState =
+export type ModalState =
 	| { mode: "create"; calendarId: string; date: Dayjs }
 	| { mode: "edit"; event: CalendarEventSummary }
 	| null;
+
+/**
+ * `modal.event` is a snapshot frozen at the moment the modal opened — correct for the values
+ * that seed `EventModal`'s own once-only editing state, but wrong for anything that should
+ * reflect what's happening right now: `syncConflict`, `isRecurrenceMaster`,
+ * `isVirtualOccurrence`. A background sync landing while the modal stays open (an organiser
+ * update, a conflicting remote edit) refetches `eventsById` via the existing
+ * `CalendarEventUpdated`/`CalendarConflictDetected` invalidation, but reading only the frozen
+ * snapshot would mean the modal's own props never reflect it — the same "open session doesn't
+ * learn about a relevant background change" shape already fixed for Compose/ReadingPane. Falls
+ * back to the frozen snapshot if the event has dropped out of the current range/query window
+ * (e.g. its own edit rescheduled it outside the visible month) rather than resolving to nothing
+ * mid-edit.
+ */
+export function resolveLiveModalEvent(
+	modal: ModalState,
+	eventsById: Map<string, CalendarEventSummary>,
+): CalendarEventSummary | undefined {
+	return modal?.mode === "edit"
+		? (eventsById.get(modal.event.id) ?? modal.event)
+		: undefined;
+}
 
 /**
  * Unified across every account's calendars, colour-distinguished by account (§13 Epic 7).
@@ -142,6 +164,8 @@ export function Calendar({
 
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+
+	const liveModalEvent = resolveLiveModalEvent(modal, eventsById);
 
 	// A virtual occurrence's own id is a derived id, not a real row — GetCalendarEventDetail,
 	// DeleteCalendarEvent and ResolveEventConflict all address a real EventId, so opening one
@@ -296,13 +320,13 @@ export function Calendar({
 					hub={hub}
 					initial={toFormValues(modal)}
 					syncConflict={
-						modal.mode === "edit" ? modal.event.syncConflict : false
+						modal.mode === "edit" ? liveModalEvent?.syncConflict : false
 					}
 					deletesWholeSeries={
-						modal.mode === "edit" ? modal.event.isRecurrenceMaster : false
+						modal.mode === "edit" ? liveModalEvent?.isRecurrenceMaster : false
 					}
 					virtualOccurrence={
-						modal.mode === "edit" ? modal.event.isVirtualOccurrence : false
+						modal.mode === "edit" ? liveModalEvent?.isVirtualOccurrence : false
 					}
 					onSave={(values) => save.mutate(values)}
 					onDelete={
