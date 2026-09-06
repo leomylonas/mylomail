@@ -3508,6 +3508,33 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   This pass's implementing fork was under a hard no-subagent-spawning rule and could not launch
   `invariant-review` at all — the parent session needs to run it before this pass is fully closed.
 
+- **Two-hundred-and-twenty-eighth pass — an already-open Compose window never learned a draft
+  had been flagged `SyncConflict` mid-session.** Checked first whether the "client-only
+  validation with no server mirror" theme (214-218, 227) had any instance left; none found.
+  `DraftSyncService` already correctly refuses to push a draft flagged `Draft.SyncConflict`
+  (set by `RemoteDraftMaterializer` observing a conflicting remote change, or a push itself
+  hitting `ProviderConflictException`) until it's resolved (§1, §15) — but `Compose.tsx` never
+  subscribed to `DraftUpdated` at all, only `DraftList.tsx` did, to refresh its own list. An
+  active editing session kept accepting Send and local autosave with no banner and no
+  indication anything had stopped syncing to the provider, discoverable only by closing and
+  reopening the draft — since `GetDrafts` is the only way to read a draft's current
+  `syncConflict` flag back, there being no per-id fetch method. Added a `DraftUpdated` listener
+  that re-fetches `GetDrafts(accountId)` and checks whether the draft open in this window is now
+  flagged, mirroring `DraftList.tsx`'s own refetch-on-broadcast shape since the event carries no
+  draftId to filter on (§7 — broadcast is by prefix). Deliberately one-directional: it only ever
+  flips `syncConflict` false → true, never touches to/cc/bcc/subject/body, so it can't clobber
+  the very edits the conflict banner exists to protect — going back to false only ever happens
+  through the existing explicit `resolveConflict()` call. No new test: this codebase has no
+  component-render test harness at all, the same limitation already accepted for this file's
+  other recent listener/shortcut additions (`OutboxStatusChanged`, Ctrl+Enter send). Verified by
+  code inspection: the effect's dependency array is exhaustive, cleanup always runs before a new
+  listener attaches (matching the existing `OutboxStatusChanged` effect's own shape exactly), and
+  the fetch-failure path is a genuine no-op rather than an unhandled rejection. `pnpm check`
+  clean under Node 22: 377 dotnet tests (unchanged, pure renderer), vitest 125 (unchanged, no new
+  test file). This pass's implementing fork was under a hard no-subagent-spawning rule and could
+  not launch `invariant-review` at all — the parent session needs to run it before this pass is
+  fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
