@@ -3793,6 +3793,24 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   operate over MailKit/sockets, which can't produce this shape), and no frozen-table entry is
   touched. `dotnet test` 482 passed/0 failed (up from 480). `pnpm check` clean: 384 dotnet tests,
   vitest 130.
+- **Two-hundred-and-forty-first pass — the same auth-rejection gap as passes 196-199, but for
+  CalDAV, which that series never touched.** `docs/architecture.md` states flatly: "Auth failures
+  set `AuthState = NeedsReauth` and pause the account's jobs" — unqualified, not scoped to mail
+  providers only. Every method in `CalDavCalendarProvider` called `http.SendAsync` directly, then
+  `EnsureSuccessStatusCode()` (or a status-specific branch for other codes) — a rejected Basic-auth
+  credential fell through as a generic `HttpRequestException`, which
+  `ConnectivityMonitor.IsNetworkFailure` unconditionally treats as a transient network blip
+  regardless of status code, so a wrong CalDAV password would silently retry forever instead of
+  ever setting `NeedsReauth`. Added a private `SendAsync` helper as the single choke point all 9
+  send calls across this provider's 8 methods now route through, mirroring the exact pattern
+  196-199 already established elsewhere: it checks for 401 before returning the response, so no
+  per-method status branch (cursor invalidation, `PreconditionFailed`, `NotFound`) can ever see a 401. `SyncJobs.GuardAsync`'s existing `catch (ProviderAuthenticationException)` needed no changes
+  since it's the same shared exception type the mail providers already throw. New test manually
+  confirmed as a genuine discriminator via revert-and-reproduce. `invariant-review`: no issues —
+  confirmed all 9 send sites route through the new helper with no gaps, the 401 check precedes
+  every other status branch, no leak/double-dispose in the dispose-then-throw pattern, and no
+  frozen-table entry touched. `dotnet test` 483 passed/0 failed (up from 482). `pnpm check` clean:
+  385 dotnet tests, vitest 130.
 
 ## Next task
 
