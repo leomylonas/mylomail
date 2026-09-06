@@ -3933,6 +3933,26 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   change-detection compares the right two values before the overwrite, the guard genuinely gates
   the call, and no frozen-table entry is touched. `dotnet test` 496 passed/0 failed. `pnpm check`
   clean: 398 dotnet tests, vitest 130.
+- **Two-hundred-and-forty-eighth pass — IMAP messages never had a snippet at all.** Continuing
+  245-247's field-by-field `MessageDto` comparison: `ImapMailProvider.Sync.cs`'s `ToDto` never
+  sets `Snippet` — IMAP's ENVELOPE has no preview text, unlike Gmail's `message.Snippet`/Graph's
+  `BodyPreview`, which their own `ToDto`s already set. §12 lists "snippet" as one of the message
+  list's own sortable/filterable columns, so every IMAP message showed a permanently blank list
+  preview. Follows the exact pattern 246/247 established: `ContentAcquisition.StoreAsync` now
+  computes a snippet from the real MIME body once fetched, filling `Message.Snippet` only when
+  it's currently blank — Gmail/Graph's own provider-supplied snippet is never second-guessed —
+  and broadcasts post-commit alongside the existing `HasNonInlineAttachments` correction, firing
+  once even if both change together. New internal `ComputeSnippet(text, html)` prefers plain
+  text, falls back to stripping HTML tags when text is null OR empty (a stub first alternative
+  alongside real HTML-only content is a real MIME shape), collapses whitespace, truncates to 200
+  characters. `invariant-review` caught two real edge cases in the first draft — an empty (not
+  just null) text part wasn't falling back to HTML, and the truncation slice could split a
+  surrogate pair — both fixed and covered by new tests before this closed. The pre-existing
+  `ContentAcquisitionAttachmentCorrectionTests` test needed a non-blank seeded snippet so it stays
+  isolated to the attachment-guess dimension, unaffected by this new orthogonal broadcast trigger.
+  7 new tests, each manually confirmed as a genuine discriminator via revert-and-reproduce.
+  `dotnet test` 503 passed/0 failed (up from 496; 576 total including skips). `pnpm check` clean:
+  405 dotnet tests, vitest 130.
 
 ## Next task
 
