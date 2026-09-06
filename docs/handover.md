@@ -3264,6 +3264,42 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   "not found" — an untested combination nothing currently relies on. `dotnet test` 473 passed (up
   from 472), `pnpm check` clean: format/tsc/eslint/stylelint/build/tests(375)/vitest(120).
 
+- **Two-hundred-and-nineteenth pass — deleting one occurrence of a recurring event
+  resurrected it as a ghost until the next sync.** The client-side-only-validation theme
+  (passes 214-218) is now genuinely exhausted, so this pass took a fresh angle: recurrence
+  exception editing. `CalDavCalendarProvider.DeleteEventAsync` already special-cases a
+  recurrence-override instance correctly — it GETs the shared .ics resource, merges a
+  `STATUS:CANCELLED` `VEVENT` for that `RECURRENCE-ID`, and PUTs the whole thing back,
+  since a single override's "resource" is the whole series (§1) and a resource-level
+  DELETE would take the master and every sibling override with it. But
+  `CalendarEventService.DeleteAsync`, the caller, removed the local `CalendarEvent` row
+  unconditionally after any successful provider call, master or override alike. With the
+  local row gone while the server-side instance survived as cancelled,
+  `CalendarEventOccurrences.ForCalendarAsync`'s override-suppression map (keyed by
+  `RecurrenceId`) lost that occurrence, so `CalendarRecurrenceExpander` immediately
+  regenerated a virtual "ghost" occurrence at the exact slot the user had just deleted —
+  visible until a later sync happened to pull the cancelled override back down and
+  re-suppress it. Fixed by branching `DeleteAsync` the same way `UpdateEventAsync` already
+  does: once the provider call succeeds, an override (`RecurrenceMasterId` set) is marked
+  `Status = Cancelled` in place rather than removed; a master delete (with its override
+  children) is unchanged. New test in `CalendarEventServiceTests.cs` seeds a weekly master
+  plus one override, deletes the override, and asserts both that the row survives as
+  `Cancelled` and that `CalendarEventOccurrences.ForCalendarAsync` generates no virtual
+  occurrence at that slot — discriminated by reverting only the service change and
+  confirming the "row survives" assertion failed with "Sequence contains no elements"
+  (the row really was deleted). `invariant-review` came back clean: nothing in AGENTS.md's
+  frozen table touched, the master-delete path (a real provider-side DELETE, so removing
+  the master and its children locally is still correct) is unaffected, and no sibling
+  divergence exists in `ResolveConflictAsync` (its `keepMine: true` path already routes
+  through `UpdateEventAsync`'s existing override-merge branch, never removing a row) or
+  `RespondToInviteAsync` (never deletes or removes rows). Noted, not fixed, as a
+  pre-existing and separate gap: no renderer calendar component currently distinguishes
+  `EventStatus.Cancelled` for display at all — a cancelled override arriving via ordinary
+  sync already hit this same "shown like any other event" path before this pass, so this
+  is not a regression, just an existing display gap worth a future look. `dotnet test` 474
+  passed (up from 473), `pnpm check` clean:
+  format/tsc/eslint/stylelint/build/tests(376)/vitest(120).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
@@ -3307,6 +3343,15 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
    call to a raw-MIME upload (`message/rfc822` content, a materially different implementation),
    a real design decision, not dictated by strong precedent. Currently dead code: no Graph account
    can exist yet pending item 1's OAuth registration.
+7. **A cancelled calendar occurrence (`EventStatus.Cancelled`) is not distinguished anywhere
+   in the renderer** (found by pass 219, while fixing single-occurrence delete). Both a
+   locally-deleted recurrence override and a server-reported `STATUS:CANCELLED` instance
+   arriving via ordinary sync end up as an ordinary-looking event in `CalendarAgenda.tsx`/
+   `CalendarGrid.tsx` — no strikethrough, badge, or filtering. Not a regression from pass
+   219's fix (the same display gap already existed for a cancelled instance arriving via
+   sync before this pass), and not fixed here since it is a UI design decision (show it
+   struck through? filter it out entirely? show it with a "cancelled" tag?), not a
+   one-line omission.
 
 ## Read first
 
