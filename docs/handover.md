@@ -3235,6 +3235,35 @@ The host name cannot be empty.` — a type `ImapMailProvider.ConnectAsync`'s cat
   touched this pass; the client-side gate in `SendIdentityManager.tsx` was already correct and
   needed no change).
 
+- **Two-hundred-and-eighteenth pass — a blank/whitespace folder name had no server-side
+  rejection either.** Fifth instance of pass 214/215/216/217's shape: swept the remaining
+  renderer components not yet checked for a client-only blank/disabled gate —
+  `ReauthenticateAccount.tsx`, `ShellSettings.tsx`, `EventModal.tsx` (again, more carefully:
+  it has no disabled gate on Save at all, and turned out to need none — `CalendarAgenda.tsx`/
+  `CalendarGrid.tsx` explicitly render `event.title || "(No title)"`, so a blank title is a
+  supported case by design, not a gap), and `ExportAccount.tsx` (its only `disabled` checks are
+  pending-state and dialog-availability, not blank fields) — all clean. The actual find was
+  `FolderNameModal.tsx`, used by `MailboxTree.tsx` for both Create and Rename: it trims its
+  input and sets `primaryButtonDisabled` while the trimmed result is empty, but
+  `MailboxManagement.CreateAsync`/`RenameAsync` had no check of their own — a direct
+  `CreateMailbox`/`RenameMailbox` hub call, or a race with a reset form, would reach the
+  provider with a blank or whitespace-only name. Weaker than passes 214-217's crashes: this file
+  already wraps every provider call in `RunProviderCallAsync`, which turns any exception into a
+  clean `HubException`, so the failure mode here was an ugly provider-specific message (MailKit's
+  bare `ArgumentException`, an IMAP NO response, or whatever Gmail/Graph does with an empty name)
+  rather than an unhandled crash — still worth closing since it's the same gap in the same
+  place. Added `IsNullOrWhiteSpace` checks as the first statement of both methods, throwing
+  `HubException("A folder name cannot be blank.")` before any account/mailbox lookup or provider
+  call. 1 new test in `MailboxManagementTests.cs` covering empty and whitespace-only names on
+  both Create and Rename, discriminated by reverting `MailboxManagement.cs` alone and confirming
+  the first assertion failed — the blank name was accepted and reached the local table.
+  `invariant-review` came back clean (pure validation in a file explicitly documented as its own
+  coordination domain, separate from the message mutation queue, nothing in AGENTS.md's frozen
+  table) and flagged one non-blocking note: the new checks now run before the account/mailbox
+  existence lookup, so an invalid id combined with a blank name reports "blank name" rather than
+  "not found" — an untested combination nothing currently relies on. `dotnet test` 473 passed (up
+  from 472), `pnpm check` clean: format/tsc/eslint/stylelint/build/tests(375)/vitest(120).
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
