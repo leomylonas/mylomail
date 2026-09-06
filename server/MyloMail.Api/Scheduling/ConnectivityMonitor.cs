@@ -58,7 +58,14 @@ public sealed class ConnectivityMonitor : IDisposable
 	/// genuine application bug until the next probe tick catches up.
 	/// </remarks>
 	public static bool IsNetworkFailure(Exception ex) =>
-		ex is IOException or SocketException or HttpRequestException or SslHandshakeException;
+		ex is IOException or SocketException or HttpRequestException or SslHandshakeException
+		// HttpClient (CalDAV's own transport, and the Gmail/Graph SDKs underneath) reports its
+		// own request timeout as OperationCanceledException wrapping a TimeoutException, not any
+		// of the shapes above — indistinguishable by type alone from a caller's genuine
+		// cancellation, whose InnerException is never a TimeoutException. Left unclassified, a
+		// slow/unresponsive server would fall through to every job scheduler's fatal-error catch
+		// (which stops the poll loop rather than rescheduling), the same as a permanent failure.
+		|| ex is OperationCanceledException { InnerException: TimeoutException };
 
 	private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
 	{
