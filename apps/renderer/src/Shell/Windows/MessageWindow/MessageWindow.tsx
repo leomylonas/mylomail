@@ -3,7 +3,7 @@ import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPa
 import {
 	buildForwardSeed,
 	buildReplySeed,
-	copyForwardAttachments,
+	copyAttachments,
 	resolveOriginalHtml,
 	type ForwardAttachment,
 	type MessageReplyContext,
@@ -64,7 +64,7 @@ export function MessageWindow({
 	): Promise<void> => {
 		if (!hub) return;
 		try {
-			const [context, body] = await Promise.all([
+			const [context, body, attachments] = await Promise.all([
 				hub.invoke<MessageReplyContext>("GetMessageReplyContext", messageId),
 				hub.invoke<{
 					html: string | null;
@@ -72,24 +72,19 @@ export function MessageWindow({
 					isFetched: boolean;
 					isFailed: boolean;
 				}>("GetMessageBody", messageId),
+				hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", messageId),
 			]);
 			const account = accounts.data?.find((a) => a.id === context.accountId);
 			const originalHtml = resolveOriginalHtml(body);
 			const seed =
 				mode === "forward"
-					? buildForwardSeed(
-							context,
-							originalHtml,
-							await hub.invoke<ForwardAttachment[]>(
-								"GetAttachmentMetadata",
-								messageId,
-							),
-						)
+					? buildForwardSeed(context, originalHtml, attachments)
 					: buildReplySeed(
 							mode,
 							context,
 							originalHtml,
 							account?.emailAddress ?? "",
+							attachments,
 						);
 
 			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
@@ -102,11 +97,8 @@ export function MessageWindow({
 				bodyHtml: seed.bodyHtml,
 			});
 
-			if (seed.forwardAttachments) {
-				const failed = await copyForwardAttachments(
-					saved.id,
-					seed.forwardAttachments,
-				);
+			if (seed.attachmentsToCopy) {
+				const failed = await copyAttachments(saved.id, seed.attachmentsToCopy);
 				if (failed.length > 0) {
 					notify(notifications, {
 						kind: "error",

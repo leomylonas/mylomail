@@ -23,6 +23,8 @@ export interface ForwardAttachment {
 	filename: string;
 	mimeType: string;
 	isInline: boolean;
+	/** The `cid:` value an inline attachment is referenced by; null for a plain one. */
+	contentId: string | null;
 }
 
 /**
@@ -43,8 +45,13 @@ export interface ComposeSeed {
 	subject: string;
 	bodyHtml: string;
 	inReplyToMessageId: string | null;
-	/** Present only for a forward: attachments to copy onto the new draft once it exists. */
-	forwardAttachments?: {
+	/**
+	 * Attachments to copy onto the new draft once it exists: every attachment for a forward,
+	 * only inline ones for a reply (a reply's quote references the original's inline images via
+	 * the `cid:`s `sanitiseForQuoting` preserves, but never means to drag along its ordinary
+	 * attachments too — that's what forwarding is for).
+	 */
+	attachmentsToCopy?: {
 		sourceMessageId: string;
 		attachments: ForwardAttachment[];
 	};
@@ -191,6 +198,7 @@ export function buildReplySeed(
 	context: MessageReplyContext,
 	originalBodyHtml: string,
 	ownAddress: string,
+	attachments: ForwardAttachment[] = [],
 ): ComposeSeed {
 	const { to, cc } = buildReplyRecipients(mode, context, ownAddress);
 
@@ -203,6 +211,10 @@ export function buildReplySeed(
 		`<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex;">` +
 		`${quoted}</blockquote>`;
 
+	// Only the inline images the preserved cid:s in `quoted` can actually reference — a reply
+	// never means to drag along the original's ordinary attachments too.
+	const inline = attachments.filter((attachment) => attachment.isInline);
+
 	return {
 		key: `reply-${context.messageId}-${mode}-${Date.now()}`,
 		to,
@@ -211,6 +223,10 @@ export function buildReplySeed(
 		subject: prefixSubject(context.subject, "Re"),
 		bodyHtml,
 		inReplyToMessageId: context.messageId,
+		attachmentsToCopy:
+			inline.length > 0
+				? { sourceMessageId: context.messageId, attachments: inline }
+				: undefined,
 	};
 }
 
@@ -228,8 +244,6 @@ export function buildForwardSeed(
 		`To: ${formatAddressList(context.to)}</p>`;
 	const bodyHtml = `<p><br></p>${header}<p><br></p>${sanitiseForQuoting(originalBodyHtml)}`;
 
-	const forwardable = attachments.filter((attachment) => !attachment.isInline);
-
 	return {
 		key: `forward-${context.messageId}-${Date.now()}`,
 		to: [],
@@ -239,26 +253,31 @@ export function buildForwardSeed(
 		bodyHtml,
 		// A forward is a new, unrelated message — never threaded to the original (§1).
 		inReplyToMessageId: null,
-		forwardAttachments:
-			forwardable.length > 0
-				? { sourceMessageId: context.messageId, attachments: forwardable }
+		// Every attachment, inline or not: an inline image's cid: is preserved in `quoted` above
+		// the same way a reply's is, and a forward's ordinary attachments are the whole point of
+		// forwarding — unlike a reply, there's no attachment a forward means to leave behind.
+		attachmentsToCopy:
+			attachments.length > 0
+				? { sourceMessageId: context.messageId, attachments }
 				: undefined,
 	};
 }
 
 /**
- * Copies a forward's non-inline attachments onto a just-created draft — there is no
+ * Copies a reply's or forward's attachments onto a just-created draft — there is no
  * "attach this other message's attachment" concept, only "upload bytes," so this reads each one
- * back from the original message and re-uploads it the same way a dropped file would be. Shared
- * by `Compose`'s own inline forward flow and a popped-out message window's own reply/forward,
- * which has no `Compose` instance mounted to run that flow for it (§13 Epic 10). Each attachment
- * is copied independently: one failing (a since-deleted attachment, a network blip) must not
- * silently drop the rest of a multi-attachment forward — the caller decides what to do with the
- * list of names that failed.
+ * back from the original message and re-uploads it the same way a dropped file would be,
+ * preserving `isInline`/`contentId` so an inline image keeps the same `cid:` binding its copy of
+ * the quoted HTML already references. Shared by `Compose`'s own inline reply/forward flow and a
+ * popped-out message window's own reply/forward, which has no `Compose` instance mounted to run
+ * that flow for it (§13 Epic 10). Each attachment is copied independently: one failing (a
+ * since-deleted attachment, a network blip) must not silently drop the rest of a
+ * multi-attachment reply/forward — the caller decides what to do with the list of names that
+ * failed.
  */
-export async function copyForwardAttachments(
+export async function copyAttachments(
 	draftId: string,
-	toCopy: NonNullable<ComposeSeed["forwardAttachments"]>,
+	toCopy: NonNullable<ComposeSeed["attachmentsToCopy"]>,
 ): Promise<string[]> {
 	const failed: string[] = [];
 	for (const attachment of toCopy.attachments) {
@@ -269,6 +288,12 @@ export async function copyForwardAttachments(
 			if (!response.ok) throw new Error("fetch failed");
 			const form = new FormData();
 			form.append("file", await response.blob(), attachment.filename);
+			if (attachment.isInline) {
+				form.append("isInline", "true");
+				if (attachment.contentId) {
+					form.append("contentId", attachment.contentId);
+				}
+			}
 			const uploadResponse = await fetch(`/drafts/${draftId}/attachments`, {
 				method: "POST",
 				body: form,

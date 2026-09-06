@@ -933,7 +933,7 @@ async function replyTo(
 	ownAddress: string,
 	onCompose: (seed: ComposeSeed) => void,
 ): Promise<void> {
-	const [context, body] = await Promise.all([
+	const [context, body, attachments] = await Promise.all([
 		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
 		hub.invoke<{
 			html: string | null;
@@ -941,9 +941,16 @@ async function replyTo(
 			isFetched: boolean;
 			isFailed: boolean;
 		}>("GetMessageBody", message.id),
+		hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", message.id),
 	]);
 	onCompose(
-		buildReplySeed(mode, context, resolveOriginalHtml(body), ownAddress),
+		buildReplySeed(
+			mode,
+			context,
+			resolveOriginalHtml(body),
+			ownAddress,
+			attachments,
+		),
 	);
 }
 

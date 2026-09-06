@@ -112,6 +112,7 @@ public record SyncProgressDto(
 public record MessageBodyDto(Guid MessageId, string? Text, string? Html, bool IsFetched, bool IsFailed);
 
 /// <summary>Received attachment metadata; bytes remain solely in the raw MIME (§1).</summary>
+/// <param name="ContentId">The `cid:` value an inline attachment is referenced by; null for a plain one.</param>
 [TranspilationSource]
 public record AttachmentDto(
 	Guid Id,
@@ -119,7 +120,8 @@ public record AttachmentDto(
 	string Filename,
 	string MimeType,
 	long Size,
-	bool IsInline
+	bool IsInline,
+	string? ContentId
 );
 
 /// <summary>

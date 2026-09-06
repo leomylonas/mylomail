@@ -4,8 +4,10 @@
 // in MessageActions.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	buildForwardSeed,
 	buildReplyRecipients,
-	copyForwardAttachments,
+	buildReplySeed,
+	copyAttachments,
 	mentionsAttachmentOutsideQuote,
 	type ForwardAttachment,
 	type MessageReplyContext,
@@ -108,19 +110,76 @@ describe("mentionsAttachmentOutsideQuote", () => {
 	});
 });
 
-describe("copyForwardAttachments", () => {
+function attachment(
+	id: string,
+	filename: string,
+	overrides: Partial<Pick<ForwardAttachment, "isInline" | "contentId">> = {},
+): ForwardAttachment {
+	return {
+		id,
+		filename,
+		mimeType: "application/octet-stream",
+		isInline: false,
+		contentId: null,
+		...overrides,
+	};
+}
+
+describe("buildReplySeed", () => {
+	it("copies only the original's inline attachments, never its ordinary ones", () => {
+		const seed = buildReplySeed(
+			"reply",
+			context(),
+			"<p>Hi</p>",
+			"me@example.test",
+			[
+				attachment("inline1", "logo.png", {
+					isInline: true,
+					contentId: "logo@mylomail.local",
+				}),
+				attachment("plain1", "report.pdf"),
+			],
+		);
+
+		expect(seed.attachmentsToCopy?.attachments).toEqual([
+			attachment("inline1", "logo.png", {
+				isInline: true,
+				contentId: "logo@mylomail.local",
+			}),
+		]);
+	});
+
+	it("omits attachmentsToCopy entirely when the original has no inline attachments", () => {
+		const seed = buildReplySeed(
+			"reply",
+			context(),
+			"<p>Hi</p>",
+			"me@example.test",
+			[attachment("plain1", "report.pdf")],
+		);
+
+		expect(seed.attachmentsToCopy).toBeUndefined();
+	});
+});
+
+describe("buildForwardSeed", () => {
+	it("copies every attachment, inline and ordinary alike", () => {
+		const inline = attachment("inline1", "logo.png", {
+			isInline: true,
+			contentId: "logo@mylomail.local",
+		});
+		const plain = attachment("plain1", "report.pdf");
+
+		const seed = buildForwardSeed(context(), "<p>Hi</p>", [inline, plain]);
+
+		expect(seed.attachmentsToCopy?.attachments).toEqual([inline, plain]);
+	});
+});
+
+describe("copyAttachments", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});
-
-	function attachment(id: string, filename: string): ForwardAttachment {
-		return {
-			id,
-			filename,
-			mimeType: "application/octet-stream",
-			isInline: false,
-		};
-	}
 
 	it("copies every attachment independently, reporting only the ones that fail", async () => {
 		const fetchMock = vi.fn(async (url: string) => {
@@ -135,7 +194,7 @@ describe("copyForwardAttachments", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const failed = await copyForwardAttachments("draft1", {
+		const failed = await copyAttachments("draft1", {
 			sourceMessageId: "m1",
 			attachments: [
 				attachment("bad", "missing.pdf"),
@@ -151,5 +210,50 @@ describe("copyForwardAttachments", () => {
 			"/drafts/draft1/attachments",
 			expect.objectContaining({ method: "POST" }),
 		);
+	});
+
+	it("carries isInline/contentId onto the upload for an inline attachment", async () => {
+		let uploadedForm: FormData | undefined;
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === "/messages/m1/attachments/inline1") {
+				return { ok: true, blob: async () => new Blob(["ok"]) } as Response;
+			}
+			uploadedForm = init?.body as FormData;
+			return { ok: true } as Response;
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await copyAttachments("draft1", {
+			sourceMessageId: "m1",
+			attachments: [
+				attachment("inline1", "logo.png", {
+					isInline: true,
+					contentId: "logo@mylomail.local",
+				}),
+			],
+		});
+
+		expect(uploadedForm?.get("isInline")).toBe("true");
+		expect(uploadedForm?.get("contentId")).toBe("logo@mylomail.local");
+	});
+
+	it("does not set isInline/contentId form fields for an ordinary attachment", async () => {
+		let uploadedForm: FormData | undefined;
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === "/messages/m1/attachments/plain1") {
+				return { ok: true, blob: async () => new Blob(["ok"]) } as Response;
+			}
+			uploadedForm = init?.body as FormData;
+			return { ok: true } as Response;
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		await copyAttachments("draft1", {
+			sourceMessageId: "m1",
+			attachments: [attachment("plain1", "report.pdf")],
+		});
+
+		expect(uploadedForm?.get("isInline")).toBeNull();
+		expect(uploadedForm?.get("contentId")).toBeNull();
 	});
 });

@@ -470,7 +470,7 @@ public class MailHub(
 		await context.Attachments
 			.Where(a => a.MessageId == messageId)
 			.OrderBy(a => a.Filename)
-			.Select(a => new AttachmentDto(a.Id, a.MessageId, a.Filename, a.MimeType, a.Size, a.IsInline))
+			.Select(a => new AttachmentDto(a.Id, a.MessageId, a.Filename, a.MimeType, a.Size, a.IsInline, a.ContentId))
 			.ToListAsync();
 
 	public async Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId)

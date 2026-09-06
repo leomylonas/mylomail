@@ -219,7 +219,9 @@ public sealed class DraftService(
 		string filename,
 		string mimeType,
 		byte[] content,
-		CancellationToken ct = default
+		CancellationToken ct = default,
+		bool isInline = false,
+		string? contentId = null
 	)
 	{
 		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);
@@ -230,6 +232,8 @@ public sealed class DraftService(
 			MimeType = mimeType,
 			Size = content.LongLength,
 			Content = content,
+			IsInline = isInline,
+			ContentId = contentId,
 		};
 		draft.Attachments = [.. draft.Attachments, attachment];
 		draft.SavedAt = clock.GetUtcNow();

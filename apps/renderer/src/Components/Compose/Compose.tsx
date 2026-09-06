@@ -266,14 +266,22 @@ export function Compose({
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- `save` reads fieldsRef, not these values, at run time
 	}, [to, cc, bcc, subject, body]);
 
-	/** Shared by manual/dropped file uploads and forward's copy-from-original-message path. */
+	/** Shared by manual/dropped file uploads and the reply/forward copy-from-original path. */
 	const uploadAttachment = async (
 		id: string,
 		content: Blob,
 		filename: string,
+		isInline = false,
+		contentId: string | null = null,
 	): Promise<void> => {
 		const form = new FormData();
 		form.append("file", content, filename);
+		if (isInline) {
+			form.append("isInline", "true");
+			if (contentId) {
+				form.append("contentId", contentId);
+			}
+		}
 		const response = await fetch(`/drafts/${id}/attachments`, {
 			method: "POST",
 			body: form,
@@ -283,17 +291,19 @@ export function Compose({
 		setAttachments((current) => [...current, attachment]);
 	};
 
-	// A forward's own attachments have to be copied onto the new draft server-side — there is
-	// no "attach this other message's attachment" concept, only "upload bytes" — so this reads
-	// each one back from the original message and re-uploads it the same way a dropped file
-	// would be. Runs once, guarded by the ref: `seed` is stable for this component's lifetime
-	// (a new reply/forward always gets a fresh `key`, remounting rather than re-running this),
-	// but effects still re-fire on unrelated re-renders without a guard.
-	const forwardAttachmentsCopied = useRef(false);
+	// A reply's or forward's own attachments have to be copied onto the new draft server-side —
+	// there is no "attach this other message's attachment" concept, only "upload bytes" — so
+	// this reads each one back from the original message and re-uploads it the same way a
+	// dropped file would be, preserving isInline/contentId so an inline image keeps the cid:
+	// binding the quoted HTML already references. Runs once, guarded by the ref: `seed` is
+	// stable for this component's lifetime (a new reply/forward always gets a fresh `key`,
+	// remounting rather than re-running this), but effects still re-fire on unrelated re-renders
+	// without a guard.
+	const attachmentsCopied = useRef(false);
 	useEffect(() => {
-		const toCopy = seed?.forwardAttachments;
-		if (!toCopy || forwardAttachmentsCopied.current) return;
-		forwardAttachmentsCopied.current = true;
+		const toCopy = seed?.attachmentsToCopy;
+		if (!toCopy || attachmentsCopied.current) return;
+		attachmentsCopied.current = true;
 
 		void (async () => {
 			setBusy(true);
@@ -302,7 +312,7 @@ export function Compose({
 				const failed: string[] = [];
 				// Each attachment copied independently: one failing (a since-deleted
 				// attachment, a network blip) must not silently drop the rest of a
-				// multi-attachment forward.
+				// multi-attachment reply/forward.
 				for (const attachment of toCopy.attachments) {
 					try {
 						const response = await fetch(
@@ -313,6 +323,8 @@ export function Compose({
 							id,
 							await response.blob(),
 							attachment.filename,
+							attachment.isInline,
+							attachment.contentId,
 						);
 					} catch {
 						failed.push(attachment.filename);

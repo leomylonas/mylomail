@@ -26,12 +26,24 @@ public sealed class DraftAttachmentsController(DraftService drafts) : Controller
 
 		await using var content = new MemoryStream();
 		await file.CopyToAsync(content, ct);
+		// isInline/contentId are opt-in form fields, not part of a dropped/browsed file's own
+		// shape - only the reply/forward copy path (§13) ever sends them, to preserve an inline
+		// image's cid: binding onto the new draft.
+		var isInline = Request.Form.TryGetValue("isInline", out var isInlineValue)
+			&& bool.TryParse(isInlineValue, out var parsedIsInline)
+			&& parsedIsInline;
+		var contentId = Request.Form.TryGetValue("contentId", out var contentIdValue)
+			&& !string.IsNullOrWhiteSpace(contentIdValue)
+			? contentIdValue.ToString()
+			: null;
 		var attachment = await drafts.AddAttachmentAsync(
 			draftId,
 			AttachmentTempDirectory.SanitiseFilename(file.FileName),
 			string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
 			content.ToArray(),
-			ct
+			ct,
+			isInline,
+			contentId
 		);
 		return Ok(new { attachment.Id, attachment.Filename, attachment.MimeType, attachment.Size });
 	}

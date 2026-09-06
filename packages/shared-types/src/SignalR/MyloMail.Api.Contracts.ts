@@ -224,6 +224,8 @@ export type AttachmentDto = {
     size: number;
     /** Transpiled from bool */
     isInline: boolean;
+    /** Transpiled from string? */
+    contentId?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageReplyContextDto */
