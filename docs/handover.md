@@ -3745,6 +3745,22 @@ review`: no issues — confirmed `MoveMailbox` is the only mutation that ever re
   drag-to-reschedule requirement exists in the doc (§13's drag-and-drop list only covers folder
   reorder/message-move/attachment-drop/panel-resize), so `CalendarAgenda`'s lack of one isn't a
   gap either. No unambiguous small bug found; no fix, no diff, no invariant-review needed.
+- **Two-hundred-and-thirty-eighth pass — a custom scheduled send in the past silently sent
+  immediately instead of being rejected.** `Compose.tsx`'s "Pick date & time…" schedule picker's
+  `DatePicker` only sets `minDate` to exclude past _days_; picking today plus an earlier time than
+  now reached `scheduleCustom` unchecked. `OutboxService.QueueAsync`/`OutboxDispatcher.RequestSend`
+  both clamp a past `ScheduledSendAt` to an immediate dispatch rather than rejecting it (a sensible
+  server-side default for legitimate near-now scheduling), so the message would silently send right
+  now while the user still believed they'd picked a future moment and could walk away — the
+  opposite of what clicking "Schedule," as distinct from the ordinary Send button, communicates.
+  Fixed by rejecting a target at or before the current instant with the same `window.alert()`
+  pattern this file already uses for its other client-side send-time guards, pointing the user at
+  Send instead. No new test: `scheduleCustom` is inline in the component body with no extracted
+  pure function and no component-render test harness exists anywhere in this codebase — verified by
+  code inspection and `pnpm check` instead. `pnpm check` clean under Node 22: 382 dotnet tests
+  (unchanged), vitest 130 (unchanged, no new test file). This pass's implementing fork was under a
+  hard no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs
+  to run it before this pass is fully closed.
 
 ## Next task
 
