@@ -54,6 +54,8 @@ public sealed class CalDavCalendarProvider(
 
 	public ProviderType Type => ProviderType.Imap;
 
+	private static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromSeconds(30);
+
 	/// <summary>
 	/// Every CalDAV request this provider sends routes through here, so a rejected Basic-auth
 	/// credential is translated into <see cref="ProviderAuthenticationException"/> exactly once
@@ -63,6 +65,11 @@ public sealed class CalDavCalendarProvider(
 	/// generic <see cref="HttpRequestException"/>, which <see cref="Scheduling.ConnectivityMonitor.IsNetworkFailure"/>
 	/// unconditionally classifies as a transient network blip — a wrong or revoked CalDAV
 	/// password would then retry silently forever instead of ever pausing the account's jobs.
+	/// A 429 gets the same single-choke-point treatment: translated into
+	/// <see cref="ProviderThrottledException"/> with the server's own <c>Retry-After</c> (numeric
+	/// seconds or an HTTP-date, mirroring <see cref="Graph.GraphThrottleAwareRequests"/>'s own
+	/// parsing), falling back to a documented default only when the header is genuinely absent —
+	/// closing the same gap pass 199 fixed for Gmail/Graph, which CalDAV never had wired at all.
 	/// </summary>
 	private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
 	{
@@ -71,6 +78,21 @@ public sealed class CalDavCalendarProvider(
 		{
 			response.Dispose();
 			throw new ProviderAuthenticationException("The CalDAV server rejected these credentials.");
+		}
+		if ((int)response.StatusCode == 429)
+		{
+			var retryAfter =
+				response.Headers.RetryAfter?.Delta
+				?? (
+					response.Headers.RetryAfter?.Date is { } date
+						? date - DateTimeOffset.UtcNow
+						: null
+				);
+			response.Dispose();
+			throw new ProviderThrottledException(
+				retryAfter is { } value && value > TimeSpan.Zero ? value : DefaultRetryAfter,
+				"The CalDAV server is throttling this account."
+			);
 		}
 		return response;
 	}

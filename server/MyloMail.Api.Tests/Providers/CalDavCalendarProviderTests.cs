@@ -102,6 +102,44 @@ public sealed class CalDavCalendarProviderTests
 		);
 	}
 
+	/// <summary>
+	/// A 429 must surface as <see cref="ProviderThrottledException"/> carrying the server's own
+	/// <c>Retry-After</c>, not a raw <see cref="HttpRequestException"/> — the same auth-rejection
+	/// choke point this file already covers, now also covering throttling (pass 199 fixed this
+	/// for Gmail/Graph; CalDAV never had it wired at all).
+	/// </summary>
+	[Fact]
+	public async Task A_429_response_surfaces_as_a_provider_throttled_failure_with_its_retry_after()
+	{
+		var handler = new FakeHandler();
+		var response = new HttpResponseMessage((HttpStatusCode)429) { Content = new StringContent("") };
+		response.Headers.Add("Retry-After", "12");
+		handler.Enqueue(response);
+		var provider = Provider(handler);
+
+		var thrown = await Assert.ThrowsAsync<ProviderThrottledException>(
+			() => provider.ListCalendarsAsync(Account(), default)
+		);
+		Assert.Equal(TimeSpan.FromSeconds(12), thrown.RetryAfter);
+	}
+
+	/// <summary>
+	/// Falls back to the documented default when the server sends a 429 with no usable
+	/// <c>Retry-After</c> at all, rather than crashing on a null delta.
+	/// </summary>
+	[Fact]
+	public async Task A_429_response_without_retry_after_falls_back_to_the_default()
+	{
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage((HttpStatusCode)429) { Content = new StringContent("") });
+		var provider = Provider(handler);
+
+		var thrown = await Assert.ThrowsAsync<ProviderThrottledException>(
+			() => provider.ListCalendarsAsync(Account(), default)
+		);
+		Assert.Equal(TimeSpan.FromSeconds(30), thrown.RetryAfter);
+	}
+
 	[Fact]
 	public async Task A_rejected_sync_token_is_reported_as_an_invalid_cursor()
 	{
