@@ -270,6 +270,12 @@ public sealed class DraftService(
 	/// it never discovers a conflicting remote copy on its own account. Refusing here is what
 	/// makes "prompts resolution rather than overwriting" actually true for send, not just for
 	/// the ordinary background push <see cref="ResolveConflictAsync"/> already guards.
+	/// Also thrown when an attachment exceeds a *known* size constraint (§15) — Compose already
+	/// runs this same check client-side, but that check silently no-ops until
+	/// `GetAttachmentConstraints` has resolved, and nothing stops a caller invoking `SendDraft`
+	/// directly. An unknown limit is never blocking, only a known, exceeded one (§15's "where
+	/// the limit is unknown, the user is warned rather than blocked" applies to this server-side
+	/// check too, not just the client's confirmation dialog).
 	/// </exception>
 	public async Task<OutboxItem> SendAsync(
 		Guid draftId,
@@ -285,6 +291,36 @@ public sealed class DraftService(
 			);
 		}
 		var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
+
+		if (draft.Attachments.Count > 0)
+		{
+			var constraints = await providers.For(account).GetAttachmentConstraintsAsync(account, ct);
+			var oversizedFile =
+				constraints.ApiPerFileLimit is long perFileLimit
+					? draft.Attachments.FirstOrDefault(a => a.Size > perFileLimit)
+					: null;
+			if (oversizedFile is not null)
+			{
+				throw new InvalidOperationException(
+					$"\"{oversizedFile.Filename}\" is larger than this account's per-file attachment limit."
+				);
+			}
+
+			// Base64 encoding inflates raw bytes by 4/3 — checked against what actually goes
+			// out on the wire, not the on-disk attachment sizes (§15), mirroring Compose.tsx's
+			// own client-side check.
+			var totalLimit = constraints.ConfiguredOverride ?? constraints.KnownMessageSizeLimit;
+			if (totalLimit is long limit)
+			{
+				var encodedTotal = draft.Attachments.Sum(a => (long)Math.Ceiling(a.Size * (4.0 / 3.0)));
+				if (encodedTotal > limit)
+				{
+					throw new InvalidOperationException(
+						"These attachments are too large for this account to send."
+					);
+				}
+			}
+		}
 
 		return await outbox.QueueAsync(account, draft.Id, scheduledFor, ct: ct);
 	}

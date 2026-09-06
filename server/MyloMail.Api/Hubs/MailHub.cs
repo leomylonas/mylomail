@@ -120,6 +120,10 @@ public interface IMailHub
 	/// send (the account's undo-send delay applies) or an explicit future time for a
 	/// scheduled send (§15) — both go through the same outbox mechanism.
 	/// </summary>
+	/// <exception cref="HubException">
+	/// The draft has an unresolved sync conflict, or an attachment exceeds a known size
+	/// constraint for this account (§15).
+	/// </exception>
 	Task<Guid> SendDraft(Guid draftId, DateTimeOffset? scheduledFor = null);
 
 	Task<bool> CancelScheduledSend(Guid outboxItemId);
@@ -600,8 +604,21 @@ public class MailHub(
 	/// Queues a draft for sending and returns the outbox item, which is what cancellation
 	/// addresses during the undo window (§15).
 	/// </summary>
-	public async Task<Guid> SendDraft(Guid draftId, DateTimeOffset? scheduledFor = null) =>
-		(await drafts.SendAsync(draftId, scheduledFor)).Id;
+	public async Task<Guid> SendDraft(Guid draftId, DateTimeOffset? scheduledFor = null)
+	{
+		try
+		{
+			return (await drafts.SendAsync(draftId, scheduledFor)).Id;
+		}
+		catch (InvalidOperationException ex)
+		{
+			// Without this, SignalR (no detailed-errors) genericises the message to something
+			// unhelpful — losing exactly the "which attachment" / "unresolved conflict" detail
+			// DraftService.SendAsync's exception carries, the same reason DeleteSendIdentity
+			// above does this.
+			throw new HubException(ex.Message);
+		}
+	}
 
 	/// <summary>
 	/// Attempts to cancel. False means the worker already took it, and the answer is final:

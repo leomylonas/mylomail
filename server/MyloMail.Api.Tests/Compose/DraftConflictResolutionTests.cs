@@ -177,6 +177,95 @@ public sealed class DraftConflictResolutionTests
 		});
 	}
 
+	/// <summary>
+	/// Two-hundred-and-fourteenth architecture-review pass: §15's attachment size check ("Checks
+	/// account for base64 overhead on total message size... and are applied before send is
+	/// attempted") was implemented only in <c>Compose.tsx</c> — nothing on the server enforced
+	/// it, so a caller that skipped or raced the renderer's own check (or invoked <c>SendDraft</c>
+	/// directly) could queue an outbox item for an attachment the account's own provider had
+	/// already reported as too large. <see cref="DraftService.SendAsync"/> now runs the same
+	/// per-file check server-side.
+	/// </summary>
+	[Fact]
+	public async Task Sending_a_draft_with_an_attachment_over_the_known_per_file_limit_is_refused()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (draftId, _) = await SeedAsync(harness, conflict: false);
+		harness.Provider.AttachmentConstraintsToReturn = new(
+			ApiPerFileLimit: 1_000,
+			KnownMessageSizeLimit: null,
+			ConfiguredOverride: null,
+			IsUnknown: false
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync(d => d.Id == draftId);
+			draft.Attachments =
+			[
+				new DraftAttachment
+				{
+					Id = Guid.NewGuid(),
+					Filename = "huge.bin",
+					MimeType = "application/octet-stream",
+					Size = 2_000,
+					Content = new byte[2_000],
+				},
+			];
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async scope =>
+			await Assert.ThrowsAsync<InvalidOperationException>(
+				() => scope.GetRequiredService<DraftService>().SendAsync(draftId)
+			)
+		);
+	}
+
+	/// <summary>
+	/// The sibling case: a per-file limit that the single attachment is under, but whose
+	/// base64-inflated size still exceeds the account's total message-size limit. Confirms the
+	/// server checks the *encoded* total, not just each file's raw size, matching the client's
+	/// own <c>encodedTotal</c> calculation.
+	/// </summary>
+	[Fact]
+	public async Task Sending_a_draft_whose_base64_encoded_total_exceeds_the_known_message_limit_is_refused()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (draftId, _) = await SeedAsync(harness, conflict: false);
+		harness.Provider.AttachmentConstraintsToReturn = new(
+			ApiPerFileLimit: null,
+			KnownMessageSizeLimit: 1_000,
+			ConfiguredOverride: null,
+			IsUnknown: false
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync(d => d.Id == draftId);
+			// 900 raw bytes is under the 1,000-byte limit, but base64 inflates it to 1,200 —
+			// over the limit only once the encoding overhead is accounted for.
+			draft.Attachments =
+			[
+				new DraftAttachment
+				{
+					Id = Guid.NewGuid(),
+					Filename = "medium.bin",
+					MimeType = "application/octet-stream",
+					Size = 900,
+					Content = new byte[900],
+				},
+			];
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async scope =>
+			await Assert.ThrowsAsync<InvalidOperationException>(
+				() => scope.GetRequiredService<DraftService>().SendAsync(draftId)
+			)
+		);
+	}
+
 	private static async Task<(Guid DraftId, string ProviderDraftId)> SeedAsync(SyncHarness harness, bool conflict)
 	{
 		var draftsMailbox = harness.Provider.AddMailbox("DRAFT", SpecialUse.Drafts);

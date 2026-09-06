@@ -312,10 +312,13 @@ public sealed class FakeMailProvider : IMailProvider
 			: Task.FromResult(new RawMessageResult(found.Value.Message.RawBytes));
 	}
 
+	public AttachmentConstraints AttachmentConstraintsToReturn { get; set; } =
+		new(null, null, null, IsUnknown: true);
+
 	public Task<AttachmentConstraints> GetAttachmentConstraintsAsync(
 		Account account,
 		CancellationToken ct
-	) => Task.FromResult(new AttachmentConstraints(null, null, null, IsUnknown: true));
+	) => Task.FromResult(AttachmentConstraintsToReturn);
 
 	public Task<BatchResult> SetFlagsAsync(
 		Account account,
