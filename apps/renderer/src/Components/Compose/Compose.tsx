@@ -548,6 +548,30 @@ export function Compose({
 		return () => hub.off("OutboxStatusChanged", onStatusChanged);
 	}, [hub]);
 
+	// Standard Gmail/Outlook convention (§13): Ctrl+Enter, or Cmd+Enter on macOS, sends
+	// from anywhere in the compose window, including inside the editor itself. A window
+	// listener rather than a JSX onKeyDown, since the latter needs an interactive role/
+	// tabIndex on this div for no real benefit — modified combinations aren't suppressed
+	// by typing-target rules the way bare-letter shortcuts are (Shortcuts.ts), so a global
+	// listener scoped to this component's own lifetime is exactly as safe. Mirrors the
+	// Send button's own disabled condition exactly so this can't send something the
+	// button itself would refuse to, and does nothing once a send has already gone out.
+	useEffect(() => {
+		if (sent) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.key === "Enter" &&
+				(event.ctrlKey || event.metaKey) &&
+				!(busy || !to || syncConflict)
+			) {
+				event.preventDefault();
+				void send();
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [sent, busy, to, syncConflict, send]);
+
 	if (sent) {
 		const display = describeSentState(sent);
 		return (
