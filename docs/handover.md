@@ -3580,6 +3580,29 @@ check` clean under Node 22: 377 dotnet tests (unchanged, pure renderer), vitest 
   AGENTS.md table entry is touched. `pnpm check` clean: 377 dotnet tests, vitest 125 (both
   unchanged, pure renderer change).
 
+- **Two-hundred-and-thirty-first pass — an open `EventModal` never learned about a live
+  conflict either.** Continuing 228/229's "open session doesn't learn about a relevant
+  background change" theme into `Calendar.tsx`: `EventModal`'s `syncConflict`/
+  `deletesWholeSeries`/`virtualOccurrence` props came from `modal.event`, a snapshot frozen the
+  moment the modal opened, not from the live `eventsById` map that
+  `CalendarEventUpdated`/`CalendarConflictDetected` already keep refetched via
+  `HubConnection.ts`'s existing broad invalidation. A background sync landing while an event was
+  open for editing — an organiser update, or the event independently getting flagged
+  `SyncConflict` by a routine pass — never reached the modal, discoverable only by closing and
+  reopening. Extracted a pure `resolveLiveModalEvent(modal, eventsById)`: looks up the live event
+  by the frozen snapshot's id, falling back to the snapshot if the event has since dropped out of
+  the current query window rather than resolving to nothing mid-edit. `initial` (seeding
+  `EventModal`'s own once-only editing state via `toFormValues`) deliberately still comes from
+  the frozen snapshot — only the live-reflecting props change source. Unlike 228/229's inline
+  listener wiring, this is a pure function with no component-render dependency, so it's genuinely
+  testable: 4 new tests in the new `Calendar.test.ts`, including one proving the live value wins
+  over a stale snapshot, manually confirmed as a genuine discriminator via revert-and-reproduce
+  (reverting to always return the frozen snapshot made that exact test fail with the expected
+  true-vs-false mismatch). `dotnet test` 475 passed/0 failed (unchanged, pure renderer). `pnpm
+check` clean: 377 dotnet tests, vitest 129 (up from 125). This pass was run under a hard
+  no-subagent-spawning rule and could not launch `invariant-review` at all — the parent session
+  needs to run it before this pass is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
