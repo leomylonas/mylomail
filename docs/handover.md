@@ -3506,7 +3506,12 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   of rejected). `dotnet test` 475 passed/0 failed (up from 474). `pnpm check` clean under Node
   22: 377 dotnet tests, vitest 125 (unchanged — no renderer files touched this pass).
   This pass's implementing fork was under a hard no-subagent-spawning rule and could not launch
-  `invariant-review` at all — the parent session needs to run it before this pass is fully closed.
+  `invariant-review`; the parent ran it afterward (several passes later, once noticed) — no
+  issues found. Confirmed the check runs before either `CreateAsync`/`UpdateAsync`, after the
+  cross-calendar `EventId` check as intended; confirmed `SaveAsync` is only ever called from
+  `MailHub`'s local-edit path, never from `CalendarSyncService`'s provider-apply path, so a real
+  server's own malformed event can never be rejected on next local re-save; and confirmed the
+  new test genuinely discriminates via a real DI-wired harness, not a mock.
 
 - **Two-hundred-and-twenty-eighth pass — an already-open Compose window never learned a draft
   had been flagged `SyncConflict` mid-session.** Checked first whether the "client-only
