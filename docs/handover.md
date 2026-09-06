@@ -3490,6 +3490,24 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   implementing fork was under a hard no-subagent-spawning rule and could not launch
   `invariant-review` at all — the parent session needs to run it before this pass is fully closed.
 
+- **Two-hundred-and-twenty-seventh pass — an event's End could be before its Start, with
+  nothing to stop it.** Continuing the pass 214-218 "client-only validation with no server
+  mirror" theme into a field none of those passes had checked: `EventModal.tsx`'s Start/End
+  fields are plain text inputs with no `min`/`max` tying one to the other, and
+  `CalendarEventService.SaveAsync` had no check of its own — a direct `SaveCalendarEvent` call,
+  or a client bug, could create an event whose End precedes its Start. RFC 5545 has no
+  negative-duration VEVENT shape, so this would reach `CalDavIcs.RenderVEvent` as a malformed
+  resource rather than a clean rejection. Added a check in `SaveAsync` rejecting `End < Start`
+  with a clean `HubException`, placed after the existing cross-calendar `EventId` check and
+  before `CreateAsync`/`UpdateAsync` run; `End == Start` stays valid (RFC 5545 permits a
+  zero-duration, instantaneous event). New test
+  `Saving_an_event_that_ends_before_it_starts_is_rejected`, manually confirmed as a genuine
+  discriminator via revert-and-reproduce (reverting the check let the event get created instead
+  of rejected). `dotnet test` 475 passed/0 failed (up from 474). `pnpm check` clean under Node
+  22: 377 dotnet tests, vitest 125 (unchanged — no renderer files touched this pass).
+  This pass's implementing fork was under a hard no-subagent-spawning rule and could not launch
+  `invariant-review` at all — the parent session needs to run it before this pass is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
