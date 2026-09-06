@@ -3428,6 +3428,28 @@ ReadingPane` gained an optional `onReply` prop rendering the three actions, left
   site needs no new backend test). `pnpm check` clean under Node 22: 376 dotnet tests, vitest 125
   (up from 124).
 
+- **Two-hundred-and-twenty-fourth pass — Reply/Reply-all/Forward had no keyboard shortcut,
+  despite §13's explicit standing convention.** "Keyboard shortcuts: follow standard Outlook/
+  Gmail conventions, wired up as each relevant feature is built (not a separate backlog item)" —
+  and `Shortcuts.ts`'s own doc comment names "r to reply" as the exact convention this registry
+  exists to support — but `MessageList.tsx`'s `useShortcuts` array only ever bound `u`/`i`/`s`/
+  `Delete`; reply/reply-all/forward were reachable only via the context menu. This is pass 10's
+  own tracked "wire the shortcut once compose exists" item, apparently missed when reply/forward
+  actually landed in a later pass. Bound `r`/`a`/`f` to the same `replyTo`/`forward` functions the
+  context menu's own entries already call, guarded to exactly one selected message the same way
+  those menu entries already disable themselves for a multi-selection. No new test: this same
+  `useShortcuts` array's existing `u`/`i`/`s`/`Delete` bindings have never had a test of their own
+  either — built inline inside the component body with no test seam reachable without a full
+  render, the same limitation already accepted for other inline hook-wiring fixes in this
+  codebase (`Main.ts`'s IPC handlers, `MessageWindow`'s reply orchestration). Verified by code
+  inspection that `Shortcuts.ts`'s `resolve()`/`isTypingTarget()` already correctly suppress
+  bare-letter shortcuts while typing, so this introduces no risk of hijacking the search box —
+  the same protection `u`/`i`/`s` already rely on. `pnpm check` clean under Node 22: 376 dotnet
+  tests (unchanged, pure renderer), vitest 125 (unchanged, no new test file). This pass's
+  implementing fork was bound by a hard no-subagent-spawning rule and could not launch
+  `invariant-review` at all (not even launch-and-report, unlike some earlier passes) — the parent
+  session needs to run it before this pass is fully closed.
+
 ## Next task
 
 1. **Deferred external configuration:** Gmail/Graph client registrations remain intentionally
