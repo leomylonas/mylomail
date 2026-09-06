@@ -39,6 +39,17 @@ public sealed class MailboxManagement(
 		CancellationToken ct = default
 	)
 	{
+		// The tree/rename dialog (`FolderNameModal.tsx`) trims and disables its own submit on a
+		// blank result, but that is a client-side convenience only — a direct hub call bypassing
+		// it would otherwise reach the provider with a blank or whitespace-only name and fail as
+		// a raw, provider-specific protocol error (MailKit's bare `ArgumentException`, an IMAP
+		// server's NO response, or similar from Gmail/Graph) instead of the same clean rejection
+		// every other invalid input on this path gets.
+		if (string.IsNullOrWhiteSpace(name))
+		{
+			throw new HubException("A folder name cannot be blank.");
+		}
+
 		var account = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
 		var parent = parentId is Guid id ? await ResolveParentAsync(id, accountId, ct) : null;
 
@@ -48,6 +59,11 @@ public sealed class MailboxManagement(
 
 	public async Task RenameAsync(Guid mailboxId, string newName, CancellationToken ct = default)
 	{
+		if (string.IsNullOrWhiteSpace(newName))
+		{
+			throw new HubException("A folder name cannot be blank.");
+		}
+
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
 		var renamed = await RunProviderCallAsync(
 			() => providers.For(account).RenameMailboxAsync(account, mailbox, newName, ct)

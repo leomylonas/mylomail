@@ -134,6 +134,41 @@ public class MailboxManagementTests
 	}
 
 	/// <summary>
+	/// Two-hundred-and-eighteenth pass: <c>FolderNameModal.tsx</c> trims its input and disables
+	/// its own submit on a blank result, but that is a client-side convenience only — a direct
+	/// hub call bypassing it (or a race with the not-yet-initialised form) previously reached the
+	/// provider with a blank or whitespace-only name and failed with a raw, provider-specific
+	/// error instead of the same clean rejection every other invalid input on this path gets.
+	/// </summary>
+	[Fact]
+	public async Task A_blank_or_whitespace_folder_name_is_rejected_on_create_and_rename()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var mailboxes = scope.GetRequiredService<MailboxManagement>();
+
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "", null));
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "   ", null));
+
+			var inbox = await context.Mailboxes.FirstAsync(m => m.ProviderMailboxId == "INBOX");
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, ""));
+			await Assert.ThrowsAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, "   "));
+
+			// Neither rejected attempt reached the provider or changed anything locally.
+			Assert.DoesNotContain(
+				await context.Mailboxes.Select(m => m.Name).ToListAsync(),
+				name => string.IsNullOrWhiteSpace(name)
+			);
+		});
+	}
+
+	/// <summary>
 	/// Seventy-first pass: unlike the cycle guard right above, nothing checked that a
 	/// client-supplied parent id actually belongs to the same account before <c>Move</c>/
 	/// <c>Create</c> carried it through reconciliation into a persisted
