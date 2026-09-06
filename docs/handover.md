@@ -3619,8 +3619,15 @@ check` clean: 377 dotnet tests, vitest 129 (up from 125). This pass was run unde
   revert-and-reproduce (reverting the helper to a passthrough made the unresolvable-TZID test fail
   with the raw string instead of null). `dotnet test` 477 passed/0 failed (up from 475). `pnpm
 check` clean: 379 dotnet tests, vitest 129. This pass's implementing fork was under a hard
-  no-subagent-spawning rule and could not launch `invariant-review` — the parent session needs to
-  run it before this pass is fully closed.
+  no-subagent-spawning rule and could not launch `invariant-review` — the parent ran it afterward:
+  no issues, confirmed `KnownTimeZoneId` uses the exact same resolution mechanism as
+  `ParseDateTime`/`FormatLocal`, Start/End are checked independently, and `ParseEvents` is the only
+  site that could ever manufacture an unresolvable id (every other assignment copies an
+  already-parsed DTO's field forward), so the fix closes the gap completely. One narrow, accepted
+  tail case noted, not fixed: `StartTimeZoneId`/`EndTimeZoneId` self-heal on their next ordinary
+  sync since they're re-derived from `ParseEvents` every time, not independently persisted state —
+  but a row that never gets re-synced before a local edit would reproduce the original bug once for
+  that row. Not worth a migration for a deploy-gap this narrow.
 
 ## Next task
 
