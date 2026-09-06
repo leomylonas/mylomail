@@ -3917,6 +3917,22 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
   no re-broadcast to the message list — this fix makes that far less consequential (the field is
   now usually correct from ingest for all three providers) but doesn't close it; tracked below.
   `dotnet test` 494 passed/0 failed (up from 489). `pnpm check` clean: 396 dotnet tests, vitest 130.
+- **Two-hundred-and-forty-seventh pass — closed the re-broadcast gap pass 246 left open.**
+  `ContentAcquisition.StoreAsync` sets `Message.HasNonInlineAttachments` from the real MIME
+  unconditionally, correcting whatever ingest-time guess IMAP/Gmail made — but nothing told an
+  already-open message list the guess had been wrong, since no `MessageUpdated` broadcast followed
+  the correction. `ContentAcquisition` now takes `IHubEvents`; `StoreAsync` compares the old value
+  against the freshly-computed one before overwriting it, and only when they actually differ does
+  it track the message for a post-commit broadcast — matching `ChangeStreamService.SyncAsync`'s own
+  "after the commit, never before" pattern, and never firing on the overwhelming common case (every
+  ordinary content fetch during backfill, where the guess was already right after pass 246). Two
+  new tests, both manually confirmed as genuine discriminators via revert-and-reproduce (neutering
+  the broadcast call made the changed-value test fail with an empty collection, restored).
+  `invariant-review`: no issues — confirmed `MessageEventMapper.ToSummary` needs only scalar fields
+  already loaded on the tracked entity, the broadcast fires strictly after commit, the
+  change-detection compares the right two values before the overwrite, the guard genuinely gates
+  the call, and no frozen-table entry is touched. `dotnet test` 496 passed/0 failed. `pnpm check`
+  clean: 398 dotnet tests, vitest 130.
 
 ## Next task
 
@@ -3979,16 +3995,6 @@ Email)` mapping, so a nameless mailbox address yields `""` not `null` identicall
    decision (header block layout, long-recipient-list handling, and possibly new fields on
    `GetMessageBody`'s DTO since To/Cc today only exist on the list's summary projection),
    not a one-line addition.
-9. **`ContentAcquisition`'s correction of `Message.HasNonInlineAttachments` is never
-   re-broadcast to the message list** (found by pass 246's invariant-review, while fixing
-   the field's ingest-time defaults). Pass 246 made IMAP/Gmail set the field correctly at
-   ingest for the common case, so this is far less consequential now, but the underlying
-   gap remains: if the ingest-time structural guess (BODYSTRUCTURE for IMAP, the Payload
-   part tree for Gmail) ever disagrees with the real MIME `ContentAcquisition` later
-   fetches, the corrected value sits in the database with no `MessageUpdated`-style event
-   telling an already-open message list to refetch it — a mechanical fix (emit the
-   existing broadcast after the correction), not a design decision, just not bundled into
-   246's own scope.
 
 ## Read first
 
