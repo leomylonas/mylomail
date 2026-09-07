@@ -4075,6 +4075,20 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
   current caller needs it back — inline images are only ever created via the reply/forward copy
   path, which already knows the `ContentId` it's sending, never via a fresh user-initiated
   paste/drag insert in the editor (no such mechanism exists in `Editor.tsx`). Not a reachable bug.
+- **Two-hundred-and-fifty-fifth pass — clean; confirmed pass 250's new CalDAV `ProviderThrottledException`
+  correctly reaches pass 200's quiet per-account throttle indicator with no extra wiring needed.**
+  `SyncJobs.cs` has five distinct job methods (Topology/Calendar/CoveragePage/ChangeStream/
+  Integrity), each with its own `catch (ProviderThrottledException)` that only reschedules the job
+  at the provider's named delay — none of those five call `gate.Throttle`/`AnnounceStatusAsync`
+  directly. That call happens exactly once, inside the shared `GuardAsync` wrapper every one of the
+  five routes every provider call through, which sets the gate and announces before rethrowing to
+  the job-specific catch. So CalDAV's newly-thrown 429 (pass 250, reached via `CalendarAsync`'s
+  `calendar.SynchronizeAsync` call) already engages the same indicator Gmail/Graph's throttling
+  does, without needing any change here — confirmed by reading `GuardAsync`'s own body rather than
+  assuming from the per-method catch shape. Also spot-checked `Compose.tsx`'s reply/forward
+  attachment-copy loop (per-attachment try/catch, aggregated failure message, matches the existing
+  forward-attachment-copy pattern) for a regression from item 11's recent changes — none found. No
+  diff, no code change.
 
 ## Next task
 
