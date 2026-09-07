@@ -4066,6 +4066,15 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
   attachments from this list means there's no UI affordance to remove/replace an already-embedded
   image once created, matching the same convention this fix is modeled on. `pnpm check` clean:
   412 dotnet tests (unchanged), vitest 135 (unchanged).
+- **Two-hundred-and-fifty-fourth pass — clean; confirmed item 11's fix is correctly threaded
+  through every consumer path.** Checked Graph's send path (`IsInline`/`ContentId` already wired),
+  `MessageWindow.tsx`'s own reply/forward (correctly reuses `buildReplySeed`/`buildForwardSeed`/
+  `copyAttachments`, the same shared helpers `Compose.tsx` uses, via `GetAttachmentMetadata` which
+  carries `IsInline`/`ContentId`), and `DraftAttachmentsController.Upload`'s response shape. Found
+  `Upload`'s JSON response omits `ContentId` (pass 253 only added `IsInline`), but confirmed no
+  current caller needs it back — inline images are only ever created via the reply/forward copy
+  path, which already knows the `ContentId` it's sending, never via a fresh user-initiated
+  paste/drag insert in the editor (no such mechanism exists in `Editor.tsx`). Not a reachable bug.
 
 ## Next task
 
