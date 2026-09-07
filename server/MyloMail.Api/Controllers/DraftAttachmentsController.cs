@@ -45,7 +45,7 @@ public sealed class DraftAttachmentsController(DraftService drafts) : Controller
 			isInline,
 			contentId
 		);
-		return Ok(new { attachment.Id, attachment.Filename, attachment.MimeType, attachment.Size });
+		return Ok(new { attachment.Id, attachment.Filename, attachment.MimeType, attachment.Size, attachment.IsInline });
 	}
 
 	[HttpDelete("{attachmentId:guid}")]

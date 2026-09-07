@@ -52,6 +52,10 @@ interface DraftAttachment {
 	filename: string;
 	mimeType: string;
 	size: number;
+	/** Embedded in the body via a `cid:` reference, not a manageable attachment (§13) — an
+	 * inline image is never shown or removable in the "Attached files" list below, since
+	 * removing it would leave that reference pointing at nothing with no way to fix the body. */
+	isInline?: boolean;
 }
 
 export interface OpenDraft {
@@ -769,26 +773,28 @@ export function Compose({
 					{forwardCopyError}
 				</p>
 			) : null}
-			{attachments.length ? (
+			{attachments.some((attachment) => !attachment.isInline) ? (
 				<ul className={styles.attachments} aria-label="Attached files">
-					{attachments.map((attachment) => (
-						<li key={attachment.id}>
-							<span
-								className={styles.attachmentName}
-								title={attachment.filename}
-							>
-								{attachment.filename}
-							</span>
-							<Button
-								size="sm"
-								kind="ghost"
-								disabled={busy}
-								onClick={() => void removeAttachment(attachment.id)}
-							>
-								Remove
-							</Button>
-						</li>
-					))}
+					{attachments
+						.filter((attachment) => !attachment.isInline)
+						.map((attachment) => (
+							<li key={attachment.id}>
+								<span
+									className={styles.attachmentName}
+									title={attachment.filename}
+								>
+									{attachment.filename}
+								</span>
+								<Button
+									size="sm"
+									kind="ghost"
+									disabled={busy}
+									onClick={() => void removeAttachment(attachment.id)}
+								>
+									Remove
+								</Button>
+							</li>
+						))}
 				</ul>
 			) : null}
 			<div className={styles.actions}>
