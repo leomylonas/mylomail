@@ -4089,6 +4089,27 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
   attachment-copy loop (per-attachment try/catch, aggregated failure message, matches the existing
   forward-attachment-copy pattern) for a regression from item 11's recent changes — none found. No
   diff, no code change.
+- **Two-hundred-and-fifty-sixth pass — the network-failure retry delay was flat, not
+  exponential as documented.** §1091 states plainly: "IMAP: no standard rate-limit signalling
+  exists; falls back to the existing exponential backoff." But all five of `SyncJobs.cs`'s
+  self-rescheduling poll loops (Topology/Calendar/CoveragePage/ChangeStream/Integrity)
+  rescheduled a network-class failure at the exact same fixed 30-second delay every time,
+  regardless of how many consecutive times that account had already failed — there was no
+  exponential backoff at all, contradicting the doc's own claim; a genuinely offline machine
+  would poll a dead socket at a constant rate forever. Added a per-account (not per-job-kind,
+  since all five loops for one account share the same underlying provider transport) consecutive-
+  failure streak, doubling the delay from a 30s base up to a 30-minute cap, reset the moment any
+  provider call for that account succeeds again — purely additive to the fallback path; a
+  `ProviderThrottledException`'s own exact `Retry-After` handling is completely untouched, per the
+  frozen "throttling must wait exactly Retry-After" invariant. The in-memory, never-cleared-on-
+  account-deletion streak dictionary follows the exact precedent `AccountGate` already set (which
+  invariant-review confirmed is also never cleared on deletion anywhere in the codebase) — not a
+  new risk, just consistent with an already-accepted pattern. Two new tests: a pure test of the
+  delay sequence, and an integration test driving two real network-class failures through
+  `SyncJobs.TopologyAsync`'s actual catch site, confirming the streak advanced for real and one
+  subsequent success reset it. Both manually confirmed as genuine discriminators via
+  revert-and-reproduce. `invariant-review`: no issues. `dotnet test` 512 passed/0 failed (up from
+  510). `pnpm check` clean: 414 dotnet tests, vitest 135.
 
 ## Next task
 
