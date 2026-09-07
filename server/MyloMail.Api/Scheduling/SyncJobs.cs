@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
@@ -47,11 +48,43 @@ public sealed class SyncJobs(
 )
 {
 	/// <summary>
-	/// How long a network-class failure (§ Offline behaviour) waits before its poll loop
-	/// retries — short enough that connectivity returning is noticed promptly, long enough
-	/// that a genuinely offline machine isn't hammering a dead socket every few seconds.
+	/// The first retry delay after a network-class failure (§ Offline behaviour), and the
+	/// base §1091's "falls back to the existing exponential backoff" doubles from — short
+	/// enough that connectivity returning is noticed promptly on the very first retry.
 	/// </summary>
-	private static readonly TimeSpan NetworkRetryDelay = TimeSpan.FromSeconds(30);
+	private static readonly TimeSpan NetworkRetryBaseDelay = TimeSpan.FromSeconds(30);
+
+	/// <summary>
+	/// Doubling stops here: a genuinely offline machine settles into checking every 30 minutes
+	/// rather than hammering a dead socket, but also rather than backing off indefinitely —
+	/// this is a poll loop that must resume promptly once connectivity returns, not a one-shot
+	/// retry that can afford to wait longer the more times it has already failed.
+	/// </summary>
+	private static readonly TimeSpan NetworkRetryMaxDelay = TimeSpan.FromMinutes(30);
+
+	/// <summary>
+	/// Consecutive network-class failures per account, across every poll loop that account
+	/// runs — reset to zero the moment any of that account's provider calls succeeds again in
+	/// <see cref="GuardAsync{T}"/>. Deliberately per-account, not per-job-kind: these failures
+	/// share one underlying transport (the same provider, the same network path), so an
+	/// independent streak per loop would just mean some loops retry faster than others for the
+	/// same outage. In-memory only, like <see cref="AccountGate"/>'s own throttle state — a
+	/// restart naturally starts every account back at the fastest retry, which is correct, not
+	/// a state loss to guard against.
+	/// </summary>
+	private static readonly ConcurrentDictionary<Guid, int> networkFailureStreak = new();
+
+	/// <summary>
+	/// §1091's fallback exponential backoff for a network-class failure with no explicit
+	/// provider signal to honour (unlike <see cref="ProviderThrottledException"/>, which always
+	/// uses its own exact <c>RetryAfter</c> instead of this).
+	/// </summary>
+	internal static TimeSpan NextNetworkRetryDelay(Guid accountId)
+	{
+		var streak = networkFailureStreak.AddOrUpdate(accountId, 1, (_, previous) => previous + 1);
+		var delay = NetworkRetryBaseDelay * Math.Pow(2, streak - 1);
+		return delay < NetworkRetryMaxDelay ? delay : NetworkRetryMaxDelay;
+	}
 
 	/// <summary>
 	/// The calendar loop is account-scoped, not mailbox-scoped, so it borrows the mail poll
@@ -108,7 +141,7 @@ public sealed class SyncJobs(
 			// Quietly retried rather than surfaced as a fresh job failure every offline poll
 			// (§ Offline behaviour) — the poll loop stays alive so it resumes on its own once
 			// connectivity returns, instead of needing something else to restart it.
-			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), NetworkRetryDelay);
+			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
 		catch (Exception)
@@ -179,7 +212,7 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), NetworkRetryDelay);
+			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
 		catch (Exception)
@@ -284,7 +317,7 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), NetworkRetryDelay);
+			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
 
@@ -341,7 +374,7 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), NetworkRetryDelay);
+			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
 		catch (Exception)
@@ -401,7 +434,7 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), NetworkRetryDelay);
+			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
 		catch (Exception)
@@ -468,6 +501,11 @@ public sealed class SyncJobs(
 		try
 		{
 			var result = await work();
+			// The provider call just succeeded, so whatever streak of network-class failures
+			// this account had built up no longer reflects reality — the next failure (if any)
+			// should retry promptly again, not inherit a stale backoff from an outage that's
+			// already over.
+			networkFailureStreak.TryRemove(account.Id, out _);
 			if (account.AuthState == AuthState.CredentialStoreUnavailable)
 			{
 				// Unlike NeedsReauth, this state is never gated off from retrying (see the
