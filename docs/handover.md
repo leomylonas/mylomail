@@ -4044,6 +4044,28 @@ test` 508 passed/0 failed (up from 505). `pnpm check` clean: 410 dotnet tests, v
   invariant surface; `DraftAttachment.ContentId`/`IsInline` are pre-existing domain fields simply
   populated for the first time, not a new persisted identity concept. `dotnet test` 510 passed/0
   failed (up from 503). `pnpm check` clean: 412 dotnet tests, vitest 135.
+- **Two-hundred-and-fifty-third pass — item 11's own fix surfaced one more sibling bug: an
+  inline attachment could be manually removed, leaving a dangling `cid:` reference behind.**
+  `Compose.tsx`'s "Attached files" list showed every attachment, inline or not, each with a
+  Remove button; `DraftService.RemoveAttachmentAsync` deletes only the attachment record, never
+  touching `Draft.BodyHtml`, so removing an inline image left its `cid:` reference pointing at
+  nothing. Newly far more reachable now that item 11 means reply/forward routinely populates
+  inline attachments in this same list. Traced further: `DraftAttachmentsController.Upload`'s
+  response never included `IsInline` at all, so even a render-list filter would have missed the
+  exact case that matters — a freshly copied inline attachment had `isInline: undefined`
+  client-side. Fixed by adding `IsInline` to the upload response and filtering the "Attached
+  files" list to exclude inline attachments entirely, matching how Gmail/Outlook don't expose an
+  embedded image as a separately manageable attachment — avoiding the harder problem of
+  surgically stripping a `cid:` reference from rendered body HTML on removal. No new test: no
+  component-render harness for `Compose.tsx`, and the `Upload` endpoint has zero existing test
+  coverage anywhere in this codebase; verified by code inspection and `pnpm check`.
+  `invariant-review`: no issues — confirmed the two pre-existing attachment-population paths
+  already carried `IsInline` via `DraftAttachmentDto` with no change needed, the wrapper
+  condition and list filter use the identical predicate so they can't diverge, and no
+  frozen-table entry is touched. Noted one accepted tradeoff, not a regression: hiding inline
+  attachments from this list means there's no UI affordance to remove/replace an already-embedded
+  image once created, matching the same convention this fix is modeled on. `pnpm check` clean:
+  412 dotnet tests (unchanged), vitest 135 (unchanged).
 
 ## Next task
 
