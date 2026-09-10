@@ -1,6 +1,8 @@
+using Hangfire;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -40,7 +42,9 @@ public sealed class CalendarEventService(
 	IHubEvents events,
 	CalendarSyncService calendarSync,
 	ItipReplySender itipReply,
-	ILogger<CalendarEventService> logger
+	ILogger<CalendarEventService> logger,
+	IFaultInjector faults,
+	IBackgroundJobClient? jobs = null
 )
 {
 	public async Task<CalendarEvent> SaveAsync(CalendarEventInput input, CancellationToken ct = default)
@@ -88,38 +92,55 @@ public sealed class CalendarEventService(
 		CancellationToken ct
 	)
 	{
-		var dto = new CalendarEventDto
-		{
-			ProviderEventId = string.Empty,
-			ICalUid = $"{Guid.NewGuid():N}@mylomail.local",
-			Title = input.Title,
-			Location = input.Location,
-			Description = input.Description,
-			Start = input.Start,
-			End = input.End,
-			IsAllDay = input.IsAllDay,
-		};
-
-		// The provider is asked first: it assigns the resource identity (an href, for CalDAV),
-		// and a local row with no provider identity would be a canonical event this account
-		// cannot ever sync, update or delete again (§1).
-		var providerEventId = await RunProviderCallAsync(() => provider.CreateEventAsync(account, calendar, dto, ct));
-
-		var created = new CalendarEvent
+		var creationId = Guid.NewGuid();
+		var attempt = new CalendarCreationAttempt
 		{
 			Id = Guid.NewGuid(),
+			ProviderCreationKey = $"m{creationId:N}",
 			CalendarId = calendar.Id,
-			ProviderEventId = providerEventId,
-			ICalUid = dto.ICalUid,
+			ICalUid = $"{creationId:N}@mylomail.local",
 			Title = input.Title,
 			Location = input.Location,
 			Description = input.Description,
 			Start = input.Start,
 			End = input.End,
 			IsAllDay = input.IsAllDay,
+			// Committed before the provider call. It records ambiguity, never success (§6).
+			DispatchedAt = DateTimeOffset.UtcNow,
 		};
+		context.CalendarCreationAttempts.Add(attempt);
+		await context.SaveChangesAsync(ct);
+		CalendarEventCreation createdResult;
+		try
+		{
+			createdResult = await RunProviderCallAsync(() => provider.CreateEventAsync(account, calendar, ToDto(attempt), ct));
+		}
+		catch
+		{
+			jobs?.Enqueue<Scheduling.SyncJobs>(job => job.CalendarCreationRecoveryAsync(account.Id, default));
+			throw;
+		}
+		if (string.IsNullOrEmpty(createdResult.ProviderRevision))
+		{
+			throw new InvalidOperationException("Calendar creation requires a provider revision.");
+		}
+		faults.Reached(FaultPoints.CalendarCreateAfterProviderCallBeforeCommit);
+
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		var claimed = await context.CalendarCreationAttempts.Where(a => a.Id == attempt.Id).ExecuteDeleteAsync(ct);
+		if (claimed == 0)
+		{
+			await transaction.RollbackAsync(ct);
+			return await context.CalendarEvents.SingleAsync(
+				e => e.CalendarId == attempt.CalendarId && e.ProviderEventId == createdResult.ProviderEventId,
+				ct
+			);
+		}
+
+		var created = Materialise(attempt, createdResult);
 		context.CalendarEvents.Add(created);
 		await context.SaveChangesAsync(ct);
+		await transaction.CommitAsync(ct);
 		await events.CalendarEventUpdatedAsync(created.Id);
 		return created;
 	}
@@ -326,6 +347,35 @@ public sealed class CalendarEventService(
 			await events.CalendarEventUpdatedAsync(child.Id);
 		}
 	}
+
+	internal static CalendarEventDto ToDto(CalendarCreationAttempt attempt) => new()
+	{
+		ProviderEventId = string.Empty,
+		ICalUid = attempt.ICalUid,
+		Title = attempt.Title,
+		Location = attempt.Location,
+		Description = attempt.Description,
+		Start = attempt.Start,
+		End = attempt.End,
+		ProviderCreationKey = attempt.ProviderCreationKey,
+		IsAllDay = attempt.IsAllDay,
+	};
+
+	internal static CalendarEvent Materialise(CalendarCreationAttempt attempt, CalendarEventCreation created) =>
+		new()
+		{
+			Id = attempt.Id,
+			CalendarId = attempt.CalendarId,
+			ProviderEventId = created.ProviderEventId,
+			ProviderRevision = created.ProviderRevision,
+			ICalUid = created.ICalUid ?? attempt.ICalUid,
+			Title = attempt.Title,
+			Location = attempt.Location,
+			Description = attempt.Description,
+			Start = attempt.Start,
+			End = attempt.End,
+			IsAllDay = attempt.IsAllDay,
+		};
 
 	/// <summary>
 	/// Surfaces a provider's rejection of a calendar call to the caller with its real message,

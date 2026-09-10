@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
+using System.Text;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
 
@@ -18,7 +18,7 @@ namespace MyloMail.Api.Providers.CalDav;
 /// </remarks>
 internal static partial class CalDavIcs
 {
-	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag)
+	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag, int maxEvents = 512)
 	{
 		var lines = Unfold(ics);
 		var events = new List<CalendarEventDto>();
@@ -43,9 +43,12 @@ internal static partial class CalDavIcs
 			{
 				if (current is not null)
 				{
+					if (events.Count >= maxEvents)
+					{
+						throw new InvalidDataException($"Calendar resource exceeds the {maxEvents}-event limit.");
+					}
 					events.Add(ToDto(current, href, etag));
 				}
-				current = null;
 				continue;
 			}
 			if (current is null)
@@ -76,7 +79,6 @@ internal static partial class CalDavIcs
 
 		return events;
 	}
-
 	/// <summary>
 	/// The iTIP <c>METHOD</c> from a full <c>VCALENDAR</c> document's own top-level property —
 	/// <c>REQUEST</c>, <c>CANCEL</c>, <c>REPLY</c>, etc. (RFC 5546) — distinguishing an invite
@@ -212,31 +214,80 @@ internal static partial class CalDavIcs
 	{
 		var newBlock = RenderVEvent(uid, overrideEvent);
 		var targetRecurrenceId = overrideEvent.RecurrenceId;
-
+		var result = new StringBuilder(ics.Length + newBlock.Length);
+		var cursor = 0;
+		var blocks = 0;
 		var replaced = false;
-		var result = VEventPattern().Replace(ics, match =>
+		while (true)
 		{
-			if (replaced || BlockRecurrenceId(match.Value) != targetRecurrenceId)
+			var start = FindLineMarker(ics, "BEGIN:VEVENT", cursor);
+			if (start < 0)
 			{
-				return match.Value;
+				result.Append(ics, cursor, ics.Length - cursor);
+				break;
 			}
-			replaced = true;
-			return newBlock;
-		});
+			var endMarker = FindLineMarker(ics, "END:VEVENT", start);
+			if (endMarker < 0 || ++blocks > 512)
+			{
+				throw new InvalidOperationException("CalDAV resource has an invalid or oversized VEVENT structure.");
+			}
+			var end = endMarker + "END:VEVENT".Length;
+			if (end < ics.Length && ics[end] == '\r')
+			{
+				end++;
+			}
+			if (end < ics.Length && ics[end] == '\n')
+			{
+				end++;
+			}
+
+			result.Append(ics, cursor, start - cursor);
+			var block = ics[start..end];
+			if (!replaced && BlockRecurrenceId(block) == targetRecurrenceId)
+			{
+				result.Append(newBlock);
+				replaced = true;
+			}
+			else
+			{
+				result.Append(block);
+			}
+			cursor = end;
+		}
 
 		if (replaced)
 		{
-			return result;
+			return result.ToString();
 		}
 
-		// No existing block carried this RECURRENCE-ID: this override does not exist on the
-		// server yet. Inserted right before the resource closes, after every block already
-		// there — order among VEVENTs sharing a resource carries no meaning in RFC 5545.
-		var closing = result.LastIndexOf("END:VCALENDAR", StringComparison.OrdinalIgnoreCase);
-		return closing < 0 ? result + newBlock : result[..closing] + newBlock + result[closing..];
+		var merged = result.ToString();
+		var closing = merged.LastIndexOf("END:VCALENDAR", StringComparison.OrdinalIgnoreCase);
+		return closing < 0 ? merged + newBlock : merged[..closing] + newBlock + merged[closing..];
+	}
+
+	private static int FindLineMarker(string text, string marker, int start)
+	{
+		var index = Math.Max(0, start);
+		while (index < text.Length)
+		{
+			index = text.IndexOf(marker, index, StringComparison.OrdinalIgnoreCase);
+			if (index < 0)
+			{
+				return -1;
+			}
+			if ((index == 0 || text[index - 1] is '\n' or '\r')
+				&& (index + marker.Length == text.Length
+					|| text[index + marker.Length] is '\r' or '\n'))
+			{
+				return index;
+			}
+			index += marker.Length;
+		}
+		return -1;
 	}
 
 	private static DateTimeOffset? BlockRecurrenceId(string block)
+
 	{
 		foreach (var line in Unfold(block))
 		{
@@ -251,8 +302,6 @@ internal static partial class CalDavIcs
 		return null;
 	}
 
-	[GeneratedRegex("BEGIN:VEVENT\r?\n.*?END:VEVENT\r?\n", RegexOptions.Singleline)]
-	private static partial Regex VEventPattern();
 
 	/// <summary>
 	/// An iTIP <c>REPLY</c> to an invite (§13 Epic 7): one <c>VEVENT</c> naming only the
@@ -318,6 +367,10 @@ internal static partial class CalDavIcs
 		IEnumerable<(IReadOnlyDictionary<string, string> Params, string Value)> All(string name) =>
 			props.Where(p => p.Name == name).Select(p => (p.Params, p.Value));
 
+		var responseTimestamp = SingleWithParams("DTSTAMP") is { } dtstamp
+			? ParseDateTime(dtstamp.Params, dtstamp.Value)
+			: (DateTimeOffset?)null;
+
 		var uid = Single("UID") ?? href;
 		var isAllDay = ParamEquals(SingleWithParams("DTSTART")?.Params, "VALUE", "DATE");
 		var start = SingleWithParams("DTSTART") is { } dtstart ? ParseDateTime(dtstart.Params, dtstart.Value) : DateTimeOffset.UnixEpoch;
@@ -368,7 +421,8 @@ internal static partial class CalDavIcs
 						"DECLINED" => ResponseStatus.Declined,
 						"TENTATIVE" => ResponseStatus.Tentative,
 						_ => ResponseStatus.NeedsAction,
-					}
+					},
+					responseTimestamp
 				))
 				.ToList(),
 			Status = Single("STATUS")?.ToUpperInvariant() switch
@@ -620,7 +674,7 @@ internal static partial class CalDavIcs
 	}
 
 	private static string Escape(string value) =>
-		value.Replace("\\", "\\\\").Replace(";", "\\;").Replace(",", "\\,").Replace("\n", "\\n");
+		value.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\\", "\\\\").Replace(";", "\\;").Replace(",", "\\,").Replace("\n", "\\n");
 
 	/// <summary>
 	/// RFC 5545 §3.2's param-value grammar has no backslash-escaping at all — that mechanism
@@ -749,18 +803,31 @@ internal static partial class CalDavIcs
 	/// <summary>RFC 5545 line unfolding: a CRLF followed by a space or tab continues the prior line.</summary>
 	private static List<string> Unfold(string ics)
 	{
-		var raw = ics.Replace("\r\n", "\n").Split('\n');
+		var raw = ics.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 		var lines = new List<string>();
+		StringBuilder? folded = null;
 		foreach (var line in raw)
 		{
 			if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t') && lines.Count > 0)
 			{
-				lines[^1] += line[1..];
+				folded ??= new StringBuilder(lines[^1]);
+				folded.Append(line, 1, line.Length - 1);
+				continue;
 			}
-			else if (line.Length > 0)
+
+			if (folded is not null)
+			{
+				lines[^1] = folded.ToString();
+				folded = null;
+			}
+			if (line.Length > 0)
 			{
 				lines.Add(line);
 			}
+		}
+		if (folded is not null)
+		{
+			lines[^1] = folded.ToString();
 		}
 		return lines;
 	}

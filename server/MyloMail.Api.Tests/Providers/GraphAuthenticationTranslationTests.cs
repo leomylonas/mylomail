@@ -38,14 +38,12 @@ public sealed class GraphAuthenticationTranslationTests
 	/// (see the catch's own guard and remarks) — translating it would send a background sync
 	/// failure to <c>AuthState.NeedsReauth</c>, exactly the wrong outcome
 	/// <see cref="GraphOAuthAuthenticator.IsAdminConsentRequired"/> exists to prevent
-	/// (<see cref="GraphOAuthAuthenticator.AuthenticateAsync"/>'s own interactive-flow catch
-	/// treats it as Validation/Error instead, since re-authenticating can't fix a missing admin
-	/// grant). This only exercises the shared predicate directly — `ClientAsync` itself can't be
-	/// driven into this exact exception offline, since producing it needs a live MSAL
-	/// interactive/silent flow against a real tenant.
+	/// (the interactive-flow catch reports it as administrator denial only when the tenant returns
+	/// the explicit admin-consent code; ordinary silent consent is user-actionable reauthentication).
+	/// This exercises the shared predicate directly.
 	/// </summary>
 	[Theory]
-	[InlineData(UiRequiredExceptionClassification.ConsentRequired, "unrelated", true)]
+	[InlineData(UiRequiredExceptionClassification.ConsentRequired, "unrelated", false)]
 	[InlineData(UiRequiredExceptionClassification.None, "unrelated", false)]
 	public void Admin_consent_required_is_recognised_from_the_ui_required_classification(
 		UiRequiredExceptionClassification classification,
@@ -59,7 +57,7 @@ public sealed class GraphAuthenticationTranslationTests
 	}
 
 	[Theory]
-	[InlineData("AADSTS65001: user consent required", true)]
+	[InlineData("AADSTS65001: user consent required", false)]
 	[InlineData("AADSTS90094: admin consent required", true)]
 	[InlineData("AADSTS50126: invalid credentials", false)]
 	public void Admin_consent_required_is_recognised_from_the_service_exception_message(

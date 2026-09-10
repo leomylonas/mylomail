@@ -20,7 +20,8 @@ public sealed class CalendarSyncService(
 	MyloMailDbContext context,
 	ICalendarProviderFactory providers,
 	IHubEvents events,
-	IFaultInjector faults
+	IFaultInjector faults,
+	CalendarSyncGate gate
 )
 {
 	/// <param name="resolvingEventId">
@@ -38,6 +39,7 @@ public sealed class CalendarSyncService(
 		CancellationToken ct = default
 	)
 	{
+		using var lease = await gate.EnterAsync(account.Id, ct);
 		var provider = providers.For(account);
 		// CalDAV hands back a fresh HttpClient per resolution (§15 — certificate trust is a
 		// per-account decision), so it is this call's to release, not the app's to pool.
@@ -56,9 +58,92 @@ public sealed class CalendarSyncService(
 			.Calendars.Where(c => c.AccountId == account.Id && !c.IsLocalOnly)
 			.Select(c => c.Id)
 			.ToListAsync(ct);
+		await RecoverPendingCreationsAsync(account, provider, calendarIds, ct);
 		foreach (var calendarId in calendarIds)
 		{
 			await SynchronizeCalendarAsync(account, calendarId, provider, resolvingEventId, ct);
+		}
+	}
+
+	/// <summary>
+	/// Reconciles ambiguous calendar creations without starting a normal poll. Startup uses
+	/// this path even while periodic polling is paused: a durable dispatched create is
+	/// outstanding work, not a polling preference.
+	/// </summary>
+	public async Task RecoverPendingCreationsOnlyAsync(Account account, CancellationToken ct = default)
+	{
+		using var lease = await gate.EnterAsync(account.Id, ct);
+		var provider = providers.For(account);
+		using var disposable = provider as IDisposable;
+		var calendarIds = await (
+			from attempt in context.CalendarCreationAttempts
+			join calendar in context.Calendars on attempt.CalendarId equals calendar.Id
+			where calendar.AccountId == account.Id && !calendar.IsLocalOnly
+			select calendar.Id
+		).Distinct().ToListAsync(ct);
+		await RecoverPendingCreationsAsync(account, provider, calendarIds, ct);
+	}
+
+	/// <summary>
+	/// Recovers initial provider creates whose local response commit was interrupted. A missing
+	/// observation remains ambiguity, not permission to repeat creation (§6).
+	/// </summary>
+	private async Task RecoverPendingCreationsAsync(
+		Account account,
+		ICalendarProvider provider,
+		IReadOnlyCollection<Guid> calendarIds,
+		CancellationToken ct
+	)
+	{
+		var pending = await (
+			from attempt in context.CalendarCreationAttempts
+			join calendar in context.Calendars on attempt.CalendarId equals calendar.Id
+			where calendarIds.Contains(attempt.CalendarId)
+			select new { Attempt = attempt, Calendar = calendar }
+		).ToListAsync(ct);
+
+		foreach (var item in pending)
+		{
+			var found = await provider.FindEventAsync(
+				account,
+				item.Calendar,
+				item.Attempt.ICalUid,
+				item.Attempt.ProviderCreationKey,
+				ct
+			);
+			if (found is null)
+			{
+				continue;
+			}
+			if (string.IsNullOrEmpty(found.ProviderRevision))
+			{
+				throw new InvalidOperationException("Calendar creation recovery requires a provider revision.");
+			}
+
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			var claimed = await context.CalendarCreationAttempts.Where(a => a.Id == item.Attempt.Id).ExecuteDeleteAsync(ct);
+			if (claimed == 0)
+			{
+				await transaction.RollbackAsync(ct);
+				continue;
+			}
+
+			var existing = await context.CalendarEvents.SingleOrDefaultAsync(
+				e => e.CalendarId == item.Attempt.CalendarId && e.ProviderEventId == found.ProviderEventId,
+				ct
+			);
+			if (existing is null)
+			{
+				var materialised = new CalendarEvent { Id = item.Attempt.Id, CalendarId = item.Attempt.CalendarId };
+				Apply(materialised, found);
+				context.CalendarEvents.Add(materialised);
+				await context.SaveChangesAsync(ct);
+				await transaction.CommitAsync(ct);
+				await events.CalendarEventUpdatedAsync(materialised.Id);
+				continue;
+			}
+
+			await transaction.CommitAsync(ct);
 		}
 	}
 
@@ -152,7 +237,7 @@ public sealed class CalendarSyncService(
 				resetForInvalidCursor = true;
 				continue;
 			}
-			await ApplyPageAsync(account.Id, calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
+			await ApplyPageAsync(account, calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
 			continuation = page.Continuation;
 			if (continuation is null)
 			{
@@ -181,7 +266,7 @@ public sealed class CalendarSyncService(
 	}
 
 	private async Task ApplyPageAsync(
-		Guid accountId,
+		Account account,
 		Guid calendarId,
 		CalendarSyncResult page,
 		bool commitCursor,
@@ -197,6 +282,8 @@ public sealed class CalendarSyncService(
 
 		var changed = new List<Guid>();
 		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		await NormalizeLegacyCalDavResourceIdsAsync(account, calendarId, ct);
+		await context.SaveChangesAsync(ct);
 		foreach (var deletedProviderEventId in page.DeletedProviderEventIds)
 		{
 			var existing = await context.CalendarEvents.SingleOrDefaultAsync(
@@ -238,7 +325,7 @@ public sealed class CalendarSyncService(
 			if (existing is null)
 			{
 				var localCalendarIds = await context
-					.Calendars.Where(c => c.AccountId == accountId && c.IsLocalOnly)
+					.Calendars.Where(c => c.AccountId == account.Id && c.IsLocalOnly)
 					.Select(c => c.Id)
 					.ToListAsync(ct);
 				var materialised = await context.CalendarEvents.SingleOrDefaultAsync(
@@ -272,6 +359,28 @@ public sealed class CalendarSyncService(
 			changed.Add(ev.Id);
 		}
 
+		// A normal sync can observe a just-created resource before a provider-specific exact
+		// lookup sees it. In that case the same transaction materialises the event and removes
+		// its durable ambiguous-create record; either both persist or neither does (§6).
+		var observedUids = page.Upserted.Select(dto => dto.ICalUid).Distinct().ToList();
+		var observedCreationKeys = page.Upserted
+			.Select(dto => dto.ProviderCreationKey)
+			.Where(key => key is not null)
+			.Cast<string>()
+			.Distinct()
+			.ToList();
+		if (observedUids.Count > 0 || observedCreationKeys.Count > 0)
+		{
+			context.CalendarCreationAttempts.RemoveRange(
+				await context
+					.CalendarCreationAttempts.Where(a =>
+						a.CalendarId == calendarId
+						&& (observedUids.Contains(a.ICalUid) || observedCreationKeys.Contains(a.ProviderCreationKey))
+					)
+					.ToListAsync(ct)
+			);
+		}
+
 		// Flushed before the recurrence-resolution queries below: those run as ordinary
 		// SingleAsync lookups against the database, which cannot see an Add()ed entity that
 		// has not been saved yet — including one added earlier in this same page.
@@ -294,7 +403,9 @@ public sealed class CalendarSyncService(
 		// are.
 		var pageProviderIds = page.Upserted.Select(dto => dto.ProviderEventId).Distinct().ToList();
 		var byProviderId = await context
-			.CalendarEvents.Where(e => e.CalendarId == calendarId && pageProviderIds.Contains(e.ProviderEventId))
+			.CalendarEvents.Where(e =>
+				e.CalendarId == calendarId && e.ProviderEventId != null && pageProviderIds.Contains(e.ProviderEventId)
+			)
 			.ToDictionaryAsync(e => e.ProviderEventId!, ct);
 
 		var masterProviderIds = byProviderId
@@ -305,7 +416,9 @@ public sealed class CalendarSyncService(
 		if (masterProviderIds.Count > 0)
 		{
 			var masters = await context
-				.CalendarEvents.Where(e => e.CalendarId == calendarId && masterProviderIds.Contains(e.ProviderEventId))
+				.CalendarEvents.Where(e =>
+					e.CalendarId == calendarId && e.ProviderEventId != null && masterProviderIds.Contains(e.ProviderEventId)
+				)
 				.ToListAsync(ct);
 			foreach (var master in masters)
 			{
@@ -362,6 +475,71 @@ public sealed class CalendarSyncService(
 			await events.CalendarEventUpdatedAsync(eventId);
 		}
 		faults.Reached(FaultPoints.SyncPageAfterCommit);
+	}
+
+	/// <summary>
+	/// CalDAV used to persist an absolute href while current providers emit its path/query
+	/// identity. Normalize both an event and its recurrence-master reference before page
+	/// matching, so a pre-upgrade row is updated in place rather than duplicated and then
+	/// silently bypassed by a committed cursor.
+	/// </summary>
+	private async Task NormalizeLegacyCalDavResourceIdsAsync(Account account, Guid calendarId, CancellationToken ct)
+	{
+		if (account.ProviderType != ProviderType.Imap)
+		{
+			return;
+		}
+
+		var events = await context.CalendarEvents.Where(row => row.CalendarId == calendarId).ToListAsync(ct);
+		var aliasGroups = events
+			.Where(row => row.ProviderEventId is not null)
+			.GroupBy(row => NormalizeResourceIdentity(row.ProviderEventId))
+			.Where(group => group.Key is not null && group.Count() > 1)
+			.ToList();
+		foreach (var aliases in aliasGroups)
+		{
+			var canonicalId = aliases.Key!;
+			var survivor = aliases.FirstOrDefault(row => row.SyncConflict) ?? aliases.First();
+			foreach (var duplicate in aliases.Where(row => row.Id != survivor.Id))
+			{
+				foreach (var child in events.Where(row => row.RecurrenceMasterId == duplicate.Id))
+				{
+					child.RecurrenceMasterId = survivor.Id;
+				}
+				survivor.SyncConflict |= duplicate.SyncConflict;
+				context.CalendarEvents.Remove(duplicate);
+				events.Remove(duplicate);
+			}
+
+			// Delete aliases before assigning the surviving row its canonical value: SQLite
+			// enforces this unique key statement-by-statement, not at transaction commit.
+			await context.SaveChangesAsync(ct);
+			survivor.ProviderEventId = canonicalId;
+		}
+
+		foreach (var row in events)
+		{
+			row.ProviderEventId = NormalizeResourceIdentity(row.ProviderEventId)
+				?? throw new InvalidOperationException("Calendar event provider identity cannot be null.");
+			row.RecurrenceMasterProviderEventId = NormalizeResourceIdentity(row.RecurrenceMasterProviderEventId);
+		}
+	}
+
+	private static string? NormalizeResourceIdentity(string? providerEventId)
+	{
+		if (providerEventId is null)
+		{
+			return null;
+		}
+
+		var suffixIndex = providerEventId.IndexOf('#');
+		var resource = suffixIndex < 0 ? providerEventId : providerEventId[..suffixIndex];
+		if (Uri.TryCreate(resource, UriKind.Absolute, out var uri)
+			&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+		{
+			return uri.PathAndQuery + (suffixIndex < 0 ? string.Empty : providerEventId[suffixIndex..]);
+		}
+		return providerEventId;
 	}
 
 	private static void Apply(CalendarEvent target, CalendarEventDto source)

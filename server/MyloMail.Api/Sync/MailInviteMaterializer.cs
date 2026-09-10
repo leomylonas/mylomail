@@ -5,6 +5,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Security;
 
 namespace MyloMail.Api.Sync;
 
@@ -35,8 +36,14 @@ namespace MyloMail.Api.Sync;
 /// same .ics is skipped rather than guessed at.
 /// </para>
 /// </remarks>
-public sealed class MailInviteMaterializer(MyloMailDbContext context, IHubEvents events)
+public sealed class MailInviteMaterializer(
+	MyloMailDbContext context,
+	IHubEvents events,
+	IIncomingMailAuthentication authentication
+)
 {
+	private const int MaximumEventsPerCalendarPart = 64;
+
 	public async Task MaterializeFromMessageAsync(
 		Account account,
 		Guid messageId,
@@ -52,68 +59,99 @@ public sealed class MailInviteMaterializer(MyloMailDbContext context, IHubEvents
 			return;
 		}
 
-		using var stream = new MemoryStream();
-		await part.Content.DecodeToAsync(stream, ct);
-		var ics = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+		var ics = await CalendarMimeReader.TryReadAsync(part, ct);
+		if (ics is null)
+		{
+			return;
+		}
 		var method = CalDavIcs.ParseMethod(ics);
 
 		// Synthetic href: this .ics has no CalDAV resource, only the message it arrived in.
 		// ParseEvents only uses it to derive ProviderEventId, which a locally-materialised
 		// event has no other use for.
-		var parsed = CalDavIcs.ParseEvents(ics, $"mail:{messageId}", string.Empty);
+		var parsed = CalDavIcs.ParseEvents(ics, $"mail:{messageId}", string.Empty, MaximumEventsPerCalendarPart);
+		if (parsed.Count > MaximumEventsPerCalendarPart)
+		{
+			return;
+		}
 
 		if (string.Equals(method, "REQUEST", StringComparison.OrdinalIgnoreCase))
 		{
-			foreach (var dto in parsed.Where(e => e.RecurrenceId is null))
+			var verified = await authentication.VerifyAsync(mime, ct);
+			if (verified is { IsAuthenticated: true, AuthenticatedAddress: { } address }
+				&& parsed.All(dto =>
+					dto.Organizer is { } organizer
+					&& string.Equals(organizer.Email, address, StringComparison.OrdinalIgnoreCase)))
 			{
-				await UpsertAsync(account, dto, ct);
+				foreach (var dto in parsed.Where(e => e.RecurrenceId is null))
+				{
+					await UpsertAsync(account, dto, ct);
+				}
 			}
 		}
 		else if (string.Equals(method, "REPLY", StringComparison.OrdinalIgnoreCase))
 		{
-			foreach (var dto in parsed)
+			var verified = await authentication.VerifyAsync(mime, ct);
+			if (verified is { IsAuthenticated: true, AuthenticatedAddress: { } address })
 			{
-				await ApplyReplyAsync(account, dto, ct);
+				foreach (var dto in parsed)
+				{
+					await ApplyReplyAsync(
+						account,
+						dto,
+						new HashSet<string>([address], StringComparer.OrdinalIgnoreCase),
+						requireNewerTimestamp: true,
+						ct
+					);
+				}
 			}
 		}
 	}
 
 	/// <summary>
-	/// Applies one attendee's response to the organiser's own materialised event. Deliberately
-	/// conservative on every axis a wrong guess here could not undo:
+	/// Applies an unverified iTIP reply only after an explicit user decision. The message remains
+	/// visible regardless of authentication, but MIME identity is never sufficient for automatic
+	/// state changes because either header can be forged.
 	/// </summary>
-	/// <remarks>
-	/// <list type="bullet">
-	/// <item>No local event matches <see cref="CalendarEventDto.ICalUid"/> at all: this account
-	/// was never the organiser (or never received/materialised the original invite) — ignored,
-	/// not an error.</item>
-	/// <item>The reply carries a <c>RECURRENCE-ID</c> but no override row exists locally for
-	/// it: the deferred-override design above means only the master was ever materialised, so
-	/// the response is applied to the master's attendee list — the closest local state
-	/// actually exists to represent "this attendee responded to the series."</item>
-	/// <item>The replying address is not one of the event's existing attendees: ignored rather
-	/// than silently adding a new attendee no one invited.</item>
-	/// <item>Not gated on <see cref="CalendarEventDto.Sequence"/>, unlike <see cref="UpsertAsync"/>'s
-	/// content-regression guard: a reply legitimately references the <c>SEQUENCE</c> of the
-	/// invite it answers, not the organiser's latest edit, so rejecting an older-sequence reply
-	/// would silently drop a real response.</item>
-	/// </list>
-	/// <para>
-	/// Known limitation, not yet guarded: two replies from the same attendee processed out of
-	/// arrival order (e.g. a decline followed by an accept, but content-fetch retry/backfill
-	/// delivers them in reverse) has no tiebreaker — <c>CalendarEventDto</c> carries no reply
-	/// timestamp (<c>DTSTAMP</c>) to compare against, and adding one is a real schema change
-	/// (a new persisted field on <see cref="Attendee"/>, plumbed through storage and generated
-	/// types), not a small addition. The stale-overwrite window this leaves is recoverable, not
-	/// silently permanent — a subsequent reply of either status corrects it — but a determined
-	/// attacker or a genuinely unlucky redelivery order could show a wrong RSVP status until
-	/// then.
-	/// </para>
-	/// </remarks>
-	private async Task ApplyReplyAsync(Account account, CalendarEventDto dto, CancellationToken ct)
+	public async Task ApplyUnverifiedReplyAsync(Account account, MimeMessage mime, CancellationToken ct = default)
+	{
+		var part = mime.BodyParts
+			.OfType<MimePart>()
+			.FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
+		if (part?.Content is null)
+		{
+			return;
+		}
+
+		var ics = await CalendarMimeReader.TryReadAsync(part, ct);
+		if (ics is null)
+		{
+			return;
+		}
+		if (!string.Equals(CalDavIcs.ParseMethod(ics), "REPLY", StringComparison.OrdinalIgnoreCase))
+		{
+			return;
+		}
+
+		var senders = mime.From.Mailboxes.Select(mailbox => mailbox.Address).ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var reply = CalDavIcs.ParseEvents(ics, "mail:manual-reply", string.Empty, MaximumEventsPerCalendarPart).FirstOrDefault();
+		if (reply is not null)
+		{
+			await ApplyReplyAsync(account, reply, senders, requireNewerTimestamp: false, ct);
+		}
+	}
+
+	/// <summary>Applies an attendee's reply only when the claimed identity matches the sender.</summary>
+	private async Task ApplyReplyAsync(
+		Account account,
+		CalendarEventDto dto,
+		IReadOnlySet<string> senders,
+		bool requireNewerTimestamp,
+		CancellationToken ct
+	)
 	{
 		var respondingAttendee = dto.Attendees.FirstOrDefault();
-		if (respondingAttendee is null)
+		if (respondingAttendee is null || !senders.Contains(respondingAttendee.Email))
 		{
 			return;
 		}
@@ -128,10 +166,19 @@ public sealed class MailInviteMaterializer(MyloMailDbContext context, IHubEvents
 			return;
 		}
 
-		var target =
-			candidates.FirstOrDefault(e => e.RecurrenceId == dto.RecurrenceId)
-			?? candidates.FirstOrDefault(e => e.RecurrenceId is null);
+		var target = dto.RecurrenceId is { } recurrenceId
+			? candidates.FirstOrDefault(e => e.RecurrenceId == recurrenceId)
+			: candidates.FirstOrDefault(e => e.RecurrenceId is null);
 		if (target is null)
+		{
+			return;
+		}
+		var calendarOwner = await context.Calendars
+			.Where(calendar => calendar.Id == target.CalendarId)
+			.Select(calendar => calendar.AccountId)
+			.Join(context.Accounts, accountId => accountId, owner => owner.Id, (_, owner) => owner.ProviderType)
+			.SingleAsync(ct);
+		if (calendarOwner == ProviderType.Microsoft365)
 		{
 			return;
 		}
@@ -153,11 +200,36 @@ public sealed class MailInviteMaterializer(MyloMailDbContext context, IHubEvents
 		var current = target.Attendees[matchIndex];
 		if (current.ResponseStatus == respondingAttendee.ResponseStatus)
 		{
+			if (requireNewerTimestamp
+				&& respondingAttendee.ResponseTimestamp is { } newer
+				&& (current.ResponseTimestamp is null || newer > current.ResponseTimestamp))
+			{
+				var timestampUpdated = target.Attendees.ToList();
+				timestampUpdated[matchIndex] = current with { ResponseTimestamp = newer };
+				target.Attendees = timestampUpdated;
+				await context.SaveChangesAsync(ct);
+				await events.CalendarEventUpdatedAsync(target.Id);
+			}
+			return;
+		}
+		if (requireNewerTimestamp
+			&& (dto.Sequence < target.Sequence
+				|| respondingAttendee.ResponseTimestamp is null
+				|| (current.ResponseTimestamp is { } currentTimestamp
+					&& respondingAttendee.ResponseTimestamp <= currentTimestamp)
+				|| (current.ResponseTimestamp is null
+					&& current.ResponseStatus != ResponseStatus.NeedsAction
+					&& dto.Sequence <= target.Sequence)))
+		{
 			return;
 		}
 
 		var updated = target.Attendees.ToList();
-		updated[matchIndex] = current with { ResponseStatus = respondingAttendee.ResponseStatus };
+		updated[matchIndex] = current with
+		{
+			ResponseStatus = respondingAttendee.ResponseStatus,
+			ResponseTimestamp = respondingAttendee.ResponseTimestamp ?? current.ResponseTimestamp,
+		};
 		target.Attendees = updated;
 
 		await context.SaveChangesAsync(ct);
@@ -166,10 +238,26 @@ public sealed class MailInviteMaterializer(MyloMailDbContext context, IHubEvents
 
 	private async Task UpsertAsync(Account account, CalendarEventDto dto, CancellationToken ct)
 	{
-		var calendarIds = await AccountCalendarIdsAsync(account.Id, ct);
+		// Native providers already materialise their invites with a provider id and revision.
+		// A mail copy of the same invite must never overwrite that canonical state with the
+		// synthetic mail: id — doing so would make its next update address a non-existent
+		// resource. The message-side banner still parses the MIME directly for immediate RSVP.
+		var hasProviderBackedEvent = await context.CalendarEvents.AnyAsync(
+			e => e.ICalUid == dto.ICalUid
+				&& context.Calendars.Any(c => c.Id == e.CalendarId && c.AccountId == account.Id && !c.IsLocalOnly),
+			ct
+		);
+		if (hasProviderBackedEvent)
+		{
+			return;
+		}
 
+		var localCalendarIds = await context
+			.Calendars.Where(calendar => calendar.AccountId == account.Id && calendar.IsLocalOnly)
+			.Select(calendar => calendar.Id)
+			.ToListAsync(ct);
 		var existing = await context.CalendarEvents.FirstOrDefaultAsync(
-			e => e.ICalUid == dto.ICalUid && calendarIds.Contains(e.CalendarId),
+			e => e.ICalUid == dto.ICalUid && localCalendarIds.Contains(e.CalendarId),
 			ct
 		);
 

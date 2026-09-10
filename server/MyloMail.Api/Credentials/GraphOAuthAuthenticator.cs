@@ -12,7 +12,7 @@ namespace MyloMail.Api.Credentials;
 /// </summary>
 public sealed class GraphOAuthAuthenticator
 {
-	public static readonly IReadOnlyList<string> Scopes = ["Mail.ReadWrite", "Mail.Send"];
+	public static readonly IReadOnlyList<string> Scopes = ["Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"];
 
 	private readonly ICredentialStore credentials;
 	private readonly IPublicClientApplication application;
@@ -36,8 +36,17 @@ public sealed class GraphOAuthAuthenticator
 			var cachedAccount = (await application.GetAccountsAsync()).SingleOrDefault();
 			if (cachedAccount is not null)
 			{
-				await application.AcquireTokenSilent(Scopes, cachedAccount).ExecuteAsync(ct);
-				return new AuthResult(true, AuthState.Connected, null);
+				try
+				{
+					await application.AcquireTokenSilent(Scopes, cachedAccount).ExecuteAsync(ct);
+					return new AuthResult(true, AuthState.Connected, null);
+				}
+				catch (MsalUiRequiredException ex)
+					when (ex.Classification == UiRequiredExceptionClassification.ConsentRequired)
+				{
+					// Existing mail-only grants need incremental calendar consent. Silent consent
+					// failure is user-actionable reauthentication, not administrator denial.
+				}
 			}
 
 			await application
@@ -79,18 +88,13 @@ public sealed class GraphOAuthAuthenticator
 	}
 
 	/// <summary>
-	/// A tenant blocking ordinary user consent surfaces either as MSAL's own
-	/// <see cref="UiRequiredExceptionClassification.ConsentRequired"/> classification, or —
-	/// for the interactive flow this method actually uses — as a raw Entra STS error code in
-	/// a <see cref="MsalServiceException"/>: <c>AADSTS65001</c> (user consent required) or
-	/// <c>AADSTS90094</c> (admin consent required for this specific app), neither of which
-	/// MSAL itself further classifies (§5).
+	/// A tenant blocking ordinary user consent surfaces as the interactive STS error
+	/// <c>AADSTS90094</c>. Silent <c>ConsentRequired</c> means the user needs an
+	/// incremental-consent flow and must not be reported as administrator denial (§5).
 	/// </summary>
 	internal static bool IsAdminConsentRequired(MsalException ex) =>
-		ex is MsalUiRequiredException { Classification: UiRequiredExceptionClassification.ConsentRequired }
-		|| (ex is MsalServiceException { Message: var message }
-			&& (message.Contains("AADSTS65001", StringComparison.Ordinal)
-				|| message.Contains("AADSTS90094", StringComparison.Ordinal)));
+		ex is MsalServiceException { Message: var message }
+			&& message.Contains("AADSTS90094", StringComparison.Ordinal);
 
 	public async Task<AccessToken> AcquireTokenAsync(Account account, CancellationToken ct)
 	{

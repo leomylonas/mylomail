@@ -175,12 +175,14 @@ public sealed class SyncJobs(
 	}
 
 	/// <summary>
-	/// Starts the calendar poll loop if this account has a calendar configured. IMAP alone
-	/// never implies one — CalDAV is opt-in, independent configuration (§1).
+	/// Starts one calendar poll loop for every native-calendar account. IMAP alone never implies
+	/// one — its CalDAV endpoint remains explicit configuration (§1); Gmail and Microsoft 365
+	/// calendar access is native to their already-configured provider accounts.
 	/// </summary>
 	private void StartCalendarLoop(Account account)
 	{
-		if (account.ProviderConfig is not ImapProviderConfig { CalDav: not null })
+		if (account.ProviderType == ProviderType.Imap
+			&& account.ProviderConfig is not ImapProviderConfig { CalDav: not null })
 		{
 			return;
 		}
@@ -188,6 +190,40 @@ public sealed class SyncJobs(
 		if (polls.TryStart(account.Id, CalendarScope))
 		{
 			jobs.Enqueue<SyncJobs>(j => j.CalendarAsync(account.Id, default));
+		}
+	}
+
+	/// <summary>
+	/// Recovers a calendar create that was dispatched before the process stopped. This
+	/// deliberately ignores <see cref="Account.PollingEnabled"/>: pausing periodic sync must
+	/// not turn an ambiguous provider create into permanent orphaned work.
+	/// </summary>
+	public async Task CalendarCreationRecoveryAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var account = await context.Accounts.FirstOrDefaultAsync(
+			row => row.Id == accountId && row.IsEnabled && row.AuthState != AuthState.NeedsReauth,
+			ct
+		);
+		if (account is null)
+		{
+			return;
+		}
+
+		try
+		{
+			await calendar.RecoverPendingCreationsOnlyAsync(account, ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), ex.RetryAfter);
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), NextNetworkRetryDelay(accountId));
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), NextNetworkRetryDelay(accountId));
 		}
 	}
 

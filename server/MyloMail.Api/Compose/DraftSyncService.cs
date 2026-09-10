@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
@@ -25,12 +26,18 @@ namespace MyloMail.Api.Compose;
 /// </remarks>
 public sealed class DraftSyncService(
 	MyloMailDbContext context,
+	IDraftDispatcher dispatcher,
 	IMailProviderFactory providers,
 	IHubEvents events,
 	ILogger<DraftSyncService> logger,
 	IFaultInjector faults
 )
 {
+
+	// One app process owns every scheduled worker. This closes the interval between a durable
+	// creation dispatch and its provider call without mistaking an active worker for a crash.
+	// A hard restart clears it, which is precisely when durable recovery is required (§6).
+	private static readonly ConcurrentDictionary<Guid, byte> activeInitialCreates = [];
 	public async Task<int> PushAsync(Guid accountId, CancellationToken ct = default)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
@@ -59,18 +66,155 @@ public sealed class DraftSyncService(
 			// the draft dirty, so the timestamp recorded is the one that was actually sent.
 			var sending = draft.SavedAt;
 
+			var initialCreateGuardHeld = false;
+			var ownsInitialCreate = false;
 			try
 			{
-				var result = await providers
-					.For(account)
-					.CreateOrUpdateDraftAsync(account, draft, draft.ProviderRevision, ct);
+				var provider = providers.For(account);
 
-				draft.ProviderDraftId = result.ProviderDraftId;
-				draft.ProviderRevision = result.ProviderRevision;
-				draft.PushedAt = sending;
-				pushed++;
+				// Older local and provider-materialised drafts predate the recovery field.
+				// Establish their stable MIME identity before either an update or a create.
+				if (draft.StableMessageId is null)
+				{
+					var proposedStableId = $"<{Guid.NewGuid():N}@mylomail.local>";
+					await context
+						.Drafts.Where(d => d.Id == draft.Id && d.StableMessageId == null)
+						.ExecuteUpdateAsync(setters => setters.SetProperty(d => d.StableMessageId, proposedStableId), ct);
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+				var stableMessageId = draft.StableMessageId
+					?? throw new InvalidOperationException("Draft recovery identity was not persisted.");
 
+				if (account.ProviderType == ProviderType.Gmail
+					&& draft.ProviderDraftId is { } legacyDraftId
+					&& draft.ProviderMessageId is null)
+				{
+					var recoveredLegacy = await provider.FindDraftAsync(
+						account,
+						stableMessageId,
+						ct,
+						RemoteDraftMaterializer.MaximumRawDraftBytes
+					);
+					if (recoveredLegacy is null)
+					{
+						draft.SyncConflict = true;
+						await context.SaveChangesAsync(ct);
+						continue;
+					}
+					draft.ProviderMessageId = recoveredLegacy.ProviderMessageId;
+					draft.ProviderDraftId = recoveredLegacy.ProviderDraftId ?? legacyDraftId;
+					draft.ProviderRevision = recoveredLegacy.ProviderRevision;
+					await context.SaveChangesAsync(ct);
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+
+				if (draft.ProviderDraftId is null)
+				{
+					if (draft.PushDispatchedForSavedAt is { } dispatchedFor)
+					{
+						// A second worker in this process observes an active claim, not a crash.
+						if (activeInitialCreates.ContainsKey(draft.Id))
+						{
+							continue;
+						}
+
+						var recovered = await provider.FindDraftAsync(
+							account,
+							stableMessageId,
+							ct,
+							RemoteDraftMaterializer.MaximumRawDraftBytes
+						);
+						if (recovered is { ProviderRevision: not null and not "" })
+						{
+							// The returned revision is attached to server content we have not fetched.
+							// Preserve both copies as a conflict rather than using it to overwrite
+							// somebody else's intervening edit on the next local save (§15).
+							await context
+								.Drafts.Where(d => d.Id == draft.Id && d.ProviderDraftId == null && d.PushDispatchedForSavedAt != null)
+								.ExecuteUpdateAsync(
+									setters => setters
+										.SetProperty(d => d.ProviderDraftId, recovered.ProviderDraftId)
+										.SetProperty(d => d.ProviderMessageId, recovered.ProviderMessageId ?? recovered.ProviderDraftId)
+										.SetProperty(d => d.ProviderRevision, recovered.ProviderRevision)
+										.SetProperty(d => d.PushedAt, dispatchedFor)
+										.SetProperty(d => d.PushDispatchedForSavedAt, (DateTimeOffset?)null)
+										.SetProperty(d => d.SyncConflict, true),
+									ct
+								);
+							await context.Entry(draft).ReloadAsync(ct);
+							await events.DraftUpdatedAsync(draft.Id);
+							pushed++;
+							continue;
+						}
+
+						// Empty/incomplete observations cannot prove the call never reached the
+						// provider, so a second create would be an untracked duplicate (§6).
+						draft.SyncConflict = true;
+						await context.SaveChangesAsync(ct);
+						await events.DraftUpdatedAsync(draft.Id);
+						continue;
+					}
+
+					// Register before the durable claim. Every worker shares this process-wide
+					// guard; after a hard restart it is gone and the marker is recovered above.
+					if (!activeInitialCreates.TryAdd(draft.Id, 0))
+					{
+						continue;
+					}
+					initialCreateGuardHeld = true;
+					var claimed = await context
+						.Drafts.Where(d => d.Id == draft.Id && d.ProviderDraftId == null && d.PushDispatchedForSavedAt == null)
+						.ExecuteUpdateAsync(
+							setters => setters.SetProperty(d => d.PushDispatchedForSavedAt, sending),
+							ct
+						);
+					if (claimed == 0)
+					{
+						continue;
+					}
+					ownsInitialCreate = true;
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+
+				var result = await provider.CreateOrUpdateDraftAsync(account, draft, draft.ProviderRevision, ct);
+				if (draft.ProviderDraftId is null && string.IsNullOrEmpty(result.ProviderRevision))
+				{
+					throw new InvalidOperationException("Initial draft creation requires a provider revision.");
+				}
 				faults.Reached(FaultPoints.DraftPushAfterProviderCallBeforeCommit);
+
+				if (ownsInitialCreate)
+				{
+					var committed = await context
+						.Drafts.Where(d =>
+							d.Id == draft.Id
+							&& d.ProviderDraftId == null
+							&& d.PushDispatchedForSavedAt == sending
+						)
+						.ExecuteUpdateAsync(
+							setters => setters
+								.SetProperty(d => d.ProviderDraftId, result.ProviderDraftId)
+								.SetProperty(d => d.ProviderMessageId, result.ProviderMessageId ?? result.ProviderDraftId)
+								.SetProperty(d => d.ProviderRevision, result.ProviderRevision)
+								.SetProperty(d => d.PushedAt, sending)
+								.SetProperty(d => d.PushDispatchedForSavedAt, (DateTimeOffset?)null)
+								.SetProperty(d => d.SyncConflict, false),
+							ct
+						);
+					if (committed != 1)
+					{
+						throw new InvalidOperationException("Initial draft creation lost its durable claim.");
+					}
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+				else
+				{
+					draft.ProviderDraftId = result.ProviderDraftId;
+					draft.ProviderMessageId = result.ProviderMessageId ?? result.ProviderDraftId;
+					draft.ProviderRevision = result.ProviderRevision;
+					draft.PushedAt = sending;
+				}
+				pushed++;
 			}
 			catch (ProviderConflictException ex)
 			{
@@ -81,23 +225,27 @@ public sealed class DraftSyncService(
 			}
 			catch (NotSupportedException)
 			{
-				// A provider without server-side drafts. Local authoring still works, and
-				// marking the draft pushed would claim something untrue.
+				draft.PushDispatchedForSavedAt = null;
+				// A provider without server-side drafts leaves local authoring intact.
 				return pushed;
 			}
 			catch (CredentialStoreUnavailableException ex)
 			{
-				// Nothing claims/detaches `account` ahead of this loop, so it is still the
-				// tracked, attached instance. Not gated off from retrying (see the self-clear
-				// below): the next scheduled push succeeding, once the OS store is reachable
-				// again, is the recovery path (see SyncJobs.GuardAsync's matching comment).
+				draft.PushDispatchedForSavedAt = null;
 				account.AuthState = AuthState.CredentialStoreUnavailable;
 				account.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
-
 				logger.LogWarning("Account {AccountId}'s credential store could not be reached.", accountId);
 				return pushed;
+			}
+
+			finally
+			{
+				if (initialCreateGuardHeld)
+				{
+					activeInitialCreates.TryRemove(draft.Id, out _);
+				}
 			}
 
 			// Saved per-draft, not batched after the loop (§16): a crash between two drafts'
@@ -106,6 +254,11 @@ public sealed class DraftSyncService(
 			// an orphaned duplicate on retry.
 			await context.SaveChangesAsync(ct);
 			await events.DraftUpdatedAsync(draft.Id);
+			await context.Entry(draft).ReloadAsync(ct);
+			if (draft.PushedAt is { } pushedAt && draft.SavedAt > pushedAt)
+			{
+				dispatcher.RequestPush(draft.AccountId);
+			}
 		}
 
 		if (account.AuthState == AuthState.CredentialStoreUnavailable)
@@ -119,8 +272,31 @@ public sealed class DraftSyncService(
 		return pushed;
 	}
 
+	/// <summary>
+	/// Deletes the remote draft as an explicit user conflict decision. Unlike ordinary local
+	/// deletion, failure is surfaced and no new server draft may be created until this one is
+	/// conclusively gone. Gmail and Graph therefore omit the knowingly stale precondition;
+	/// IMAP retains UIDVALIDITY, which is its identity fence (§1, §15).
+	/// </summary>
+	public async Task RemoveForReplacementAsync(
+		Guid accountId,
+		string providerDraftId,
+		string? providerRevision,
+		CancellationToken ct = default
+	)
+	{
+		var account = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+		var expectedRevision = account.ProviderType == ProviderType.Imap ? providerRevision : null;
+		await providers.For(account).DeleteDraftAsync(account, providerDraftId, expectedRevision, ct);
+	}
+
 	/// <summary>Removes the server's copy when a draft is deleted or sent.</summary>
-	public async Task RemoveRemoteAsync(Guid accountId, string providerDraftId, CancellationToken ct = default)
+	public async Task RemoveRemoteAsync(
+		Guid accountId,
+		string providerDraftId,
+		string? providerRevision,
+		CancellationToken ct = default
+	)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null)
@@ -130,7 +306,15 @@ public sealed class DraftSyncService(
 
 		try
 		{
-			await providers.For(account).DeleteDraftAsync(account, providerDraftId, ct);
+			// IMAP UIDs are valid only under their observed UIDVALIDITY; other providers'
+			if (account.ProviderType == ProviderType.Imap
+				&& (providerRevision is null || !Providers.Imap.ImapMailProvider.TryParseDraftRevision(providerRevision, out _, out _)))
+			{
+				logger.LogWarning("Remote IMAP draft cleanup skipped because UIDVALIDITY is unavailable for {ProviderDraftId}.", providerDraftId);
+				return;
+			}
+			var expectedRevision = account.ProviderType == ProviderType.Imap ? providerRevision : null;
+			await providers.For(account).DeleteDraftAsync(account, providerDraftId, expectedRevision, ct);
 		}
 		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
