@@ -41,6 +41,19 @@ public sealed class MutationReconciler(
 		var settled = 0;
 		foreach (var attempt in attempts)
 		{
+			var unresolved = attempt.Items
+				.Select(membership => items[membership.MutationItemId])
+				.Where(item => item.State is MutationState.Pending or MutationState.Leased)
+				.ToList();
+			if (unresolved.Count == 0)
+			{
+				attempt.State = MutationAttemptState.Completed;
+				attempt.ResultPersistedAt = clock.GetUtcNow();
+				await context.SaveChangesAsync(ct);
+				settled++;
+				continue;
+			}
+
 			var policy = MutationRecoveryPolicyResolver.For(attempt.OperationKind, providers.For(account).Capabilities);
 
 			if (policy == MutationRecoveryPolicy.AmbiguousOutcome)
@@ -57,21 +70,19 @@ public sealed class MutationReconciler(
 			}
 			if (policy == MutationRecoveryPolicy.RetrySafe)
 			{
-				await RequeueAsync(attempt, ct);
+				await RequeueAsync(attempt, unresolved, ct);
 				settled++;
 				continue;
 			}
 
 			var observed = new Dictionary<Guid, IReadOnlyDictionary<Guid, string>>();
-			foreach (var membership in attempt.Items)
+			foreach (var item in unresolved)
 			{
-				var item = items[membership.MutationItemId];
 				observed[item.Id] = await ObserveAsync(account, item.MessageId, ct);
 			}
 
-			foreach (var membership in attempt.Items)
+			foreach (var item in unresolved)
 			{
-				var item = items[membership.MutationItemId];
 				var locations = observed[item.Id];
 				var applied = await IsAppliedAsync(account, item, locations, ct);
 				if (applied)
@@ -102,11 +113,13 @@ public sealed class MutationReconciler(
 		return settled;
 	}
 
-	private async Task RequeueAsync(MutationExecutionAttempt attempt, CancellationToken ct)
+	private async Task RequeueAsync(
+		MutationExecutionAttempt attempt,
+		IReadOnlyCollection<MutationItem> unresolved,
+		CancellationToken ct
+	)
 	{
-		var itemIds = attempt.Items.Select(i => i.MutationItemId).ToList();
-		var items = await context.MutationItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
-		foreach (var item in items)
+		foreach (var item in unresolved)
 		{
 			await RequeueItemAsync(item, ct);
 		}
@@ -152,7 +165,16 @@ public sealed class MutationReconciler(
 	private async Task<IReadOnlyDictionary<Guid, string>> ObserveAsync(Account account, Guid messageId, CancellationToken ct)
 	{
 		var message = await context.Messages.FirstAsync(m => m.Id == messageId, ct);
-		var known = await context.MessageMailboxes.Where(o => o.MessageId == messageId).Select(o => o.ProviderOccurrenceId).ToListAsync(ct);
+		var known = await (
+			from occurrence in context.MessageMailboxes
+			join knownMailbox in context.Mailboxes on occurrence.MailboxId equals knownMailbox.Id
+			where occurrence.MessageId == messageId && knownMailbox.ProviderMailboxId != null
+			select new { knownMailbox.ProviderMailboxId, occurrence.ProviderOccurrenceId }
+		).ToDictionaryAsync(
+			entry => (entry.ProviderMailboxId!, entry.ProviderOccurrenceId),
+			entry => true,
+			ct
+		);
 		var mailboxes = await context.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null).ToListAsync(ct);
 		var locations = new Dictionary<Guid, string>();
 		var provider = providers.For(account);
@@ -178,9 +200,13 @@ public sealed class MutationReconciler(
 		return locations;
 	}
 
-	private static bool Matches(Message message, IReadOnlyCollection<string> known, MessageDto dto) =>
+	private static bool Matches(
+		Message message,
+		IReadOnlyDictionary<(string ProviderMailboxId, string ProviderOccurrenceId), bool> known,
+		MessageDto dto
+	) =>
 		(message.ProviderStableId is not null && message.ProviderStableId == dto.ProviderStableId)
-		|| dto.Occurrences.Any(o => known.Contains(o.ProviderOccurrenceId))
+		|| dto.Occurrences.Any(occurrence => known.ContainsKey((occurrence.ProviderMailboxId, occurrence.ProviderOccurrenceId)))
 		|| (message.MessageIdHeader is not null
 			&& message.MessageIdHeader == dto.MessageIdHeader
 			&& message.ReceivedAt == dto.ReceivedAt);

@@ -26,6 +26,7 @@ public sealed class ChangeStreamService(
 	MessageIngestor ingestor,
 	RemoteDraftMaterializer drafts,
 	TimeProvider clock,
+	ChangeStreamGate gate,
 	IFaultInjector faults,
 	IHubEvents events,
 	Notifications.NotificationService notifications,
@@ -42,6 +43,7 @@ public sealed class ChangeStreamService(
 	/// </exception>
 	public async Task<ChangeStreamOutcome> SyncAsync(Account account, Mailbox mailbox, CancellationToken ct = default)
 	{
+		using var lease = await gate.EnterAsync(account.Id, ct);
 		var provider = providers.For(account);
 		var state = await GetOrCreateStateAsync(account, mailbox, provider.Capabilities, ct);
 
@@ -516,6 +518,9 @@ public sealed class ChangeStreamService(
 		// advancing it afterwards would classify mail that arrived during the resync window
 		// as predating it and silently drop those notifications (§13 Epic 9).
 		state.NotificationBaselineAt = clock.GetUtcNow();
+		context.StagedChangeEvents.RemoveRange(
+			await context.StagedChangeEvents.Where(staged => staged.AccountId == account.Id).ToListAsync(ct)
+		);
 
 		// Publish the missing cursor before any more asynchronous work. Coverage checks this
 		// durable fence both before and after its provider call, so it cannot commit a page

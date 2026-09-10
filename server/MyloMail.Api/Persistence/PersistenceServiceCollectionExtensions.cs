@@ -119,6 +119,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.AddScoped<MessageIngestor>();
 		services.AddSingleton<CalendarSyncGate>();
+		services.AddSingleton<ChangeStreamGate>();
 		services.AddScoped<CalendarSyncService>();
 		services.AddScoped<CalendarEventService>();
 		services.TryAddSingleton<IDnsQuery>(_ => new LookupClient());
