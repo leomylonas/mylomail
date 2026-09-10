@@ -49,6 +49,13 @@ public sealed class MutationExecutor(
 		var resolved = new List<(MutationItem Item, MessageOccurrenceRef Ref)>();
 		foreach (var item in items)
 		{
+			if (operation == MutationOperationKind.MoveMessage
+				&& (item.TargetMailboxId is null
+					|| !await context.Mailboxes.AnyAsync(mailbox => mailbox.Id == item.TargetMailboxId, ct)))
+			{
+				await chains.CancelUnsatisfiableAsync(item, "The target mailbox no longer exists.", ct);
+				continue;
+			}
 			var occurrence = await ResolveAsync(item, ct);
 			if (occurrence is null)
 			{
