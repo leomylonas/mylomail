@@ -43,6 +43,13 @@ export type IMailHub = {
     */
     getMessageInvite(messageId: string): Promise<MessageInviteDto>;
     /**
+    * Applies a reply that could not be authenticated with DKIM/DMARC only after the user
+    * explicitly accepts the spoofing risk shown in the reading pane.
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    acceptUnverifiedInviteReply(messageId: string): Promise<void>;
+    /**
     * @param messageId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.AttachmentDto>>
     */

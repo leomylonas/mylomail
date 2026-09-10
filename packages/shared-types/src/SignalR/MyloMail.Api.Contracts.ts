@@ -486,6 +486,14 @@ export type MessageInviteDto = {
     organizer?: Address;
     /** Transpiled from MyloMail.Api.Domain.InviteResponse */
     myResponseStatus?: InviteResponse;
+    /** Transpiled from bool */
+    isReply: boolean;
+    /** Transpiled from string? */
+    replyingAddress?: string;
+    /** Transpiled from MyloMail.Api.Domain.InviteResponse */
+    claimedResponse?: InviteResponse;
+    /** Transpiled from bool */
+    requiresManualReview: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AttachmentConstraintsDto */

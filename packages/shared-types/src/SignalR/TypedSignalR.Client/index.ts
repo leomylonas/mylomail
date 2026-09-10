@@ -102,6 +102,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetMessageInvite", messageId);
     }
 
+    public readonly acceptUnverifiedInviteReply = async (messageId: string): Promise<void> => {
+        return await this.connection.invoke("AcceptUnverifiedInviteReply", messageId);
+    }
+
     public readonly getAttachmentMetadata = async (messageId: string): Promise<AttachmentDto[]> => {
         return await this.connection.invoke("GetAttachmentMetadata", messageId);
     }
