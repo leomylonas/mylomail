@@ -8,6 +8,7 @@ internal static class CalDavMultiStatusParser
 {
 	private const int MaximumResponses = 4096;
 	private const int MaximumXmlDepth = 64;
+	private const int MaximumXmlNodes = 100_000;
 
 	private static readonly XNamespace Dav = CalDavWebDavRequest.DavNamespace;
 	private static readonly XNamespace CalDav = CalDavWebDavRequest.CalDavNamespace;
@@ -59,8 +60,13 @@ internal static class CalDavMultiStatusParser
 				MaxCharactersInDocument = xml.Length,
 			}
 		);
+		var nodes = 0;
 		while (reader.Read())
 		{
+			if (++nodes > MaximumXmlNodes)
+			{
+				throw new InvalidOperationException($"CalDAV multi-status exceeds the {MaximumXmlNodes}-node XML limit.");
+			}
 			if (reader.Depth > MaximumXmlDepth)
 			{
 				throw new InvalidOperationException($"CalDAV multi-status exceeds the {MaximumXmlDepth}-level XML depth limit.");

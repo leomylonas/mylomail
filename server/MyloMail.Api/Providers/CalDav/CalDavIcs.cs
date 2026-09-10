@@ -24,6 +24,7 @@ internal static partial class CalDavIcs
 	private const int MaximumAttendeesPerEvent = 512;
 	private const int MaximumRecurrenceValuesPerEvent = 512;
 	private const int MaximumPropertyHeadLength = 8_192;
+	private const int MaximumParametersPerProperty = 64;
 	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag, int maxEvents = 512)
 	{
 		var lines = Unfold(ics);
@@ -516,7 +517,14 @@ internal static partial class CalDavIcs
 		// before an all-day event's end") — anchoring to start unconditionally silently fires
 		// the reminder at the wrong instant for any event whose end differs from its start.
 		var anchor = ParamEquals(parameters, "RELATED", "END") ? end : start;
-		return anchor + duration;
+		try
+		{
+			return anchor + duration;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
+			return null;
+		}
 	}
 
 	/// <summary>
@@ -809,7 +817,7 @@ internal static partial class CalDavIcs
 			throw new InvalidDataException($"Calendar property parameters exceed the {MaximumPropertyHeadLength}-character limit.");
 		}
 		var value = line[(colon + 1)..];
-		var segments = SplitOutsideQuotes(head, ';');
+		var segments = SplitOutsideQuotes(head, ';', MaximumParametersPerProperty + 1);
 		var name = segments[0].ToUpperInvariant();
 		if (segments.Count == 1)
 		{
@@ -852,7 +860,7 @@ internal static partial class CalDavIcs
 		return -1;
 	}
 
-	private static List<string> SplitOutsideQuotes(string s, char delimiter)
+	private static List<string> SplitOutsideQuotes(string s, char delimiter, int maximumParts)
 	{
 		var parts = new List<string>();
 		var quoted = false;
@@ -865,9 +873,17 @@ internal static partial class CalDavIcs
 			}
 			else if (s[i] == delimiter && !quoted)
 			{
+				if (parts.Count == maximumParts - 1)
+				{
+					throw new InvalidDataException($"Calendar property exceeds the {maximumParts - 1}-parameter limit.");
+				}
 				parts.Add(s[start..i]);
 				start = i + 1;
 			}
+		}
+		if (parts.Count == maximumParts)
+		{
+			throw new InvalidDataException($"Calendar property exceeds the {maximumParts - 1}-parameter limit.");
 		}
 		parts.Add(s[start..]);
 		return parts;
@@ -876,9 +892,25 @@ internal static partial class CalDavIcs
 	/// <summary>RFC 5545 line unfolding: a CRLF followed by a space or tab continues the prior line.</summary>
 	private static List<string> Unfold(string ics)
 	{
-		if (ics.Count(static character => character == '\n') > MaximumUnfoldedLines)
+		var lineBreaks = 0;
+		for (var i = 0; i < ics.Length; i++)
 		{
-			throw new InvalidDataException($"Calendar data exceeds the {MaximumUnfoldedLines}-line limit.");
+			if (ics[i] == '\r')
+			{
+				lineBreaks++;
+				if (i + 1 < ics.Length && ics[i + 1] == '\n')
+				{
+					i++;
+				}
+			}
+			else if (ics[i] == '\n')
+			{
+				lineBreaks++;
+			}
+			if (lineBreaks > MaximumUnfoldedLines)
+			{
+				throw new InvalidDataException($"Calendar data exceeds the {MaximumUnfoldedLines}-line limit.");
+			}
 		}
 		var raw = ics.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 		var lines = new List<string>();
