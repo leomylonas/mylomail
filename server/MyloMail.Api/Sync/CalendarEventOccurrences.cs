@@ -13,6 +13,7 @@ namespace MyloMail.Api.Sync;
 public static class CalendarEventOccurrences
 {
 	private const int MaximumSummariesPerCalendarView = 10_000;
+	private const int MaximumSourceEventsPerCalendarView = 20_000;
 	public static async Task<IReadOnlyList<CalendarEventSummaryDto>> ForCalendarAsync(
 		MyloMailDbContext context,
 		Guid calendarId,
@@ -21,7 +22,10 @@ public static class CalendarEventOccurrences
 		CancellationToken ct = default
 	)
 	{
-		var events = await context.CalendarEvents.Where(e => e.CalendarId == calendarId).ToListAsync(ct);
+		var events = await context.CalendarEvents
+			.Where(e => e.CalendarId == calendarId)
+			.Take(MaximumSourceEventsPerCalendarView)
+			.ToListAsync(ct);
 
 		var masters = events.Where(e => e.RecurrenceMasterId is null && e.RecurrenceRules.Count > 0).ToList();
 		var overrides = events.Where(e => e.RecurrenceMasterId is not null).ToList();
