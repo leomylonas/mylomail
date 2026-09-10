@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
-import { Button, SkeletonText } from "@carbon/react";
+import { ActionableNotification, Button, SkeletonText } from "@carbon/react";
+import type { MessageInviteDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
@@ -9,15 +10,7 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
 
-interface MessageInvite {
-	eventId: string | null;
-	title: string;
-	start: string;
-	end: string;
-	isAllDay: boolean;
-	organizer: { name: string | null; email: string } | null;
-	myResponseStatus: InviteResponse | null;
-}
+type MessageInvite = MessageInviteDto;
 
 interface MessageBody {
 	messageId: string;
@@ -227,13 +220,66 @@ function InviteBanner({
 			}),
 	});
 
+	const acceptUnverifiedReply = useMutation({
+		mutationFn: () => hub.invoke("AcceptUnverifiedInviteReply", messageId),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["invite", messageId] });
+			void queryClient.invalidateQueries({ queryKey: ["calendar"] });
+		},
+		onError: (error: unknown) =>
+			notify(notifications, {
+				kind: "error",
+				title: "The claimed response was not applied",
+				detail: error instanceof Error ? error.message : String(error),
+			}),
+	});
+
 	if (!invite.data) return null;
 
 	const when = describeInviteWhen(
-		invite.data.start,
-		invite.data.end,
+		typeof invite.data.start === "string"
+			? invite.data.start
+			: invite.data.start.toISOString(),
+		typeof invite.data.end === "string"
+			? invite.data.end
+			: invite.data.end.toISOString(),
 		invite.data.isAllDay,
 	);
+
+	if (invite.data.isReply) {
+		const claimedResponse = invite.data.claimedResponse;
+		const claimed =
+			claimedResponse == null
+				? "sent a calendar reply"
+				: `${responseStatusLabel[claimedResponse]} the invitation`;
+		return (
+			<div className={styles.invite}>
+				<p className={styles.inviteTitle}>{invite.data.title}</p>
+				<p className={styles.inviteWhen}>{when}</p>
+				{invite.data.requiresManualReview ? (
+					<ActionableNotification
+						kind="warning"
+						title="This calendar reply could not be authenticated"
+						subtitle={`${invite.data.replyingAddress ?? "The sender"} claims they ${claimed}. Email headers can be forged. Apply this response only if you independently trust the sender and expected this reply.`}
+						actionButtonLabel="Accept claimed response"
+						onActionButtonClick={() => {
+							if (!acceptUnverifiedReply.isPending) {
+								acceptUnverifiedReply.mutate();
+							}
+						}}
+						lowContrast
+						hideCloseButton
+						inline
+					/>
+				) : (
+					<p>
+						Verified calendar reply from{" "}
+						{invite.data.replyingAddress ?? "the attendee"}.
+					</p>
+				)}
+			</div>
+		);
+	}
 
 	return (
 		<div className={styles.invite}>
@@ -246,7 +292,7 @@ function InviteBanner({
 				</p>
 			) : null}
 			{invite.data.eventId ? (
-				invite.data.myResponseStatus !== null ? (
+				invite.data.myResponseStatus != null ? (
 					<p>
 						You {responseStatusLabel[invite.data.myResponseStatus]} this
 						invitation.

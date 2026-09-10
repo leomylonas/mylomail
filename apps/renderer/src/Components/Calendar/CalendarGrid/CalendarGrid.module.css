@@ -8,6 +8,10 @@
 	overflow: auto;
 }
 
+.row {
+	display: contents;
+}
+
 .weekday {
 	background: var(--cds-layer-01, #f4f4f4);
 	padding: var(--cds-spacing-02) var(--cds-spacing-03);
