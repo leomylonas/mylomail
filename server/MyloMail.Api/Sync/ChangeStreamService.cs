@@ -579,6 +579,14 @@ public sealed class ChangeStreamService(
 		CancellationToken ct
 	)
 	{
+		if (state.MailboxId is null)
+		{
+			var accountMailboxes = await context.Mailboxes.Where(candidate => candidate.AccountId == account.Id).ToListAsync(ct);
+			foreach (var accountMailbox in accountMailboxes)
+			{
+				accountMailbox.TopologyGeneration++;
+			}
+		}
 		var coverages = state.MailboxId is null
 			? await (
 				from coverageState in context.MailboxCoverageStates
