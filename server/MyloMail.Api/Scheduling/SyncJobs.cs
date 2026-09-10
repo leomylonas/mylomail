@@ -212,6 +212,12 @@ public sealed class SyncJobs(
 		try
 		{
 			await calendar.RecoverPendingCreationsOnlyAsync(account, ct);
+			if (await context.CalendarCreationAttempts
+				.Join(context.Calendars, attempt => attempt.CalendarId, calendar => calendar.Id, (attempt, calendar) => new { attempt, calendar })
+				.AnyAsync(item => item.calendar.AccountId == accountId && !item.calendar.IsLocalOnly, ct))
+			{
+				jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), TimeSpan.FromMinutes(5));
+			}
 		}
 		catch (ProviderThrottledException ex)
 		{
