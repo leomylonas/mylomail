@@ -211,7 +211,7 @@ public sealed class CalendarSyncService(
 			&& (calendar.SyncWindowStartedAt is null
 				|| calendar.SyncWindowStartedAt < DateTimeOffset.UtcNow.AddDays(-1)))
 		{
-			await ResetBaselineAsync(calendarId, ct);
+			await ResetGraphWindowAsync(calendarId, ct);
 			calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 		}
 		var cursor = calendar.SyncCursor;
@@ -252,6 +252,21 @@ public sealed class CalendarSyncService(
 				return;
 			}
 		}
+	}
+
+	/// <summary>
+	/// A rolling Graph window changes coverage, not provider identity. Retain canonical rows so
+	/// open editors and unresolved conflicts remain valid while a fresh delta baseline upserts
+	/// the new horizon under the same local ids.
+	/// </summary>
+	private async Task ResetGraphWindowAsync(Guid calendarId, CancellationToken ct)
+	{
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
+		calendar.SyncCursor = null;
+		calendar.SyncWindowStartedAt = null;
+		await context.SaveChangesAsync(ct);
+		await transaction.CommitAsync(ct);
 	}
 
 	/// <summary>
