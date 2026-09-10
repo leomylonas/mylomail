@@ -263,6 +263,39 @@ public sealed class MutationCrashWindowTests
 		});
 	}
 
+	[Fact]
+	public async Task Recovery_does_not_requeue_a_terminal_member_of_an_ambiguous_batch()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var item = await context.MutationItems.SingleAsync();
+			item.State = MutationState.Failed;
+			context.MutationExecutionAttempts.Add(
+				new MutationExecutionAttempt
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.AccountId,
+					Provider = ProviderType.Gmail,
+					OperationKind = MutationOperationKind.SetFlags,
+					State = MutationAttemptState.Ambiguous,
+					CreatedAt = DateTimeOffset.UnixEpoch,
+					Items = [new MutationExecutionAttemptItem { MutationItemId = item.Id }],
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+			Assert.Equal(MutationState.Failed, (await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync()).State)
+		);
+	}
+
 	/// <summary>
 	/// Startup reconciliation is the sole recovery mechanism with in-memory job storage, so
 	/// it must find every outstanding item — a lease left behind by a dead process included.
