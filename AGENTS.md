@@ -235,23 +235,23 @@ not by convention alone. `docs/skills/frontend-shell.md` carries the reasoning.
 
 Where subagents are used:
 
-- **Model equivalents** — use Claude Sonnet or Codex Terra for careful bounded
-  implementation and invariant review; use Claude Haiku or Codex Luna for repository
-  scanning, symbol hunting, file-set summaries, and mechanical work. These are role
-  equivalents, not interchangeable authority to bypass the safety boundaries below.
+- **Oh My Pi roles** — use a `task` agent for careful bounded implementation and the
+  dedicated `reviewer` agent for invariant review; use `scout` for repository scanning,
+  symbol hunting, file-set summaries, and mechanical data collection. Role selection is
+  the contract; model configuration is harness-owned and must not weaken the safety
+  boundaries below.
 
-- **Freely** — repo scanning, symbol hunting, "where is X used", file-set summarisation,
-  mechanical rename. Cheap model.
-- **With care** — bounded implementation in a disjoint file set, outside mutation and
-  sync core. Read the relevant architecture section and the corresponding guide in
-  `docs/skills/` when available.
+- **Freely** — delegate repo scanning, symbol hunting, file-set summarisation, and
+  mechanical rename to a `scout`.
+- **With care** — delegate bounded implementation in a disjoint file set, outside
+  mutation and sync core, to a `task` agent. Read the relevant architecture section and
+  corresponding `docs/skills/` guide first.
 - **Provider research** — use `docs/research/provider-research.md` for a bounded factual
-  question about IMAP, Graph, Gmail, iCalendar/iTIP, MIME, or RFC 5322. A Claude
-  `provider-research` wrapper is available; Codex may use a Terra subagent with the same
-  guide.
-- **Never** — mutation chains, execution attempts, sync state machines, reconciliation.
-  These are where locally sensible code violates non-local invariants, and a delegate
-  cannot see the invariant it is breaking.
+  question about IMAP, Graph, Gmail, iCalendar/iTIP, MIME, or RFC 5322. A `task` agent
+  may perform the research using that guide.
+- **Never** — delegate mutation chains, execution attempts, sync state machines, or
+  reconciliation. These are where locally sensible code violates non-local invariants,
+  and a delegate cannot see the invariant it is breaking.
 
 ---
 
