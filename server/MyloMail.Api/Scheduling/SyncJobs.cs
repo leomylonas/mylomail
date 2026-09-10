@@ -127,9 +127,25 @@ public sealed class SyncJobs(
 			return;
 		}
 
+		List<Guid> pending;
 		try
 		{
 			await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
+
+			pending = await context
+				.Mailboxes.Where(m => m.AccountId == accountId)
+				.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
+				.Select(m => m.Id)
+				.ToListAsync(ct);
+			if (account.ProviderType == ProviderType.Gmail && pending.Count > 0)
+			{
+				var streamMailbox = await context
+					.Mailboxes.Where(m => m.AccountId == accountId)
+					.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
+					.ThenBy(m => m.Id)
+					.FirstAsync(ct);
+				await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+			}
 		}
 		catch (ProviderThrottledException ex)
 		{
@@ -150,11 +166,6 @@ public sealed class SyncJobs(
 			throw;
 		}
 
-		var pending = await context
-			.Mailboxes.Where(m => m.AccountId == accountId)
-			.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
-			.Select(m => m.Id)
-			.ToListAsync(ct);
 
 		foreach (var mailboxId in pending)
 		{
