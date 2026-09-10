@@ -51,6 +51,7 @@ internal static partial class CalDavIcs
 					}
 					events.Add(ToDto(current, href, etag));
 				}
+				current = null;
 				continue;
 			}
 			if (current is null)
