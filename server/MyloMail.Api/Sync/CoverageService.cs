@@ -84,6 +84,14 @@ public sealed class CoverageService(
 
 			await context.Entry(mailbox).ReloadAsync(ct);
 			await context.Entry(coverage).ReloadAsync(ct);
+			if (account.ProviderType == ProviderType.Gmail
+				&& !await context.ChangeStreamStates.AnyAsync(
+					state => state.AccountId == account.Id && state.MailboxId == null && state.CursorState != null,
+					ct
+				))
+			{
+				throw new CoverageBaselinePendingException();
+			}
 			if (!generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
 			{
 				throw new CoverageBaselinePendingException();

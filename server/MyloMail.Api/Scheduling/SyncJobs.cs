@@ -376,7 +376,8 @@ public sealed class SyncJobs(
 		}
 		catch (CoverageBaselinePendingException)
 		{
-			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+			// Cursor invalidation queues its owning change-stream loop's topology restart.
+			// A coverage job must not create competing account-scoped stream loops.
 			return;
 		}
 		catch (ProviderThrottledException ex)
@@ -455,6 +456,7 @@ public sealed class SyncJobs(
 
 		if (outcome.ResyncTriggered)
 		{
+			polls.Stop(accountId, mailboxId);
 			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
 			return;
 		}

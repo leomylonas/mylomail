@@ -509,6 +509,11 @@ public sealed class ChangeStreamService(
 		// as predating it and silently drop those notifications (§13 Epic 9).
 		state.NotificationBaselineAt = clock.GetUtcNow();
 
+		// Publish the missing cursor before any more asynchronous work. Coverage checks this
+		// durable fence both before and after its provider call, so it cannot commit a page
+		// issued against an invalid history baseline.
+		await context.SaveChangesAsync(ct);
+
 		if (state.MailboxId is null)
 		{
 			var accountMailboxes = await context.Mailboxes.Where(candidate => candidate.AccountId == account.Id).ToListAsync(ct);
