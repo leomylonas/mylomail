@@ -210,9 +210,10 @@ public sealed class CalendarSyncService(
 		DateTimeOffset? rebaseWindowEnd = null;
 		HashSet<string>? rebaseObservedProviderIds = null;
 		if (account.ProviderType == ProviderType.Microsoft365
-			&& calendar.SyncCursor is not null
-			&& (calendar.SyncWindowStartedAt is null
-				|| calendar.SyncWindowStartedAt < DateTimeOffset.UtcNow.AddDays(-1)))
+			&& (calendar.SyncWindowRebasing
+				|| (calendar.SyncCursor is not null
+					&& (calendar.SyncWindowStartedAt is null
+						|| calendar.SyncWindowStartedAt < DateTimeOffset.UtcNow.AddDays(-1)))))
 		{
 			var now = DateTimeOffset.UtcNow;
 			rebaseWindowStart = now.AddMonths(-12);
@@ -283,6 +284,7 @@ public sealed class CalendarSyncService(
 		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 		calendar.SyncCursor = null;
 		calendar.SyncWindowStartedAt = null;
+		calendar.SyncWindowRebasing = true;
 		await context.SaveChangesAsync(ct);
 		await transaction.CommitAsync(ct);
 	}
@@ -515,6 +517,8 @@ public sealed class CalendarSyncService(
 			var stale = (await context.CalendarEvents.Where(e => e.CalendarId == calendarId && !e.SyncConflict).ToListAsync(ct))
 				.Where(e => !rebaseObservedProviderIds.Contains(e.ProviderEventId))
 				.ToList();
+			context.CalendarEvents.RemoveRange(stale);
+			changed.AddRange(stale.Select(e => e.Id));
 		}
 
 		if (commitCursor)
@@ -525,6 +529,7 @@ public sealed class CalendarSyncService(
 			{
 				calendar.SyncWindowStartedAt = DateTimeOffset.UtcNow;
 			}
+			calendar.SyncWindowRebasing = false;
 		}
 
 		await context.SaveChangesAsync(ct);

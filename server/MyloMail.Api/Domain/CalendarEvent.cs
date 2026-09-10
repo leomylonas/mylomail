@@ -24,6 +24,12 @@ public class Calendar
 	public DateTimeOffset? SyncWindowStartedAt { get; set; }
 
 	/// <summary>
+	/// A Graph calendar-view rebase was durably started but has not yet committed its final
+	/// cursor. The next poll must resume the baseline and reconcile its observed rows.
+	/// </summary>
+	public bool SyncWindowRebasing { get; set; }
+
+	/// <summary>
 	/// No provider backing at all — holds events materialised from a mailed invite on an
 	/// account with no configured calendar (§1, §13 Epic 7). Never touched by
 	/// <c>CalendarSyncService.ReconcileCalendarsAsync</c>'s remove-what-the-provider-no-longer-
