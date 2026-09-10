@@ -206,11 +206,18 @@ public sealed class CalendarSyncService(
 	)
 	{
 		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
+		DateTimeOffset? rebaseWindowStart = null;
+		DateTimeOffset? rebaseWindowEnd = null;
+		HashSet<string>? rebaseObservedProviderIds = null;
 		if (account.ProviderType == ProviderType.Microsoft365
 			&& calendar.SyncCursor is not null
 			&& (calendar.SyncWindowStartedAt is null
 				|| calendar.SyncWindowStartedAt < DateTimeOffset.UtcNow.AddDays(-1)))
 		{
+			var now = DateTimeOffset.UtcNow;
+			rebaseWindowStart = now.AddMonths(-12);
+			rebaseWindowEnd = now.AddMonths(12);
+			rebaseObservedProviderIds = new HashSet<string>(StringComparer.Ordinal);
 			await ResetGraphWindowAsync(calendarId, ct);
 			calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 		}
@@ -245,7 +252,18 @@ public sealed class CalendarSyncService(
 				resetForInvalidCursor = true;
 				continue;
 			}
-			await ApplyPageAsync(account, calendarId, page, commitCursor: !page.HasMore, resolvingEventId, ct);
+			rebaseObservedProviderIds?.UnionWith(page.Upserted.Select(dto => dto.ProviderEventId));
+			await ApplyPageAsync(
+				account,
+				calendarId,
+				page,
+				commitCursor: !page.HasMore,
+				resolvingEventId,
+				rebaseObservedProviderIds,
+				rebaseWindowStart,
+				rebaseWindowEnd,
+				ct
+			);
 			continuation = page.Continuation;
 			if (continuation is null)
 			{
@@ -295,6 +313,9 @@ public sealed class CalendarSyncService(
 		CalendarSyncResult page,
 		bool commitCursor,
 		Guid? resolvingEventId,
+		IReadOnlySet<string>? rebaseObservedProviderIds,
+		DateTimeOffset? rebaseWindowStart,
+		DateTimeOffset? rebaseWindowEnd,
 		CancellationToken ct
 	)
 	{
@@ -484,6 +505,19 @@ public sealed class CalendarSyncService(
 					changed.Add(child.Id);
 				}
 			}
+		}
+
+		if (commitCursor
+			&& rebaseObservedProviderIds is not null
+			&& rebaseWindowStart is { } windowStart
+			&& rebaseWindowEnd is { } windowEnd)
+		{
+			var stale = (await context.CalendarEvents.Where(e => e.CalendarId == calendarId && !e.SyncConflict).ToListAsync(ct))
+				.Where(e => !rebaseObservedProviderIds.Contains(e.ProviderEventId))
+				.Where(e => e.RecurrenceRules.Count > 0 || (e.Start < windowEnd && e.End > windowStart))
+				.ToList();
+			changed.AddRange(stale.Select(e => e.Id));
+			context.CalendarEvents.RemoveRange(stale);
 		}
 
 		if (commitCursor)

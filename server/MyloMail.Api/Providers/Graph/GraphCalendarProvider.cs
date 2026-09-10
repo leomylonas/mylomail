@@ -91,17 +91,25 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 				.Select(ev => ev.SeriesMasterId!)
 				.Distinct(StringComparer.Ordinal))
 			{
-				var master = await ThrottleAwareAsync(() => client.Me.Events[masterId].GetAsync(
-					configuration => configuration.QueryParameters.Select = [
-						"id", "@odata.etag", "transactionId", "iCalUId", "subject", "body", "location",
-						"start", "end", "isAllDay", "isCancelled", "showAs", "attendees", "isReminderOn",
-						"reminderMinutesBeforeStart", "recurrence", "organizer", "responseStatus",
-					],
-					ct
-				));
-				if (master?.Id is not null)
+				try
 				{
-					masters[master.Id] = master;
+					var master = await ThrottleAwareAsync(() => client.Me.Events[masterId].GetAsync(
+						configuration => configuration.QueryParameters.Select = [
+							"id", "@odata.etag", "transactionId", "iCalUId", "subject", "body", "location",
+							"start", "end", "isAllDay", "isCancelled", "showAs", "attendees", "isReminderOn",
+							"reminderMinutesBeforeStart", "recurrence", "organizer", "responseStatus",
+						],
+						ct
+					));
+					if (master?.Id is not null)
+					{
+						masters[master.Id] = master;
+					}
+				}
+				catch (ApiException ex) when (ex.ResponseStatusCode == 404)
+				{
+					// The delta page remains valid; Graph deleted its master after emitting an
+					// occurrence. The next delta response will reconcile the deletion.
 				}
 			}
 			var materialized = events.Concat(masters.Values).DistinctBy(ev => ev.Id).ToList();
