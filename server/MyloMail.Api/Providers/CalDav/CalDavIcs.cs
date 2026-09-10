@@ -396,9 +396,9 @@ internal static partial class CalDavIcs
 		var end = SingleWithParams("DTEND") is { } dtend
 			? ParseDateTime(dtend.Params, dtend.Value)
 			: Single("DURATION") is { } duration && TryParseDuration(duration, out var vEventDuration)
-				? start + vEventDuration
+				? SafeAdd(start, vEventDuration)
 				: isAllDay
-					? start.AddDays(1)
+					? SafeAdd(start, TimeSpan.FromDays(1))
 					: start;
 		var recurrenceId = SingleWithParams("RECURRENCE-ID") is { } rid ? ParseDateTime(rid.Params, rid.Value) : (DateTimeOffset?)null;
 		var providerEventId = recurrenceId is null ? href : $"{href}#{recurrenceId:O}";
@@ -513,6 +513,19 @@ internal static partial class CalDavIcs
 		var date = days > 0 ? $"{days}D" : "";
 		// RFC 5545 §3.3.6: a zero-length duration must still be well-formed (P0D is the shortest).
 		return $"{(negative ? "-" : "")}P{date}{time}" is var text && text is "P" ? "P0D" : text;
+	}
+
+	/// <summary>Prevents a syntactically valid duration from overflowing a provider event end time.</summary>
+	private static DateTimeOffset SafeAdd(DateTimeOffset start, TimeSpan duration)
+	{
+		try
+		{
+			return start + duration;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
+			return start;
+		}
 	}
 
 	/// <summary>A minimal ISO-8601 duration parser covering the subset VALARM triggers use.</summary>
