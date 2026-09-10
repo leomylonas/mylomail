@@ -144,7 +144,18 @@ public sealed class SyncJobs(
 					.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 					.ThenBy(m => m.Id)
 					.FirstAsync(ct);
-				await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+				var outcome = await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+				if (outcome.ResyncTriggered)
+				{
+					// An expired history cursor resets the baseline. Capture and persist the
+					// replacement before any coverage page can observe state older than it.
+					await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+					pending = await context
+						.Mailboxes.Where(m => m.AccountId == accountId)
+						.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
+						.Select(m => m.Id)
+						.ToListAsync(ct);
+				}
 			}
 		}
 		catch (ProviderThrottledException ex)

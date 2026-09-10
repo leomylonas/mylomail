@@ -509,8 +509,15 @@ public sealed class ChangeStreamService(
 		// as predating it and silently drop those notifications (§13 Epic 9).
 		state.NotificationBaselineAt = clock.GetUtcNow();
 
-		var coverage = await context.MailboxCoverageStates.FirstOrDefaultAsync(c => c.MailboxId == mailbox.Id, ct);
-		if (coverage is not null)
+		var coverages = state.MailboxId is null
+			? await (
+				from coverageState in context.MailboxCoverageStates
+				join coverageMailbox in context.Mailboxes on coverageState.MailboxId equals coverageMailbox.Id
+				where coverageMailbox.AccountId == account.Id
+				select coverageState
+			).ToListAsync(ct)
+			: await context.MailboxCoverageStates.Where(c => c.MailboxId == mailbox.Id).ToListAsync(ct);
+		foreach (var coverage in coverages)
 		{
 			// The bound is re-applied from the start: a baseline is what is being
 			// re-established, not a continuation of the old one. MessagesFetched must reset
