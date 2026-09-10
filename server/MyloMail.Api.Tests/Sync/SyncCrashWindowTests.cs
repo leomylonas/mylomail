@@ -281,6 +281,7 @@ public sealed class SyncCrashWindowTests
 		harness.Provider.RemoveMessage(occurrenceId);
 		await SyncTests.CoverAsync(harness);
 		await BumpAsync(harness);
+		await SyncTests.CoverAsync(harness);
 
 		Assert.True(await ReplayAsync(harness) > 0);
 
