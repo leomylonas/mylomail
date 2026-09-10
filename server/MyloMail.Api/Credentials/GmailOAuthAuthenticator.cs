@@ -70,45 +70,36 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 			|| !credential.Token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
 				.Contains(requiredScope, StringComparer.Ordinal))
 		{
-			var gate = ScopeUpgradeLocks.GetOrAdd(account.Id, static _ => new SemaphoreSlim(1, 1));
-			await gate.WaitAsync(ct);
+			var previous = await credentials.RetrieveAsync(account.Id, ct);
+			await flow.DataStore.ClearAsync();
 			try
 			{
-				var previous = await credentials.RetrieveAsync(account.Id, ct);
-				await flow.DataStore.ClearAsync();
-				try
+				var refreshed = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+					flow,
+					Scopes,
+					account.Id.ToString("N"),
+					usePkce: true,
+					ct,
+					flow.DataStore,
+					new DiagnosticsLocalServerCodeReceiver()
+				);
+				if (string.IsNullOrWhiteSpace(refreshed.Token.Scope)
+					|| !refreshed.Token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+						.Contains(requiredScope, StringComparer.Ordinal))
 				{
-					var refreshed = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-						flow,
-						Scopes,
-						account.Id.ToString("N"),
-						usePkce: true,
-						ct,
-						flow.DataStore,
-						new DiagnosticsLocalServerCodeReceiver()
+					throw new TokenResponseException(
+						new TokenErrorResponse { Error = "insufficient_scope", ErrorDescription = $"Google did not grant {requiredScope}." }
 					);
-					if (string.IsNullOrWhiteSpace(refreshed.Token.Scope)
-						|| !refreshed.Token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-							.Contains(requiredScope, StringComparer.Ordinal))
-					{
-						throw new TokenResponseException(
-							new TokenErrorResponse { Error = "insufficient_scope", ErrorDescription = $"Google did not grant {requiredScope}." }
-						);
-					}
-					return refreshed;
 				}
-				catch
-				{
-					if (previous is not null)
-					{
-						await credentials.StoreAsync(account.Id, previous, CancellationToken.None);
-					}
-					throw;
-				}
+				return refreshed;
 			}
-			finally
+			catch
 			{
-				gate.Release();
+				if (previous is not null)
+				{
+					await credentials.StoreAsync(account.Id, previous, CancellationToken.None);
+				}
+				throw;
 			}
 		}
 		return credential;
