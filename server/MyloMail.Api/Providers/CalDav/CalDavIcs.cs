@@ -537,40 +537,48 @@ internal static partial class CalDavIcs
 		}
 		span = span[1..];
 		var inTime = false;
-		var total = TimeSpan.Zero;
-		var number = 0;
-		var hasNumber = false;
-		foreach (var c in span)
+		try
 		{
-			if (c == 'T')
+			var total = TimeSpan.Zero;
+			var number = 0;
+			var hasNumber = false;
+			foreach (var c in span)
 			{
-				inTime = true;
-				continue;
+				if (c == 'T')
+				{
+					inTime = true;
+					continue;
+				}
+				if (char.IsDigit(c))
+				{
+					number = checked(number * 10 + (c - '0'));
+					hasNumber = true;
+					continue;
+				}
+				if (!hasNumber)
+				{
+					return false;
+				}
+				total = checked(total + c switch
+				{
+					'D' => TimeSpan.FromDays(number),
+					'W' => TimeSpan.FromDays(checked(number * 7)),
+					'H' => TimeSpan.FromHours(number),
+					'M' => inTime ? TimeSpan.FromMinutes(number) : TimeSpan.Zero,
+					'S' => TimeSpan.FromSeconds(number),
+					_ => TimeSpan.Zero,
+				});
+				number = 0;
+				hasNumber = false;
 			}
-			if (char.IsDigit(c))
-			{
-				number = number * 10 + (c - '0');
-				hasNumber = true;
-				continue;
-			}
-			if (!hasNumber)
-			{
-				return false;
-			}
-			total += c switch
-			{
-				'D' => TimeSpan.FromDays(number),
-				'W' => TimeSpan.FromDays(number * 7),
-				'H' => TimeSpan.FromHours(number),
-				'M' => inTime ? TimeSpan.FromMinutes(number) : TimeSpan.Zero,
-				'S' => TimeSpan.FromSeconds(number),
-				_ => TimeSpan.Zero,
-			};
-			number = 0;
-			hasNumber = false;
+			duration = negative ? -total : total;
+			return true;
 		}
-		duration = negative ? -total : total;
-		return true;
+		catch (OverflowException)
+		{
+			duration = default;
+			return false;
+		}
 	}
 
 	/// <summary>
