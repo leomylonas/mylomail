@@ -18,6 +18,8 @@ namespace MyloMail.Api.Providers.CalDav;
 /// </remarks>
 internal static partial class CalDavIcs
 {
+	private const int MaximumUnfoldedLines = 65_536;
+	private const int MaximumPropertiesPerEvent = 4_096;
 	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag, int maxEvents = 512)
 	{
 		var lines = Unfold(ics);
@@ -67,14 +69,26 @@ internal static partial class CalDavIcs
 			}
 			if (!insideValarm)
 			{
+				if (current.Count >= MaximumPropertiesPerEvent)
+				{
+					throw new InvalidDataException($"Calendar event exceeds the {MaximumPropertiesPerEvent}-property limit.");
+				}
 				current.Add(ParseLine(line));
 				continue;
 			}
 			var parsed = ParseLine(line);
 			if (parsed.Name.Equals("TRIGGER", StringComparison.OrdinalIgnoreCase))
 			{
+				if (current.Count >= MaximumPropertiesPerEvent)
+				{
+					throw new InvalidDataException($"Calendar event exceeds the {MaximumPropertiesPerEvent}-property limit.");
+				}
 				current.Add(parsed);
 			}
+		}
+		if (current is not null)
+		{
+			throw new InvalidDataException("Calendar data contains an unterminated VEVENT.");
 		}
 
 		return events;
@@ -803,6 +817,10 @@ internal static partial class CalDavIcs
 	/// <summary>RFC 5545 line unfolding: a CRLF followed by a space or tab continues the prior line.</summary>
 	private static List<string> Unfold(string ics)
 	{
+		if (ics.Count(static character => character == '\n') > MaximumUnfoldedLines)
+		{
+			throw new InvalidDataException($"Calendar data exceeds the {MaximumUnfoldedLines}-line limit.");
+		}
 		var raw = ics.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 		var lines = new List<string>();
 		StringBuilder? folded = null;
