@@ -1,16 +1,18 @@
 using System.Security.Cryptography.X509Certificates;
+using Google.Apis.Auth.OAuth2;
+using Microsoft.Extensions.Options;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.CalDav;
+using MyloMail.Api.Providers.Gmail;
+using MyloMail.Api.Providers.Graph;
 using MyloMail.Api.Security;
 
 namespace MyloMail.Api.Providers;
 
 /// <summary>
-/// Resolves the calendar provider per account (§1, §2). CalDAV is the only implementation:
-/// it is configured independently on a plain IMAP account and never implied by having one.
-/// Gmail and Microsoft 365 calendars (<c>GoogleCalendarProvider</c>, <c>GraphCalendarProvider</c>)
-/// are a later slice, matching the mail providers' own staged build order.
+/// Resolves the calendar provider per account (§1, §2). Gmail and Microsoft 365 use their
+/// native calendar APIs; CalDAV remains independently configured on an IMAP account.
 /// </summary>
 /// <remarks>
 /// The <see cref="HttpClient"/> is constructed fresh per account rather than through
@@ -21,16 +23,52 @@ namespace MyloMail.Api.Providers;
 /// badly enough to trade away an honest per-account trust decision for it.
 /// </remarks>
 public sealed class CalendarProviderFactory(
+	IOptions<ProviderClientOptions> options,
 	ICredentialStore credentials,
 	IMailProviderFactory mail,
 	ITrustedCertificateStore certificates
 ) : ICalendarProviderFactory
 {
-	public ICalendarProvider For(Account account)
+	public ICalendarProvider For(Account account) => account.ProviderType switch
 	{
-		if (account.ProviderType != ProviderType.Imap || account.ProviderConfig is not ImapProviderConfig { CalDav: not null })
+		ProviderType.Gmail => Gmail(),
+		ProviderType.Microsoft365 => Graph(),
+		ProviderType.Imap => CalDav(account),
+		_ => throw new ArgumentOutOfRangeException(nameof(account.ProviderType), account.ProviderType, null),
+	};
+
+	private GoogleCalendarProvider Gmail()
+	{
+		var gmail = options.Value.Gmail;
+		if (!gmail.IsConfigured)
 		{
-			throw new ProviderNotConfiguredException(account.ProviderType, "CalDAV endpoint configuration");
+			throw new ProviderNotConfiguredException(ProviderType.Gmail, "Google OAuth client registration");
+		}
+
+		return new GoogleCalendarProvider(
+			new GmailOAuthAuthenticator(
+				credentials,
+				new ClientSecrets { ClientId = gmail.ClientId, ClientSecret = gmail.ClientSecret }
+			)
+		);
+	}
+
+	private GraphCalendarProvider Graph()
+	{
+		var graph = options.Value.Graph;
+		if (!graph.IsConfigured)
+		{
+			throw new ProviderNotConfiguredException(ProviderType.Microsoft365, "Microsoft Graph client registration");
+		}
+
+		return new GraphCalendarProvider(new GraphOAuthAuthenticator(credentials, graph.ClientId!, graph.Authority));
+	}
+
+	private ICalendarProvider CalDav(Account account)
+	{
+		if (account.ProviderConfig is not ImapProviderConfig { CalDav: not null })
+		{
+			throw new ProviderNotConfiguredException(ProviderType.Imap, "CalDAV endpoint configuration");
 		}
 
 		var pinned = certificates.GetForAccount(account.Id);

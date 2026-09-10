@@ -55,6 +55,24 @@ public sealed class CalDavIcsAttendeeNameTests
 	}
 
 	[Fact]
+	public void A_bare_carriage_return_in_text_cannot_create_an_iCalendar_line()
+	{
+		var ev = new CalendarEventDto
+		{
+			ProviderEventId = "event-1",
+			ICalUid = "uid-1",
+			Title = "Standup\rX-Injected: yes",
+			Start = new DateTimeOffset(2026, 3, 10, 9, 0, 0, TimeSpan.Zero),
+			End = new DateTimeOffset(2026, 3, 10, 9, 30, 0, TimeSpan.Zero),
+		};
+
+		var ics = CalDavIcs.ToIcs("event-1", ev);
+
+		Assert.DoesNotContain("\rX-Injected", ics);
+		Assert.Contains("SUMMARY:Standup\\nX-Injected: yes", ics);
+	}
+
+	[Fact]
 	public void A_name_needing_no_quoting_is_written_bare_not_backslash_escaped()
 	{
 		var ev = new CalendarEventDto

@@ -33,6 +33,23 @@ public sealed class CalDavRequestFactoryTests
 		Assert.Equal("caldav-user:caldav-secret", Decode(request));
 	}
 
+	[Fact]
+	public async Task A_server_supplied_target_outside_the_configured_collection_is_rejected_before_credentials_are_attached()
+	{
+		var account = Account(CredentialSource.Independent);
+		var store = new InMemoryCredentialStore();
+		await store.StoreSlotAsync(
+			account.Id,
+			CredentialSlots.CalDav,
+			new CredentialPayload(CalDavRequestFactory.PasswordFormat, "caldav-secret"u8.ToArray()),
+			default
+		);
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() =>
+			new CalDavRequestFactory(store).CreateAsync(account, HttpMethod.Get, new Uri("https://attacker.example/leak"))
+		);
+	}
+
 	private static Account Account(CredentialSource source) => new()
 	{
 		Id = Guid.NewGuid(),

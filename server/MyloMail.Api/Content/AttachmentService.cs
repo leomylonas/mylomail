@@ -36,6 +36,7 @@ public sealed class AttachmentService(MyloMailDbContext context, AttachmentTempD
 
 		using var rawStream = new MemoryStream(raw.Content);
 		var mime = await MimeMessage.LoadAsync(rawStream, ct);
+		MimeStructureValidator.Validate(mime);
 		var iterator = new MimeIterator(mime);
 		while (iterator.MoveNext())
 		{

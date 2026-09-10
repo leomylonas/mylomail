@@ -16,7 +16,8 @@ public sealed partial class GraphMailProvider
 	public async Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
-		CancellationToken ct
+		CancellationToken ct,
+		int? maximumBytes = null
 	)
 	{
 		var client = await ClientAsync(account, ct);
@@ -28,9 +29,7 @@ public sealed partial class GraphMailProvider
 			throw new InvalidOperationException("Graph returned no raw MIME stream.");
 		}
 
-		using var buffer = new MemoryStream();
-		await stream.CopyToAsync(buffer, ct);
-		return new RawMessageResult(buffer.ToArray());
+		return new RawMessageResult(await BoundedContentReader.ReadAsync(stream, maximumBytes, ct));
 	}
 
 	public Task<AttachmentConstraints> GetAttachmentConstraintsAsync(Account account, CancellationToken ct) =>

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MyloMail.Api.Persistence;
 
@@ -10,9 +11,11 @@ using MyloMail.Api.Persistence;
 namespace MyloMail.Api.Persistence.Migrations
 {
     [DbContext(typeof(MyloMailDbContext))]
-    partial class MyloMailDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909034337_AddDraftPushRecovery")]
+    partial class AddDraftPushRecovery
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -310,53 +313,7 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.HasIndex("CalendarId", "ProviderEventId")
                         .IsUnique();
 
-
                     b.ToTable("CalendarEvents");
-                });
-            modelBuilder.Entity("MyloMail.Api.Domain.CalendarCreationAttempt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("CalendarId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("DispatchedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("End")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ICalUid")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsAllDay")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Location")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ProviderCreationKey")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTimeOffset>("Start")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CalendarId");
-
-                    b.ToTable("CalendarCreationAttempts");
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.ChangeStreamState", b =>
@@ -462,9 +419,6 @@ namespace MyloMail.Api.Persistence.Migrations
 
                     b.Property<string>("ProviderDraftId")
                         .HasColumnType("TEXT");
-
-					b.Property<string>("ProviderMessageId")
-						.HasColumnType("TEXT");
 
                     b.Property<string>("ProviderRevision")
                         .HasColumnType("TEXT");
@@ -1292,15 +1246,6 @@ namespace MyloMail.Api.Persistence.Migrations
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.CalendarEvent", b =>
-                {
-                    b.HasOne("MyloMail.Api.Domain.Calendar", null)
-                        .WithMany()
-                        .HasForeignKey("CalendarId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("MyloMail.Api.Domain.CalendarCreationAttempt", b =>
                 {
                     b.HasOne("MyloMail.Api.Domain.Calendar", null)
                         .WithMany()

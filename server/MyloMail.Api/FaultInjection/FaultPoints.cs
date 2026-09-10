@@ -49,6 +49,13 @@ public static class FaultPoints
 	/// noticing — the remote side effect already happened and cannot be replayed away.
 	/// </summary>
 	public const string DraftPushAfterProviderCallBeforeCommit = "draft-push.after-provider-call-before-commit";
+
+	/// <summary>
+	/// A calendar provider accepted an initial event creation, but the returned server identity
+	/// has not yet committed locally. Recovery searches by the durably stored iCalendar UID.
+	/// </summary>
+	public const string CalendarCreateAfterProviderCallBeforeCommit =
+		"calendar-create.after-provider-call-before-commit";
 }
 
 /// <summary>Kills the process at a named point, or does nothing.</summary>

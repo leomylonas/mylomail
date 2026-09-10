@@ -52,7 +52,12 @@ public sealed class DraftService(
 
 		if (draft is null)
 		{
-			draft = new Draft { Id = input.DraftId ?? Guid.NewGuid(), AccountId = input.AccountId };
+			draft = new Draft
+			{
+				Id = input.DraftId ?? Guid.NewGuid(),
+				AccountId = input.AccountId,
+				StableMessageId = $"<{Guid.NewGuid():N}@mylomail.local>",
+			};
 			context.Drafts.Add(draft);
 		}
 		else if (draft.AccountId != input.AccountId)
@@ -131,19 +136,48 @@ public sealed class DraftService(
 		{
 			return draft;
 		}
+		if (draft.ProviderDraftId is null && draft.ProviderMessageId is { } providerMessageId)
+		{
+			var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
+			var recovered = await providers.For(account).FindDraftByMessageIdAsync(account, providerMessageId, ct);
+			if (recovered is null)
+			{
+				throw new InvalidOperationException(
+					"This draft's remote container could not yet be resolved. Leave the conflict open and try again later."
+				);
+			}
+			draft.ProviderDraftId = recovered.ProviderDraftId;
+			draft.ProviderMessageId = recovered.ProviderMessageId ?? providerMessageId;
+			draft.ProviderRevision = recovered.ProviderRevision;
+			await context.SaveChangesAsync(ct);
+		}
+
 
 		if (keepMine)
 		{
-			if (draft.ProviderDraftId is string remoteId)
+			if (draft.ProviderDraftId is not string remoteId)
 			{
-				await remote.RemoveRemoteAsync(draft.AccountId, remoteId, ct);
+				// The user has explicitly accepted the unresolved create ambiguity. Retain the
+				// stable Message-ID so a late server observation can still adopt rather than
+				// duplicate it, then permit a new local intent to be pushed.
+				draft.PushDispatchedForSavedAt = null;
+				draft.SyncConflict = false;
+				await context.SaveChangesAsync(ct);
+				dispatcher.RequestPush(draft.AccountId);
 			}
-			draft.ProviderDraftId = null;
-			draft.ProviderRevision = null;
-			draft.PushedAt = null;
-			draft.SyncConflict = false;
-			await context.SaveChangesAsync(ct);
-			dispatcher.RequestPush(draft.AccountId);
+			else
+			{
+				await remote.RemoveForReplacementAsync(draft.AccountId, remoteId, draft.ProviderRevision, ct);
+				draft.ProviderDraftId = null;
+				draft.ProviderMessageId = null;
+				draft.ProviderRevision = null;
+				draft.PushedAt = null;
+				draft.PushDispatchedForSavedAt = null;
+				draft.SyncConflict = false;
+				await context.SaveChangesAsync(ct);
+				dispatcher.RequestPush(draft.AccountId);
+			}
+
 		}
 		else if (draft.ProviderDraftId is string providerDraftId)
 		{
@@ -168,17 +202,13 @@ public sealed class DraftService(
 				.For(account)
 				.FetchRawMessageAsync(
 					account,
-					new MessageOccurrenceRef(Guid.Empty, draftsMailbox.Id, providerDraftId),
-					ct
+					new MessageOccurrenceRef(Guid.Empty, draftsMailbox.Id, draft.ProviderMessageId ?? providerDraftId),
+					ct,
+					RemoteDraftMaterializer.MaximumRawDraftBytes
 				);
-			// The stored ProviderRevision is carried through unchanged rather than refreshed:
-			// FetchRawMessageAsync's contract is content-only, with no provider-agnostic way to
-			// also read the current revision without a second, targeted request no provider
-			// here exposes. Known consequence: it is now stale relative to the copy this just
-			// pulled, so if the user edits again, the very next push will report ANOTHER
-			// conflict against a copy that is actually already applied. That routes back
-			// through this same method rather than silently overwriting anything — an extra
-			// round trip, not a correctness or data-loss problem.
+			// The stored revision continues to fence the server copy that produced the
+			// conflict. A subsequent edit will either observe that same revision or raise
+			// another conflict rather than silently overwriting a later remote change.
 			RemoteDraftMaterializer.ApplyRawBytes(draft, providerDraftId, draft.ProviderRevision, clock.GetUtcNow(), raw.RawBytes);
 			await context.SaveChangesAsync(ct);
 		}
@@ -208,7 +238,7 @@ public sealed class DraftService(
 		// leave the draft sitting in front of them.
 		if (draft.ProviderDraftId is string remoteId)
 		{
-			await remote.RemoveRemoteAsync(draft.AccountId, remoteId, ct);
+			await remote.RemoveRemoteAsync(draft.AccountId, remoteId, draft.ProviderRevision, ct);
 		}
 
 		await events.DraftUpdatedAsync(draftId);

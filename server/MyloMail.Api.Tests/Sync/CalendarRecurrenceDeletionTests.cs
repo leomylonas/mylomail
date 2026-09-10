@@ -153,8 +153,16 @@ public sealed class CalendarRecurrenceDeletionTests
 			return Task.FromResult(new CalendarSyncResult("token-1", null, [master, overrideInstance], []));
 		}
 
-		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
+		public Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
 			throw new NotSupportedException();
+
+		public Task<CalendarEventDto?> FindEventAsync(
+			Account account,
+			Calendar calendar,
+			string stableICalUid,
+			string providerCreationKey,
+			CancellationToken ct
+		) => Task.FromResult<CalendarEventDto?>(null);
 
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) =>
 			throw new NotSupportedException();

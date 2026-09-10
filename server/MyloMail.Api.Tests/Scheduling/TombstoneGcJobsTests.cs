@@ -86,6 +86,57 @@ public sealed class TombstoneGcJobsTests
 		});
 	}
 
+	/// <summary>
+	/// A dispatched attempt has no durable provider outcome. The attempt membership must retain
+	/// the canonical message until reconciliation completes, even after its MutationItem became
+	/// terminal; otherwise recovery loses the only local identity it can reconcile (§6).
+	/// </summary>
+	[Fact]
+	public async Task A_message_referenced_by_an_unresolved_attempt_is_not_collected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await OrphanTheSeededMessageAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var mutationId = Guid.NewGuid();
+			var attemptId = Guid.NewGuid();
+			context.MutationItems.Add(new MutationItem
+			{
+				Id = mutationId,
+				AccountId = harness.AccountId,
+				MessageId = harness.MessageId,
+				State = MutationState.Completed,
+				OperationKind = MutationOperationKind.SetFlags,
+				Sequence = 1,
+			});
+			context.MutationExecutionAttempts.Add(new MutationExecutionAttempt
+			{
+				Id = attemptId,
+				AccountId = harness.AccountId,
+				Provider = ProviderType.Gmail,
+				OperationKind = MutationOperationKind.SetFlags,
+				State = MutationAttemptState.Dispatched,
+				CreatedAt = DateTimeOffset.UnixEpoch,
+			});
+			context.MutationExecutionAttemptItems.Add(new MutationExecutionAttemptItem
+			{
+				AttemptId = attemptId,
+				MutationItemId = mutationId,
+			});
+			await context.SaveChangesAsync();
+		});
+
+		await SweepAsync(harness);
+		harness.Clock.Advance(PastGracePeriod);
+		await SweepAsync(harness);
+
+		await harness.UsingAsync(async services =>
+			Assert.True(await services.GetRequiredService<MyloMailDbContext>().Messages.AnyAsync(m => m.Id == harness.MessageId))
+		);
+	}
+
 	[Fact]
 	public async Task A_message_with_an_undelivered_notification_is_not_collected()
 	{

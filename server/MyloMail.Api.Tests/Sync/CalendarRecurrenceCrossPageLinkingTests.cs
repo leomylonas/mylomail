@@ -70,6 +70,76 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 		}
 	}
 
+	[Fact]
+	public async Task An_absolute_legacy_CalDAV_resource_identity_is_normalized_and_updated_in_place()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var provider = new TwoPageCalendarProvider { MasterId = "/collection/item.ics" };
+		var services = new ServiceCollection()
+			.AddLogging()
+			.AddPersistence(database.Directory)
+			.AddSingleton<IMailProviderFactory>(new StubMailFactory())
+			.AddSingleton<ICalendarProviderFactory>(new StubCalendarFactory(provider))
+			.AddMutations()
+			.AddSync()
+			.BuildServiceProvider();
+		await using var _ = services;
+
+		var accountId = Guid.NewGuid();
+		var calendarId = Guid.NewGuid();
+		var legacyEventId = Guid.NewGuid();
+		var newerAliasEventId = Guid.NewGuid();
+		await using (var scope = services.CreateAsyncScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			context.Accounts.Add(new Account { Id = accountId, ProviderType = ProviderType.Imap });
+			context.Calendars.Add(new Calendar { Id = calendarId, AccountId = accountId, ProviderCalendarId = "calendar", Name = "Calendar" });
+			context.CalendarEvents.Add(
+				new CalendarEvent
+				{
+					Id = legacyEventId,
+					CalendarId = calendarId,
+					ProviderEventId = "https://calendar.example.test/collection/item.ics",
+					ICalUid = "series",
+					ProviderRevision = "old",
+					SyncConflict = true,
+				}
+			);
+			context.CalendarEvents.Add(
+				new CalendarEvent
+				{
+					Id = newerAliasEventId,
+					CalendarId = calendarId,
+					ProviderEventId = "/collection/item.ics",
+					ICalUid = "series",
+					ProviderRevision = "newer",
+				}
+			);
+			await context.SaveChangesAsync();
+		}
+
+		await using (var scope = services.CreateAsyncScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await scope.ServiceProvider.GetRequiredService<CalendarSyncService>()
+				.SynchronizeAsync(await context.Accounts.SingleAsync(row => row.Id == accountId));
+		}
+
+		await using (var scope = services.CreateAsyncScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var master = await context.CalendarEvents.SingleAsync(row => row.Id == legacyEventId);
+			Assert.Null(await context.CalendarEvents.FindAsync(newerAliasEventId));
+			Assert.Equal("/collection/item.ics", master.ProviderEventId);
+			Assert.Equal(2, await context.CalendarEvents.CountAsync());
+			Assert.Equal(
+				legacyEventId,
+				(await context.CalendarEvents.SingleAsync(row => row.ProviderEventId == "/collection/item.ics#override-1")).RecurrenceMasterId
+			);
+		}
+	}
+
 	/// <summary>
 	/// The mirror case: the override arrives on page 1, before its master exists anywhere
 	/// locally, so it must be resolved as a "waiting child" once the master lands on page 2 —
@@ -218,6 +288,8 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 		/// the ordinary cross-page master-lookup path.</summary>
 		public bool OverrideFirst { get; set; }
 
+		public string MasterId { get; set; } = "master";
+
 		public ProviderType Type => ProviderType.Imap;
 
 		public Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct) =>
@@ -233,7 +305,7 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 		{
 			var master = new CalendarEventDto
 			{
-				ProviderEventId = "master",
+				ProviderEventId = MasterId,
 				ICalUid = "series",
 				ProviderRevision = "etag-1",
 				Sequence = 3,
@@ -244,13 +316,13 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 			};
 			var overrideInstance = new CalendarEventDto
 			{
-				ProviderEventId = "master#override-1",
+				ProviderEventId = $"{MasterId}#override-1",
 				ICalUid = "series",
 				ProviderRevision = "etag-1",
 				Title = "Standup (moved)",
 				Start = DateTimeOffset.UnixEpoch.AddDays(1),
 				End = DateTimeOffset.UnixEpoch.AddDays(1).AddHours(1),
-				RecurrenceMasterProviderEventId = "master",
+				RecurrenceMasterProviderEventId = MasterId,
 			};
 
 			var firstItem = OverrideFirst ? overrideInstance : master;
@@ -263,8 +335,16 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 			return Task.FromResult(new CalendarSyncResult("token-2", null, [secondItem], []));
 		}
 
-		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
+		public Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
 			throw new NotSupportedException();
+
+		public Task<CalendarEventDto?> FindEventAsync(
+			Account account,
+			Calendar calendar,
+			string stableICalUid,
+			string providerCreationKey,
+			CancellationToken ct
+		) => Task.FromResult<CalendarEventDto?>(null);
 
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) =>
 			throw new NotSupportedException();
@@ -340,8 +420,16 @@ public sealed class CalendarRecurrenceCrossPageLinkingTests
 			return Task.FromResult(new CalendarSyncResult("token-2", null, [relinkedChild], []));
 		}
 
-		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
+		public Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) =>
 			throw new NotSupportedException();
+
+		public Task<CalendarEventDto?> FindEventAsync(
+			Account account,
+			Calendar calendar,
+			string stableICalUid,
+			string providerCreationKey,
+			CancellationToken ct
+		) => Task.FromResult<CalendarEventDto?>(null);
 
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) =>
 			throw new NotSupportedException();

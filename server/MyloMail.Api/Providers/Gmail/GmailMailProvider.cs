@@ -200,14 +200,15 @@ public sealed partial class GmailMailProvider(
 	public async Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
-		CancellationToken ct
+		CancellationToken ct,
+		int? maximumBytes = null
 	)
 	{
 		var service = await ServiceAsync(account, ct);
 		var request = service.Users.Messages.Get(UserId, occurrence.ProviderOccurrenceId);
 		request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Raw;
 		var message = await request.ExecuteThrottleAwareAsync(ct);
-		return new RawMessageResult(FromBase64Url(message.Raw));
+		return new RawMessageResult(FromBase64Url(message.Raw, maximumBytes));
 	}
 
 	public Task<AttachmentConstraints> GetAttachmentConstraintsAsync(Account account, CancellationToken ct) =>
@@ -361,11 +362,15 @@ public sealed partial class GmailMailProvider(
 			_ => SpecialUse.None,
 		};
 
-	private static byte[] FromBase64Url(string? value)
+	private static byte[] FromBase64Url(string? value, int? maximumBytes = null)
 	{
 		if (string.IsNullOrEmpty(value))
 		{
 			return [];
+		}
+		if (maximumBytes is { } maximum && value.Length > (long)maximum * 4 / 3 + 4)
+		{
+			throw new InvalidOperationException($"Provider content exceeds the {maximum}-byte limit.");
 		}
 
 		var padded = value.Replace('-', '+').Replace('_', '/');

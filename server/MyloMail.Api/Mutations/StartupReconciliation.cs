@@ -18,19 +18,19 @@ public sealed record OutstandingWork(
 	IReadOnlyList<Guid> AmbiguousAttempts,
 	IReadOnlyList<Guid> UnfetchedContentMessages,
 	IReadOnlyList<Guid> PendingSends,
-	IReadOnlyList<Guid> UnresolvedSends
+	IReadOnlyList<Guid> UnresolvedSends,
+	IReadOnlyList<Guid> IncompleteExports,
+	IReadOnlyList<Guid> DraftAccountsNeedingPush,
+	IReadOnlyList<Guid> PendingCalendarCreationAccounts,
+	IReadOnlyList<Guid> UndeliveredNotificationAccounts
 );
 
 public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvider clock, ILogger<StartupReconciliation> logger)
 {
 	/// <summary>
-	/// Enumerates every source of outstanding work this build has tables for.
+	/// Enumerates every durable source of outstanding work. Job storage is in-memory, so an
+	/// omitted table would become permanently inert after a process restart.
 	/// </summary>
-	/// <remarks>
-	/// Export and notification sources from §6's table are still absent because those tables
-	/// do not exist yet. They are listed in the handoff rather than silently omitted: an
-	/// under-enumerated sweep is exactly the failure this class exists to prevent.
-	/// </remarks>
 	public async Task<OutstandingWork> FindAsync(CancellationToken ct = default)
 	{
 		var backfilling = await context
@@ -63,6 +63,23 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			.Select(c => c.MessageId)
 			.ToListAsync(ct);
 
+		// Compared in memory: SQLite does not order or compare DateTimeOffset values reliably.
+		// A durable draft whose last push predates its saved revision is outstanding work just as
+		// a queued outbox item is; in-memory Hangfire has no other way to recover it.
+		var draftAccounts = (
+			await context.Drafts.Where(draft => !draft.SyncConflict).ToListAsync(ct)
+		)
+			.Where(draft => draft.PushedAt is null || draft.PushedAt < draft.SavedAt)
+			.Select(draft => draft.AccountId)
+			.Distinct()
+			.ToList();
+
+		var calendarCreationAccounts = await (
+			from attempt in context.CalendarCreationAttempts
+			join calendar in context.Calendars on attempt.CalendarId equals calendar.Id
+			select calendar.AccountId
+		).Distinct().ToListAsync(ct);
+
 		// Scheduled sends waiting for their undo window. With in-memory job storage the
 		// Hangfire job is gone, so this is the only thing that makes a pending send survive
 		// a restart.
@@ -78,19 +95,47 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			.Select(o => o.Id)
 			.ToListAsync(ct);
 
+		var exports = await context
+			.ExportJobs.Where(job => job.Status == ExportJobStatus.Running || job.Status == ExportJobStatus.CancelRequested)
+			.Select(job => job.Id)
+			.ToListAsync(ct);
+
+		var notificationAccounts = await context
+			.NotificationRecords.Where(record => record.DeliveredAt == null)
+			.Select(record => record.AccountId)
+			.Distinct()
+			.ToListAsync(ct);
+
 		logger.LogInformation(
 			"Startup reconciliation found {Backfills} backfills, {Chains} non-terminal mutations, "
-				+ "{Ambiguous} unresolved attempts, {Content} unfetched messages, {Pending} pending sends, "
-				+ "{Unresolved} sends awaiting reconciliation.",
+				+ "{Ambiguous} unresolved attempts, {Content} unfetched messages, {Drafts} accounts with drafts to push, "
+				+ "{CalendarCreations} accounts with calendar creates to reconcile, {Pending} pending sends, "
+				+ "{Unresolved} sends awaiting reconciliation, {Exports} incomplete exports, and "
+				+ "{Notifications} accounts with undelivered notifications.",
 			backfilling.Count,
 			chains.Count,
 			ambiguous.Count,
 			content.Count,
+			draftAccounts.Count,
+			calendarCreationAccounts.Count,
 			pendingSends.Count,
-			unresolvedSends.Count
+			unresolvedSends.Count,
+			exports.Count,
+			notificationAccounts.Count
 		);
 
-		return new OutstandingWork(backfilling, chains, ambiguous, content, pendingSends, unresolvedSends);
+		return new OutstandingWork(
+			backfilling,
+			chains,
+			ambiguous,
+			content,
+			pendingSends,
+			unresolvedSends,
+			exports,
+			draftAccounts,
+			calendarCreationAccounts,
+			notificationAccounts
+		);
 	}
 
 	/// <summary>

@@ -81,4 +81,4 @@ public record AttachmentConstraints(
 /// The server-side id and revision after creating or updating a draft. The revision is what
 /// the next update passes as its expected value, making detect-don't-merge enforceable (§1).
 /// </summary>
-public record DraftResult(string ProviderDraftId, string? ProviderRevision);
+public record DraftResult(string ProviderDraftId, string? ProviderRevision, string? ProviderMessageId = null);

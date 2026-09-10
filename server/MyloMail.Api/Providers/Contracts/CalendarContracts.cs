@@ -4,6 +4,9 @@ namespace MyloMail.Api.Providers.Contracts;
 
 public record CalendarDto(string ProviderCalendarId, string Name, string? Colour, bool IsDefault);
 
+/// <summary>Provider identity, revision, and server-owned iCalendar UID returned by creation.</summary>
+public record CalendarEventCreation(string ProviderEventId, string? ProviderRevision, string? ICalUid = null);
+
 /// <summary>
 /// One page of calendar change. As with mail, a cursor is returned only once it covers
 /// everything in this result and everything before it; <see cref="Continuation"/> resumes an
@@ -27,6 +30,12 @@ public record CalendarEventDto
 {
 	public required string ProviderEventId { get; init; }
 	public required string ICalUid { get; init; }
+
+	/// <summary>
+	/// A provider-specific idempotency key during initial creation: Google event id or Graph
+	/// transaction id. Never persisted on the canonical event (§6).
+	/// </summary>
+	public string? ProviderCreationKey { get; init; }
 	public string? ProviderRevision { get; init; }
 	public int Sequence { get; init; }
 

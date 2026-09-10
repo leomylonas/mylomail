@@ -88,7 +88,8 @@ public interface IMailProvider
 	Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
-		CancellationToken ct
+		CancellationToken ct,
+		int? maximumBytes = null
 	);
 
 	Task<AttachmentConstraints> GetAttachmentConstraintsAsync(Account account, CancellationToken ct);
@@ -158,7 +159,25 @@ public interface IMailProvider
 		CancellationToken ct
 	);
 
-	Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct);
+	/// <summary>
+	/// Finds a remotely-created draft by the local RFC 5322 id persisted before dispatch. Used
+	/// only to reconcile an initial creation whose provider response was lost to a crash.
+	/// <paramref name="maximumBytes"/> bounds any provider-side MIME inspection required to
+	/// identify the draft.
+	/// </summary>
+	Task<DraftResult?> FindDraftAsync(
+		Account account,
+		string stableMessageId,
+		CancellationToken ct,
+		int? maximumBytes = null
+	);
+
+	/// <summary>
+	/// Deletes a remote draft only when it still matches the revision that selected it. The
+	/// precondition prevents a stale IMAP UID from deleting a different draft after UIDVALIDITY
+	/// changes, and preserves detect-don't-merge behavior for every provider.
+	/// </summary>
+	Task DeleteDraftAsync(Account account, string providerDraftId, string? expectedRevision, CancellationToken ct);
 
 	Task<MailboxDto> CreateMailboxAsync(
 		Account account,
@@ -190,11 +209,14 @@ public interface IMailProvider
 		Mailbox? newParent,
 		CancellationToken ct
 	);
+	/// <summary>Resolves a draft-container identity from an observed underlying message id.</summary>
+	Task<DraftResult?> FindDraftByMessageIdAsync(Account account, string providerMessageId, CancellationToken ct);
 
 	/// <summary>
 	/// Deletion is provider-divergent and the divergence must be surfaced, not hidden:
 	/// deleting an IMAP folder or Graph mail folder deletes the messages in it, whereas
 	/// deleting a Gmail label leaves the messages in All Mail. Callers read
+
 	/// <see cref="ProviderCapabilities.DeletingMailboxDeletesMessages"/> to state the actual
 	/// outcome (§2).
 	/// </summary>

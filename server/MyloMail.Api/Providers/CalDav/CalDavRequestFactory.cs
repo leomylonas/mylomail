@@ -34,6 +34,13 @@ public sealed class CalDavRequestFactory(ICredentialStore credentials)
 			throw new ProviderNotConfiguredException(ProviderType.Imap, "CalDAV endpoint configuration");
 		}
 
+		var endpoint = new Uri(config.Endpoint);
+		var resolvedTarget = target ?? endpoint;
+		if (!endpoint.IsBaseOf(resolvedTarget))
+		{
+			throw new InvalidOperationException("CalDAV resource target is outside the configured endpoint.");
+		}
+
 		var slot = config.CredentialSource == CredentialSource.ReuseImap
 			? CredentialSlots.Primary
 			: CredentialSlots.CalDav;
@@ -46,7 +53,7 @@ public sealed class CalDavRequestFactory(ICredentialStore credentials)
 			throw new ProviderNotConfiguredException(ProviderType.Imap, $"a '{expectedFormat}' CalDAV credential");
 		}
 
-		var request = new HttpRequestMessage(method, target ?? new Uri(config.Endpoint));
+		var request = new HttpRequestMessage(method, resolvedTarget);
 		var raw = Encoding.UTF8.GetBytes($"{config.UserName}:{Encoding.UTF8.GetString(stored.Data)}");
 		request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(raw));
 		return request;

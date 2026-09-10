@@ -37,6 +37,7 @@ public sealed class FakeMailProvider : IMailProvider
 	private Exception? listMailboxesFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
+	private readonly Dictionary<string, DraftResult> draftsByStableMessageId = [];
 	private MutationProblemDetails? authFailureProblem;
 	private long occurrenceSequence;
 
@@ -297,7 +298,8 @@ public sealed class FakeMailProvider : IMailProvider
 	public Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
-		CancellationToken ct
+		CancellationToken ct,
+		int? maximumBytes = null
 	)
 	{
 		if (fetchRawMessageFailure is Exception failure)
@@ -306,10 +308,13 @@ public sealed class FakeMailProvider : IMailProvider
 			throw failure;
 		}
 
-		var found = Locate(occurrence.ProviderOccurrenceId);
-		return found is null
-			? throw new InvalidOperationException("no such occurrence")
-			: Task.FromResult(new RawMessageResult(found.Value.Message.RawBytes));
+		var found = Locate(occurrence.ProviderOccurrenceId)
+			?? throw new InvalidOperationException("no such occurrence");
+		if (maximumBytes is { } maximum && found.Message.RawBytes.Length > maximum)
+		{
+			throw new InvalidOperationException($"Provider content exceeds the {maximum}-byte limit.");
+		}
+		return Task.FromResult(new RawMessageResult(found.Message.RawBytes));
 	}
 
 	public AttachmentConstraints AttachmentConstraintsToReturn { get; set; } =
@@ -539,14 +544,30 @@ public sealed class FakeMailProvider : IMailProvider
 				throw failure;
 			}
 		}
-		return Task.FromResult(new DraftResult(providerId, "rev-1"));
+		var result = new DraftResult(providerId, "rev-1", providerId);
+		if (draft.StableMessageId is { } stableMessageId)
+		{
+			draftsByStableMessageId[stableMessageId] = result;
+		}
+		return Task.FromResult(result);
 	}
 
-	public Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct)
+	public Task<DraftResult?> FindDraftAsync(
+		Account account,
+		string stableMessageId,
+		CancellationToken ct,
+		int? maximumBytes = null
+	) => Task.FromResult(draftsByStableMessageId.GetValueOrDefault(stableMessageId));
+
+	public Task<DraftResult?> FindDraftByMessageIdAsync(Account account, string providerMessageId, CancellationToken ct) =>
+		Task.FromResult(draftsByStableMessageId.Values.SingleOrDefault(d => d.ProviderMessageId == providerMessageId));
+
+	public Task DeleteDraftAsync(Account account, string providerDraftId, string? expectedRevision, CancellationToken ct)
 	{
 		if (deleteDraftFailure is Exception failure)
 		{
 			deleteDraftFailure = null;
+
 			throw failure;
 		}
 		return Task.CompletedTask;

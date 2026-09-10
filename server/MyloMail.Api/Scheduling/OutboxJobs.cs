@@ -15,10 +15,33 @@ namespace MyloMail.Api.Scheduling;
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
 /// <summary>Pushes an account's dirty drafts to the server.</summary>
 [AutomaticRetry(Attempts = 0)]
-public sealed class DraftJobs(DraftSyncService drafts)
+public sealed class DraftJobs(DraftSyncService drafts, MyloMailDbContext context, IBackgroundJobClient jobs)
 {
-	public Task PushAsync(Guid accountId, CancellationToken ct = default) =>
-		drafts.PushAsync(accountId, ct);
+	public async Task PushAsync(Guid accountId, CancellationToken ct = default)
+	{
+		try
+		{
+			await drafts.PushAsync(accountId, ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), TimeSpan.FromMinutes(1));
+			return;
+		}
+
+		var draftsRemain = (
+			await context.Drafts.Where(draft => draft.AccountId == accountId && !draft.SyncConflict).ToListAsync(ct)
+		).Any(draft => draft.PushedAt is null || draft.PushedAt < draft.SavedAt);
+		if (draftsRemain)
+		{
+			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), TimeSpan.FromMinutes(1));
+		}
+	}
 }
 
 /// <summary>Requests a draft push, so a save reaches the server without waiting for a restart.</summary>

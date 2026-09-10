@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Microsoft.Extensions.Options;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
@@ -93,7 +94,7 @@ public sealed class CalDavLiveTests
 			End = DateTimeOffset.UtcNow.AddDays(1).Date.AddHours(1),
 			Status = EventStatus.Confirmed,
 		};
-		var href = await provider.CreateEventAsync(account, calendar, created, default);
+		var href = (await provider.CreateEventAsync(account, calendar, created, default)).ProviderEventId;
 
 		// A real sync-collection REPORT, not a fake's canned page: proves the provider's
 		// parsing matches what this server actually sends back for a newly created event.
@@ -383,6 +384,7 @@ public sealed class CalDavLiveTests
 		};
 
 		var factory = new CalendarProviderFactory(
+			Options.Create(new ProviderClientOptions()),
 			credentials,
 			new UnusedMailProviderFactory(),
 			new EmptyTrustedCertificateStore()

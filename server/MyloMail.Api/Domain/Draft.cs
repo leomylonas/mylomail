@@ -46,10 +46,27 @@ public class Draft
 	public string? ProviderDraftId { get; set; }
 
 	/// <summary>
+	/// The underlying provider message identity. Gmail draft APIs address the enclosing draft
+	/// with <see cref="ProviderDraftId"/>, but draft mailbox observations and raw MIME fetches
+	/// address its message; other providers use the same value for both.
+	/// </summary>
+	public string? ProviderMessageId { get; set; }
+
+	/// <summary>
 	/// ETag or revision the local state was based on. Required for detect-don't-merge
 	/// conflict handling — without it the guarantee is unenforceable (§1, §15).
 	/// </summary>
 	public string? ProviderRevision { get; set; }
+
+	/// <summary>
+	/// The locally generated RFC 5322 message id used to reconcile an ambiguous initial remote
+	/// draft creation. Unlike a provider draft id, it exists before dispatch and remains stable
+	/// across a crash before the provider response is persisted (§6).
+	/// </summary>
+	public string? StableMessageId { get; set; }
+
+	/// <summary>The exact saved revision sent by an initial draft-creation attempt.</summary>
+	public DateTimeOffset? PushDispatchedForSavedAt { get; set; }
 
 	/// <summary>
 	/// The address this draft sends from, resolved at send time from its

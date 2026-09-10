@@ -61,10 +61,10 @@ public record MessageDto
 	public bool IsAnswered { get; init; }
 
 	/// <summary>
-	/// Deliberately not <c>HasAttachments</c>: inline signature images are MIME
-	/// attachments, so a naive flag would show a paperclip on almost every corporate email.
+	/// Null when the provider's list observation cannot establish attachment state; an existing
+	/// MIME-derived value must then remain authoritative (§1).
 	/// </summary>
-	public bool HasNonInlineAttachments { get; init; }
+	public bool? HasNonInlineAttachments { get; init; }
 
 	public long? SizeEstimate { get; init; }
 }

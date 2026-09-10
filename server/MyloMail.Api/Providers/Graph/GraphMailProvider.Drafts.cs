@@ -21,7 +21,7 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		var message = ToDraftMessage(draft);
+		var message = ToDraftMessage(draft, draft.StableMessageId);
 
 		if (expectedRevision is null || draft.ProviderDraftId is null)
 		{
@@ -48,26 +48,71 @@ public sealed partial class GraphMailProvider
 		}
 	}
 
-	public async Task DeleteDraftAsync(Account account, string providerDraftId, CancellationToken ct)
+	public async Task<DraftResult?> FindDraftAsync(
+		Account account,
+		string stableMessageId,
+		CancellationToken ct,
+		int? maximumBytes = null
+	)
+	{
+		var client = await ClientAsync(account, ct);
+		var page = await ThrottleAwareAsync(() => client.Me.Messages.GetAsync(
+			configuration =>
+			{
+				configuration.QueryParameters.Filter =
+					$"internetMessageId eq '{stableMessageId.Replace("'", "''", StringComparison.Ordinal)}' and isDraft eq true";
+				configuration.QueryParameters.Select = ["id", "@odata.etag", "isDraft"];
+			},
+			ct
+		));
+		var found = page?.Value?.SingleOrDefault();
+		return found?.Id is null ? null : DraftResultOf(found);
+	}
+
+	public async Task<DraftResult?> FindDraftByMessageIdAsync(Account account, string providerMessageId, CancellationToken ct)
+	{
+		var client = await ClientAsync(account, ct);
+		var message = await ThrottleAwareAsync(() => client.Me.Messages[providerMessageId].GetAsync(
+			configuration => configuration.QueryParameters.Select = ["id", "@odata.etag", "isDraft"],
+			ct
+		));
+		return message?.IsDraft == true ? DraftResultOf(message) : null;
+	}
+
+	public async Task DeleteDraftAsync(Account account, string providerDraftId, string? expectedRevision, CancellationToken ct)
 	{
 		var client = await ClientAsync(account, ct);
 		try
 		{
-			await ThrottleAwareAsync(() => client.Me.Messages[providerDraftId].DeleteAsync(null, ct));
+			await ThrottleAwareAsync(() => client.Me.Messages[providerDraftId].DeleteAsync(
+				configuration =>
+				{
+					if (expectedRevision is not null)
+					{
+						configuration.Headers.Add("If-Match", expectedRevision);
+					}
+				},
+				ct
+			));
 		}
 		catch (ApiException ex) when (ex.ResponseStatusCode == 404)
 		{
 			// Already gone — deleting it again is not a failure.
 		}
+		catch (ApiException ex) when (ex.ResponseStatusCode == 412)
+		{
+			throw new ProviderConflictException("This draft was changed somewhere else since it was opened.");
+		}
 	}
 
-	private static GraphMessage ToDraftMessage(Draft draft) =>
+	private static GraphMessage ToDraftMessage(Draft draft, string? stableMessageId = null) =>
 		new()
 		{
 			ToRecipients = [.. draft.To.Select(ToRecipient)],
 			CcRecipients = [.. draft.Cc.Select(ToRecipient)],
 			BccRecipients = [.. draft.Bcc.Select(ToRecipient)],
 			Subject = draft.Subject,
+			InternetMessageId = stableMessageId,
 			Body = new Microsoft.Graph.Models.ItemBody
 			{
 				ContentType = Microsoft.Graph.Models.BodyType.Html,
@@ -78,6 +123,7 @@ public sealed partial class GraphMailProvider
 	private static DraftResult DraftResultOf(GraphMessage? message, string? fallbackId = null) =>
 		new(
 			message?.Id ?? fallbackId ?? throw new InvalidOperationException("Graph did not return a draft id."),
-			message?.AdditionalData?.TryGetValue("@odata.etag", out var etag) == true ? etag as string : null
+			message?.AdditionalData?.TryGetValue("@odata.etag", out var etag) == true ? etag as string : null,
+			message?.Id ?? fallbackId
 		);
 }

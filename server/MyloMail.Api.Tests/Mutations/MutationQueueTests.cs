@@ -221,6 +221,36 @@ public sealed class MutationQueueTests
 	}
 
 	/// <summary>
+	/// Tombstone collection and enqueue are independent transactions. Rechecking existence inside
+	/// the enqueue write transaction ensures a collection that commits first produces a visible
+	/// rejection rather than a durable mutation with no canonical message to execute (§6).
+	/// </summary>
+	[Fact]
+	public async Task Enqueueing_after_a_message_was_collected_is_rejected()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Messages.Remove(await context.Messages.SingleAsync(message => message.Id == harness.MessageId));
+			await context.SaveChangesAsync();
+		});
+
+		var error = await harness.UsingAsync(async services =>
+			await Assert.ThrowsAsync<HubException>(() =>
+				services
+					.GetRequiredService<MutationQueue>()
+					.SetFlagsAsync(harness.AccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null))
+			)
+		);
+
+		Assert.Contains("no longer exists", error.Message);
+		await harness.UsingAsync(async services =>
+			Assert.Empty(await services.GetRequiredService<MyloMailDbContext>().MutationItems.ToListAsync())
+		);
+	}
+
+	/// <summary>
 	/// Seventy-third pass: the same gap, one level further in. <see cref="MutationExecutor"/>'s
 	/// MoveMessage branch resolves the destination by <see cref="MutationItem.TargetMailboxId"/>
 	/// alone (no AccountId filter), so a mismatched pair would hand a foreign account's

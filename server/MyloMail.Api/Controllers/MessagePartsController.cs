@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
+using MyloMail.Api.Content;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Controllers;
@@ -37,6 +38,7 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 
 		using var stream = new MemoryStream(raw.Content);
 		var mime = await MimeMessage.LoadAsync(stream, ct);
+		MimeStructureValidator.Validate(mime);
 
 		var wanted = contentId.Trim('<', '>');
 		var part = mime

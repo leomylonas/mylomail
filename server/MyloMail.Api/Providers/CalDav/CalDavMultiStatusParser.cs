@@ -1,3 +1,4 @@
+using System.Xml;
 using System.Xml.Linq;
 
 namespace MyloMail.Api.Providers.CalDav;
@@ -5,6 +6,9 @@ namespace MyloMail.Api.Providers.CalDav;
 /// <summary>Parses successful WebDAV multi-status properties without binding to a server brand.</summary>
 internal static class CalDavMultiStatusParser
 {
+	private const int MaximumResponses = 4096;
+	private const int MaximumXmlDepth = 64;
+
 	private static readonly XNamespace Dav = CalDavWebDavRequest.DavNamespace;
 	private static readonly XNamespace CalDav = CalDavWebDavRequest.CalDavNamespace;
 
@@ -14,13 +18,17 @@ internal static class CalDavMultiStatusParser
 	/// been applied.
 	/// </summary>
 	public static string? SyncToken(string xml) =>
-		XDocument.Parse(xml, LoadOptions.None).Root?.Element(Dav + "sync-token")?.Value;
+		ParseDocument(xml).Root?.Element(Dav + "sync-token")?.Value;
 
 	public static IReadOnlyList<CalDavResponse> Parse(string xml)
 	{
-		var document = XDocument.Parse(xml, LoadOptions.None);
-		return document
-			.Descendants(Dav + "response")
+		var document = ParseDocument(xml);
+		var responses = document.Descendants(Dav + "response").Take(MaximumResponses + 1).ToList();
+		if (responses.Count > MaximumResponses)
+		{
+			throw new InvalidOperationException($"CalDAV multi-status exceeds the {MaximumResponses}-response limit.");
+		}
+		return responses
 			.Select(response =>
 			{
 				var successful = response
@@ -38,6 +46,27 @@ internal static class CalDavMultiStatusParser
 				);
 			})
 			.ToList();
+	}
+
+	private static XDocument ParseDocument(string xml)
+	{
+		using var reader = XmlReader.Create(
+			new StringReader(xml),
+			new XmlReaderSettings
+			{
+				DtdProcessing = DtdProcessing.Prohibit,
+				XmlResolver = null,
+				MaxCharactersInDocument = xml.Length,
+			}
+		);
+		while (reader.Read())
+		{
+			if (reader.Depth > MaximumXmlDepth)
+			{
+				throw new InvalidOperationException($"CalDAV multi-status exceeds the {MaximumXmlDepth}-level XML depth limit.");
+			}
+		}
+		return XDocument.Parse(xml, LoadOptions.None);
 	}
 }
 

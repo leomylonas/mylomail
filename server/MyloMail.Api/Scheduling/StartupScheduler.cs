@@ -64,6 +64,14 @@ public sealed class StartupScheduler(
 				jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
 			}
 			jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
+			if (work.DraftAccountsNeedingPush.Contains(accountId))
+			{
+				jobs.Enqueue<DraftJobs>(j => j.PushAsync(accountId, default));
+			}
+			if (work.PendingCalendarCreationAccounts.Contains(accountId))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default));
+			}
 
 			// A message left Queued/Fetching by the crash has no other path back onto the queue:
 			// ContentJobs.FetchNextAsync only self-schedules its own successor while content
@@ -84,11 +92,10 @@ public sealed class StartupScheduler(
 			// anything new goes out.
 			jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 
-			// A notification recorded but not yet confirmed delivered may never have reached
-			// the OS — the crash could have landed on either side of that gap. Re-announcing
-			// it is the recovery path §13 Epic 9 calls for: a possible duplicate, never a
-			// silently dropped notification.
-			await notifications.RedispatchPendingAsync(accountId, ct);
+			if (work.UndeliveredNotificationAccounts.Contains(accountId))
+			{
+				await notifications.RedispatchPendingAsync(accountId, ct);
+			}
 		}
 
 		foreach (var mailboxId in work.BackfillingMailboxes)
@@ -105,14 +112,9 @@ public sealed class StartupScheduler(
 		}
 
 		// Job storage is in-memory, so an export batch mid-walk when the process died is not
-		// running anywhere any more — resumed from its own persisted progress (§6 table), not
-		// restarted from the beginning.
-		var exports = await context
-			.ExportJobs.Where(j => j.Status == ExportJobStatus.Running)
-			.Select(j => j.Id)
-			.ToListAsync(ct);
-
-		foreach (var exportId in exports)
+		// running anywhere any more — resumed from the durable startup inventory, not restarted
+		// from the beginning (§6).
+		foreach (var exportId in work.IncompleteExports)
 		{
 			jobs.Enqueue<ExportJobs>(j => j.RunBatchAsync(exportId, default));
 		}
@@ -157,5 +159,9 @@ public sealed class StartupScheduler(
 		}
 		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 		jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
+		// Reauthentication restores provider access to every durable draft save too. The job
+		// no-ops when none is dirty, which is preferable to leaving a crash-lost dispatch inert.
+		jobs.Enqueue<DraftJobs>(j => j.PushAsync(accountId, default));
+		jobs.Enqueue<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default));
 	}
 }

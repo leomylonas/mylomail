@@ -86,7 +86,42 @@ public class CalendarEvent
 	public bool SyncConflict { get; set; }
 }
 
-public record Attendee(string? Name, string Email, AttendeeRole Role, ResponseStatus ResponseStatus);
+/// <summary>
+/// The durable local intent for a calendar event whose initial provider creation has not yet
+/// been conclusively materialised. It keeps the canonical <see cref="CalendarEvent"/> free of
+/// invented provider identity while carrying a stable UID for ambiguity reconciliation (§6).
+/// </summary>
+public class CalendarCreationAttempt
+{
+	public Guid Id { get; set; }
+	/// <summary>
+	/// Provider-safe idempotency/recovery key. It is distinct from the RFC 5545 UID because
+	/// Google and Graph do not permit clients to set that server-owned field.
+	/// </summary>
+	public string ProviderCreationKey { get; set; } = string.Empty;
+	public Guid CalendarId { get; set; }
+	public string ICalUid { get; set; } = string.Empty;
+	public string Title { get; set; } = string.Empty;
+	public string? Location { get; set; }
+	public string? Description { get; set; }
+	public DateTimeOffset Start { get; set; }
+	public DateTimeOffset End { get; set; }
+	public bool IsAllDay { get; set; }
+
+	/// <summary>
+	/// Committed immediately before the irreversible provider call. Its existence is evidence
+	/// only that the remote outcome may be ambiguous; empty recovery is never a replay permit.
+	/// </summary>
+	public DateTimeOffset DispatchedAt { get; set; }
+}
+
+public record Attendee(
+	string? Name,
+	string Email,
+	AttendeeRole Role,
+	ResponseStatus ResponseStatus,
+	DateTimeOffset? ResponseTimestamp = null
+);
 
 [TranspilationSource]
 public enum AttendeeRole

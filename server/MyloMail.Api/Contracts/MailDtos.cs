@@ -396,7 +396,11 @@ public record MessageInviteDto(
 	DateTimeOffset End,
 	bool IsAllDay,
 	Address? Organizer,
-	InviteResponse? MyResponseStatus
+	InviteResponse? MyResponseStatus,
+	bool IsReply = false,
+	string? ReplyingAddress = null,
+	InviteResponse? ClaimedResponse = null,
+	bool RequiresManualReview = false
 );
 
 /// <summary>

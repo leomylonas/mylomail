@@ -93,4 +93,25 @@ public sealed class RemoteDraftMaterializerAttachmentTests
 		Assert.False(attachment.IsInline);
 		Assert.Equal("report.pdf", attachment.Filename);
 	}
+
+	[Fact]
+	public void A_remote_draft_with_too_many_attachment_parts_is_rejected_before_materialization()
+	{
+		var multipart = new Multipart("mixed") { new TextPart("plain") { Text = "Body" } };
+		for (var i = 0; i < 513; i++)
+		{
+			multipart.Add(
+				new MimePart("application", "octet-stream")
+				{
+					Content = new MimeContent(new MemoryStream([1])),
+					ContentTransferEncoding = ContentEncoding.Base64,
+					FileName = $"part-{i}",
+					ContentDisposition = new ContentDisposition(ContentDisposition.Attachment),
+				}
+			);
+		}
+		var mime = new MimeMessage { Body = multipart };
+
+		Assert.Throws<InvalidOperationException>(() => RemoteDraftMaterializer.Attachments(mime).ToList());
+	}
 }

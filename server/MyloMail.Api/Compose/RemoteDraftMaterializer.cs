@@ -21,6 +21,11 @@ namespace MyloMail.Api.Compose;
 /// </remarks>
 public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProviderFactory providers)
 {
+	internal const int MaximumRawDraftBytes = 160 * 1024 * 1024;
+	private const int MaximumRemoteDraftPageBytes = 160 * 1024 * 1024;
+	private const int MaximumDraftAttachmentCount = 512;
+	private const int MaximumMimeEntities = 4096;
+	private const int MaximumMimeDepth = 32;
 	public async Task<IReadOnlyList<RemoteDraftPayload>> PrepareAsync(
 		Account account,
 		IReadOnlyList<MessageDto> messages,
@@ -30,6 +35,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 	{
 		var provider = providers.For(account);
 		var drafts = new List<RemoteDraftPayload>();
+		var totalRawBytes = 0L;
 
 		foreach (var message in messages)
 		{
@@ -42,17 +48,22 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 				continue;
 			}
 
-			var providerDraftId = message.ProviderStableId ?? occurrence.ProviderOccurrenceId;
+			var providerMessageId = occurrence.ProviderOccurrenceId;
+			var providerDraftId = message.ProviderStableId ?? providerMessageId;
 			var providerRevision = message.ProviderRevision;
 			if (providerRevision is null)
 			{
-				// A remotely materialised draft is considered clean. Without the revision it was
-				// read at, the next local edit could overwrite a concurrent server edit, so this
-				// page is incomplete. It must fail before its coverage token or change cursor is
-				// committed; silently dropping it would make that loss permanent (§3).
-				throw new InvalidOperationException(
-					$"Provider returned draft {providerDraftId} without its required revision."
-				);
+				throw new InvalidOperationException($"Provider returned draft {providerDraftId} without its required revision.");
+			}
+
+			if (account.ProviderType == ProviderType.Gmail)
+			{
+				// Gmail mailbox observations and MIME fetches use message IDs; draft writes
+				// use an enclosing draft container. Resolve that container before staging,
+				// without treating nullable/non-unique RFC Message-ID metadata as identity.
+				var container = await provider.FindDraftByMessageIdAsync(account, providerMessageId, ct)
+					?? throw new InvalidOperationException("The observed Gmail draft disappeared before its container identity was resolved.");
+				providerDraftId = container.ProviderDraftId;
 			}
 			if (drafts.Any(d => d.ProviderDraftId == providerDraftId))
 			{
@@ -61,18 +72,30 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 
 			var raw = await provider.FetchRawMessageAsync(
 				account,
-				new MessageOccurrenceRef(Guid.Empty, mailbox.Id, occurrence.ProviderOccurrenceId),
-				ct
+				new MessageOccurrenceRef(Guid.Empty, mailbox.Id, providerMessageId),
+				ct,
+				MaximumRawDraftBytes
 			);
-			drafts.Add(
-				new RemoteDraftPayload(
-					occurrence.ProviderMailboxId,
-					providerDraftId,
-					providerRevision,
-					message.ReceivedAt,
-					raw.RawBytes
-				)
-			);
+			if (totalRawBytes + raw.RawBytes.Length > MaximumRemoteDraftPageBytes)
+			{
+				throw new InvalidOperationException($"Provider draft page exceeds the {MaximumRemoteDraftPageBytes}-byte raw MIME limit.");
+			}
+			ValidateRawBytes(raw.RawBytes);
+			totalRawBytes += raw.RawBytes.Length;
+			using (var stream = new MemoryStream(raw.RawBytes))
+			{
+				var mime = await MimeMessage.LoadAsync(stream, ct);
+				EnsureMimeStructure(mime);
+				EnsureAttachmentCount(mime);
+			}
+			drafts.Add(new RemoteDraftPayload(
+				occurrence.ProviderMailboxId,
+				providerDraftId,
+				providerMessageId,
+				providerRevision,
+				message.ReceivedAt,
+				raw.RawBytes
+			));
 		}
 
 		return drafts;
@@ -96,21 +119,59 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 				continue;
 			}
 
+			var providerMessageId = payload.ProviderMessageId ?? payload.ProviderDraftId;
+			var isLegacyGmailPayload =
+				account.ProviderType == ProviderType.Gmail && string.IsNullOrEmpty(payload.ProviderMessageId);
 			var draft = await context.Drafts.FirstOrDefaultAsync(
-				d => d.AccountId == account.Id && d.ProviderDraftId == payload.ProviderDraftId,
+				d => d.AccountId == account.Id
+					&& (
+						d.ProviderDraftId == payload.ProviderDraftId
+						|| d.ProviderMessageId == providerMessageId
+						|| (d.ProviderMessageId == null && d.ProviderDraftId == providerMessageId)
+					),
 				ct
 			);
-			if (draft is not null && draft.PushedAt is not null && draft.PushedAt < draft.SavedAt)
+			if (draft is not null && (draft.SyncConflict || (draft.PushedAt is not null && draft.PushedAt < draft.SavedAt)))
 			{
 				// Local intent is newer. Do not replace it with a server copy that was observed
 				// concurrently; merging authoring documents would manufacture a third version.
+				if (!isLegacyGmailPayload)
+				{
+					draft.ProviderDraftId = payload.ProviderDraftId;
+					draft.ProviderMessageId = providerMessageId;
+					draft.ProviderRevision = payload.ProviderRevision;
+				}
 				draft.SyncConflict = true;
 				changed.Add(draft.Id);
 				continue;
 			}
 
+			ValidateRawBytes(payload.RawBytes);
 			using var stream = new MemoryStream(payload.RawBytes);
 			var mime = await MimeMessage.LoadAsync(stream, ct);
+			EnsureMimeStructure(mime);
+			EnsureAttachmentCount(mime);
+			if (draft is null && mime.Headers[HeaderId.MessageId] is { Length: > 0 } stableMessageId)
+			{
+				// An initial create may have reached the server before its response committed.
+				// Bind that observed remote identity to the original local authoring document
+				// instead of creating a competing local draft owner (§1, §6).
+				draft = await context.Drafts.FirstOrDefaultAsync(
+					d => d.AccountId == account.Id && d.ProviderDraftId == null && d.StableMessageId == stableMessageId,
+					ct
+				);
+				if (draft is not null)
+				{
+					draft.ProviderDraftId = isLegacyGmailPayload ? null : payload.ProviderDraftId;
+					draft.ProviderMessageId = providerMessageId;
+					draft.ProviderRevision = payload.ProviderRevision;
+					draft.PushedAt = payload.SavedAt;
+					draft.PushDispatchedForSavedAt = null;
+					draft.SyncConflict = true;
+					changed.Add(draft.Id);
+					continue;
+				}
+			}
 			if (draft is null)
 			{
 				draft = new Draft
@@ -123,6 +184,16 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 			}
 
 			Apply(mime, payload, draft);
+			if (isLegacyGmailPayload)
+			{
+				// Older staged Gmail payloads recorded the underlying message id in the only
+				// identity slot. The enclosing Draft id cannot be reconstructed inside this
+				// page transaction, so retain the observed content as an explicit conflict
+				// rather than falsely addressing a later write/delete to that message id.
+				draft.ProviderDraftId = null;
+				draft.ProviderMessageId = providerMessageId;
+				draft.SyncConflict = true;
+			}
 			changed.Add(draft.Id);
 		}
 
@@ -148,7 +219,11 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 			}
 
 			var draft = await context.Drafts.FirstOrDefaultAsync(
-				d => d.AccountId == account.Id && d.ProviderDraftId == removal.ProviderOccurrenceId,
+				d => d.AccountId == account.Id
+					&& (
+						d.ProviderMessageId == removal.ProviderOccurrenceId
+						|| (d.ProviderMessageId == null && d.ProviderDraftId == removal.ProviderOccurrenceId)
+					),
 				ct
 			);
 			if (draft is null)
@@ -156,7 +231,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 				continue;
 			}
 
-			if (draft.PushedAt is null || draft.PushedAt < draft.SavedAt)
+			if (draft.SyncConflict || draft.PushedAt is null || draft.PushedAt < draft.SavedAt)
 			{
 				draft.SyncConflict = true;
 				changed.Add(draft.Id);
@@ -200,9 +275,23 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		byte[] rawBytes
 	)
 	{
+		ValidateRawBytes(rawBytes);
 		using var stream = new MemoryStream(rawBytes);
 		var mime = MimeMessage.Load(stream);
-		Apply(mime, new RemoteDraftPayload(string.Empty, providerDraftId, providerRevision, savedAt, rawBytes), draft);
+		EnsureMimeStructure(mime);
+		EnsureAttachmentCount(mime);
+		Apply(
+			mime,
+			new RemoteDraftPayload(
+				string.Empty,
+				providerDraftId,
+				draft.ProviderMessageId ?? providerDraftId,
+				providerRevision,
+				savedAt,
+				rawBytes
+			),
+			draft
+		);
 	}
 
 	private static void Apply(MimeMessage mime, RemoteDraftPayload payload, Draft draft)
@@ -214,10 +303,19 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		draft.BodyHtml = mime.GetTextBody(TextFormat.Html) ?? PlainHtml(mime.GetTextBody(TextFormat.Plain));
 		draft.Attachments = [.. Attachments(mime)];
 		draft.ProviderDraftId = payload.ProviderDraftId;
+		draft.ProviderMessageId = payload.ProviderMessageId;
 		draft.ProviderRevision = payload.ProviderRevision;
 		draft.SavedAt = payload.SavedAt;
 		draft.PushedAt = payload.SavedAt;
 		draft.SyncConflict = false;
+	}
+
+	private static void ValidateRawBytes(byte[] rawBytes)
+	{
+		if (rawBytes.Length > MaximumRawDraftBytes)
+		{
+			throw new InvalidOperationException($"Provider draft exceeds the {MaximumRawDraftBytes}-byte raw MIME limit.");
+		}
 	}
 
 	private static IReadOnlyList<Address> Addresses(InternetAddressList addresses) =>
@@ -232,20 +330,15 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 	internal static IEnumerable<DraftAttachment> Attachments(MimeMessage mime)
 	{
 		var iterator = new MimeIterator(mime);
+		var attachmentCount = 0;
 		while (iterator.MoveNext())
 		{
-			if (iterator.Current is not MimePart part || part.Content is null)
+			if (iterator.Current is not MimePart part || part.Content is null || !IsUserAttachment(part, out var isInline))
 			{
 				continue;
 			}
 
-			var isInline = part.ContentDisposition?.IsAttachment != true;
-			if (isInline && part.ContentId is null && part.FileName is null)
-			{
-				// A body part rather than something the user would recognise as attached.
-				continue;
-			}
-
+			EnsureAttachmentCount(ref attachmentCount);
 			using var content = new MemoryStream();
 			part.Content.DecodeTo(content);
 			yield return new DraftAttachment
@@ -261,6 +354,63 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		}
 	}
 
+	private static void EnsureMimeStructure(MimeMessage mime)
+	{
+		var entities = 0;
+		Visit(mime.Body, 1);
+		return;
+
+		void Visit(MimeEntity? entity, int depth)
+		{
+			if (entity is null)
+			{
+				return;
+			}
+			if (depth > MaximumMimeDepth || ++entities > MaximumMimeEntities)
+			{
+				throw new InvalidOperationException("Provider draft exceeds the MIME structure limit.");
+			}
+			if (entity is Multipart multipart)
+			{
+				foreach (var child in multipart)
+				{
+					Visit(child, depth + 1);
+				}
+			}
+			else if (entity is MessagePart messagePart)
+			{
+				Visit(messagePart.Message?.Body, depth + 1);
+			}
+		}
+	}
+
+	internal static void EnsureAttachmentCount(MimeMessage mime)
+	{
+		var iterator = new MimeIterator(mime);
+		var attachmentCount = 0;
+		while (iterator.MoveNext())
+		{
+			if (iterator.Current is MimePart part && part.Content is not null && IsUserAttachment(part, out _))
+			{
+				EnsureAttachmentCount(ref attachmentCount);
+			}
+		}
+	}
+
+	private static bool IsUserAttachment(MimePart part, out bool isInline)
+	{
+		isInline = part.ContentDisposition?.IsAttachment != true;
+		return !isInline || part.ContentId is not null || part.FileName is not null;
+	}
+
+	private static void EnsureAttachmentCount(ref int attachmentCount)
+	{
+		if (++attachmentCount > MaximumDraftAttachmentCount)
+		{
+			throw new InvalidOperationException($"Provider draft exceeds the {MaximumDraftAttachmentCount}-attachment limit.");
+		}
+	}
+
 	private static string PlainHtml(string? plain) =>
 		string.IsNullOrEmpty(plain) ? string.Empty : $"<pre>{WebUtility.HtmlEncode(plain)}</pre>";
 }
@@ -269,6 +419,7 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 public sealed record RemoteDraftPayload(
 	string ProviderMailboxId,
 	string ProviderDraftId,
+	string ProviderMessageId,
 	string? ProviderRevision,
 	DateTimeOffset SavedAt,
 	byte[] RawBytes

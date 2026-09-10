@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Sync;
@@ -14,14 +15,11 @@ namespace MyloMail.Api.Tests.Compose;
 /// draft — and was recorded in memory — when a later draft in the same batch fails.
 /// </summary>
 /// <remarks>
-/// Twenty-second architecture-review pass: <see cref="DraftSyncService.PushAsync"/> used to
-/// batch every pending draft's provider result under a single <c>SaveChangesAsync</c> after
-/// the whole loop. An exception partway through the loop — from a later draft's provider
-/// call — meant an earlier draft's already-successful push was never saved either: on retry
-/// it looked unpushed and was pushed again, creating an orphaned duplicate the provider has
-/// no way to recognise as the same draft (a fresh id is minted whenever
-/// <see cref="Draft.ProviderDraftId"/> is null). The fix saves each draft immediately after
-/// its own provider call, so an earlier success survives a later failure in the same batch.
+/// Twenty-second architecture-review pass: a provider call that returns before its response
+/// commits leaves a remote side effect that must remain recoverable. Each result is persisted
+/// immediately, so a later failure cannot erase an earlier one. The later attempt remains
+/// deliberately ambiguous: a timeout cannot prove its provider call did not succeed, and an
+/// empty draft lookup cannot authorize a second create (§6).
 /// </remarks>
 [Trait("Category", "FaultInjection")]
 [Trait("Category", "Deep")]
@@ -52,15 +50,47 @@ public sealed class DraftSyncCrashWindowTests
 			Assert.Equal(1, await context.Drafts.CountAsync(d => d.PushedAt == null));
 		});
 
-		// Retrying pushes only the still-pending second draft — the first is not re-sent.
+		// The earlier success is never replayed. The later timeout is conservatively held for
+		// reconciliation rather than converted into an invisible second create.
 		await PushAsync(harness);
-		Assert.Equal(3, harness.Provider.DraftProviderIdsIssued.Count);
+		Assert.Equal(2, harness.Provider.DraftProviderIdsIssued.Count);
 
 		await harness.UsingAsync(async scope =>
 		{
 			var context = scope.GetRequiredService<MyloMailDbContext>();
-			Assert.Equal(0, await context.Drafts.CountAsync(d => d.PushedAt == null));
-			Assert.Equal(2, await context.Drafts.Select(d => d.ProviderDraftId).Distinct().CountAsync());
+			Assert.Single(await context.Drafts.Where(d => d.PushedAt != null).ToListAsync());
+			var ambiguous = await context.Drafts.SingleAsync(d => d.PushedAt == null);
+			Assert.True(ambiguous.SyncConflict);
+			Assert.NotNull(ambiguous.PushDispatchedForSavedAt);
+		});
+	}
+
+	/// <summary>
+	/// A provider can accept the first creation and the process can die before its generated
+	/// provider id commits. Recovery must reconcile the pre-dispatch stable Message-ID, never
+	/// call create a second time and orphan the first remote draft (§6).
+	/// </summary>
+	[Fact]
+	public async Task An_initial_creation_crash_is_reconciled_without_creating_a_second_remote_draft()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var identityId = await SeedIdentityAsync(harness);
+		await SeedDraftAsync(harness, identityId, "Only draft");
+
+		harness.Faults.ArmAt(FaultPoints.DraftPushAfterProviderCallBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => PushAsync(harness));
+		Assert.Single(harness.Provider.DraftProviderIdsIssued);
+
+		await harness.RestartAsync();
+		await PushAsync(harness);
+
+		Assert.Single(harness.Provider.DraftProviderIdsIssued);
+		await harness.UsingAsync(async scope =>
+		{
+			var draft = await scope.GetRequiredService<MyloMailDbContext>().Drafts.SingleAsync();
+			Assert.NotNull(draft.ProviderDraftId);
+			Assert.NotNull(draft.PushedAt);
+			Assert.Null(draft.PushDispatchedForSavedAt);
 		});
 	}
 
@@ -97,6 +127,7 @@ public sealed class DraftSyncCrashWindowTests
 					Subject = subject,
 					BodyHtml = "<p>Body</p>",
 					SavedAt = DateTimeOffset.UnixEpoch,
+					StableMessageId = $"<{Guid.NewGuid():N}@mylomail.local>",
 				}
 			);
 			await context.SaveChangesAsync();

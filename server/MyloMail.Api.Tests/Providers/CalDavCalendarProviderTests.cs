@@ -30,6 +30,14 @@ public sealed class CalDavCalendarProviderTests
 	}
 
 	[Fact]
+	public void Rejects_a_CalDAV_response_with_excessive_XML_nesting()
+	{
+		var xml = string.Concat(Enumerable.Repeat("<node>", 66)) + string.Concat(Enumerable.Repeat("</node>", 66));
+
+		Assert.Throws<InvalidOperationException>(() => CalDavMultiStatusParser.Parse(xml));
+	}
+
+	[Fact]
 	public async Task A_sync_collection_report_carries_the_new_cursor_and_upserted_events()
 	{
 		var handler = new FakeHandler();
@@ -156,7 +164,9 @@ public sealed class CalDavCalendarProviderTests
 	public async Task Creating_an_event_puts_a_resource_the_sync_report_parser_can_read_back()
 	{
 		var handler = new FakeHandler();
-		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("") });
+		var response = new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("") };
+		response.Headers.TryAddWithoutValidation("ETag", "\"etag-new\"");
+		handler.Enqueue(response);
 		var provider = Provider(handler);
 		var ev = new CalendarEventDto
 		{
@@ -167,9 +177,9 @@ public sealed class CalDavCalendarProviderTests
 			End = new DateTimeOffset(2026, 3, 1, 15, 0, 0, TimeSpan.Zero),
 		};
 
-		var providerEventId = await provider.CreateEventAsync(Account(), Calendar(), ev, default);
+		var created = await provider.CreateEventAsync(Account(), Calendar(), ev, default);
 
-		Assert.Equal(Endpoint + "new-event.ics", providerEventId);
+		Assert.Equal("/dav/personal/new-event.ics", created.ProviderEventId);
 		var request = handler.Requests.Single();
 		Assert.Equal(HttpMethod.Put, request.Method);
 		Assert.Equal("*", request.Headers.GetValues("If-None-Match").Single());
@@ -179,7 +189,7 @@ public sealed class CalDavCalendarProviderTests
 		// SyncCalendarAsync's parser expects, rather than asserting on the ICS text directly.
 		handler.Enqueue(
 			MultiStatus(
-				$"""<D:response><D:href>{providerEventId}</D:href><D:propstat><D:prop><D:getetag>"etag-new"</D:getetag><C:calendar-data xmlns:C="urn:ietf:params:xml:ns:caldav">{body}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>""",
+				$"""<D:response><D:href>{created.ProviderEventId}</D:href><D:propstat><D:prop><D:getetag>"etag-new"</D:getetag><C:calendar-data xmlns:C="urn:ietf:params:xml:ns:caldav">{body}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>""",
 				syncToken: "token-new"
 			)
 		);
@@ -194,7 +204,9 @@ public sealed class CalDavCalendarProviderTests
 	public async Task Punctuation_in_text_fields_round_trips_through_create_and_sync()
 	{
 		var handler = new FakeHandler();
-		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("") });
+		var response = new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("") };
+		response.Headers.TryAddWithoutValidation("ETag", "\"etag\"");
+		handler.Enqueue(response);
 		var provider = Provider(handler);
 		var ev = new CalendarEventDto
 		{
@@ -205,12 +217,12 @@ public sealed class CalDavCalendarProviderTests
 			End = DateTimeOffset.UnixEpoch.AddHours(1),
 		};
 
-		var providerEventId = await provider.CreateEventAsync(Account(), Calendar(), ev, default);
+		var created = await provider.CreateEventAsync(Account(), Calendar(), ev, default);
 		var body = await handler.Requests.Single().Content!.ReadAsStringAsync();
 
 		handler.Enqueue(
 			MultiStatus(
-				$"""<D:response><D:href>{providerEventId}</D:href><D:propstat><D:prop><D:getetag>"etag"</D:getetag><C:calendar-data xmlns:C="urn:ietf:params:xml:ns:caldav">{body}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>""",
+				$"""<D:response><D:href>{created.ProviderEventId}</D:href><D:propstat><D:prop><D:getetag>"etag"</D:getetag><C:calendar-data xmlns:C="urn:ietf:params:xml:ns:caldav">{body}</C:calendar-data></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>""",
 				syncToken: "token"
 			)
 		);
@@ -395,6 +407,20 @@ public sealed class CalDavCalendarProviderTests
 		Assert.Contains("PARTSTAT=DECLINED", ics);
 		Assert.Contains("mailto:bob@example.test", ics);
 		Assert.Contains("mailto:alice@example.test", ics);
+	}
+
+	[Fact]
+	public async Task An_oversized_CalDAV_response_is_rejected_before_XML_materialization()
+	{
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.MultiStatus)
+		{
+			Content = new ByteArrayContent(new byte[16 * 1024 * 1024 + 1]),
+		});
+
+		await Assert.ThrowsAsync<InvalidOperationException>(
+			() => Provider(handler).ListCalendarsAsync(Account(), default)
+		);
 	}
 
 	private static CalDavCalendarProvider Provider(HttpMessageHandler handler, IMailProvider? mailProvider = null)

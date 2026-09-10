@@ -377,6 +377,8 @@ public sealed class ChangeStreamService(
 	/// from the first event that has not been applied rather than reapplying the whole queue
 	/// or skipping part of it.
 	/// </remarks>
+	private const int MaximumStagedPayloadCharacters = 256 * 1024 * 1024;
+
 	public async Task<int> ReplayStagedAsync(Account account, CancellationToken ct = default)
 	{
 		faults.Reached(FaultPoints.SyncBeforeStagedReplay);
@@ -399,15 +401,25 @@ public sealed class ChangeStreamService(
 				break;
 			}
 
-			var staged = await context
+			var stagedMetadata = await context
 				.StagedChangeEvents.Where(s => s.AccountId == account.Id)
 				.OrderBy(s => s.Ordinal)
+				.Select(s => new { s.Id, PayloadLength = s.Payload.Length })
 				.FirstOrDefaultAsync(ct);
 
-			if (staged is null)
+			if (stagedMetadata is null)
 			{
 				break;
 			}
+			if (stagedMetadata.PayloadLength > MaximumStagedPayloadCharacters)
+			{
+				throw new InvalidOperationException(
+					$"A staged change page exceeds the {MaximumStagedPayloadCharacters}-character replay limit."
+				);
+			}
+
+			var staged = await context.StagedChangeEvents.SingleAsync(s => s.Id == stagedMetadata.Id, ct);
+
 
 			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
 			ContentApplyResult applied = new(new IngestResult([], [], []), [], []);

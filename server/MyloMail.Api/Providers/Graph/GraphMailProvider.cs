@@ -245,7 +245,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		"internetMessageHeaders",
 	];
 
-	private static MessageDto ToDto(GraphMessage message)
+	internal static MessageDto ToDto(GraphMessage message)
 	{
 		var headers = (message.InternetMessageHeaders ?? [])
 			.Where(header => header.Name is not null)
@@ -279,7 +279,9 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			IsFlagged = message.Flag?.FlagStatus == FollowupFlagStatus.Flagged,
 			IsDraft = message.IsDraft ?? false,
 			IsAnswered = false,
-			HasNonInlineAttachments = message.HasAttachments ?? false,
+			// Graph's list/delta shape gives only a coarse HasAttachments bit. It cannot
+			// establish the non-inline state exposed by the local MIME-derived model.
+			HasNonInlineAttachments = null,
 			SizeEstimate = null,
 		};
 	}

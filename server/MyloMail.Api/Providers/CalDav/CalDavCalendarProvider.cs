@@ -41,6 +41,9 @@ public sealed class CalDavCalendarProvider(
 	IMailProviderFactory mail
 ) : ICalendarProvider, IDisposable
 {
+	private const int MaximumResponseBytes = 16 * 1024 * 1024;
+	private const int MaximumEventsPerResponse = 512;
+	private const int MaximumEventsPerPage = 4096;
 	private static readonly HttpMethod PropFind = new("PROPFIND");
 	private static readonly HttpMethod Report = new("REPORT");
 
@@ -73,7 +76,7 @@ public sealed class CalDavCalendarProvider(
 	/// </summary>
 	private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
 	{
-		var response = await http.SendAsync(request, ct);
+		var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 		if (response.StatusCode == HttpStatusCode.Unauthorized)
 		{
 			response.Dispose();
@@ -108,7 +111,7 @@ public sealed class CalDavCalendarProvider(
 
 		using var response = await SendAsync(request, ct);
 		response.EnsureSuccessStatusCode();
-		var body = await response.Content.ReadAsStringAsync(ct);
+		var body = await ReadResponseAsync(response.Content, ct);
 		var name = CalDavMultiStatusParser.Parse(body).FirstOrDefault()?.DisplayName ?? "Calendar";
 
 		return [new CalendarDto(endpoint.ToString(), name, null, true)];
@@ -144,7 +147,7 @@ public sealed class CalDavCalendarProvider(
 			throw new ProviderCursorInvalidException($"The CalDAV sync-token was rejected ({response.StatusCode}).");
 		}
 		response.EnsureSuccessStatusCode();
-		var body = await response.Content.ReadAsStringAsync(ct);
+		var body = await ReadResponseAsync(response.Content, ct);
 
 		var newCursor = CalDavMultiStatusParser.SyncToken(body);
 		if (string.IsNullOrEmpty(newCursor))
@@ -158,21 +161,27 @@ public sealed class CalDavCalendarProvider(
 		var deleted = new List<string>();
 		foreach (var member in CalDavMultiStatusParser.Parse(body))
 		{
+			var providerEventId = NormalizeResourceId(account, member.Href);
 			if (member.IsDeleted)
 			{
-				deleted.Add(member.Href);
+				deleted.Add(providerEventId);
 				continue;
 			}
 			if (member.CalendarData is { Length: > 0 } data)
 			{
-				upserted.AddRange(CalDavIcs.ParseEvents(data, member.Href, member.ETag ?? string.Empty));
+				var parsed = CalDavIcs.ParseEvents(data, providerEventId, member.ETag ?? string.Empty);
+				if (parsed.Count > MaximumEventsPerResponse || upserted.Count + parsed.Count > MaximumEventsPerPage)
+				{
+					throw new InvalidOperationException("CalDAV sync response exceeds the calendar event limit.");
+				}
+				upserted.AddRange(parsed);
 			}
 		}
 
 		return new CalendarSyncResult(newCursor, null, upserted, deleted);
 	}
 
-	public async Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
+	public async Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
 	{
 		var target = new Uri(Endpoint(account), $"{ev.ICalUid}.ics");
 		var request = await requests.CreateAsync(account, HttpMethod.Put, target, ct);
@@ -181,12 +190,46 @@ public sealed class CalDavCalendarProvider(
 
 		using var response = await SendAsync(request, ct);
 		response.EnsureSuccessStatusCode();
-		return (response.Headers.Location ?? target).ToString();
+		if (response.Headers.ETag?.Tag is { } eTag)
+		{
+			return new CalendarEventCreation(target.PathAndQuery, eTag, ev.ICalUid);
+		}
+
+		// A missing ETag cannot form a safe creation result. The durable creation attempt
+		// remains for the next sync/recovery pass, which reads one coherent server snapshot.
+		throw new InvalidOperationException("CalDAV created an event but did not return an ETag.");
+	}
+
+	public async Task<CalendarEventDto?> FindEventAsync(
+		Account account,
+		Calendar calendar,
+		string stableICalUid,
+		string providerCreationKey,
+		CancellationToken ct
+	)
+	{
+		var target = new Uri(Endpoint(account), $"{stableICalUid}.ics");
+		var request = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
+		using var response = await SendAsync(request, ct);
+		if (response.StatusCode == HttpStatusCode.NotFound)
+		{
+			return null;
+		}
+		response.EnsureSuccessStatusCode();
+		var eTag = response.Headers.ETag?.Tag;
+		if (string.IsNullOrEmpty(eTag))
+		{
+			throw new InvalidOperationException("CalDAV did not return an ETag for the recovered event.");
+		}
+		var ics = await ReadResponseAsync(response.Content, ct);
+		return CalDavIcs.ParseEvents(ics, target.PathAndQuery, eTag).SingleOrDefault(e =>
+			e.ICalUid == stableICalUid && e.RecurrenceId is null
+		) ?? throw new InvalidOperationException("CalDAV returned a resource without the recovered event master.");
 	}
 
 	public async Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 	{
-		var target = ResourceHref(account, ev.ProviderEventId);
+		var target = ResourceHref(account, RequireProviderEventId(ev));
 
 		if (ev.RecurrenceMasterId is not null)
 		{
@@ -232,7 +275,7 @@ public sealed class CalDavCalendarProvider(
 			throw new ProviderConflictException("The recurring event this instance belongs to no longer exists.");
 		}
 		getResponse.EnsureSuccessStatusCode();
-		var currentIcs = await getResponse.Content.ReadAsStringAsync(ct);
+		var currentIcs = await ReadResponseAsync(getResponse.Content, ct);
 
 		var merged = CalDavIcs.MergeOverride(currentIcs, ev.ICalUid, ToDto(ev));
 
@@ -250,7 +293,7 @@ public sealed class CalDavCalendarProvider(
 
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
 	{
-		var target = ResourceHref(account, ev.ProviderEventId);
+		var target = ResourceHref(account, RequireProviderEventId(ev));
 
 		if (ev.RecurrenceMasterId is not null)
 		{
@@ -291,7 +334,7 @@ public sealed class CalDavCalendarProvider(
 			return;
 		}
 		getResponse.EnsureSuccessStatusCode();
-		var currentIcs = await getResponse.Content.ReadAsStringAsync(ct);
+		var currentIcs = await ReadResponseAsync(getResponse.Content, ct);
 
 		var cancelled = ToDto(ev) with { Status = EventStatus.Cancelled };
 		var merged = CalDavIcs.MergeOverride(currentIcs, ev.ICalUid, cancelled);
@@ -324,6 +367,31 @@ public sealed class CalDavCalendarProvider(
 		CancellationToken ct
 	) => new ItipReplySender(mail).SendAsync(account, ev, response, comment, replyingAs, ct);
 
+	private static async Task<string> ReadResponseAsync(HttpContent content, CancellationToken ct)
+	{
+		if (content.Headers.ContentLength > MaximumResponseBytes)
+		{
+			throw new InvalidOperationException($"CalDAV response exceeds the {MaximumResponseBytes}-byte limit.");
+		}
+
+		await using var source = await content.ReadAsStreamAsync(ct);
+		using var buffer = new MemoryStream();
+		var chunk = new byte[81920];
+		while (true)
+		{
+			var read = await source.ReadAsync(chunk, ct);
+			if (read == 0)
+			{
+				return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
+			}
+			if (buffer.Length + read > MaximumResponseBytes)
+			{
+				throw new InvalidOperationException($"CalDAV response exceeds the {MaximumResponseBytes}-byte limit.");
+			}
+			buffer.Write(chunk, 0, read);
+		}
+	}
+
 	private static Uri Endpoint(Account account) =>
 		account.ProviderConfig is ImapProviderConfig { CalDav: { } config }
 			? new Uri(config.Endpoint)
@@ -348,9 +416,15 @@ public sealed class CalDavCalendarProvider(
 	private static Uri ResourceHref(Account account, string providerEventId) =>
 		new(Endpoint(account), providerEventId.Split('#')[0]);
 
+	private static string NormalizeResourceId(Account account, string href) =>
+		new Uri(Endpoint(account), href.Split('#')[0]).PathAndQuery;
+
+	private static string RequireProviderEventId(CalendarEvent ev) =>
+		ev.ProviderEventId ?? throw new InvalidOperationException("A pending calendar creation has no provider event id.");
+
 	private static CalendarEventDto ToDto(CalendarEvent ev) => new()
 	{
-		ProviderEventId = ev.ProviderEventId,
+		ProviderEventId = ev.ProviderEventId ?? string.Empty,
 		ICalUid = ev.ICalUid,
 		ProviderRevision = ev.ProviderRevision,
 		Sequence = ev.Sequence,

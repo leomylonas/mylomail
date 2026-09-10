@@ -29,13 +29,25 @@ public interface ICalendarProvider
 		CancellationToken ct
 	);
 
-	Task<string> CreateEventAsync(
+	Task<CalendarEventCreation> CreateEventAsync(
 		Account account,
 		Calendar calendar,
 		CalendarEventDto ev,
 		CancellationToken ct
 	);
 
+	/// <summary>
+	/// Locates an event whose provider creation may have succeeded before the local response
+	/// committed. A null result remains ambiguous and must never authorize another create (§6).
+	/// The RFC UID and provider-safe creation key are distinct because Google/Graph own iCalUId.
+	/// </summary>
+	Task<CalendarEventDto?> FindEventAsync(
+		Account account,
+		Calendar calendar,
+		string stableICalUid,
+		string providerCreationKey,
+		CancellationToken ct
+	);
 	/// <summary>
 	/// <paramref name="expectedETag"/> is passed through as an <c>If-Match</c> precondition
 	/// where supported. A precondition failure surfaces as <c>ErrorCategory.Conflict</c>

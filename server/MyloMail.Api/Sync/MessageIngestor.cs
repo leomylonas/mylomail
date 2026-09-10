@@ -315,7 +315,10 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		message.IsFlagged = dto.IsFlagged;
 		message.IsDraft = dto.IsDraft;
 		message.IsAnswered = dto.IsAnswered;
-		message.HasNonInlineAttachments = dto.HasNonInlineAttachments;
+		if (dto.HasNonInlineAttachments is { } hasNonInlineAttachments)
+		{
+			message.HasNonInlineAttachments = hasNonInlineAttachments;
+		}
 		message.SizeEstimate = dto.SizeEstimate;
 	}
 

@@ -51,6 +51,12 @@ public interface IMailHub
 	/// </summary>
 	Task<MessageInviteDto?> GetMessageInvite(Guid messageId);
 
+	/// <summary>
+	/// Applies a reply that could not be authenticated with DKIM/DMARC only after the user
+	/// explicitly accepts the spoofing risk shown in the reading pane.
+	/// </summary>
+	Task AcceptUnverifiedInviteReply(Guid messageId);
+
 	Task<IReadOnlyList<AttachmentDto>> GetAttachmentMetadata(Guid messageId);
 
 	/// <summary>
@@ -269,7 +275,9 @@ public class MailHub(
 	ITrustedCertificateStore certificates,
 	IBackgroundJobClient jobs,
 	Scheduling.ConnectivityMonitor connectivity,
-	Scheduling.PollRegistry polls
+	Scheduling.PollRegistry polls,
+	MailInviteMaterializer invites,
+	IIncomingMailAuthentication authentication
 ) : Hub<IMailClient>, IMailHub
 {
 	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
@@ -417,17 +425,18 @@ public class MailHub(
 			return null;
 		}
 
-		using var decoded = new MemoryStream();
-		await part.Content.DecodeToAsync(decoded);
-		var ics = System.Text.Encoding.UTF8.GetString(decoded.ToArray());
-		if (!string.Equals(CalDavIcs.ParseMethod(ics), "REQUEST", StringComparison.OrdinalIgnoreCase))
+		var ics = await CalendarMimeReader.TryReadAsync(part, Context.ConnectionAborted);
+		if (ics is null)
 		{
 			return null;
 		}
-
-		var parsed = CalDavIcs
-			.ParseEvents(ics, $"mail:{messageId}", string.Empty)
-			.FirstOrDefault(e => e.RecurrenceId is null);
+		var method = CalDavIcs.ParseMethod(ics);
+		if (!string.Equals(method, "REQUEST", StringComparison.OrdinalIgnoreCase)
+			&& !string.Equals(method, "REPLY", StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+		var parsed = CalDavIcs.ParseEvents(ics, $"mail:{messageId}", string.Empty, 64).FirstOrDefault();
 		if (parsed is null)
 		{
 			return null;
@@ -441,6 +450,29 @@ public class MailHub(
 		var ev = await context.CalendarEvents.FirstOrDefaultAsync(e =>
 			e.ICalUid == parsed.ICalUid && calendarIds.Contains(e.CalendarId)
 		);
+
+		if (string.Equals(method, "REPLY", StringComparison.OrdinalIgnoreCase))
+		{
+			var attendee = parsed.Attendees.FirstOrDefault();
+			var authenticated = await authentication.VerifyAsync(mime, Context.ConnectionAborted);
+			var requiresManualReview =
+				!authenticated.IsAuthenticated
+				|| attendee is null
+				|| !string.Equals(authenticated.AuthenticatedAddress, attendee.Email, StringComparison.OrdinalIgnoreCase);
+			return new MessageInviteDto(
+				ev?.Id,
+				parsed.Title,
+				parsed.Start,
+				parsed.End,
+				parsed.IsAllDay,
+				parsed.Organizer,
+				null,
+				true,
+				attendee?.Email,
+				attendee is null ? null : ToInviteResponse(attendee.ResponseStatus),
+				requiresManualReview
+			);
+		}
 
 		InviteResponse? myResponse = null;
 		if (ev is not null)
@@ -971,6 +1003,23 @@ public class MailHub(
 			Domain.ResponseStatus.Tentative => InviteResponse.Tentative,
 			_ => null,
 		};
+
+	public async Task AcceptUnverifiedInviteReply(Guid messageId)
+	{
+		var raw = await context.MessageRaws.FirstOrDefaultAsync(row => row.MessageId == messageId);
+		if (raw is null)
+		{
+			return;
+		}
+		var accountId = await context
+			.Messages.Where(message => message.Id == messageId)
+			.Select(message => message.AccountId)
+			.SingleAsync();
+		var account = await context.Accounts.SingleAsync(row => row.Id == accountId);
+		using var stream = new MemoryStream(raw.Content);
+		var mime = await MimeKit.MimeMessage.LoadAsync(stream, Context.ConnectionAborted);
+		await invites.ApplyUnverifiedReplyAsync(account, mime, Context.ConnectionAborted);
+	}
 
 	public Task MarkNotificationDelivered(Guid notificationId) =>
 		notifications.MarkDeliveredAsync(notificationId);

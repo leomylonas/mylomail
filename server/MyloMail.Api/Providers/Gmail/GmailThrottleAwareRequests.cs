@@ -1,7 +1,6 @@
 using System.Net;
 using System.Runtime.CompilerServices;
 using Google;
-using Google.Apis.Gmail.v1;
 using Google.Apis.Http;
 using Google.Apis.Requests;
 using Google.Apis.Services;
@@ -60,7 +59,7 @@ internal static class GmailRequestExtensions
 	// each service is looked up here instead of re-read off the handler chain.
 	private static readonly ConditionalWeakTable<IClientService, GmailThrottleTracker> Trackers = new();
 
-	public static void AttachThrottleTracker(this GmailService service, GmailThrottleTracker tracker)
+	public static void AttachThrottleTracker(this BaseClientService service, GmailThrottleTracker tracker)
 	{
 		service.HttpClient.MessageHandler.AddUnsuccessfulResponseHandler(tracker);
 		Trackers.Add(service, tracker);

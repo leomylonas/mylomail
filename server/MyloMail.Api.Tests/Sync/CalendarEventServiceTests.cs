@@ -114,7 +114,7 @@ public sealed class CalendarEventServiceTests
 				[
 					new CalendarEventDto
 					{
-						ProviderEventId = created.ProviderEventId,
+						ProviderEventId = created.ProviderEventId!,
 						ICalUid = created.ICalUid,
 						ProviderRevision = "etag-2",
 						Title = "Standup (server title)",
@@ -161,7 +161,7 @@ public sealed class CalendarEventServiceTests
 				[
 					new CalendarEventDto
 					{
-						ProviderEventId = created.ProviderEventId,
+						ProviderEventId = created.ProviderEventId!,
 						ICalUid = created.ICalUid,
 						ProviderRevision = "etag-2",
 						Title = "Standup (server title)",
@@ -615,7 +615,7 @@ public sealed class CalendarEventServiceTests
 			return Task.FromResult(result);
 		}
 
-		public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
+		public Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
 		{
 			if (RejectNextCreateWith is Exception ex)
 			{
@@ -623,8 +623,16 @@ public sealed class CalendarEventServiceTests
 				throw ex;
 			}
 			CreateCalls++;
-			return Task.FromResult($"created-{CreateCalls}");
+			return Task.FromResult(new CalendarEventCreation($"created-{CreateCalls}", "created-revision"));
 		}
+
+		public Task<CalendarEventDto?> FindEventAsync(
+			Account account,
+			Calendar calendar,
+			string stableICalUid,
+			string providerCreationKey,
+			CancellationToken ct
+		) => Task.FromResult<CalendarEventDto?>(null);
 
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 		{

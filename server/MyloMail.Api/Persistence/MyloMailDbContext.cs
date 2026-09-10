@@ -42,6 +42,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Draft> Drafts => Set<Draft>();
 	public DbSet<Calendar> Calendars => Set<Calendar>();
 	public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+	public DbSet<CalendarCreationAttempt> CalendarCreationAttempts => Set<CalendarCreationAttempt>();
 	public DbSet<Domain.AppSettings> AppSettings => Set<Domain.AppSettings>();
 	public DbSet<CredentialFallbackSettings> CredentialFallbackSettings => Set<CredentialFallbackSettings>();
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
@@ -468,6 +469,16 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 			// Invites are matched against events by iCalendar UID.
 			e.HasIndex(x => x.ICalUid);
+		});
+
+		model.Entity<CalendarCreationAttempt>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Calendar>()
+				.WithMany()
+				.HasForeignKey(x => x.CalendarId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => x.CalendarId);
 		});
 	}
 

@@ -153,7 +153,24 @@ public sealed class TombstoneGcJobs(
 		}
 
 		var hasReplyLinkage = await context.Drafts.AnyAsync(d => d.InReplyToMessageId == messageId, ct);
-		return !hasReplyLinkage;
+		if (hasReplyLinkage)
+		{
+			return false;
+		}
+
+		// A dispatched attempt has no durable result precisely because the server may already
+		// have acted. Its item keeps the canonical id reconciliation needs; collecting that row
+		// first would turn ambiguity into silent outcome loss (§6).
+		var hasUnresolvedAttempt = await (
+			from membership in context.MutationExecutionAttemptItems
+			join attempt in context.MutationExecutionAttempts on membership.AttemptId equals attempt.Id
+			join mutation in context.MutationItems on membership.MutationItemId equals mutation.Id
+			where mutation.MessageId == messageId
+				&& attempt.ResultPersistedAt == null
+				&& (attempt.State == MutationAttemptState.Dispatched || attempt.State == MutationAttemptState.Ambiguous)
+			select membership
+		).AnyAsync(ct);
+		return !hasUnresolvedAttempt;
 	}
 
 	/// <summary>

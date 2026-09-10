@@ -143,6 +143,22 @@ public sealed class MutationQueue(
 		return await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			// The account check above rejects cross-account caller input. Repeat existence inside
+			// this write transaction so tombstone GC and enqueue cannot pass one another: either
+			// this durable intent commits first and blocks collection, or GC wins and this action
+			// reports that its target no longer exists rather than persisting dangling intent.
+			var currentAccountId = await context
+				.Messages.Where(message => message.Id == item.MessageId)
+				.Select(message => (Guid?)message.AccountId)
+				.FirstOrDefaultAsync(ct);
+			if (currentAccountId is null)
+			{
+				throw new HubException($"Message {item.MessageId} no longer exists.");
+			}
+			if (currentAccountId != item.AccountId)
+			{
+				throw new HubException($"Message {item.MessageId} does not belong to account {item.AccountId}.");
+			}
 
 			try
 			{

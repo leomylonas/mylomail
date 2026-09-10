@@ -1,3 +1,4 @@
+using DnsClient;
 using Hangfire;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -117,8 +118,12 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.AddScoped<MessageIngestor>();
+		services.AddSingleton<CalendarSyncGate>();
 		services.AddScoped<CalendarSyncService>();
 		services.AddScoped<CalendarEventService>();
+		services.TryAddSingleton<IDnsQuery>(_ => new LookupClient());
+		services.TryAddSingleton<IEmailAuthenticationDns, EmailAuthenticationDns>();
+		services.TryAddSingleton<IIncomingMailAuthentication, DkimDmarcAuthentication>();
 		services.AddScoped<MailInviteMaterializer>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();

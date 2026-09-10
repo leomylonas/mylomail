@@ -43,6 +43,7 @@ public sealed class ContentAcquisition(
 	/// otherwise be retried by <see cref="Scheduling.ContentJobs"/> forever.
 	/// </summary>
 	internal const int MaxAttempts = 5;
+	internal const int MaximumRawMessageBytes = 64 * 1024 * 1024;
 
 	/// <summary>Fetches and stores one message's content.</summary>
 	public async Task AcquireAsync(Account account, Guid messageId, CancellationToken ct = default)
@@ -75,7 +76,8 @@ public sealed class ContentAcquisition(
 				.FetchRawMessageAsync(
 					account,
 					new MessageOccurrenceRef(messageId, occurrence.MailboxId, occurrence.ProviderOccurrenceId),
-					ct
+					ct,
+					MaximumRawMessageBytes
 				);
 		}
 		catch (Credentials.CredentialStoreUnavailableException ex)
@@ -183,6 +185,7 @@ public sealed class ContentAcquisition(
 	{
 		using var stream = new MemoryStream(rawBytes);
 		var mime = await MimeMessage.LoadAsync(stream, ct);
+		MimeStructureValidator.Validate(mime);
 
 		Message? messageForBroadcast = null;
 		var hasNonInlineAttachmentsChanged = false;

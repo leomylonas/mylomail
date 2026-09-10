@@ -233,9 +233,9 @@ public sealed partial class ImapMailProvider
 		{
 			// IMAP has no account-wide stable message identifier at all (§1).
 			ProviderStableId = null,
-			// A draft update replaces the UID, so the observed UID is also the revision the
-			// next append-and-expunge operation must still find.
-			ProviderRevision = summary.UniqueId.Id.ToString(),
+			// A draft update replaces the UID. Its revision additionally binds that UID to the
+			// Drafts folder's UIDVALIDITY, preventing a reused UID from overwriting another draft.
+			ProviderRevision = DraftRevision(folder.UidValidity, summary.UniqueId),
 			Occurrences =
 			[
 				new MessageOccurrenceDto(
@@ -286,7 +286,8 @@ public sealed partial class ImapMailProvider
 	public async Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
-		CancellationToken ct
+		CancellationToken ct,
+		int? maximumBytes = null
 	)
 	{
 		using var client = await ConnectAsync(ct);
@@ -303,10 +304,8 @@ public sealed partial class ImapMailProvider
 			string.Empty,
 			ct
 		);
-		using var buffer = new MemoryStream();
-		await stream.CopyToAsync(buffer, ct);
-
+		var content = await BoundedContentReader.ReadAsync(stream, maximumBytes, ct);
 		await client.DisconnectAsync(true, ct);
-		return new RawMessageResult(buffer.ToArray());
+		return new RawMessageResult(content);
 	}
 }

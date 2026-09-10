@@ -155,6 +155,9 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 
 	private bool baselineContinuationReturned;
 
+	private readonly Dictionary<string, CalendarEventCreation> createdByKey = [];
+	public int CreateCalls { get; private set; }
+
 	public ProviderType Type => ProviderType.Imap;
 
 	public Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct) =>
@@ -196,7 +199,25 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 		End = DateTimeOffset.UnixEpoch.AddHours(1),
 	};
 
-	public Task<string> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct) => throw new NotSupportedException();
+	public Task<CalendarEventCreation> CreateEventAsync(Account account, Calendar calendar, CalendarEventDto ev, CancellationToken ct)
+	{
+		CreateCalls++;
+		var created = new CalendarEventCreation($"created-{CreateCalls}", "created-revision");
+		createdByKey[ev.ProviderCreationKey ?? throw new InvalidOperationException("Missing creation key.")] = created;
+		return Task.FromResult(created);
+	}
+
+	public Task<CalendarEventDto?> FindEventAsync(
+		Account account,
+		Calendar calendar,
+		string stableICalUid,
+		string providerCreationKey,
+		CancellationToken ct
+	) => Task.FromResult<CalendarEventDto?>(
+		createdByKey.TryGetValue(providerCreationKey, out var created)
+			? Event(created.ProviderEventId) with { ProviderRevision = created.ProviderRevision }
+			: null
+	);
 	public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct) => throw new NotSupportedException();
 	public Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct) => throw new NotSupportedException();
 	public Task RespondToInviteAsync(Account account, CalendarEvent ev, InviteResponse response, string? comment, Address replyingAs, CancellationToken ct) => throw new NotSupportedException();
