@@ -12,6 +12,7 @@ namespace MyloMail.Api.Sync;
 /// </summary>
 public static class CalendarEventOccurrences
 {
+	private const int MaximumSummariesPerCalendarView = 10_000;
 	public static async Task<IReadOnlyList<CalendarEventSummaryDto>> ForCalendarAsync(
 		MyloMailDbContext context,
 		Guid calendarId,
@@ -39,6 +40,10 @@ public static class CalendarEventOccurrences
 		var result = new List<CalendarEventSummaryDto>();
 		foreach (var ev in plain)
 		{
+			if (result.Count >= MaximumSummariesPerCalendarView)
+			{
+				return [.. result.OrderBy(e => e.Start)];
+			}
 			result.Add(ToSummaryDto(ev, isVirtual: false, masterEventId: null));
 		}
 
@@ -50,6 +55,10 @@ public static class CalendarEventOccurrences
 		{
 			if (ev.Start < to && ev.End > from)
 			{
+				if (result.Count >= MaximumSummariesPerCalendarView)
+				{
+					return [.. result.OrderBy(e => e.Start)];
+				}
 				result.Add(ToSummaryDto(ev, isVirtual: false, masterEventId: null));
 			}
 		}
@@ -89,6 +98,10 @@ public static class CalendarEventOccurrences
 					continue;
 				}
 
+				if (result.Count >= MaximumSummariesPerCalendarView)
+				{
+					return [.. result.OrderBy(e => e.Start)];
+				}
 				result.Add(
 					new CalendarEventSummaryDto(
 						CalendarRecurrenceExpander.VirtualOccurrenceId(master.Id, occurrence.Start),
