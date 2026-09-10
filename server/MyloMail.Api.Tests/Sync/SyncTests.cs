@@ -201,6 +201,31 @@ public sealed class SyncTests
 		});
 	}
 
+	[Fact]
+	public async Task Gmail_cursor_invalidation_discards_staged_history_from_the_expired_baseline()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+		await SyncAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+			Assert.NotEmpty(await scope.GetRequiredService<MyloMailDbContext>().StagedChangeEvents.ToListAsync())
+		);
+
+		harness.Provider.InvalidateCursors();
+		var outcome = await SyncAsync(harness);
+
+		Assert.True(outcome.ResyncTriggered);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.StagedChangeEvents.ToListAsync());
+			Assert.True((await context.ChangeStreamStates.SingleAsync()).IsRebasing);
+		});
+	}
+
 	/// <summary>
 	/// Gmail's stream is account-scoped: one row with a null mailbox, however many labels the
 	/// account has. Per-label cursors would consume the same stream repeatedly and race.
