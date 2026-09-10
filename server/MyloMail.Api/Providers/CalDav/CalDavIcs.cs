@@ -23,6 +23,7 @@ internal static partial class CalDavIcs
 	private const int MaximumTextFieldLength = 4_096;
 	private const int MaximumAttendeesPerEvent = 512;
 	private const int MaximumRecurrenceValuesPerEvent = 512;
+	private const int MaximumPropertyHeadLength = 8_192;
 	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag, int maxEvents = 512)
 	{
 		var lines = Unfold(ics);
@@ -776,6 +777,10 @@ internal static partial class CalDavIcs
 			return (line, NoParams, string.Empty);
 		}
 		var head = line[..colon];
+		if (head.Length > MaximumPropertyHeadLength)
+		{
+			throw new InvalidDataException($"Calendar property parameters exceed the {MaximumPropertyHeadLength}-character limit.");
+		}
 		var value = line[(colon + 1)..];
 		var segments = SplitOutsideQuotes(head, ';');
 		var name = segments[0].ToUpperInvariant();
