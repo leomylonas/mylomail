@@ -390,6 +390,7 @@ public sealed class ChangeStreamService(
 
 	public async Task<int> ReplayStagedAsync(Account account, CancellationToken ct = default)
 	{
+		using var lease = await gate.EnterAsync(account.Id, ct);
 		faults.Reached(FaultPoints.SyncBeforeStagedReplay);
 
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
