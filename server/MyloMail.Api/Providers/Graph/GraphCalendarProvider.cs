@@ -85,11 +85,31 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 				: await ThrottleAwareAsync(() => delta.WithUrl(url).GetAsDeltaGetResponseAsync(null, ct));
 
 			var events = page?.Value ?? [];
+			var masters = new Dictionary<string, GraphEvent>();
+			foreach (var masterId in events
+				.Where(ev => ev.SeriesMasterId is not null)
+				.Select(ev => ev.SeriesMasterId!)
+				.Distinct(StringComparer.Ordinal))
+			{
+				var master = await ThrottleAwareAsync(() => client.Me.Events[masterId].GetAsync(
+					configuration => configuration.QueryParameters.Select = [
+						"id", "@odata.etag", "transactionId", "iCalUId", "subject", "body", "location",
+						"start", "end", "isAllDay", "isCancelled", "showAs", "attendees", "isReminderOn",
+						"reminderMinutesBeforeStart", "recurrence", "organizer", "responseStatus",
+					],
+					ct
+				));
+				if (master?.Id is not null)
+				{
+					masters[master.Id] = master;
+				}
+			}
+			var materialized = events.Concat(masters.Values).DistinctBy(ev => ev.Id).ToList();
 			return new CalendarSyncResult(
 				page?.OdataNextLink is null ? page?.OdataDeltaLink : null,
 				page?.OdataNextLink,
-				[.. events.Where(ev => ev.Id is not null && !IsRemoved(ev)).Select(ToDto)],
-				[.. events.Where(ev => ev.Id is not null && IsRemoved(ev)).Select(ev => ev.Id!)]
+				[.. materialized.Where(ev => ev.Id is not null && !IsRemoved(ev)).Select(ToDto)],
+				[.. materialized.Where(ev => ev.Id is not null && IsRemoved(ev)).Select(ev => ev.Id!)]
 			);
 		}
 		catch (ApiException ex) when (url is not null && ex.ResponseStatusCode is 400 or 404 or 410)
