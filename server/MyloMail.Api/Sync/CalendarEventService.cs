@@ -122,27 +122,36 @@ public sealed class CalendarEventService(
 		}
 		if (string.IsNullOrEmpty(createdResult.ProviderRevision))
 		{
+			jobs?.Enqueue<Scheduling.SyncJobs>(job => job.CalendarCreationRecoveryAsync(account.Id, default));
 			throw new InvalidOperationException("Calendar creation requires a provider revision.");
 		}
-		faults.Reached(FaultPoints.CalendarCreateAfterProviderCallBeforeCommit);
-
-		await using var transaction = await context.Database.BeginTransactionAsync(ct);
-		var claimed = await context.CalendarCreationAttempts.Where(a => a.Id == attempt.Id).ExecuteDeleteAsync(ct);
-		if (claimed == 0)
+		try
 		{
-			await transaction.RollbackAsync(ct);
-			return await context.CalendarEvents.SingleAsync(
-				e => e.CalendarId == attempt.CalendarId && e.ProviderEventId == createdResult.ProviderEventId,
-				ct
-			);
-		}
+			faults.Reached(FaultPoints.CalendarCreateAfterProviderCallBeforeCommit);
 
-		var created = Materialise(attempt, createdResult);
-		context.CalendarEvents.Add(created);
-		await context.SaveChangesAsync(ct);
-		await transaction.CommitAsync(ct);
-		await events.CalendarEventUpdatedAsync(created.Id);
-		return created;
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			var claimed = await context.CalendarCreationAttempts.Where(a => a.Id == attempt.Id).ExecuteDeleteAsync(ct);
+			if (claimed == 0)
+			{
+				await transaction.RollbackAsync(ct);
+				return await context.CalendarEvents.SingleAsync(
+					e => e.CalendarId == attempt.CalendarId && e.ProviderEventId == createdResult.ProviderEventId,
+					ct
+				);
+			}
+
+			var created = Materialise(attempt, createdResult);
+			context.CalendarEvents.Add(created);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+			await events.CalendarEventUpdatedAsync(created.Id);
+			return created;
+		}
+		catch
+		{
+			jobs?.Enqueue<Scheduling.SyncJobs>(job => job.CalendarCreationRecoveryAsync(account.Id, default));
+			throw;
+		}
 	}
 
 	private async Task<CalendarEvent> UpdateAsync(
