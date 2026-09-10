@@ -374,6 +374,11 @@ public sealed class SyncJobs(
 		{
 			more = await GuardAsync(account, () => coverage.RunPageAsync(account, mailbox, ct: ct), ct);
 		}
+		catch (CoverageBaselinePendingException)
+		{
+			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+			return;
+		}
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), ex.RetryAfter);
@@ -424,9 +429,10 @@ public sealed class SyncJobs(
 			return;
 		}
 
+		ChangeStreamOutcome outcome;
 		try
 		{
-			await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
+			outcome = await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
 		}
 		catch (ProviderThrottledException ex)
 		{
@@ -445,6 +451,12 @@ public sealed class SyncJobs(
 		{
 			polls.Stop(accountId, mailboxId);
 			throw;
+		}
+
+		if (outcome.ResyncTriggered)
+		{
+			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
+			return;
 		}
 
 		if (!await StillRunnableAsync(accountId, ct))

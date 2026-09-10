@@ -47,6 +47,15 @@ public sealed class CoverageService(
 			return false;
 		}
 
+		if (account.ProviderType == ProviderType.Gmail
+			&& !await context.ChangeStreamStates.AnyAsync(
+				state => state.AccountId == account.Id && state.MailboxId == null && state.CursorState != null,
+				ct
+			))
+		{
+			throw new CoverageBaselinePendingException();
+		}
+
 		var mode = mailbox.InitialSyncModeOverride ?? account.InitialSyncMode;
 		var bound = mailbox.InitialSyncBoundValueOverride ?? account.InitialSyncBoundValue;
 
@@ -72,6 +81,13 @@ public sealed class CoverageService(
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+			await context.Entry(mailbox).ReloadAsync(ct);
+			await context.Entry(coverage).ReloadAsync(ct);
+			if (!generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
+			{
+				throw new CoverageBaselinePendingException();
+			}
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
 			changedDraftIds = await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct);
@@ -163,3 +179,5 @@ public sealed class CoverageService(
 			.AsNoTracking()
 			.ToDictionaryAsync(m => m.ProviderMailboxId!, m => m, ct);
 }
+
+internal sealed class CoverageBaselinePendingException : Exception;
