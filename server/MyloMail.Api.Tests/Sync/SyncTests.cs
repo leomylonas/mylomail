@@ -212,6 +212,7 @@ public sealed class SyncTests
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		harness.Provider.AddMailbox("RECEIPTS");
 		await ReconcileAsync(harness);
+		await SyncAsync(harness, "INBOX");
 		await CoverAsync(harness, "INBOX");
 		await CoverAsync(harness, "RECEIPTS");
 

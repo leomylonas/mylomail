@@ -137,14 +137,20 @@ public sealed class SyncJobs(
 				.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
 				.Select(m => m.Id)
 				.ToListAsync(ct);
-			var needsGmailBaseline = account.ProviderType == ProviderType.Gmail
-				&& !await context.ChangeStreamStates.AnyAsync(
+			var hasGmailBaseline = account.ProviderType == ProviderType.Gmail
+				&& await context.ChangeStreamStates.AnyAsync(
 					state => state.AccountId == accountId
 						&& state.MailboxId == null
 						&& state.CursorState != null
 						&& !state.IsRebasing,
 					ct
 				);
+			var needsGmailBaseline = account.ProviderType == ProviderType.Gmail
+				&& (!hasGmailBaseline && pending.Count > 0
+					|| await context.ChangeStreamStates.AnyAsync(
+						state => state.AccountId == accountId && state.MailboxId == null && state.IsRebasing,
+						ct
+					));
 			if (needsGmailBaseline)
 			{
 				var streamMailbox = await context
