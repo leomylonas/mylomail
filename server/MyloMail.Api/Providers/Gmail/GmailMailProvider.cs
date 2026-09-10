@@ -124,12 +124,23 @@ public sealed partial class GmailMailProvider(
 		CancellationToken ct
 	)
 	{
+		var service = await ServiceAsync(account, ct);
+		if (cursor is null)
+		{
+			var profile = await service.Users.GetProfile(UserId).ExecuteThrottleAwareAsync(ct);
+			return new SyncResult(
+				new GmailHistoryCursor(profile.HistoryId?.ToString() ?? throw new InvalidOperationException("Gmail did not return a history id.")),
+				null,
+				[],
+				[],
+				[]
+			);
+		}
 		if (cursor is not GmailHistoryCursor history)
 		{
 			throw new ArgumentException("Gmail sync requires a Gmail history cursor.", nameof(cursor));
 		}
 
-		var service = await ServiceAsync(account, ct);
 		var request = service.Users.History.List(UserId);
 		request.StartHistoryId = ulong.Parse(history.HistoryId);
 		request.PageToken = continuation;
