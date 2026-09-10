@@ -20,6 +20,9 @@ internal static partial class CalDavIcs
 {
 	private const int MaximumUnfoldedLines = 65_536;
 	private const int MaximumPropertiesPerEvent = 4_096;
+	private const int MaximumTextFieldLength = 4_096;
+	private const int MaximumAttendeesPerEvent = 512;
+	private const int MaximumRecurrenceValuesPerEvent = 512;
 	public static IReadOnlyList<CalendarEventDto> ParseEvents(string ics, string href, string etag, int maxEvents = 512)
 	{
 		var lines = Unfold(ics);
@@ -409,9 +412,9 @@ internal static partial class CalDavIcs
 			ICalUid = uid,
 			ProviderRevision = etag,
 			Sequence = int.TryParse(Single("SEQUENCE"), out var seq) ? seq : 0,
-			Title = Unescape(Single("SUMMARY")) ?? string.Empty,
-			Location = Unescape(Single("LOCATION")),
-			Description = Unescape(Single("DESCRIPTION")),
+			Title = LimitText(Unescape(Single("SUMMARY"))) ?? string.Empty,
+			Location = LimitText(Unescape(Single("LOCATION"))),
+			Description = LimitText(Unescape(Single("DESCRIPTION"))),
 			Start = start,
 			End = end,
 			StartTimeZoneId = KnownTimeZoneId(SingleWithParams("DTSTART")?.Params.GetValueOrDefault("TZID")),
@@ -421,9 +424,10 @@ internal static partial class CalDavIcs
 				? new Address(organizer.Params.GetValueOrDefault("CN"), StripMailto(organizer.Value))
 				: null,
 			Attendees = All("ATTENDEE")
+				.Take(MaximumAttendeesPerEvent)
 				.Select(a => new Attendee(
-					a.Params.GetValueOrDefault("CN"),
-					StripMailto(a.Value),
+					LimitText(a.Params.GetValueOrDefault("CN")),
+					LimitText(StripMailto(a.Value)) ?? string.Empty,
 					a.Params.GetValueOrDefault("ROLE")?.ToUpperInvariant() switch
 					{
 						"OPT-PARTICIPANT" => AttendeeRole.Optional,
@@ -451,19 +455,20 @@ internal static partial class CalDavIcs
 				.Where(r => r is not null)
 				.Select(r => r!.Value)
 				.ToList(),
-			RecurrenceRules = All("RRULE").Select(r => r.Value).ToList(),
+			RecurrenceRules = All("RRULE").Take(MaximumRecurrenceValuesPerEvent).Select(r => LimitText(r.Value) ?? string.Empty).ToList(),
 			// Each occurrence's own Params, not NoParams: RFC 5545 requires an RDATE/EXDATE to
-			// carry the same VALUE type and TZID as DTSTART (§3.8.5.1/§3.8.5.2), and
-			// RenderVEvent now writes them that way — parsing with NoParams would silently
-			// misread a zoned value as floating/UTC, off by whatever the zone's offset is.
-			RecurrenceDates = All("RDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
-			ExceptionDates = All("EXDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
+			// carry the same VALUE type and TZID as DTSTART (§3.8.5.1/§3.8.5.2).
+			RecurrenceDates = All("RDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Take(MaximumRecurrenceValuesPerEvent).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
+			ExceptionDates = All("EXDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Take(MaximumRecurrenceValuesPerEvent).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
 			RecurrenceMasterProviderEventId = recurrenceId is null ? null : href,
 			RecurrenceId = recurrenceId,
 		};
 	}
 
 	private static readonly IReadOnlyDictionary<string, string> NoParams = new Dictionary<string, string>();
+
+	private static string? LimitText(string? value) =>
+		value is { Length: > MaximumTextFieldLength } ? value[..MaximumTextFieldLength] : value;
 
 	private static string StripMailto(string value) =>
 		value.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ? value["mailto:".Length..] : value;
