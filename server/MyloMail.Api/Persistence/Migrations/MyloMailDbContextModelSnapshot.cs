@@ -209,6 +209,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<string>("SyncCursor")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTimeOffset?>("SyncWindowStartedAt")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AccountId", "ProviderCalendarId")

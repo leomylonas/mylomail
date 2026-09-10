@@ -18,6 +18,12 @@ public class Calendar
 	public string? SyncCursor { get; set; }
 
 	/// <summary>
+	/// Start of Graph's rolling calendar-view baseline. Its delta link is valid only for this
+	/// fixed window, so the sync service deliberately rebuilds it when the horizon advances.
+	/// </summary>
+	public DateTimeOffset? SyncWindowStartedAt { get; set; }
+
+	/// <summary>
 	/// No provider backing at all — holds events materialised from a mailed invite on an
 	/// account with no configured calendar (§1, §13 Epic 7). Never touched by
 	/// <c>CalendarSyncService.ReconcileCalendarsAsync</c>'s remove-what-the-provider-no-longer-

@@ -206,6 +206,14 @@ public sealed class CalendarSyncService(
 	)
 	{
 		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
+		if (account.ProviderType == ProviderType.Microsoft365
+			&& calendar.SyncCursor is not null
+			&& (calendar.SyncWindowStartedAt is null
+				|| calendar.SyncWindowStartedAt < DateTimeOffset.UtcNow.AddDays(-1)))
+		{
+			await ResetBaselineAsync(calendarId, ct);
+			calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
+		}
 		var cursor = calendar.SyncCursor;
 		string? continuation = null;
 		var resetForInvalidCursor = false;
@@ -257,6 +265,7 @@ public sealed class CalendarSyncService(
 		context.CalendarEvents.RemoveRange(await context.CalendarEvents.Where(e => e.CalendarId == calendarId).ToListAsync(ct));
 		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 		calendar.SyncCursor = null;
+		calendar.SyncWindowStartedAt = null;
 		await context.SaveChangesAsync(ct);
 		await transaction.CommitAsync(ct);
 		foreach (var eventId in removedIds)
@@ -466,6 +475,10 @@ public sealed class CalendarSyncService(
 		{
 			var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 			calendar.SyncCursor = page.NewCursor;
+			if (account.ProviderType == ProviderType.Microsoft365 && calendar.SyncWindowStartedAt is null)
+			{
+				calendar.SyncWindowStartedAt = DateTimeOffset.UtcNow;
+			}
 		}
 
 		await context.SaveChangesAsync(ct);
