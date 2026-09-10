@@ -537,17 +537,12 @@ internal static partial class CalDavIcs
 		{
 			return anchor + duration;
 		}
-		catch (ArgumentOutOfRangeException)
+		catch (ArgumentOutOfRangeException ex)
 		{
-			return null;
+			throw new InvalidDataException("Calendar reminder trigger is outside the supported date range.", ex);
 		}
 	}
 
-	/// <summary>
-	/// RFC 5545's parameter-value tokens (<c>VALUE</c>, <c>ROLE</c>, <c>PARTSTAT</c>,
-	/// <c>RELATED</c>, and so on) are ABNF terminal strings (RFC 5234 §2.3: quoted literals are
-	/// case-insensitive unless marked <c>%s</c>, which this grammar never does) — a compliant
-	/// server may send <c>value=date-time</c> just as validly as <c>VALUE=DATE-TIME</c>.
 	/// <see cref="ParseLine"/> only uppercases parameter *names*, never their values, so every
 	/// comparison against one of these known tokens must be explicitly case-insensitive here
 	/// rather than relying on the value already being normalized.
