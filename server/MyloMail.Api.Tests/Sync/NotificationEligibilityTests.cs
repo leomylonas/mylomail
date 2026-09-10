@@ -230,12 +230,12 @@ public sealed class NotificationEligibilityTests
 	}
 
 	/// <summary>
-	/// Clicking a notification whose message hasn't replayed yet fetches it on demand rather
-	/// than the navigation failing (§3) — <c>MailHub.ResolveStagedMessage</c> is what the
-	/// renderer calls for exactly that case.
+	/// Clicking a staged notification before account coverage completes leaves it unresolved:
+	/// replaying staged Gmail history first could be overwritten by a later stale coverage
+	/// page. The renderer retries after coverage completes.
 	/// </summary>
 	[Fact]
-	public async Task Resolving_a_staged_notification_drains_replay_and_returns_its_message()
+	public async Task Resolving_a_staged_notification_waits_for_account_coverage()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
@@ -246,13 +246,20 @@ public sealed class NotificationEligibilityTests
 		var notification = Assert.Single(harness.Events.Notifications);
 		Assert.Null(notification.MessageId);
 
-		// Deliberately no coverage run first: replay does not depend on it, and resolving
-		// this notification must drain the staged queue itself rather than relying on some
-		// other path having already materialised the message.
+		// Deliberately no coverage run first: account-wide Gmail history must remain staged
+		// until every mailbox has its baseline snapshot.
 		await harness.UsingAsync(async scope =>
 			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().Messages.ToListAsync())
 		);
 
+		var unresolved = await harness.UsingAsync(async scope =>
+		{
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			return await hub.ResolveStagedMessage(notification.Id);
+		});
+		Assert.Null(unresolved);
+
+		await SyncTests.CoverAsync(harness);
 		var resolved = await harness.UsingAsync(async scope =>
 		{
 			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);

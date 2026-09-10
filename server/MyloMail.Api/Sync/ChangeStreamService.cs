@@ -391,6 +391,10 @@ public sealed class ChangeStreamService(
 	public async Task<int> ReplayStagedAsync(Account account, CancellationToken ct = default)
 	{
 		using var lease = await gate.EnterAsync(account.Id, ct);
+		if (account.ProviderType == ProviderType.Gmail && !await CoverageCompleteAsync(account, ct))
+		{
+			return 0;
+		}
 		faults.Reached(FaultPoints.SyncBeforeStagedReplay);
 
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
