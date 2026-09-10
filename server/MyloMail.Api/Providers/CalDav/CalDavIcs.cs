@@ -459,11 +459,38 @@ internal static partial class CalDavIcs
 			RecurrenceRules = All("RRULE").Take(MaximumRecurrenceValuesPerEvent).Select(r => LimitText(r.Value) ?? string.Empty).ToList(),
 			// Each occurrence's own Params, not NoParams: RFC 5545 requires an RDATE/EXDATE to
 			// carry the same VALUE type and TZID as DTSTART (§3.8.5.1/§3.8.5.2).
-			RecurrenceDates = All("RDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Take(MaximumRecurrenceValuesPerEvent).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
-			ExceptionDates = All("EXDATE").SelectMany(r => r.Value.Split(',').Select(v => (r.Params, Value: v))).Take(MaximumRecurrenceValuesPerEvent).Select(v => ParseDateTime(v.Params, v.Value)).ToList(),
+			RecurrenceDates = ParseRecurrenceDates(All("RDATE")),
+			ExceptionDates = ParseRecurrenceDates(All("EXDATE")),
 			RecurrenceMasterProviderEventId = recurrenceId is null ? null : href,
 			RecurrenceId = recurrenceId,
 		};
+	}
+
+	private static List<DateTimeOffset> ParseRecurrenceDates(
+		IEnumerable<(IReadOnlyDictionary<string, string> Params, string Value)> properties
+	)
+	{
+		var dates = new List<DateTimeOffset>(MaximumRecurrenceValuesPerEvent);
+		foreach (var property in properties)
+		{
+			var valueStart = 0;
+			while (valueStart <= property.Value.Length && dates.Count < MaximumRecurrenceValuesPerEvent)
+			{
+				var separator = property.Value.IndexOf(',', valueStart);
+				var valueEnd = separator < 0 ? property.Value.Length : separator;
+				dates.Add(ParseDateTime(property.Params, property.Value[valueStart..valueEnd]));
+				if (separator < 0)
+				{
+					break;
+				}
+				valueStart = separator + 1;
+			}
+			if (dates.Count == MaximumRecurrenceValuesPerEvent)
+			{
+				break;
+			}
+		}
+		return dates;
 	}
 
 	private static readonly IReadOnlyDictionary<string, string> NoParams = new Dictionary<string, string>();
