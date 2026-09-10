@@ -45,6 +45,11 @@ public sealed class ChangeStreamService(
 		var provider = providers.For(account);
 		var state = await GetOrCreateStateAsync(account, mailbox, provider.Capabilities, ct);
 
+		if (state.IsRebasing)
+		{
+			await ResetCoverageForRebaseAsync(account, mailbox, state, ct);
+		}
+
 		// While coverage is incomplete, Gmail's account-wide history is drained durably but
 		// left unapplied. Applying it concurrently with backfill lets a stale backfill page
 		// resurrect a membership history has already removed.
@@ -198,6 +203,7 @@ public sealed class ChangeStreamService(
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
 			}
+			state.IsRebasing = false;
 
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
@@ -345,6 +351,7 @@ public sealed class ChangeStreamService(
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
 			}
+			state.IsRebasing = false;
 
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
@@ -503,6 +510,7 @@ public sealed class ChangeStreamService(
 		state.CursorState = null;
 		state.BaselineEstablishedAt = null;
 		state.LastError = ex.Message;
+		state.IsRebasing = true;
 
 		// Captured here, before resynchronisation begins, never advanced after it completes —
 		// advancing it afterwards would classify mail that arrived during the resync window
@@ -562,6 +570,30 @@ public sealed class ChangeStreamService(
 			mailbox.Id,
 			account.Id
 		);
+	}
+
+	private async Task ResetCoverageForRebaseAsync(
+		Account account,
+		Mailbox mailbox,
+		ChangeStreamState state,
+		CancellationToken ct
+	)
+	{
+		var coverages = state.MailboxId is null
+			? await (
+				from coverageState in context.MailboxCoverageStates
+				join coverageMailbox in context.Mailboxes on coverageState.MailboxId equals coverageMailbox.Id
+				where coverageMailbox.AccountId == account.Id
+				select coverageState
+			).ToListAsync(ct)
+			: await context.MailboxCoverageStates.Where(c => c.MailboxId == mailbox.Id).ToListAsync(ct);
+		foreach (var coverage in coverages)
+		{
+			coverage.Status = CoverageStatus.NotStarted;
+			coverage.ResumeToken = null;
+			coverage.MessagesFetched = 0;
+		}
+		await context.SaveChangesAsync(ct);
 	}
 
 	/// <summary>

@@ -383,6 +383,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<string>("CursorState")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("IsRebasing")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("LastError")
                         .HasColumnType("TEXT");
 
@@ -498,6 +501,7 @@ namespace MyloMail.Api.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("To")
+
                         .IsRequired()
                         .HasColumnType("TEXT");
 

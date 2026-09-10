@@ -137,25 +137,27 @@ public sealed class SyncJobs(
 				.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
 				.Select(m => m.Id)
 				.ToListAsync(ct);
-			if (account.ProviderType == ProviderType.Gmail && pending.Count > 0)
+			var needsGmailBaseline = account.ProviderType == ProviderType.Gmail
+				&& !await context.ChangeStreamStates.AnyAsync(
+					state => state.AccountId == accountId
+						&& state.MailboxId == null
+						&& state.CursorState != null
+						&& !state.IsRebasing,
+					ct
+				);
+			if (needsGmailBaseline)
 			{
 				var streamMailbox = await context
 					.Mailboxes.Where(m => m.AccountId == accountId)
 					.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 					.ThenBy(m => m.Id)
 					.FirstAsync(ct);
-				var outcome = await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
-				if (outcome.ResyncTriggered)
-				{
-					// An expired history cursor resets the baseline. Capture and persist the
-					// replacement before any coverage page can observe state older than it.
-					await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
-					pending = await context
-						.Mailboxes.Where(m => m.AccountId == accountId)
-						.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
-						.Select(m => m.Id)
-						.ToListAsync(ct);
-				}
+				await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+				pending = await context
+					.Mailboxes.Where(m => m.AccountId == accountId)
+					.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
+					.Select(m => m.Id)
+					.ToListAsync(ct);
 			}
 		}
 		catch (ProviderThrottledException ex)
@@ -429,11 +431,9 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, mailboxId);
 			return;
 		}
-
-		ChangeStreamOutcome outcome;
 		try
 		{
-			outcome = await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
+			await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
 		}
 		catch (ProviderThrottledException ex)
 		{
@@ -454,12 +454,6 @@ public sealed class SyncJobs(
 			throw;
 		}
 
-		if (outcome.ResyncTriggered)
-		{
-			polls.Stop(accountId, mailboxId);
-			jobs.Enqueue<SyncJobs>(j => j.TopologyAsync(accountId, default));
-			return;
-		}
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{

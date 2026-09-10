@@ -49,7 +49,10 @@ public sealed class CoverageService(
 
 		if (account.ProviderType == ProviderType.Gmail
 			&& !await context.ChangeStreamStates.AnyAsync(
-				state => state.AccountId == account.Id && state.MailboxId == null && state.CursorState != null,
+				state => state.AccountId == account.Id
+					&& state.MailboxId == null
+					&& state.CursorState != null
+					&& !state.IsRebasing,
 				ct
 			))
 		{
@@ -86,7 +89,10 @@ public sealed class CoverageService(
 			await context.Entry(coverage).ReloadAsync(ct);
 			if (account.ProviderType == ProviderType.Gmail
 				&& !await context.ChangeStreamStates.AnyAsync(
-					state => state.AccountId == account.Id && state.MailboxId == null && state.CursorState != null,
+					state => state.AccountId == account.Id
+						&& state.MailboxId == null
+						&& state.CursorState != null
+						&& !state.IsRebasing,
 					ct
 				))
 			{

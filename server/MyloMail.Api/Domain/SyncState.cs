@@ -73,6 +73,12 @@ public class ChangeStreamState
 	public ProviderCursorState? CursorState { get; set; }
 
 	public DateTimeOffset? BaselineEstablishedAt { get; set; }
+
+	/// <summary>
+	/// A cursor invalidation has fenced coverage but its replacement baseline has not committed.
+	/// Startup must complete this state before allowing another coverage page.
+	/// </summary>
+	public bool IsRebasing { get; set; }
 	public DateTimeOffset? LastSyncedAt { get; set; }
 	public string? LastError { get; set; }
 
