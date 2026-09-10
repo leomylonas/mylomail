@@ -299,7 +299,7 @@ Bodies are **not** fetched only on open. Search must cover mail the user has nev
 | `CalendarId`, `ProviderEventId`    |                                                                                    |
 | `ICalUid`                          | iCalendar `UID` — the cross-system identity used to match invites against events   |
 | `ProviderRevision`                 | ETag / `@odata.etag`, drives conflict detection                                    |
-| `Sequence`                         | iTIP `SEQUENCE`, for invite update ordering                                        |
+| `Sequence`                         | iTIP `SEQUENCE`, for invite update ordering where the source exposes it; Graph's native event API does not expose this field and owns RSVP ordering itself |
 | `Title`, `Location`, `Description` |                                                                                    |
 | `Start`, `End`                     | With **separate** `StartTimeZoneId` and `EndTimeZoneId` — they legitimately differ |
 | `IsAllDay`                         |                                                                                    |
@@ -474,6 +474,16 @@ A count bound is not a stable Graph delta predicate. Stopping the initial delta 
 So for Graph: populate the UI from the requested recent subset, run the complete delta bootstrap in the background, decline to materialise messages outside the bound while walking it, persist the final unfiltered `deltaLink`, and only then transition to normal delta sync.
 
 **Bounded sync on Graph reduces local materialisation and time-to-useful UI, not provider enumeration cost.** This must surface in the UI, since "last 3 months" otherwise implies a speed benefit Graph will not deliver.
+
+### Graph calendar coverage
+
+Graph exposes incremental calendar sync only through `calendarView/delta`, which requires a
+fixed time window. Calendar sync therefore retains a rolling 24 months: 12 months before through
+12 months after the current UTC instant. The window is encoded in the delta request state and is
+rebased when a token is invalidated; a `deltaLink` is persisted only after its complete walk has
+been transactionally materialised. Older and farther-future Graph events are deliberately outside
+local coverage until the rolling window reaches them. Google Calendar's collection `syncToken`
+has no equivalent range constraint.
 
 ### Graph — folder streams disagree about moves
 
@@ -758,7 +768,7 @@ Hangfire supplies the worker pool, delayed execution and the dashboard, backed b
 - Electron detects unexpected backend process exit and offers restart.
 - A recoverable credential-store exit specifically triggers master-password setup/unlock and
   restart, rather than being presented as an unexpected backend crash.
-- A per-launch random token (passed via env var at spawn) is required on all API/SignalR connections — prevents any other local process from connecting to the backend. The renderer supplies it via SignalR's **access token factory** (`accessTokenFactory` on `HubConnectionBuilder`), and as a bearer header for the few REST calls; the backend validates it in middleware and rejects mismatches with `401` before any hub/endpoint logic runs.
+- A per-launch random token (passed via env var at spawn) is required on all API/SignalR connections — prevents any other local process from connecting to the backend. Electron sets it as a `SameSite=Strict`, `HttpOnly` cookie for the backend origin before the first window loads; same-origin REST, assets, and the SignalR WebSocket handshake carry it automatically, while page script never receives the secret. Bearer headers remain accepted for shell-only requests, but `access_token` query parameters are rejected: URLs leak into logs, crash reports, and referrers.
 
 ### AppSettings (single-row table in the app DB)
 

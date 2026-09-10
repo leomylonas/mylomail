@@ -4,8 +4,14 @@ Use this checklist before completing any change to mutation chains, execution
 attempts, sync state machines, reconciliation, or persistence.
 
 The reviewer must read `AGENTS.md` and the relevant architecture section before
-reviewing the diff. When the environment supports an independent reviewer, the
-implementing agent must not perform this review itself.
+reviewing the diff. The implementing agent must not perform this review itself when an
+independent reviewer is available.
+
+In Oh My Pi, invoke the dedicated `reviewer` role with a fresh context after the
+implementation is complete. Give it the changed files and relevant architecture sections;
+it is read-only, does not run formatters or project-wide checks, and reports only
+architectural findings. The implementer resolves every finding, then requests a fresh
+review when the resolution changes an invariant-bearing path.
 
 Answer only this question: does the diff violate an architectural invariant?
 
