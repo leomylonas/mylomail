@@ -523,6 +523,10 @@ public sealed class FakeMailProvider : IMailProvider
 	/// </summary>
 	public List<string> DraftProviderIdsIssued { get; } = [];
 
+	/// <summary>Registers the Gmail draft container that encloses an externally observed message.</summary>
+	public void SeedDraftContainer(string providerMessageId) =>
+		draftsByStableMessageId[providerMessageId] = new DraftResult(NextOccurrenceId(), "rev-1", providerMessageId);
+
 	public Task<DraftResult> CreateOrUpdateDraftAsync(
 		Account account,
 		Draft draft,

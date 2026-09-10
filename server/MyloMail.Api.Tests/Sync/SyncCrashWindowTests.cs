@@ -36,6 +36,7 @@ public sealed class SyncCrashWindowTests
 		var drafts = harness.Provider.AddMailbox("DRAFT", SpecialUse.Drafts);
 		var occurrence = harness.Provider.SeedMessage("DRAFT", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		drafts.Messages[occurrence].RawBytes = DraftMimeBytes();
+		harness.Provider.SeedDraftContainer(occurrence);
 		await SyncTests.ReconcileAsync(harness);
 
 		await harness.UsingAsync(async scope =>
