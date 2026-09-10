@@ -29,6 +29,24 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		CancellationToken ct
 	)
 	{
+		var gate = ScopeUpgradeLocks.GetOrAdd(account.Id, static _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync(ct);
+		try
+		{
+			return await AuthorizeUnlockedAsync(account, requireCalendarScope, ct);
+		}
+		finally
+		{
+			gate.Release();
+		}
+	}
+
+	private async Task<UserCredential> AuthorizeUnlockedAsync(
+		Account account,
+		bool requireCalendarScope,
+		CancellationToken ct
+	)
+	{
 		var flow = new GoogleAuthorizationCodeFlow.Initializer
 		{
 			ClientSecrets = client,
