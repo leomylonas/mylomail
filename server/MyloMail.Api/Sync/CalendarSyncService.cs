@@ -293,9 +293,9 @@ public sealed class CalendarSyncService(
 	/// </summary>
 	private async Task ResetBaselineAsync(Guid calendarId, CancellationToken ct)
 	{
-		var removedIds = await context.CalendarEvents.Where(e => e.CalendarId == calendarId).Select(e => e.Id).ToListAsync(ct);
+		var removedIds = await context.CalendarEvents.Where(e => e.CalendarId == calendarId && !e.SyncConflict).Select(e => e.Id).ToListAsync(ct);
 		await using var transaction = await context.Database.BeginTransactionAsync(ct);
-		context.CalendarEvents.RemoveRange(await context.CalendarEvents.Where(e => e.CalendarId == calendarId).ToListAsync(ct));
+		context.CalendarEvents.RemoveRange(await context.CalendarEvents.Where(e => e.CalendarId == calendarId && !e.SyncConflict).ToListAsync(ct));
 		var calendar = await context.Calendars.SingleAsync(c => c.Id == calendarId, ct);
 		calendar.SyncCursor = null;
 		calendar.SyncWindowStartedAt = null;
@@ -514,10 +514,7 @@ public sealed class CalendarSyncService(
 		{
 			var stale = (await context.CalendarEvents.Where(e => e.CalendarId == calendarId && !e.SyncConflict).ToListAsync(ct))
 				.Where(e => !rebaseObservedProviderIds.Contains(e.ProviderEventId))
-				.Where(e => e.RecurrenceRules.Count > 0 || (e.Start < windowEnd && e.End > windowStart))
 				.ToList();
-			changed.AddRange(stale.Select(e => e.Id));
-			context.CalendarEvents.RemoveRange(stale);
 		}
 
 		if (commitCursor)
