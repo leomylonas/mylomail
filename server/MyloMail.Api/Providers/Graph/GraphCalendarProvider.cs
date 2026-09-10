@@ -124,7 +124,7 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		var client = await ClientAsync(account, ct);
 		var request = client.Me.Calendars[CalendarId(calendar)].Events;
 		string? continuation = null;
-		for (var pageNumber = 0; pageNumber < 256; pageNumber++)
+		while (true)
 		{
 			var page = continuation is null
 				? await ThrottleAwareAsync(() => request.GetAsync(
