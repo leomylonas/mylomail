@@ -48,3 +48,28 @@ test("a new user adds an IMAP account through the form and reaches their inbox",
 		await app.close();
 	}
 });
+
+test("Google account setup is selectable and ready for interactive sign-in", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await window.locator('label[for="provider-gmail"]').click();
+		await window.getByLabel("Account name").fill("Personal Gmail");
+		await window.getByLabel("Email address").fill("ada@example.test");
+
+		await expect(
+			window.getByText("A browser window will open for secure provider sign-in."),
+		).toBeVisible();
+		await expect(
+			window.getByRole("button", { name: "Create account" }),
+		).toBeEnabled();
+	} finally {
+		await app.close();
+	}
+});

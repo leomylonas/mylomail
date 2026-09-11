@@ -166,6 +166,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		form.secret &&
 		form.smtpHost,
 	);
+	const oauthReady = Boolean(form.displayName && form.emailAddress);
 
 	return (
 		<div className={styles.form}>
@@ -184,9 +185,8 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				/>
 				<RadioButton
 					id="provider-gmail"
-					labelText="Google (coming soon)"
+					labelText="Google"
 					value={String(ProviderType.Gmail)}
-					disabled
 				/>
 				<RadioButton
 					id="provider-microsoft365"
@@ -196,21 +196,21 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				/>
 			</RadioButtonGroup>
 
+			<TextInput
+				id="add-account-name"
+				labelText="Account name"
+				value={form.displayName}
+				onChange={(event) => set("displayName", event.target.value)}
+			/>
+			<TextInput
+				id="add-account-email"
+				labelText="Email address"
+				type="email"
+				value={form.emailAddress}
+				onChange={(event) => set("emailAddress", event.target.value)}
+			/>
 			{form.providerType === ProviderType.Imap ? (
 				<>
-					<TextInput
-						id="add-account-name"
-						labelText="Account name"
-						value={form.displayName}
-						onChange={(event) => set("displayName", event.target.value)}
-					/>
-					<TextInput
-						id="add-account-email"
-						labelText="Email address"
-						type="email"
-						value={form.emailAddress}
-						onChange={(event) => set("emailAddress", event.target.value)}
-					/>
 
 					<div className={styles.row}>
 						<TextInput
@@ -285,7 +285,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				</>
 			) : (
 				<p className={styles.helper}>
-					Sign-in for this provider is not wired up yet.
+					A browser window will open for secure provider sign-in.
 				</p>
 			)}
 
@@ -381,7 +381,8 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 
 			<Button
 				disabled={
-					form.providerType !== ProviderType.Imap || !imapReady || add.isPending
+					add.isPending ||
+					(form.providerType === ProviderType.Imap ? !imapReady : !oauthReady)
 				}
 				onClick={() => void add.mutate(form.trustCertificateOnRetry)}
 			>
