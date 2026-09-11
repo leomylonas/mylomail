@@ -4,10 +4,11 @@
 
 - Completed the prior Contacts, message-threading, IMAP IDLE, recipient-suggestion, and send-reconciliation slice. See `docs/parity-audit.md` for the remaining architecture gaps.
 - Parity remediation 1/47: enabled Google account onboarding in `AddAccount`. Account name and email are shared fields for OAuth providers; selecting Google now enables the interactive browser sign-in path instead of presenting a disabled “coming soon” option.
+- Parity remediation 2/47: enabled Microsoft 365 onboarding through the same interactive browser OAuth path.
 
 ## Next task
 
-- Enable Microsoft 365 account setup through the same interactive OAuth path.
+- Add supported per-account Gmail bring-your-own OAuth client credentials and diagnostics.
 
 ## Required reading
 
@@ -21,6 +22,7 @@
 - Baseline `pnpm check`: format, TypeScript, ESLint, Stylelint, build, 499 .NET tests, and 146 Vitest tests passed.
 - `pnpm status` after the Google onboarding change: TypeScript, ESLint, and .NET clean.
 - Actual Electron smoke: `pnpm e2e --grep "Google account setup"` passed. The Google provider can be selected, common identity fields can be completed, the interactive sign-in explanation is visible, and Create account becomes enabled.
+- Actual Electron smoke: `pnpm e2e --grep "Microsoft 365 setup"` passed. The Microsoft 365 provider can be selected, identity fields can be completed, and Create account becomes enabled.
 
 ## Live risks / decisions
 

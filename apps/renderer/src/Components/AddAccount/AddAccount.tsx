@@ -190,9 +190,8 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				/>
 				<RadioButton
 					id="provider-microsoft365"
-					labelText="Microsoft 365 (coming soon)"
+					labelText="Microsoft 365"
 					value={String(ProviderType.Microsoft365)}
-					disabled
 				/>
 			</RadioButtonGroup>
 
