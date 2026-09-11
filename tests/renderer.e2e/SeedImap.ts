@@ -1,4 +1,5 @@
 import { connect } from "node:net";
+import { connect as connectTls, type TLSSocket } from "node:tls";
 
 /**
  * Appends a message to the matrix server's INBOX over a raw IMAP socket.
@@ -203,21 +204,27 @@ async function session(
 	port: number,
 	run: (send: Send, sendLiteral: SendLiteral) => Promise<void>,
 ): Promise<void> {
-	const socket = connect({ host: "127.0.0.1", port });
+	const plain = connect({ host: "127.0.0.1", port });
 	let buffer = "";
-	socket.setEncoding("utf8");
-	socket.on("data", (chunk: string) => {
+	const collect = (chunk: string) => {
 		buffer += chunk;
-	});
+	};
+	plain.setEncoding("utf8");
+	plain.on("data", collect);
 
-	const settled = (tag: string, expect: "tagged" | "continuation") =>
+	const settled = (
+		tag: string,
+		expect: "tagged" | "continuation" | "greeting",
+	) =>
 		new Promise<string>((resolve, reject) => {
 			const deadline = Date.now() + 10_000;
 			const poll = setInterval(() => {
 				const done =
 					expect === "continuation"
 						? buffer.includes("+ ")
-						: new RegExp(`^${tag} (OK|NO|BAD)`, "m").test(buffer);
+						: expect === "greeting"
+							? buffer.includes("* OK")
+							: new RegExp(`^${tag} (OK|NO|BAD)`, "m").test(buffer);
 				if (done) {
 					clearInterval(poll);
 					const seen = buffer;
@@ -231,7 +238,28 @@ async function session(
 		});
 
 	await new Promise<void>((resolve, reject) => {
-		socket.once("connect", () => resolve());
+		plain.once("connect", () => resolve());
+		plain.once("error", reject);
+	});
+	buffer = "";
+
+	// The matrix advertises LOGINDISABLED until the connection is encrypted (§2: the app
+	// itself refuses plaintext password authentication, and the server is configured to
+	// match), so the seeding socket has to upgrade before it can log in — otherwise every
+	// command after LOGIN is rejected and Dovecot closes the session as abusive.
+	await settled("*", "greeting");
+	plain.write("t1 STARTTLS\r\n");
+	await settled("t1", "tagged");
+	plain.off("data", collect);
+	const socket: TLSSocket = connectTls({
+		socket: plain,
+		// The matrix certificate is generated locally and self-signed by design.
+		rejectUnauthorized: false,
+	});
+	socket.setEncoding("utf8");
+	socket.on("data", collect);
+	await new Promise<void>((resolve, reject) => {
+		socket.once("secureConnect", () => resolve());
 		socket.once("error", reject);
 	});
 	buffer = "";
@@ -255,5 +283,6 @@ async function session(
 		await run(send, sendLiteral);
 	} finally {
 		socket.destroy();
+		plain.destroy();
 	}
 }

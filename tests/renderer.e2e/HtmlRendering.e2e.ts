@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import {
 	appendHostileHtmlMessage,
 	clearInbox,
@@ -27,26 +28,7 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 	const { app, window } = await launchApp();
 
 	try {
-		await window.evaluate(async () => {
-			await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port: 12143,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 1025,
-					},
-				}),
-			});
-		});
+		await createImapAccount(window, imapPort);
 
 		await window
 			.getByRole("button", { name: /INBOX/ })

@@ -12,6 +12,8 @@ import {
 } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import type { WindowState } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
+import type { SyncProgressDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type { SyncProgressKind } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 /** Query keys, in one place so an event and the query it invalidates cannot drift apart. */
 export const queryKeys = {
@@ -29,8 +31,15 @@ export const queryKeys = {
 		["calendar-events", calendarId, from, to] as const,
 	contacts: (accountId: string, query = "") =>
 		["contacts", accountId, query] as const,
-	/** Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3). */
-	syncProgress: (mailboxId: string) => ["sync-progress", mailboxId] as const,
+	/**
+	 * Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3).
+	 *
+	 * Keyed by kind as well as mailbox: backfill and content indexing both report here, and
+	 * indexing continues after coverage completes, so one key would have the second producer
+	 * overwrite the first and a finished backfill would appear to restart.
+	 */
+	syncProgress: (mailboxId: string, kind: SyncProgressKind) =>
+		["sync-progress", mailboxId, kind] as const,
 	/**
 	 * Seeded by `GetConnectivity` on mount (so a window opened while already offline shows
 	 * the calm banner immediately), then kept current by the `ConnectivityChanged` event
@@ -45,12 +54,6 @@ export const queryKeys = {
 	 */
 	reauthRequestedAccountId: () => ["reauth-requested-account"] as const,
 };
-
-export interface SyncProgress {
-	mailboxId: string;
-	messagesFetched: number;
-	estimatedTotal: number | null;
-}
 
 /**
  * Opens the hub and points its events at the query cache.
@@ -73,7 +76,7 @@ export function connectHub(
 		.configureLogging(LogLevel.Warning)
 		.build();
 
-	hub.on("SyncProgress", (progress: SyncProgress) => {
+	hub.on("SyncProgress", (progress: SyncProgressDto) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.messages(progress.mailboxId),
 		});
@@ -81,7 +84,7 @@ export function connectHub(
 		// key with `enabled: false`, so it renders whatever this last wrote and nothing more
 		// (§13 Epic 3) — there is no request that would ever produce this value on its own.
 		queryClient.setQueryData(
-			queryKeys.syncProgress(progress.mailboxId),
+			queryKeys.syncProgress(progress.mailboxId, progress.kind),
 			progress,
 		);
 	});

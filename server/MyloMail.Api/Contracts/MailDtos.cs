@@ -84,17 +84,29 @@ public record MessageSummaryDto(
 }
 
 /// <summary>
-/// Backfill progress for one mailbox (§1).
+/// Progress for one mailbox, from either of the two paged jobs that produce it (§7).
 /// </summary>
 /// <remarks>
+/// <para>
 /// Availability and coverage are separate values on purpose: a mailbox is fully usable while
 /// still backfilling, and collapsing them into one state would eventually have two screens
 /// disagreeing about whether it can be opened.
+/// </para>
+/// <para>
+/// <paramref name="Kind"/> keeps the two producers apart rather than letting the later one
+/// overwrite the earlier's numbers: backfill counts messages whose metadata has been
+/// materialised, content indexing counts messages whose body has, and indexing continues
+/// long after coverage reports complete. <paramref name="Status"/> belongs to coverage alone
+/// — content acquisition is message state, and a mailbox-scoped content <i>status</i> would
+/// be a fiction under Gmail's canonical model, where one message belongs to several labels
+/// (§1).
+/// </para>
 /// </remarks>
 [TranspilationSource]
 public record SyncProgressDto(
 	Guid MailboxId,
-	CoverageStatus Status,
+	SyncProgressKind Kind,
+	CoverageStatus? Status,
 	int MessagesFetched,
 	int? EstimatedTotal
 );

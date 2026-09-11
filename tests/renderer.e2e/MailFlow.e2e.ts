@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import {
 	appendMessage,
 	clearInbox,
@@ -36,28 +37,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		).toBeVisible();
 
 		// Adding the account through the same API the settings UI will use.
-		const created = await window.evaluate(async () => {
-			const response = await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port: 11143,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 1025,
-					},
-				}),
-			});
-			return response.status;
-		});
-		expect(created).toBe(201);
+		await createImapAccount(window, imapPort);
 
 		// Topology discovery, then coverage: the sidebar fills in as they land.
 		await expect(window.getByRole("button", { name: /INBOX/ })).toBeVisible({
@@ -123,8 +103,8 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 			window.getByRole("button", { name: /Second message/ }),
 		).toBeVisible();
 
-		// The conventional message menu (§13). Entries whose feature does not exist yet are
-		// present and disabled rather than missing.
+		// The conventional message menu (§13). Reply is wired to the compose panel now, so
+		// the entry acts rather than sitting disabled; multi-select is what disables it.
 		await window
 			.getByRole("button", { name: /First message/ })
 			.click({ button: "right" });
@@ -132,7 +112,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await expect(menu).toBeVisible();
 		await expect(
 			menu.getByRole("menuitem", { name: "Reply", exact: true }),
-		).toBeDisabled();
+		).toBeEnabled();
 		await expect(menu.getByRole("menuitem", { name: "Flag" })).toBeEnabled();
 
 		// Acting through the menu reaches the server, exactly as clicking does. Flagging

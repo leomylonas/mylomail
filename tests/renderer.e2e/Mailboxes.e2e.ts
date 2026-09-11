@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import { foldersOn } from "@mylomail/renderer-e2e/SeedImap";
 
 /**
@@ -26,28 +27,7 @@ test("a folder is created, renamed and deleted on the server", async () => {
 			window.getByRole("heading", { name: "MyloMail" }),
 		).toBeVisible();
 
-		const created = await window.evaluate(async () => {
-			const response = await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port: 12143,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 1025,
-					},
-				}),
-			});
-			return response.status;
-		});
-		expect(created).toBe(201);
+		await createImapAccount(window, imapPort);
 
 		await window
 			.getByRole("button", { name: /INBOX/ })

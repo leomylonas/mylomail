@@ -8,15 +8,14 @@ import {
 	RadioButtonGroup,
 	SkeletonText,
 } from "@carbon/react";
-import {
-	queryKeys,
-	type SyncProgress,
-} from "@mylomail/renderer/Shell/Backend/HubConnection";
+import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import type { SyncProgressDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	CoverageStatus,
 	InitialSyncMode,
 	MailboxAvailability,
 	SpecialUse,
+	SyncProgressKind,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
@@ -381,7 +380,12 @@ export function MailboxTree({
 								{mailbox.coverage === CoverageStatus.Backfilling ? (
 									<BackfillProgress mailboxId={mailbox.id} />
 								) : (
-									<span className={styles.count}>{describeCount(mailbox)}</span>
+									<>
+										<IndexingProgress mailboxId={mailbox.id} />
+										<span className={styles.count}>
+											{describeCount(mailbox)}
+										</span>
+									</>
 								)}
 							</button>
 						</div>
@@ -858,8 +862,8 @@ function describeDeletion(capabilities: Capabilities | undefined): string {
  */
 function BackfillProgress({ mailboxId }: { mailboxId: string }) {
 	const { data: progress } = useQuery({
-		queryKey: queryKeys.syncProgress(mailboxId),
-		queryFn: () => undefined as SyncProgress | undefined,
+		queryKey: queryKeys.syncProgress(mailboxId, SyncProgressKind.Coverage),
+		queryFn: () => undefined as SyncProgressDto | undefined,
 		enabled: false,
 	});
 
@@ -870,6 +874,33 @@ function BackfillProgress({ mailboxId }: { mailboxId: string }) {
 			{progress.estimatedTotal
 				? `${progress.messagesFetched} of ${progress.estimatedTotal}`
 				: `${progress.messagesFetched} synced`}
+		</span>
+	);
+}
+
+/**
+ * "N of M indexed" while content acquisition is still working through this mailbox.
+ *
+ * A separate indicator from the backfill one, and a separate cache entry, because the two
+ * count different things and overlap in time: metadata coverage completes and the mailbox
+ * becomes fully usable while bodies are still being fetched for search (§1, §7). Nothing is
+ * shown once every held message has content, which is the steady state.
+ */
+function IndexingProgress({ mailboxId }: { mailboxId: string }) {
+	const { data: progress } = useQuery({
+		queryKey: queryKeys.syncProgress(mailboxId, SyncProgressKind.Content),
+		queryFn: () => undefined as SyncProgressDto | undefined,
+		enabled: false,
+	});
+
+	const total = progress?.estimatedTotal ?? 0;
+	if (!progress || total === 0 || progress.messagesFetched >= total) {
+		return null;
+	}
+
+	return (
+		<span className={styles.count}>
+			{`${progress.messagesFetched} of ${total} indexed`}
 		</span>
 	);
 }

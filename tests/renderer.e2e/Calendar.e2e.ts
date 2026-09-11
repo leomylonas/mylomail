@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 
 /**
  * The Basic tier of the local matrix, shared with `Compose.e2e.ts` but never touched by it:
@@ -17,26 +18,7 @@ test("the calendar panel renders with a deliberate empty state when no calendar 
 	const { app, window } = await launchApp();
 
 	try {
-		await window.evaluate(async (port) => {
-			await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 11025,
-					},
-				}),
-			});
-		}, imapPort);
+		await createImapAccount(window, imapPort);
 
 		await expect(window.getByRole("button", { name: "Calendar" })).toBeEnabled({
 			timeout: 60_000,

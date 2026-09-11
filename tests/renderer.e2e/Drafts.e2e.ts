@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import {
 	bodiesIn,
 	clearFolder,
@@ -28,26 +29,7 @@ test("a saved draft is stored in the server's Drafts folder", async () => {
 	const subject = `Draft ${Date.now()}`;
 
 	try {
-		await window.evaluate(async () => {
-			await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port: 11143,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 11025,
-					},
-				}),
-			});
-		});
+		await createImapAccount(window, imapPort);
 
 		await expect(
 			window.getByRole("button", { name: "New message" }),
@@ -56,9 +38,11 @@ test("a saved draft is stored in the server's Drafts folder", async () => {
 		});
 		await window.getByRole("button", { name: "New message" }).click();
 
-		await window.getByLabel("To").fill("someone@example.org");
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
 		await window.getByLabel("Subject").fill(subject);
-		await window.getByLabel("Message").fill("Still writing this.");
+		await window
+			.getByLabel("Message", { exact: true })
+			.fill("Still writing this.");
 		await window.getByRole("button", { name: "Save draft" }).click();
 
 		// Waits for the first version specifically, not merely for the subject to appear. The
@@ -78,7 +62,9 @@ test("a saved draft is stored in the server's Drafts folder", async () => {
 
 		// Saving again replaces the server's copy rather than appending a second one: on IMAP
 		// an update is an append plus an expunge, and getting that order wrong leaves two.
-		await window.getByLabel("Message").fill("Still writing this, with more.");
+		await window
+			.getByLabel("Message", { exact: true })
+			.fill("Still writing this, with more.");
 		await window.getByRole("button", { name: "Save draft" }).click();
 
 		await expect

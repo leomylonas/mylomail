@@ -51,6 +51,21 @@ public enum CoverageStatus
 }
 
 /// <summary>
+/// Which paged job a <see cref="Contracts.SyncProgressDto"/> came from (§7).
+/// </summary>
+/// <remarks>
+/// Coverage finishes; content indexing keeps going afterwards, one message at a time. Without
+/// this the second producer's counts would land on the first's cache entry and a completed
+/// backfill would appear to restart.
+/// </remarks>
+[TranspilationSource]
+public enum SyncProgressKind
+{
+	Coverage,
+	Content,
+}
+
+/// <summary>
 /// Whether a mailbox can currently serve its cached view. Orthogonal to
 /// <see cref="CoverageStatus"/>: a backfill in progress is usable, while a completed cache
 /// can be degraded by a sync or authentication fault.

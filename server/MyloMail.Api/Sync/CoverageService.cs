@@ -161,7 +161,13 @@ public sealed class CoverageService(
 		// After the page is committed, never before: an event announcing progress that a crash
 		// then discarded would leave the UI ahead of the database.
 		await events.SyncProgressAsync(
-			new SyncProgressDto(mailbox.Id, coverage.Status, coverage.MessagesFetched, coverage.EstimatedTotal)
+			new SyncProgressDto(
+				mailbox.Id,
+				SyncProgressKind.Coverage,
+				coverage.Status,
+				coverage.MessagesFetched,
+				coverage.EstimatedTotal
+			)
 		);
 		await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
 		foreach (var draftId in changedDraftIds)

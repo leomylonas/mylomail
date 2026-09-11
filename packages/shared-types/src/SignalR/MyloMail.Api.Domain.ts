@@ -138,6 +138,12 @@ export enum CoverageStatus {
     Failed = 3,
 }
 
+/** Transpiled from MyloMail.Api.Domain.SyncProgressKind */
+export enum SyncProgressKind {
+    Coverage = 0,
+    Content = 1,
+}
+
 /** Transpiled from MyloMail.Api.Domain.MailboxAvailability */
 export enum MailboxAvailability {
     Usable = 0,

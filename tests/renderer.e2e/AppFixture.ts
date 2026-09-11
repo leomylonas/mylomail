@@ -46,17 +46,29 @@ export async function launchApp(): Promise<LaunchedApp> {
 			XDG_DATA_HOME: join(root, "share"),
 			MYLOMAIL_MASTER_PASSWORD: "e2e-master-password",
 			MYLOMAIL_BACKEND_COMMAND: "dotnet",
-			MYLOMAIL_BACKEND_ARGS: [
-				"run",
-				"--project",
-				join(repositoryRoot, "server/MyloMail.Api/MyloMail.Api.csproj"),
-				"--no-launch-profile",
-				"--no-build",
-			].join(" "),
+			// The already-built assembly, not `dotnet run --project`: MSBuild in the launch
+			// path made startup nondeterministic — every spec launches its own app, and a
+			// project-lock or restore check that stalls shows up as the window never
+			// appearing, which reads as an app hang rather than as a build one.
+			MYLOMAIL_BACKEND_ARGS: join(
+				repositoryRoot,
+				"server/MyloMail.Api/bin/Debug/net10.0/MyloMail.Api.dll",
+			),
 			MYLOMAIL_RENDERER_PATH: join(repositoryRoot, "apps/renderer/dist"),
 		},
 	});
-
 	const window = await app.firstWindow();
+
+	// A renderer exception leaves the page mounted but inert, and every locator then simply
+	// times out with nothing to say why. Printing it is the difference between "the app
+	// hung" and the actual stack.
+	window.on("pageerror", (error) => {
+		console.error(`[renderer] ${error.stack ?? error.message}`);
+	});
+	window.on("console", (message) => {
+		if (message.type() === "error")
+			console.error(`[renderer] ${message.text()}`);
+	});
+
 	return { app, window, dataDirectory };
 }

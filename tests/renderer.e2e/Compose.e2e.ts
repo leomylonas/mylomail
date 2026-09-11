@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import { clearInbox } from "@mylomail/renderer-e2e/SeedImap";
 
 /**
@@ -26,26 +27,7 @@ test("a composed message is sent and arrives at the server", async () => {
 	const subject = `Composed ${Date.now()}`;
 
 	try {
-		await window.evaluate(async () => {
-			await fetch("/accounts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					displayName: "Matrix",
-					providerType: 0,
-					emailAddress: "test@mylomail.local",
-					secret: "password",
-					imap: {
-						host: "127.0.0.1",
-						port: 13143,
-						useSsl: false,
-						userName: "test@mylomail.local",
-						smtpHost: "127.0.0.1",
-						smtpPort: 11025,
-					},
-				}),
-			});
-		});
+		await createImapAccount(window, imapPort);
 
 		await expect(
 			window.getByRole("button", { name: "New message" }),
@@ -54,7 +36,7 @@ test("a composed message is sent and arrives at the server", async () => {
 		});
 		await window.getByRole("button", { name: "New message" }).click();
 
-		await window.getByLabel("To").fill("someone@example.org");
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
 		await window.getByLabel("Subject").fill(subject);
 		// The rich editor is a contenteditable, not a field: typing is the only way to
 		// exercise the path that actually produces the HTML.

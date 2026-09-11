@@ -207,6 +207,11 @@ public sealed class ContentAcquisition(
 			return ContentAcquisitionResult.Deferred;
 		}
 
+		// After the content transaction, and only for a fetch that actually stored something:
+		// §7 pairs SyncProgress with each content-index page as much as with each backfill
+		// page, and indexing runs long after coverage reports complete.
+		await ContentProgressAnnouncer.AnnounceAsync(context, events, messageId, ct);
+
 		// Deliberately after the content transaction has committed, not inside it: calendar
 		// materialisation is a different coordination domain (§6), and a hiccup there must
 		// never roll back an otherwise-successful, precious content fetch (retries are capped
