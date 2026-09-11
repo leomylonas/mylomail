@@ -335,11 +335,27 @@ public sealed class SyncJobs(
 	/// </remarks>
 	public async Task StartChangeStreamsAsync(Account account, CancellationToken ct = default)
 	{
-		var accountScoped =
-			providers.For(account).Capabilities.ChangeStreamScope == ChangeStreamScope.Account;
+		var capabilities = providers.For(account).Capabilities;
+		var accountScoped = capabilities.ChangeStreamScope == ChangeStreamScope.Account;
+		var mailboxQuery = context.Mailboxes.Where(m =>
+			m.AccountId == account.Id && m.ProviderMailboxId != null
+		);
+		if (capabilities.RequiresCoverageBeforeInitialChangeStream)
+		{
+			mailboxQuery = mailboxQuery.Where(m =>
+				context.MailboxCoverageStates.Any(coverage =>
+					coverage.MailboxId == m.Id && coverage.Status == CoverageStatus.Covered
+				)
+				|| context.ChangeStreamStates.Any(state =>
+					state.AccountId == account.Id
+					&& state.MailboxId == m.Id
+					&& state.CursorState != null
+					&& !state.IsRebasing
+				)
+			);
+		}
 
-		var mailboxes = await context
-			.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null)
+		var mailboxes = await mailboxQuery
 			.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 			.ThenBy(m => m.Id)
 			.Select(m => m.Id)
@@ -414,6 +430,8 @@ public sealed class SyncJobs(
 			return;
 		}
 
+		await StartChangeStreamsAsync(account, ct);
+
 		// Coverage for this mailbox is done; Gmail's staged history may now be replayable.
 		jobs.Enqueue<SyncJobs>(j => j.ReplayStagedAsync(accountId, default));
 
@@ -441,6 +459,29 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, mailboxId);
 			return;
 		}
+		var hasEstablishedCursor = await context.ChangeStreamStates.AnyAsync(
+			state =>
+				state.AccountId == accountId
+				&& state.MailboxId == mailboxId
+				&& state.CursorState != null
+				&& !state.IsRebasing,
+			ct
+		);
+		if (
+			providers.For(account).Capabilities.RequiresCoverageBeforeInitialChangeStream
+			&& !hasEstablishedCursor
+			&& !await context.MailboxCoverageStates.AnyAsync(
+				coverage =>
+					coverage.MailboxId == mailboxId
+					&& coverage.Status == CoverageStatus.Covered,
+				ct
+			)
+		)
+		{
+			polls.Stop(accountId, mailboxId);
+			return;
+		}
+
 		try
 		{
 			await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);

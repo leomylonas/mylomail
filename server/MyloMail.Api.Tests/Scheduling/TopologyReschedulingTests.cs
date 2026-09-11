@@ -80,6 +80,58 @@ public sealed class TopologyReschedulingTests
 		);
 	}
 
+	[Fact]
+	public async Task Graph_change_stream_waits_for_coverage_then_bootstraps_its_delta()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
+		);
+		Assert.DoesNotContain(
+			await CreatedJobsAsync(harness),
+			job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
+		);
+
+		var mailboxId = await harness.UsingAsync(async scope =>
+			(await harness.MailboxAsync(scope, "INBOX")).Id
+		);
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<SyncJobs>()
+				.CoveragePageAsync(harness.Account.Id, mailboxId)
+		);
+
+		Assert.Contains(
+			await CreatedJobsAsync(harness),
+			job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
+		);
+	}
+
+	[Fact]
+	public async Task Established_Graph_stream_continues_while_a_new_coverage_policy_backfills()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.CoverAsync(harness);
+		await SyncTests.SyncAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			coverage.Status = CoverageStatus.NotStarted;
+			await context.SaveChangesAsync();
+			await scope.GetRequiredService<SyncJobs>()
+				.StartChangeStreamsAsync(await harness.AccountInScopeAsync(scope));
+		});
+
+		Assert.Contains(
+			await CreatedJobsAsync(harness),
+			job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
+		);
+	}
+
 	/// <summary>
 	/// Runs <see cref="SyncJobs.TopologyAsync"/> twice in a row — the second call standing in
 	/// for Hangfire actually firing the job the first call scheduled — and asserts the second

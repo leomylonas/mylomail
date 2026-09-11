@@ -15,10 +15,11 @@
 - Parity remediation 10/47: resolved the Google contact deletion design conflict without weakening concurrency safety. The architecture now explicitly limits Google People two-way writes to creates and revision-checked updates, keeps remote deletion observations authoritative, permits local-contact deletion, and requires provider-backed contacts to be deleted in Google because `people.deleteContact` has no atomic revision precondition.
 - Parity remediation 11/47: Gmail topology now derives a stable local tree from flat slash-delimited labels. Real labels keep provider identity while missing intermediate paths receive reusable provider-id-less `Mailbox` rows; obsolete intermediates are removed, real labels replace matching synthetic paths without duplication, and synthetic rows are excluded defensively from provider coverage/change-stream scheduling. Mailbox rows and topology state commit in one explicit crash-tested transaction.
 - Parity remediation 12/47: Gmail `LastNMessages` coverage now carries the remaining target alongside the opaque provider page token, caps each request and the reported estimate, and stops after consuming N observations even when Gmail advertises another page. A migration restarts legacy in-progress bounded walks so old raw tokens cannot silently add a second full bound. Coverage progress counts consumed provider observations, and mailbox-scoped policy generations plus an atomic SQL setter fence in-flight pages and concurrent multi-window bound changes without overloading topology identity.
+- Parity remediation 13/47: Graph coverage now honors count bounds across absolute `nextLink` pages and applies stable received-date filters for month bounds, then defers the first change stream until the requested recent subset is usable. Its unfiltered delta bootstrap still enumerates every page but materializes only already-selected stable ids and arrivals after the retained baseline, committing only the final `deltaLink`. Established streams remain live during later policy backfills; cursor invalidation, rebase cutoff, coverage reset, and integrity state now commit atomically, and a migration restarts legacy count-bounded raw continuations.
 
 ## Next task
 
-- Correct Graph bounded initial-sync semantics.
+- Fence content fetches by topology generation.
 
 ## Required reading
 
@@ -62,6 +63,9 @@
 - `pnpm check` after Gmail message-bound correction: format, TypeScript, ESLint, Stylelint, build, 531 .NET tests, and 146 Vitest tests passed.
 - Gmail bound fault discrimination: removing the fake provider's `LastNMessages` truncation made `Gmail_message_bound_and_resume_cursor_commit_with_each_coverage_page` fail after its apply-before-commit crash/restart; restoring the target returned the suite to green. Cursor tests separately cover three provider pages, exact final-page request size, opaque-token round trips, and legacy-token rejection.
 - Gmail bound invariant review found and closed upgrade and concurrency defects before commit: legacy raw cursors now restart via migration, mode transitions reset and version coverage, lazy state creation is fenced from the mailbox, and concurrent multi-window setters use an atomic SQL increment/reset transaction. Final review found no remaining violations.
+- `pnpm check` after Graph bounded-bootstrap correction: format, TypeScript, ESLint, Stylelint, build, 537 .NET tests, and 146 Vitest tests passed.
+- Graph bootstrap fault discrimination: removing initial-delta filtering made `Graph_bootstrap_enumerates_fully_without_materialising_history_outside_the_bound` fail after its apply-before-commit crash/restart; restoring the filter returned the suite to green. The scenario fully walks three delta pages, retains the bounded subset plus a post-setup arrival, and commits only the final `GraphDeltaCursor`.
+- Graph invariant review found and closed four orchestration defects before commit: completed rebase coverage is no longer reset twice, the notification cutoff predates deferred coverage without changing Gmail/IMAP semantics, the rebase cutoff remains fixed through every delta page, and established Graph streams continue during policy backfills. Final review found no remaining violations.
 
 ## Live risks / decisions
 

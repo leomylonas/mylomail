@@ -38,6 +38,7 @@ public sealed partial class GmailMailProvider(
 		ImapTier = ImapCapabilityTier.NotApplicable,
 		ReportsMailboxCounts = true,
 		ReportsDestinationIdOnMove = true,
+		RequiresCoverageBeforeInitialChangeStream = false,
 		SupportsIncrementalFlagChanges = true,
 		ReportsExpungesIncrementally = true,
 		AdvancesCursorMidWalk = false,

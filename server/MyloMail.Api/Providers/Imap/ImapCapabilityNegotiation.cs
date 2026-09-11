@@ -55,6 +55,7 @@ internal static class ImapCapabilityNegotiation
 
 			// One folder, one membership. The many-to-many exists for Gmail (§1).
 			SupportsMultipleMailboxMembership = false,
+			RequiresCoverageBeforeInitialChangeStream = false,
 
 			SupportsServerSideDrafts = true,
 

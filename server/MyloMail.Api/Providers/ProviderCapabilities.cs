@@ -54,6 +54,13 @@ public record ProviderCapabilities
 	public required bool AdvancesCursorMidWalk { get; init; }
 
 	/// <summary>
+	/// Whether the first change-stream walk must wait for bounded coverage to populate the
+	/// requested recent subset. Graph then fully enumerates its unfiltered delta bootstrap
+	/// without materialising older rows; Gmail and IMAP establish their baselines differently.
+	/// </summary>
+	public required bool RequiresCoverageBeforeInitialChangeStream { get; init; }
+
+	/// <summary>
 	/// Whether one message can belong to several mailboxes at once. True for Gmail, where a
 	/// message has one canonical existence and a set of labels; for IMAP and Graph there is
 	/// always exactly one membership (§1).

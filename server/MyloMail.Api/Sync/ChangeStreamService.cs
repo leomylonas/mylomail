@@ -47,11 +47,9 @@ public sealed class ChangeStreamService(
 		var provider = providers.For(account);
 		var state = await GetOrCreateStateAsync(account, mailbox, provider.Capabilities, ct);
 
-		if (state.IsRebasing)
-		{
-			await ResetCoverageForRebaseAsync(account, mailbox, state, ct);
-		}
-
+		var baselineCutoff = state.IsRebasing
+			? state.NotificationBaselineAt
+			: account.NotificationEpoch;
 		// While coverage is incomplete, Gmail's account-wide history is drained durably but
 		// left unapplied. Applying it concurrently with backfill lets a stale backfill page
 		// resurrect a membership history has already removed.
@@ -86,6 +84,14 @@ public sealed class ChangeStreamService(
 				);
 
 				var result = await provider.SyncMailboxAsync(account, mailbox, state.CursorState, continuation, ct);
+				if (
+					provider.Capabilities.RequiresCoverageBeforeInitialChangeStream
+					&& state.CursorState is null
+				)
+				{
+					result = await FilterInitialBaselineAsync(account, baselineCutoff, result, ct);
+				}
+
 
 				faults.Reached(FaultPoints.SyncPageBeforeCommit);
 
@@ -173,6 +179,42 @@ public sealed class ChangeStreamService(
 	/// <c>nextLink</c> rather than the <c>deltaLink</c> incremental sync needs — so advancing
 	/// here would hand the next run a cursor covering changes it never received.
 	/// </remarks>
+	private async Task<SyncResult> FilterInitialBaselineAsync(
+		Account account,
+		DateTimeOffset cutoff,
+		SyncResult result,
+		CancellationToken ct
+	)
+	{
+		var providerStableIds = result.Upserted
+			.Select(message => message.ProviderStableId)
+			.Where(id => id is not null)
+			.Select(id => id!)
+			.Distinct()
+			.ToList();
+		var materialized = providerStableIds.Count == 0
+			? []
+			: await context
+				.Messages.Where(message =>
+					message.AccountId == account.Id
+					&& message.ProviderStableId != null
+					&& providerStableIds.Contains(message.ProviderStableId)
+				)
+				.Select(message => message.ProviderStableId!)
+				.ToHashSetAsync(ct);
+		return result with
+		{
+			Upserted =
+			[
+				.. result.Upserted.Where(message =>
+					message.ProviderStableId is not null
+						&& materialized.Contains(message.ProviderStableId)
+					|| message.ReceivedAt >= cutoff
+				),
+			],
+		};
+	}
+
 	private async Task ApplyPageAsync(
 		Account account,
 		ChangeStreamState state,
@@ -204,8 +246,8 @@ public sealed class ChangeStreamService(
 			{
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
+				state.IsRebasing = false;
 			}
-			state.IsRebasing = false;
 
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
@@ -544,10 +586,9 @@ public sealed class ChangeStreamService(
 			await context.StagedChangeEvents.Where(staged => staged.AccountId == account.Id).ToListAsync(ct)
 		);
 
-		// Publish the missing cursor before any more asynchronous work. Coverage checks this
-		// durable fence both before and after its provider call, so it cannot commit a page
-		// issued against an invalid history baseline.
-		await context.SaveChangesAsync(ct);
+		// Cursor invalidation, coverage reset and the rebase notification cutoff commit
+		// together below. Publishing only one part would let a restart run the other side
+		// against stale state.
 
 		if (state.MailboxId is null)
 		{
@@ -599,38 +640,6 @@ public sealed class ChangeStreamService(
 		);
 	}
 
-	private async Task ResetCoverageForRebaseAsync(
-		Account account,
-		Mailbox mailbox,
-		ChangeStreamState state,
-		CancellationToken ct
-	)
-	{
-		if (state.MailboxId is null)
-		{
-			var accountMailboxes = await context.Mailboxes.Where(candidate => candidate.AccountId == account.Id).ToListAsync(ct);
-			foreach (var accountMailbox in accountMailboxes)
-			{
-				accountMailbox.TopologyGeneration++;
-			}
-		}
-		var coverages = state.MailboxId is null
-			? await (
-				from coverageState in context.MailboxCoverageStates
-				join coverageMailbox in context.Mailboxes on coverageState.MailboxId equals coverageMailbox.Id
-				where coverageMailbox.AccountId == account.Id
-				select coverageState
-			).ToListAsync(ct)
-			: await context.MailboxCoverageStates.Where(c => c.MailboxId == mailbox.Id).ToListAsync(ct);
-		foreach (var coverage in coverages)
-		{
-			coverage.Status = CoverageStatus.NotStarted;
-			coverage.ResumeToken = null;
-			coverage.MessagesFetched = 0;
-		}
-		await context.SaveChangesAsync(ct);
-	}
-
 	/// <summary>
 	/// Gmail's stream is account-scoped and its state row therefore has a null mailbox.
 	/// Per-label cursors would be fiction, would consume the same stream repeatedly, and would
@@ -666,9 +675,11 @@ public sealed class ChangeStreamService(
 				ProviderType.Microsoft365 => CursorKind.GraphDelta,
 				_ => CursorKind.ImapUid,
 			},
-			// Captured now, before this stream's first page ever runs — not after it, which
-			// would let that first page's catch-up notify for whatever it happens to find.
-			NotificationBaselineAt = clock.GetUtcNow(),
+			// Graph defers this row until after coverage, so retain the earlier account epoch.
+			// Other providers create the row before their first baseline request.
+			NotificationBaselineAt = capabilities.RequiresCoverageBeforeInitialChangeStream
+				? account.NotificationEpoch
+				: clock.GetUtcNow(),
 		};
 
 		context.ChangeStreamStates.Add(state);

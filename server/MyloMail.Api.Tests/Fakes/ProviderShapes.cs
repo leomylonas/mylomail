@@ -32,6 +32,7 @@ public static class ProviderShapes
 			// One message, a set of labels — the whole reason occurrences are modelled as a
 			// many-to-many rather than a column on the message (§1).
 			SupportsMultipleMailboxMembership = true,
+			RequiresCoverageBeforeInitialChangeStream = false,
 
 			SupportsServerSideDrafts = true,
 
@@ -50,6 +51,7 @@ public static class ProviderShapes
 			SupportsIncrementalFlagChanges = true,
 			ReportsExpungesIncrementally = true,
 
+			RequiresCoverageBeforeInitialChangeStream = true,
 			// A partial delta walk yields a nextLink, not the deltaLink incremental sync
 			// needs, so there is nothing safe to commit until the walk finishes (§3).
 			AdvancesCursorMidWalk = false,
@@ -85,6 +87,7 @@ public static class ProviderShapes
 
 			// HighestKnownUid is a high-water mark over what has already been returned, so a
 			// partial page can be committed without skipping anything.
+			RequiresCoverageBeforeInitialChangeStream = false,
 			AdvancesCursorMidWalk = true,
 			SupportsMultipleMailboxMembership = false,
 

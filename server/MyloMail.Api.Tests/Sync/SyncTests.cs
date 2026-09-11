@@ -379,6 +379,67 @@ public sealed class SyncTests
 	}
 
 	[Fact]
+	public async Task Graph_bootstrap_enumerates_fully_without_materialising_history_outside_the_bound()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		for (var index = 0; index < 5; index++)
+		{
+			harness.Provider.SeedMessage(
+				"INBOX",
+				Guid.NewGuid(),
+				DateTimeOffset.UnixEpoch.AddDays(-5 + index)
+			);
+		}
+		await harness.UsingAsync(async scope =>
+		{
+			var account = await harness.AccountInScopeAsync(scope);
+			account.InitialSyncMode = InitialSyncMode.LastNMessages;
+			account.InitialSyncBoundValue = 3;
+			account.NotificationEpoch = DateTimeOffset.UnixEpoch;
+			await scope.GetRequiredService<MyloMailDbContext>().SaveChangesAsync();
+		});
+		await ReconcileAsync(harness);
+		await CoverAsync(harness, pageSize: 2);
+		Assert.Equal(
+			3,
+			await harness.UsingAsync(async scope =>
+				await scope.GetRequiredService<MyloMailDbContext>().Messages.CountAsync()
+			)
+		);
+
+		harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch.AddDays(1)
+		);
+		harness.Provider.SyncPageSize = 2;
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterApplyBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SyncAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var state = await scope.GetRequiredService<MyloMailDbContext>()
+				.ChangeStreamStates.SingleAsync();
+			Assert.Null(state.CursorState);
+			Assert.Equal(3, await scope.GetRequiredService<MyloMailDbContext>().Messages.CountAsync());
+		});
+
+		var outcome = await SyncAsync(harness);
+		Assert.Equal(3, outcome.Pages);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(4, await context.Messages.CountAsync());
+			Assert.IsType<GraphDeltaCursor>(
+				(await context.ChangeStreamStates.SingleAsync()).CursorState
+			);
+		});
+		Assert.Single(harness.Events.Received);
+	}
+
+	[Fact]
 	public async Task Coverage_backfills_and_records_progress()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
@@ -471,6 +532,20 @@ public sealed class SyncTests
 			// M" backfill progress past the real total.
 			Assert.Equal(0, coverage.MessagesFetched);
 			Assert.NotNull(await context.IntegrityReconciliationStates.SingleOrDefaultAsync());
+		});
+
+		await CoverAsync(harness);
+		await SyncAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var state = await context.ChangeStreamStates.SingleAsync();
+			Assert.IsType<GraphDeltaCursor>(state.CursorState);
+			Assert.False(state.IsRebasing);
+			Assert.Equal(
+				CoverageStatus.Covered,
+				(await context.MailboxCoverageStates.SingleAsync()).Status
+			);
 		});
 	}
 

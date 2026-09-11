@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.Graph;
 using Microsoft.Graph.Authentication;
 using Microsoft.Graph.Models;
@@ -18,6 +20,7 @@ namespace MyloMail.Api.Providers.Graph;
 /// </summary>
 public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : IMailProvider
 {
+	private const string InitialSyncCursorPrefix = "mylomail-graph-initial-v1.";
 	public ProviderType Type => ProviderType.Microsoft365;
 
 	public ProviderCapabilities Capabilities { get; } = new()
@@ -30,6 +33,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		SupportsIncrementalFlagChanges = true,
 		ReportsExpungesIncrementally = true,
 		AdvancesCursorMidWalk = false,
+		RequiresCoverageBeforeInitialChangeStream = true,
 		SupportsMultipleMailboxMembership = false,
 		SupportsServerSideDrafts = true,
 		DeletingMailboxDeletesMessages = true,
@@ -106,27 +110,139 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 	)
 	{
 		var client = await ClientAsync(account, ct);
+		var cursor = InitialSyncCursor.Parse(resumeToken, mode, bound);
 		var messages = client.Me.MailFolders[ProviderMailboxId(mailbox)].Messages;
-		var page = resumeToken is null
+		var page = cursor.ProviderNextLink is null
 			? await ThrottleAwareAsync(
 				() => messages.GetAsync(
 					configuration =>
 					{
-						configuration.QueryParameters.Top = Math.Min(pageSize, bound ?? pageSize);
+						configuration.QueryParameters.Top = cursor.RequestLimit(pageSize);
 						configuration.QueryParameters.Orderby = ["receivedDateTime desc"];
 						configuration.QueryParameters.Select = MessageSelect;
+						if (mode == InitialSyncMode.LastNMonths && bound is int months)
+						{
+							var cutoff = DateTimeOffset.UtcNow.AddMonths(-months);
+							configuration.QueryParameters.Filter =
+								$"receivedDateTime ge {cutoff.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)}";
+						}
 					},
 					ct
 				)
 			)
-			: await ThrottleAwareAsync(() => messages.WithUrl(resumeToken).GetAsync(null, ct));
+			: await ThrottleAwareAsync(
+				() => messages.WithUrl(cursor.ProviderNextLink).GetAsync(null, ct)
+			);
 
+		IReadOnlyList<GraphMessage> values = page?.Value ?? [];
+		if (cursor.Remaining is int remaining)
+		{
+			values = [.. values.Take(remaining)];
+		}
+		var continuation = cursor.Advance(page?.OdataNextLink, values.Count);
+		var estimatedTotal = mode == InitialSyncMode.LastNMessages && bound is int count
+			? Math.Min(count, mailbox.ProviderTotalCount ?? count)
+			: (int?)null;
 		return new InitialSyncPage(
-			[.. (page?.Value ?? []).Where(message => message.Id is not null).Select(ToDto)],
-			page?.OdataNextLink,
-			page?.OdataNextLink is not null,
-			null
+			[.. values.Where(message => message.Id is not null).Select(ToDto)],
+			continuation.ResumeToken,
+			continuation.HasMore,
+			estimatedTotal
 		);
+	}
+
+	internal readonly record struct InitialSyncCursor(string? ProviderNextLink, int? Remaining)
+	{
+		public int RequestLimit(int pageSize) =>
+			Remaining is int remaining ? Math.Min(pageSize, remaining) : pageSize;
+
+		public (string? ResumeToken, bool HasMore) Advance(
+			string? nextProviderLink,
+			int consumed
+		)
+		{
+			if (nextProviderLink is null)
+			{
+				return (null, false);
+			}
+			if (Remaining is not int remaining)
+			{
+				return (nextProviderLink, true);
+			}
+
+			var nextRemaining = Math.Max(0, remaining - consumed);
+			return nextRemaining == 0
+				? (null, false)
+				: (Encode(nextProviderLink, nextRemaining), true);
+		}
+
+		public static InitialSyncCursor Parse(
+			string? resumeToken,
+			InitialSyncMode mode,
+			int? bound
+		)
+		{
+			if (resumeToken is null)
+			{
+				return new InitialSyncCursor(
+					null,
+					mode == InitialSyncMode.LastNMessages ? bound : null
+				);
+			}
+			if (!resumeToken.StartsWith(InitialSyncCursorPrefix, StringComparison.Ordinal))
+			{
+				if (mode == InitialSyncMode.LastNMessages)
+				{
+					throw new InvalidOperationException("Invalid Graph initial-sync continuation.");
+				}
+				return new InitialSyncCursor(resumeToken, null);
+			}
+
+			var payload = resumeToken[InitialSyncCursorPrefix.Length..];
+			var separator = payload.IndexOf('.', StringComparison.Ordinal);
+			if (
+				separator <= 0
+				|| !int.TryParse(
+					payload.AsSpan(0, separator),
+					NumberStyles.None,
+					CultureInfo.InvariantCulture,
+					out var remaining
+				)
+				|| remaining <= 0
+			)
+			{
+				throw new InvalidOperationException("Invalid Graph initial-sync continuation.");
+			}
+
+			try
+			{
+				var providerNextLink = Encoding.UTF8.GetString(DecodeBase64Url(payload[(separator + 1)..]));
+				return new InitialSyncCursor(
+					providerNextLink,
+					mode == InitialSyncMode.LastNMessages ? remaining : null
+				);
+			}
+			catch (FormatException ex)
+			{
+				throw new InvalidOperationException("Invalid Graph initial-sync continuation.", ex);
+			}
+		}
+
+		private static string Encode(string providerNextLink, int remaining)
+		{
+			var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(providerNextLink))
+				.TrimEnd('=')
+				.Replace('+', '-')
+				.Replace('/', '_');
+			return $"{InitialSyncCursorPrefix}{remaining.ToString(CultureInfo.InvariantCulture)}.{encoded}";
+		}
+
+		private static byte[] DecodeBase64Url(string value)
+		{
+			var padded = value.Replace('-', '+').Replace('_', '/');
+			padded = padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=');
+			return Convert.FromBase64String(padded);
+		}
 	}
 
 	public async Task<SyncResult> SyncMailboxAsync(

@@ -24,7 +24,7 @@ namespace MyloMail.Api.Tests.Fakes;
 /// </remarks>
 public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 {
-	private const int PageSize = 50;
+	private const int DefaultPageSize = 50;
 
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
@@ -43,6 +43,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
 	private int cursorGeneration = 1;
+
+	public int SyncPageSize { get; set; } = DefaultPageSize;
 	private long providerChangeSequence = 1;
 
 	public FakeMailProvider(ProviderCapabilities capabilities)
@@ -273,7 +275,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 		var source = Require(ProviderIdOf(mailbox));
 		var messages = source.Messages.Skip(int.TryParse(continuation, out var offset) ? offset : 0);
-		var page = messages.Take(PageSize).ToList();
+		var page = messages.Take(SyncPageSize).ToList();
 		var consumed = (int.TryParse(continuation, out var seen) ? seen : 0) + page.Count;
 		var more = consumed < source.Messages.Count;
 

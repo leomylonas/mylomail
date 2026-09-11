@@ -204,6 +204,65 @@ public sealed class DatabaseBootstrapperTests
 		Assert.Equal(2, full.MessagesFetched);
 	}
 
+	[Fact]
+	public async Task Restarts_legacy_count_bounded_Graph_coverage_before_cursor_cutover()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var mailboxId = Guid.NewGuid();
+
+		await using (var scope = database.CreateScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context
+				.GetService<IMigrator>()
+				.MigrateAsync("20260912000000_ResetLegacyGmailBoundedCoverage");
+			context.Accounts.Add(
+				new Account
+				{
+					Id = accountId,
+					DisplayName = "Graph",
+					ProviderType = ProviderType.Microsoft365,
+					ProviderConfig = new Microsoft365ProviderConfig(),
+					InitialSyncMode = InitialSyncMode.LastNMessages,
+					InitialSyncBoundValue = 25,
+				}
+			);
+			context.Mailboxes.Add(
+				new Mailbox
+				{
+					Id = mailboxId,
+					AccountId = accountId,
+					ProviderMailboxId = "inbox",
+					Name = "Inbox",
+				}
+			);
+			context.MailboxCoverageStates.Add(
+				new MailboxCoverageState
+				{
+					MailboxId = mailboxId,
+					Status = CoverageStatus.Backfilling,
+					MessagesFetched = 20,
+					EstimatedTotal = 25,
+					ResumeToken = "https://graph.microsoft.test/messages?$skiptoken=legacy",
+				}
+			);
+			await context.SaveChangesAsync();
+		}
+
+		await database.MigrateAsync();
+
+		await using var verificationScope = database.CreateScope();
+		var coverage = await verificationScope.ServiceProvider
+			.GetRequiredService<MyloMailDbContext>()
+			.MailboxCoverageStates.SingleAsync();
+		Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
+		Assert.Equal(0, coverage.MessagesFetched);
+		Assert.Null(coverage.EstimatedTotal);
+		Assert.Null(coverage.ResumeToken);
+	}
+
 	/// <summary>
 	/// The backup exists only for the duration of the migration; leaving it behind on
 	/// success would make the "a backup means a migration failed" signal meaningless.
