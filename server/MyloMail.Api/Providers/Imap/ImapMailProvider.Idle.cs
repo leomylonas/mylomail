@@ -38,6 +38,7 @@ public sealed partial class ImapMailProvider : IIdleMailProvider
 		EventHandler<EventArgs> changed = (_, _) => done.Cancel();
 		folder.CountChanged += changed;
 		folder.MessageExpunged += (_, _) => done.Cancel();
+		folder.MessagesVanished += (_, _) => done.Cancel();
 		folder.MessageFlagsChanged += (_, _) => done.Cancel();
 		try
 		{

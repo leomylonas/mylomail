@@ -65,9 +65,41 @@ public sealed partial class ImapMailProvider
 	)
 	{
 		using var client = await ConnectAsync(ct);
-		var folder = await OpenAsync(client, mailbox, FolderAccess.ReadOnly, ct);
-
 		var previous = cursor as ImapUidCursor;
+		var providerMailboxId =
+			mailbox.ProviderMailboxId
+			?? throw new InvalidOperationException("IMAP mailboxes always have a provider id");
+		var folder = await client.GetFolderAsync(providerMailboxId, ct);
+		var vanished = new HashSet<uint>();
+		folder.MessagesVanished += (_, args) =>
+		{
+			foreach (var uid in args.UniqueIds)
+			{
+				vanished.Add(uid.Id);
+			}
+		};
+
+		if (previous is { HighestModSeq: ulong highestModSeq }
+			&& capabilities.ReportsExpungesIncrementally)
+		{
+			IList<UniqueId> knownUids = previous.HighestKnownUid == 0
+				? []
+				: new UniqueIdRange(
+					new UniqueId(1),
+					new UniqueId(previous.HighestKnownUid)
+				);
+			await folder.OpenAsync(
+				FolderAccess.ReadOnly,
+				previous.UidValidity,
+				highestModSeq,
+				knownUids,
+				ct
+			);
+		}
+		else
+		{
+			await folder.OpenAsync(FolderAccess.ReadOnly, ct);
+		}
 
 		// UIDVALIDITY changes on a server-side reindex, which makes every stored UID
 		// meaningless. One exception type so every provider's invalidation is handled once
@@ -114,9 +146,11 @@ public sealed partial class ImapMailProvider
 			more ? highestSeen.ToString() : null,
 			upserted,
 			flagChanges,
-			// Expunge detection is UID-set reconciliation below QRESYNC and belongs with the
-			// reconciliation machinery in stage C, not in a thin read path.
-			[]
+			[
+				.. vanished
+					.Order()
+					.Select(uid => new OccurrenceRemoval(folder.FullName, uid.ToString())),
+			]
 		);
 	}
 

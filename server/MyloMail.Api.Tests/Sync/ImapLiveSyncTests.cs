@@ -77,7 +77,7 @@ public sealed class ImapLiveSyncTests
 		}
 
 		// Seed a message the way another client would, then discover everything from scratch.
-		await harness.SeedMessageAsync(harness.Source);
+		var seeded = await harness.SeedMessageAsync(harness.Source);
 
 		// 1 — topology. The folder names come from Dovecot, not from us.
 		await using (var scope = services.CreateAsyncScope())
@@ -121,6 +121,29 @@ public sealed class ImapLiveSyncTests
 			Assert.Equal(inbox.Id, state.MailboxId);
 			var cursor = Assert.IsType<Api.Providers.Contracts.ImapUidCursor>(state.CursorState);
 			Assert.True(cursor.UidValidity > 0, "The server reported no UIDVALIDITY.");
+			Assert.NotNull(cursor.HighestModSeq);
+		}
+
+		// 4 — QRESYNC reports the server-side expunge as a VANISHED UID, and the change
+		// stream removes the exact local occurrence in the same cursor transaction.
+		await harness.Provider.DeletePermanentlyAsync(harness.Account, [seeded], CancellationToken.None);
+		await using (var scope = services.CreateAsyncScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			var inbox = await context.Mailboxes.FirstAsync(m => m.SpecialUse == SpecialUse.Inbox);
+			Assert.Contains(
+				await context.MessageMailboxes.Where(m => m.MailboxId == inbox.Id).ToListAsync(),
+				m => m.ProviderOccurrenceId == seeded.ProviderOccurrenceId
+			);
+
+			var outcome = await scope.ServiceProvider.GetRequiredService<ChangeStreamService>().SyncAsync(account, inbox);
+
+			Assert.False(outcome.ResyncTriggered);
+			Assert.DoesNotContain(
+				await context.MessageMailboxes.Where(m => m.MailboxId == inbox.Id).ToListAsync(),
+				m => m.ProviderOccurrenceId == seeded.ProviderOccurrenceId
+			);
 		}
 	}
 

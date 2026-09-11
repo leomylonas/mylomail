@@ -211,6 +211,7 @@ public sealed class ChangeStreamService(
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
 			state.LastError = null;
 
+			faults.Reached(FaultPoints.SyncPageAfterApplyBeforeCommit);
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});

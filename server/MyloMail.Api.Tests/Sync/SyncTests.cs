@@ -617,6 +617,65 @@ public sealed class SyncTests
 	}
 
 	/// <summary>
+	/// A QRESYNC VANISHED removal and its mod-sequence cursor commit atomically. A cursor
+	/// committed without the removal makes the server correctly omit that UID on replay,
+	/// silently preserving a membership that no longer exists remotely.
+	/// </summary>
+	[Fact]
+	public async Task A_crash_before_a_qresync_removal_commit_replays_the_vanished_uid()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var occurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch
+		);
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+		await SyncAsync(harness);
+
+		var (messageId, baselineModSeq) = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync();
+			var state = await context.ChangeStreamStates.SingleAsync();
+			var cursor = Assert.IsType<ImapUidCursor>(state.CursorState);
+			Assert.NotNull(cursor.HighestModSeq);
+			return (message.Id, cursor.HighestModSeq.Value);
+		});
+		await harness.UsingAsync(async scope =>
+			await harness.Provider.RemoveFromMailboxAsync(
+				await harness.AccountInScopeAsync(scope),
+				[new MessageOccurrenceRef(messageId, Guid.Empty, occurrenceId)],
+				default
+			)
+		);
+
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterApplyBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SyncAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Single(await context.MessageMailboxes.ToListAsync());
+			var state = await context.ChangeStreamStates.SingleAsync();
+			var cursor = Assert.IsType<ImapUidCursor>(state.CursorState);
+			Assert.Equal(baselineModSeq, cursor.HighestModSeq);
+		});
+
+		await SyncAsync(harness);
+		await harness.UsingAsync(async scope =>
+			Assert.Empty(
+				await scope.GetRequiredService<MyloMailDbContext>().MessageMailboxes.ToListAsync()
+			)
+		);
+	}
+
+	/// <summary>
 	/// Staging still advances the cursor, and must: the page is durably persisted, just not
 	/// yet applied. Leaving the cursor behind would re-drain the same history on every run
 	/// and never let the account finish its baseline.

@@ -114,6 +114,14 @@ public sealed partial class ImapMailProvider : IMailProvider
 				await client.AuthenticateAsync(settings.UserName, settings.Password, ct);
 			}
 
+			// RFC 5162 requires ENABLE QRESYNC immediately after authentication and before
+			// any mailbox is opened. Enabling it per session makes VANISHED available to the
+			// incremental sync path without changing the weaker tiers.
+			if (client.Capabilities.HasFlag(ImapCapabilities.QuickResync))
+			{
+				await client.EnableQuickResyncAsync(ct);
+			}
+
 			// Re-read on every session: a server can change what it advertises across a
 			// version upgrade, and a stale tier silently disables reconciliation.
 			capabilities = ImapCapabilityNegotiation.Build(client.Capabilities);

@@ -43,6 +43,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 	/// <summary>Bumped whenever the fake server invalidates outstanding cursors.</summary>
 	private int cursorGeneration = 1;
+	private long providerChangeSequence = 1;
 
 	public FakeMailProvider(ProviderCapabilities capabilities)
 	{
@@ -147,10 +148,19 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		{
 			ProviderType.Gmail => new GmailHistoryCursor(cursorGeneration.ToString()),
 			ProviderType.Microsoft365 => new GraphDeltaCursor($"delta-{cursorGeneration}"),
-			_ => new ImapUidCursor((uint)cursorGeneration, (uint)occurrenceSequence, null, null),
+			_ => new ImapUidCursor(
+				(uint)cursorGeneration,
+				(uint)occurrenceSequence,
+				(ulong)Volatile.Read(ref providerChangeSequence),
+				null
+			),
 		};
 
-	private string NextOccurrenceId() => $"occ-{Interlocked.Increment(ref occurrenceSequence)}";
+	private string NextOccurrenceId()
+	{
+		Interlocked.Increment(ref providerChangeSequence);
+		return $"occ-{Interlocked.Increment(ref occurrenceSequence)}";
+	}
 
 	private FakeMailbox Require(string providerMailboxId) =>
 		mailboxes.TryGetValue(providerMailboxId, out var mailbox)
@@ -261,6 +271,13 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		var consumed = (int.TryParse(continuation, out var seen) ? seen : 0) + page.Count;
 		var more = consumed < source.Messages.Count;
 
+		var removed = source.Removed.AsEnumerable();
+		if (Capabilities.ReportsExpungesIncrementally
+			&& cursor is ImapUidCursor { HighestModSeq: ulong highestModSeq })
+		{
+			removed = removed.Where(item => item.Value > highestModSeq);
+		}
+
 		return Task.FromResult(
 			new SyncResult(
 				// Null while the walk is incomplete, unless this provider's cursor is monotone
@@ -269,7 +286,11 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 				more ? consumed.ToString() : null,
 				[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
 				[],
-				[.. source.Removed.Select(id => new OccurrenceRemoval(source.ProviderMailboxId, id))]
+				[
+					.. removed.Select(item =>
+						new OccurrenceRemoval(source.ProviderMailboxId, item.Key)
+					),
+				]
 			)
 		);
 	}
@@ -396,7 +417,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 				found =>
 				{
 					found.Mailbox.Messages.Remove(found.OccurrenceId);
-					found.Mailbox.Removed.Add(found.OccurrenceId);
+					found.Mailbox.Removed[found.OccurrenceId] =
+						(ulong)Interlocked.Increment(ref providerChangeSequence);
 
 					// A move mints a new occurrence id, exactly as an IMAP move changes the
 					// UID. The id the caller held is dead from here.
@@ -430,7 +452,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 				found =>
 				{
 					found.Mailbox.Messages.Remove(found.OccurrenceId);
-					found.Mailbox.Removed.Add(found.OccurrenceId);
+					found.Mailbox.Removed[found.OccurrenceId] =
+						(ulong)Interlocked.Increment(ref providerChangeSequence);
 					return [new OccurrenceChange(found.Reference.MailboxId, null, Removed: true)];
 				}
 			)
@@ -677,8 +700,8 @@ public sealed record FakeMailbox(string ProviderMailboxId, SpecialUse SpecialUse
 {
 	public Dictionary<string, FakeMessage> Messages { get; } = [];
 
-	/// <summary>Occurrence ids the server will report as gone on the next sync.</summary>
-	public List<string> Removed { get; } = [];
+	/// <summary>Occurrence ids and revisions the server reports as gone on incremental sync.</summary>
+	public Dictionary<string, ulong> Removed { get; } = [];
 }
 
 public sealed class FakeMessage(Guid messageId, DateTimeOffset receivedAt)
