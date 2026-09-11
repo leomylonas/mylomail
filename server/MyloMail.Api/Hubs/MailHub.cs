@@ -298,7 +298,9 @@ public class MailHub(
 	Scheduling.PollRegistry polls,
 	Scheduling.ImapIdleRegistry imapIdle,
 	MailInviteMaterializer invites,
-	IIncomingMailAuthentication authentication
+	IIncomingMailAuthentication authentication,
+	IHubEvents events,
+	Scheduling.AccountGate gate
 ) : Hub<IMailClient>, IMailHub
 {
 	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
@@ -738,8 +740,14 @@ public class MailHub(
 	public async Task SetMailboxCollapsed(Guid mailboxId, bool collapsed)
 	{
 		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		if (mailbox.IsCollapsed == collapsed)
+		{
+			return;
+		}
+
 		mailbox.IsCollapsed = collapsed;
 		await context.SaveChangesAsync();
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
 	}
 
 	public async Task SetMailboxInitialSyncOverride(Guid mailboxId, InitialSyncMode? mode, int? boundValue)
@@ -783,13 +791,23 @@ public class MailHub(
 				);
 			await transaction.CommitAsync();
 		});
+
+		// After the commit: the coverage this reset is about to re-run from zero is on every
+		// window's sidebar, not only the one that changed the bound.
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailboxId]);
 	}
 
 	public async Task SetMailboxSpecialUseOverride(Guid mailboxId, SpecialUse? specialUse)
 	{
 		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		if (mailbox.SpecialUseOverride == specialUse)
+		{
+			return;
+		}
+
 		mailbox.SpecialUseOverride = specialUse;
 		await context.SaveChangesAsync();
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
 	}
 
 	/// <summary>
@@ -856,7 +874,7 @@ public class MailHub(
 			imap.AppendToSentOnSend = appendToSentOnSend;
 		}
 
-		await context.SaveChangesAsync();
+		var accountChanged = await context.SaveChangesAsync() > 0;
 
 		if (resumingPolling)
 		{
@@ -878,6 +896,14 @@ public class MailHub(
 			if (account.ProviderType != ProviderType.Imap)
 				jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(account.Id));
 		}
+
+		// Every open window shows this account's name, colour and sync settings; the window
+		// that made the change is not the only one that has to stop showing the old ones
+		// (§13 Epic 10). An idempotent write is not a transition to announce.
+		if (accountChanged)
+		{
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, default, gate);
+		}
 		return settings with
 		{
 			PollIntervalSeconds = account.PollIntervalSeconds,
@@ -889,22 +915,38 @@ public class MailHub(
 	public async Task ReorderAccounts(IReadOnlyList<Guid> orderedAccountIds)
 	{
 		var accounts = await context.Accounts.ToDictionaryAsync(a => a.Id);
+		var reordered = new List<Account>();
 		for (var index = 0; index < orderedAccountIds.Count; index++)
 		{
-			if (accounts.TryGetValue(orderedAccountIds[index], out var account))
+			if (accounts.TryGetValue(orderedAccountIds[index], out var account) && account.SortOrder != index)
 			{
 				account.SortOrder = index;
+				reordered.Add(account);
 			}
 		}
 
 		await context.SaveChangesAsync();
+
+		// Only the accounts that actually moved: a drag that ends where it started is not a
+		// change, and announcing it would make an idempotent call indistinguishable from a
+		// real reorder.
+		foreach (var account in reordered)
+		{
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, default, gate);
+		}
 	}
 
 	public async Task SetAccountSidebarCollapsed(Guid accountId, bool collapsed)
 	{
 		var account = await context.Accounts.FirstAsync(a => a.Id == accountId);
+		if (account.SidebarCollapsed == collapsed)
+		{
+			return;
+		}
+
 		account.SidebarCollapsed = collapsed;
 		await context.SaveChangesAsync();
+		await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, default, gate);
 	}
 
 	public Task TrustCertificate(Guid accountId, string hostname, string sha256Fingerprint) =>
