@@ -15,6 +15,7 @@ import {
 	backendConnectionChannel,
 	focusDraftWindowChannel,
 	notificationClickedChannel,
+	notificationNavigationReadyChannel,
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
@@ -32,6 +33,7 @@ import { closeBehaviorFromValue } from "@mylomail/electron-shell/CloseBehavior";
 import { windowAlreadyEditing } from "@mylomail/electron-shell/DraftWindows";
 import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachment";
 import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
+import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationWindowTarget";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -58,28 +60,8 @@ let quitting = false;
  * be found and removed without holding a reference to it.
  */
 const draftWindows = new Map<number, string | null>();
-const nativeNotifications = new NativeNotificationDispatcher((request) => {
-	const notification = new Notification({
-		title: request.title,
-		body: request.body,
-	});
-	notification.on("click", () => {
-		const clicked: NotificationClicked = {
-			notificationId: request.id,
-			messageId: request.messageId,
-		};
-		for (const window of BrowserWindow.getAllWindows()) {
-			if (window.isMinimized()) window.restore();
-			window.show();
-			window.focus();
-			// Always sent, even with messageId null (the message hasn't replayed locally
-			// yet, §3): the renderer resolves that case on demand; the shell keeps no
-			// notification content state of its own.
-			window.webContents.send(notificationClickedChannel, clicked);
-		}
-	});
-	notification.show();
-});
+const mainWindowIds = new Set<number>();
+const notificationReadyWindowIds = new Set<number>();
 let nextWindowSlot = 0;
 
 /**
@@ -133,6 +115,18 @@ export async function startShell(): Promise<void> {
 
 	// Held here and handed over on request, so the token never reaches a command line.
 	ipcMain.handle(backendConnectionChannel, () => connection);
+	ipcMain.on(notificationNavigationReadyChannel, (event, ready: unknown) => {
+		const window = BrowserWindow.fromWebContents(event.sender);
+		if (
+			!window ||
+			!mainWindowIds.has(window.id) ||
+			typeof ready !== "boolean"
+		) {
+			return;
+		}
+		if (ready) notificationReadyWindowIds.add(window.id);
+		else notificationReadyWindowIds.delete(window.id);
+	});
 	ipcMain.handle(
 		openAttachmentChannel,
 		async (event, messageId: unknown, attachmentId: unknown) => {
@@ -185,6 +179,25 @@ export async function startShell(): Promise<void> {
 		},
 	);
 
+	const nativeNotifications = new NativeNotificationDispatcher((request) => {
+		const notification = new Notification({
+			title: request.title,
+			body: request.body,
+		});
+		notification.on("click", () => {
+			const clicked: NotificationClicked = {
+				notificationId: request.id,
+				accountId: request.accountId,
+			};
+			void navigateNotificationClick(origin, clicked).catch(
+				(error: unknown) => {
+					console.error(`notification navigation failed: ${String(error)}`);
+				},
+			);
+		});
+		notification.show();
+	});
+
 	// Every renderer receives `NotificationReady`, but native dispatch is the shell's job
 	// (§13 Epic 9). The process-local dispatcher elects one relay by durable notification id,
 	// so N open windows still produce one OS notification. A shell crash clears the election,
@@ -235,6 +248,7 @@ export async function startShell(): Promise<void> {
 			const window = await createWindow(origin, {
 				query: request.query,
 				bounds: opener ? offsetBounds(opener.getBounds()) : undefined,
+				isMain: !request.query,
 			});
 			trackBoundsPersistence(window, origin);
 		},
@@ -543,7 +557,7 @@ function trackBoundsPersistence(window: BrowserWindow, origin: string): void {
 
 async function createWindow(
 	origin: string,
-	options?: { query?: string; bounds?: WindowBounds },
+	options?: { query?: string; bounds?: WindowBounds; isMain?: boolean },
 ): Promise<BrowserWindow> {
 	const bounds = options?.bounds;
 	const windowSlot = nextWindowSlot++;
@@ -562,6 +576,9 @@ async function createWindow(
 			sandbox: true,
 		},
 	});
+	if (options?.isMain ?? !options?.query) {
+		mainWindowIds.add(window.id);
+	}
 
 	// Navigation and window-open interception (§13). Message content is remote-authored, and
 	// the renderer holds the capability to mutate mail — so a link that navigated the window
@@ -599,15 +616,23 @@ async function createWindow(
 
 	// Otherwise a stale entry would keep claiming this draft is still open here after the
 	// window that reported it is gone, permanently blocking a real re-open of it elsewhere.
-	window.on("closed", () => draftWindows.delete(window.id));
+	window.on("closed", () => {
+		draftWindows.delete(window.id);
+		mainWindowIds.delete(window.id);
+		notificationReadyWindowIds.delete(window.id);
+	});
 
 	window.once("ready-to-show", () => window.show());
+	window.webContents.on("did-start-loading", () =>
+		notificationReadyWindowIds.delete(window.id),
+	);
 	window.webContents.on("did-fail-load", (_e, code, description, url) =>
 		console.error(`load failed ${code} ${description} ${url}`),
 	);
-	window.webContents.on("render-process-gone", (_e, details) =>
-		console.error(`renderer gone: ${details.reason}`),
-	);
+	window.webContents.on("render-process-gone", (_e, details) => {
+		notificationReadyWindowIds.delete(window.id);
+		console.error(`renderer gone: ${details.reason}`);
+	});
 
 	// Without this a renderer failure is invisible: the window simply shows nothing, and the
 	// main process's log stays clean while the app is broken.
@@ -623,6 +648,39 @@ async function createWindow(
 	url.searchParams.set("windowSlot", String(windowSlot));
 	await window.loadURL(url.toString());
 	return window;
+}
+
+async function navigateNotificationClick(
+	origin: string,
+	clicked: NotificationClicked,
+): Promise<void> {
+	const focused = BrowserWindow.getFocusedWindow();
+	const target = notificationTargetWindow(
+		notificationReadyWindowIds,
+		focused?.id,
+		(id) => {
+			const candidate = BrowserWindow.fromId(id);
+			return candidate && !candidate.isDestroyed() ? candidate : undefined;
+		},
+	);
+
+	if (!target) {
+		const query = new URLSearchParams({
+			notification: clicked.notificationId,
+			account: clicked.accountId,
+		});
+		const opened = await createWindow(origin, {
+			query: query.toString(),
+			isMain: true,
+		});
+		trackBoundsPersistence(opened, origin);
+		return;
+	}
+
+	if (target.isMinimized()) target.restore();
+	target.show();
+	target.focus();
+	target.webContents.send(notificationClickedChannel, clicked);
 }
 
 function isWindowBounds(value: unknown): value is WindowBounds {
@@ -669,7 +727,7 @@ function isNotificationRequest(value: unknown): value is NotificationRequest {
 	const candidate = value as Record<string, unknown>;
 	return (
 		isGuid(candidate.id) &&
-		(candidate.messageId === null || isGuid(candidate.messageId)) &&
+		isGuid(candidate.accountId) &&
 		typeof candidate.title === "string" &&
 		typeof candidate.body === "string"
 	);

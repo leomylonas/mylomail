@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -395,14 +395,14 @@ export type IMailHub = {
     */
     markNotificationDelivered(notificationId: string): Promise<void>;
     /**
-    * Fetches the message a still-staged notification points at, on demand, rather than the
-    * navigation simply failing (§3). Null if the account's staged history still doesn't
-    * resolve it — the caller only knows this notification was recorded, not why it might be
-    * slow.
+    * Resolves the canonical account, mailbox, message and rendering context for a notification
+    * click. A staged Gmail arrival returns
+    * until canonical replay can safely materialise it; null means the durable notification or
+    * its message no longer exists.
     * @param notificationId Transpiled from System.Guid
-    * @returns Transpiled from System.Threading.Tasks.Task<System.Guid?>
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.NotificationNavigationDto?>
     */
-    resolveStagedMessage(notificationId: string): Promise<(string | undefined)>;
+    resolveNotificationNavigation(notificationId: string): Promise<NotificationNavigationDto>;
     /**
     * The raw MIME bytes for one message, base64-encoded, fetched on demand if needed.
     * @param messageId Transpiled from System.Guid

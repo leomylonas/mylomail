@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -310,8 +310,8 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("MarkNotificationDelivered", notificationId);
     }
 
-    public readonly resolveStagedMessage = async (notificationId: string): Promise<(string | undefined)> => {
-        return await this.connection.invoke("ResolveStagedMessage", notificationId);
+    public readonly resolveNotificationNavigation = async (notificationId: string): Promise<NotificationNavigationDto> => {
+        return await this.connection.invoke("ResolveNotificationNavigation", notificationId);
     }
 
     public readonly saveMessageAsEml = async (messageId: string): Promise<string> => {

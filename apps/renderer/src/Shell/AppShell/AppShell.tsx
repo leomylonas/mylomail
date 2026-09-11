@@ -36,6 +36,10 @@ import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/Notifi
 import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
 import {
+	applyNotificationNavigation,
+	waitForNotificationNavigation,
+} from "@mylomail/renderer/Shell/NotificationNavigation";
+import {
 	AuthState,
 	CertificateTrustMode,
 	ProviderType,
@@ -61,6 +65,11 @@ interface Account {
 	isThrottled?: boolean;
 }
 
+export interface NotificationClick {
+	notificationId: string;
+	accountId: string;
+}
+
 /**
  * The window's panel layout.
  *
@@ -68,7 +77,11 @@ interface Account {
  * per-window store rather than passing selection down through props, which is what lets a
  * second window hold a different selection without either knowing the other exists.
  */
-export function AppShell() {
+export function AppShell({
+	initialNotification,
+}: {
+	initialNotification?: NotificationClick;
+}) {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
 	const [pane, setPane] = useState<
@@ -111,6 +124,7 @@ export function AppShell() {
 	);
 	const sidebarRef = useRef<PanelImperativeHandle>(null);
 	const detailRef = useRef<PanelImperativeHandle>(null);
+	const initialNotificationHandled = useRef(false);
 
 	const queryClient = useQueryClient();
 	const accounts = useQuery({
@@ -190,48 +204,99 @@ export function AppShell() {
 		void window.windows?.reportDraftState(openDraftId);
 	}, [openDraftId]);
 
-	// Clicking a notification opens the app and navigates to the message (§13 Epic 9).
-	// Subscribing to the shell's IPC channel is exactly what an effect is for; the store
-	// update happens inside the callback, in response to that external event, not during
-	// render. A null messageId means the notification was recorded from a still-staged,
-	// not-yet-replayed change-stream page — fetched on demand here rather than the
-	// navigation simply failing.
-	useEffect(
-		() =>
-			window.notifications?.onClicked(({ notificationId, messageId }) => {
-				if (messageId) {
-					store.setState("selectedMessageId", messageId);
-					setPane("reading");
-					return;
-				}
+	// The shell elects one main window for a native-notification click. Resolve the route from
+	// durable local identity at click time: the OS payload may predate staged Gmail replay or a
+	// provider move, and a message id alone cannot select its account/mailbox or supply the
+	// subject/sender context the reading pane needs.
+	useEffect(() => {
+		if (!hub) return;
 
-				void hub
-					?.invoke<string | null>("ResolveStagedMessage", notificationId)
-					.then((resolved) => {
-						if (resolved) {
-							store.setState("selectedMessageId", resolved);
-							setPane("reading");
-						} else {
-							notify(notifications, {
-								kind: "info",
-								title: "Still syncing",
-								detail: "This message hasn't finished downloading yet.",
-							});
-						}
-					})
-					.catch((error: unknown) => {
-						// Otherwise a hub disconnect at exactly the wrong moment makes clicking
-						// a notification silently do nothing — no different from the click never
-						// having registered at all.
+		let activeController: AbortController | undefined;
+		const openNotification = (clicked: NotificationClick) => {
+			activeController?.abort();
+			const controller = new AbortController();
+			activeController = controller;
+
+			// Move to the known account immediately and clear the old account's selection while
+			// a staged message waits for canonical replay.
+			store.setState("selectedAccountId", clicked.accountId);
+			store.setState("selectedMailboxId", null);
+			store.setState("selectedMessageId", null);
+			store.setState("selectedMessageSubject", "");
+			store.setState("selectedMessageSenderAddress", "");
+			setQuery("");
+			setPane("reading");
+
+			void waitForNotificationNavigation(
+				(notificationId) =>
+					hub.invoke("ResolveNotificationNavigation", notificationId),
+				clicked.notificationId,
+				controller.signal,
+				() =>
+					notify(notifications, {
+						kind: "info",
+						title: "Still syncing",
+						detail:
+							"This message is still being added. MyloMail will open it as soon as it is ready.",
+					}),
+			)
+				.then((navigation) => {
+					if (activeController === controller) activeController = undefined;
+					if (controller.signal.aborted) return;
+					const isInitial =
+						initialNotification?.notificationId === clicked.notificationId;
+					if (
+						navigation === null ||
+						!applyNotificationNavigation(store, navigation)
+					) {
 						notify(notifications, {
-							kind: "error",
-							title: "Couldn't open that message",
-							detail: error instanceof Error ? error.message : String(error),
+							kind: "info",
+							title: "Message unavailable",
+							detail:
+								"This notification's message is no longer available locally.",
 						});
+						if (isInitial) initialNotificationHandled.current = true;
+						return;
+					}
+
+					setOpenDraft(undefined);
+					setComposeSeed(undefined);
+					setPane("reading");
+					void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.mailboxes(navigation.accountId),
 					});
-			}),
-		[hub, store, notifications],
-	);
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.messages(navigation.mailboxId),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: ["body", navigation.messageId],
+					});
+					if (isInitial) initialNotificationHandled.current = true;
+				})
+				.catch((error: unknown) => {
+					if (activeController === controller) activeController = undefined;
+					if (controller.signal.aborted) return;
+					notify(notifications, {
+						kind: "error",
+						title: "Couldn't open that message",
+						detail: error instanceof Error ? error.message : String(error),
+					});
+				});
+		};
+
+		const unsubscribe = window.notifications?.onClicked(openNotification);
+		window.notifications?.setNavigationReady(true);
+		if (initialNotification && !initialNotificationHandled.current) {
+			openNotification(initialNotification);
+		}
+
+		return () => {
+			window.notifications?.setNavigationReady(false);
+			unsubscribe?.();
+			activeController?.abort();
+		};
+	}, [hub, initialNotification, notifications, queryClient, store]);
 
 	// "c" for compose is the one standard Outlook/Gmail shortcut this shell never wired
 	// (§13) — every other shell-level action already has its own affordance, and the

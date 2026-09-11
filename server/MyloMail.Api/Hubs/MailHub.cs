@@ -261,12 +261,12 @@ public interface IMailHub
 	Task MarkNotificationDelivered(Guid notificationId);
 
 	/// <summary>
-	/// Fetches the message a still-staged notification points at, on demand, rather than the
-	/// navigation simply failing (§3). Null if the account's staged history still doesn't
-	/// resolve it — the caller only knows this notification was recorded, not why it might be
-	/// slow.
+	/// Resolves the canonical account, mailbox, message and rendering context for a notification
+	/// click. A staged Gmail arrival returns <see cref="NotificationNavigationStatus.Pending"/>
+	/// until canonical replay can safely materialise it; null means the durable notification or
+	/// its message no longer exists.
 	/// </summary>
-	Task<Guid?> ResolveStagedMessage(Guid notificationId);
+	Task<NotificationNavigationDto?> ResolveNotificationNavigation(Guid notificationId);
 
 	/// <summary>The raw MIME bytes for one message, base64-encoded, fetched on demand if needed.</summary>
 	Task<string> SaveMessageAsEml(Guid messageId);
@@ -1253,33 +1253,93 @@ public class MailHub(
 	public Task MarkNotificationDelivered(Guid notificationId) =>
 		notifications.MarkDeliveredAsync(notificationId);
 
-	public async Task<Guid?> ResolveStagedMessage(Guid notificationId)
+	public async Task<NotificationNavigationDto?> ResolveNotificationNavigation(Guid notificationId)
 	{
-		var record = await context.NotificationRecords.FirstOrDefaultAsync(n => n.Id == notificationId);
+		var record = await context
+			.NotificationRecords.AsNoTracking()
+			.FirstOrDefaultAsync(notification => notification.Id == notificationId);
 		if (record is null)
 		{
 			return null;
 		}
-		if (record.MessageId is Guid resolved)
+
+		var messageId = record.MessageId;
+		if (messageId is null)
 		{
-			return resolved;
+			var account = await context.Accounts.FirstOrDefaultAsync(account => account.Id == record.AccountId);
+			if (account is null || !account.IsEnabled)
+			{
+				return null;
+			}
+
+			// Draining the whole staged queue, not just this one notification's event: replay
+			// only ever proceeds in order (§3), and the record this click is asking about is
+			// already known to have been staged, so its event is somewhere in that queue.
+			await changeStream.ReplayStagedAsync(account);
+			var refreshedRecord = await context
+				.NotificationRecords.AsNoTracking()
+				.Where(notification => notification.Id == notificationId)
+				.Select(notification => new { notification.MessageId })
+				.FirstOrDefaultAsync();
+			if (refreshedRecord is null)
+			{
+				return null;
+			}
+			messageId = refreshedRecord.MessageId;
+			if (messageId is null)
+			{
+				if (await changeStream.CoverageCompleteAsync(account, default))
+				{
+					return null;
+				}
+
+				return new NotificationNavigationDto(
+					NotificationNavigationStatus.Pending,
+					record.AccountId,
+					MailboxId: null,
+					MessageId: null,
+					Subject: string.Empty,
+					SenderAddress: string.Empty
+				);
+			}
 		}
 
-		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == record.AccountId);
-		if (account is null)
+		// Gmail can hold one canonical message in several labels. Resolve message metadata and
+		// membership in one database statement so the route cannot combine context from one
+		// local identity with a mailbox selected from another. Prefer the effective Inbox role,
+		// then the user's stable sidebar order; provider occurrence identity is irrelevant.
+		var route = await context
+			.MessageMailboxes.AsNoTracking()
+			.Where(occurrence => occurrence.MessageId == messageId)
+			.Join(
+				context.Mailboxes,
+				occurrence => occurrence.MailboxId,
+				mailbox => mailbox.Id,
+				(occurrence, mailbox) => new { occurrence.MessageId, Mailbox = mailbox }
+			)
+			.Join(
+				context.Messages.Where(message => message.AccountId == record.AccountId),
+				item => item.MessageId,
+				message => message.Id,
+				(item, message) => new { Message = message, item.Mailbox }
+			)
+			.OrderByDescending(item => (item.Mailbox.SpecialUseOverride ?? item.Mailbox.SpecialUse) == SpecialUse.Inbox)
+			.ThenBy(item => item.Mailbox.LocalSortOrder)
+			.ThenBy(item => item.Mailbox.Id)
+			.FirstOrDefaultAsync();
+		if (route is null)
 		{
 			return null;
 		}
 
-		// Draining the whole staged queue, not just this one notification's event: replay
-		// only ever proceeds in order (§3), and the record this click is asking about is
-		// already known to have been staged, so its event is somewhere in that queue.
-		await changeStream.ReplayStagedAsync(account);
-
-		return await context.NotificationRecords.AsNoTracking()
-			.Where(n => n.Id == notificationId)
-			.Select(n => n.MessageId)
-			.FirstOrDefaultAsync();
+		return new NotificationNavigationDto(
+			NotificationNavigationStatus.Ready,
+			route.Message.AccountId,
+			route.Mailbox.Id,
+			route.Message.Id,
+			route.Message.Subject,
+			route.Message.From.FirstOrDefault()?.Email ?? string.Empty
+		);
 	}
 
 	public async Task<string> SaveMessageAsEml(Guid messageId)

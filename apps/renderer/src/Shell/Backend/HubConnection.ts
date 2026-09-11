@@ -12,7 +12,10 @@ import {
 } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import type { WindowState } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
-import type { SyncProgressDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type {
+	NotificationDto,
+	SyncProgressDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { SyncProgressKind } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 /** Query keys, in one place so an event and the query it invalidates cannot drift apart. */
@@ -250,27 +253,23 @@ export function connectHub(
 	// Dispatch is the shell's job, not this window's (§13 Epic 9): relay straight to the
 	// preload bridge, and confirm delivery only once the shell has actually shown it — a
 	// crash between these two steps redelivers the same notification rather than losing it.
-	hub.on(
-		"NotificationReady",
-		(notification: {
-			id: string;
-			accountId: string;
-			messageId: string | null;
-			title: string;
-			body: string;
-		}) => {
-			void window.notifications
-				?.show(notification)
-				.then(() => hub.invoke("MarkNotificationDelivered", notification.id))
-				.catch((error: unknown) => {
-					// Left unmarked-delivered on purpose: per the comment above, that's exactly
-					// what makes the shell redeliver this same notification instead of losing
-					// it. Logged only so a show/deliver failure doesn't surface as an unhandled
-					// promise rejection with no trace of what happened.
-					console.error(`notification delivery failed: ${String(error)}`);
-				});
-		},
-	);
+	hub.on("NotificationReady", (notification: NotificationDto) => {
+		void window.notifications
+			?.show({
+				id: notification.id,
+				accountId: notification.accountId,
+				title: notification.title,
+				body: notification.body,
+			})
+			.then(() => hub.invoke("MarkNotificationDelivered", notification.id))
+			.catch((error: unknown) => {
+				// Left unmarked-delivered on purpose: per the comment above, that's exactly
+				// what makes the shell redeliver this same notification instead of losing
+				// it. Logged only so a show/deliver failure doesn't surface as an unhandled
+				// promise rejection with no trace of what happened.
+				console.error(`notification delivery failed: ${String(error)}`);
+			});
+	});
 
 	// A reconnect is a full resynchronisation, not a pending-mutation check. While
 	// disconnected this window missed every event above, and pending mutations alone cannot

@@ -446,6 +446,21 @@ public record AttachmentConstraintsDto(
 [TranspilationSource]
 public record NotificationDto(Guid Id, Guid AccountId, Guid? MessageId, string Title, string Body);
 
+/// <summary>
+/// Canonical, current navigation context for a native-notification click. Message and mailbox
+/// identity are resolved at click time rather than trusted from the earlier OS payload, since
+/// staged replay and provider moves can change what is locally materialised in between.
+/// </summary>
+[TranspilationSource]
+public record NotificationNavigationDto(
+	NotificationNavigationStatus Status,
+	Guid AccountId,
+	Guid? MailboxId,
+	Guid? MessageId,
+	string Subject,
+	string SenderAddress
+);
+
 /// <summary>What the calendar UI sends when it creates or edits an event.</summary>
 [TranspilationSource]
 public record SaveCalendarEventRequest(

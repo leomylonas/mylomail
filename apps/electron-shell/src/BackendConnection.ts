@@ -11,6 +11,8 @@ export const backendConnectionChannel = "backend:connection";
 export const openAttachmentChannel = "attachment:open";
 export const showNotificationChannel = "notification:show";
 export const notificationClickedChannel = "notification:clicked";
+export const notificationNavigationReadyChannel =
+	"notification:navigation-ready";
 export const openWindowChannel = "window:open";
 export const pickExportFolderChannel = "export:pick-folder";
 export const updateCloseBehaviorChannel =
@@ -21,26 +23,21 @@ export const focusDraftWindowChannel = "draft:focus-if-open";
 /**
  * What the renderer hands the shell to show a native OS notification (§13 Epic 9).
  *
- * `messageId` is null for one recorded from a still-staged, not-yet-replayed change-stream
- * page — there is no local message to navigate to yet. The notification still shows; a click
- * on it just cannot navigate anywhere until replay catches up (§3).
+ * The durable notification and account ids are sufficient for display/click routing. Message,
+ * mailbox, subject and sender context are resolved from the backend when the user clicks, rather
+ * than frozen into an OS payload that may predate staged replay or a provider-side move.
  */
 export interface NotificationRequest {
 	id: string;
+	accountId: string;
 	title: string;
 	body: string;
-	messageId: string | null;
 }
 
-/**
- * What a notification click hands back to the renderer. `messageId` repeats the
- * `NotificationRequest` at the moment it was shown — the shell keeps no state of its own — so
- * when it is null the renderer is the one that asks the backend to resolve
- * `notificationId` on demand rather than the click doing nothing (§3).
- */
+/** The durable identity a native-notification click hands back to one main renderer window. */
 export interface NotificationClicked {
 	notificationId: string;
-	messageId: string | null;
+	accountId: string;
 }
 
 /**

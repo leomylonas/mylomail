@@ -4,9 +4,9 @@ import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNot
 
 const request = (id: string): NotificationRequest => ({
 	id,
+	accountId: "00000000-0000-0000-0000-000000000001",
 	title: "New message",
 	body: "A message arrived.",
-	messageId: null,
 });
 
 describe("NativeNotificationDispatcher", () => {

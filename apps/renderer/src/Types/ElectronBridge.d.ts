@@ -8,14 +8,15 @@ declare global {
 		notifications?: {
 			show(request: {
 				id: string;
+				accountId: string;
 				title: string;
 				body: string;
-				messageId: string | null;
 			}): Promise<void>;
+			setNavigationReady(ready: boolean): void;
 			onClicked(
 				callback: (clicked: {
 					notificationId: string;
-					messageId: string | null;
+					accountId: string;
 				}) => void,
 			): () => void;
 		};

@@ -3,6 +3,7 @@ import {
 	backendConnectionChannel,
 	focusDraftWindowChannel,
 	notificationClickedChannel,
+	notificationNavigationReadyChannel,
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
@@ -40,6 +41,8 @@ contextBridge.exposeInMainWorld("backend", {
 contextBridge.exposeInMainWorld("notifications", {
 	show: (request: NotificationRequest): Promise<void> =>
 		ipcRenderer.invoke(showNotificationChannel, request) as Promise<void>,
+	setNavigationReady: (ready: boolean): void =>
+		ipcRenderer.send(notificationNavigationReadyChannel, ready),
 	onClicked: (
 		callback: (clicked: NotificationClicked) => void,
 	): (() => void) => {

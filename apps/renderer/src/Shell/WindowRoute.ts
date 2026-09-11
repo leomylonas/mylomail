@@ -13,7 +13,10 @@ export type WindowRoute =
 			senderAddress: string | undefined;
 	  }
 	| { kind: "compose"; draftId: string; accountId: string }
-	| { kind: "shell" };
+	| {
+			kind: "shell";
+			initialNotification?: { notificationId: string; accountId: string };
+	  };
 
 export function parseWindowRoute(search: string): WindowRoute {
 	const params = new URLSearchParams(search);
@@ -35,6 +38,16 @@ export function parseWindowRoute(search: string): WindowRoute {
 	const account = params.get("account");
 	if (compose && account) {
 		return { kind: "compose", draftId: compose, accountId: account };
+	}
+	const notification = params.get("notification");
+	if (notification && account) {
+		return {
+			kind: "shell",
+			initialNotification: {
+				notificationId: notification,
+				accountId: account,
+			},
+		};
 	}
 
 	return { kind: "shell" };

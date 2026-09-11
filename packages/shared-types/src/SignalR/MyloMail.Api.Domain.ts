@@ -118,6 +118,12 @@ export enum NotificationKind {
     NewMessage = 0,
 }
 
+/** Transpiled from MyloMail.Api.Domain.NotificationNavigationStatus */
+export enum NotificationNavigationStatus {
+    Pending = 0,
+    Ready = 1,
+}
+
 /** Transpiled from MyloMail.Api.Domain.OutboxStatus */
 export enum OutboxStatus {
     Draft = 0,

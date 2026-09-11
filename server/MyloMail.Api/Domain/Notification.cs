@@ -45,3 +45,11 @@ public enum NotificationKind
 {
 	NewMessage,
 }
+
+/// <summary>Whether a notification click can navigate now or is waiting for staged replay.</summary>
+[TranspilationSource]
+public enum NotificationNavigationStatus
+{
+	Pending,
+	Ready,
+}

@@ -34,7 +34,7 @@ function chooseRoot() {
 				<ComposeWindow draftId={route.draftId} accountId={route.accountId} />
 			);
 		case "shell":
-			return <AppShell />;
+			return <AppShell initialNotification={route.initialNotification} />;
 	}
 }
 

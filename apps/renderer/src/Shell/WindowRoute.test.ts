@@ -37,6 +37,18 @@ describe("parseWindowRoute", () => {
 		});
 	});
 
+	it("carries a notification click into a newly opened main window", () => {
+		expect(
+			parseWindowRoute("?notification=n1&account=a1&windowSlot=3"),
+		).toEqual({
+			kind: "shell",
+			initialNotification: {
+				notificationId: "n1",
+				accountId: "a1",
+			},
+		});
+	});
+
 	it("falls back to the shell route with no recognised params", () => {
 		expect(parseWindowRoute("")).toEqual({ kind: "shell" });
 	});

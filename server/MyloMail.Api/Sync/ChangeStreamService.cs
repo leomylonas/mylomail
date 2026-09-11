@@ -811,7 +811,7 @@ public sealed class ChangeStreamService(
 	/// freshly discovered account fully covered and start applying history to a canonical
 	/// model that has nothing in it yet.
 	/// </remarks>
-	private async Task<bool> CoverageCompleteAsync(Account account, CancellationToken ct) =>
+	internal async Task<bool> CoverageCompleteAsync(Account account, CancellationToken ct) =>
 		!await context
 			.Mailboxes.Where(m => m.AccountId == account.Id)
 			.AnyAsync(

@@ -230,18 +230,21 @@ public sealed class NotificationEligibilityTests
 	}
 
 	/// <summary>
-	/// Clicking a staged notification before account coverage completes leaves it unresolved:
-	/// replaying staged Gmail history first could be overwritten by a later stale coverage
-	/// page. The renderer retries after coverage completes.
+	/// Clicking a staged notification before account coverage completes reports that it is
+	/// pending: replaying staged Gmail history first could be overwritten by a later stale
+	/// coverage page. The renderer can therefore keep retrying instead of treating "not ready"
+	/// as a missing message.
 	/// </summary>
 	[Fact]
 	public async Task Resolving_a_staged_notification_waits_for_account_coverage()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
-		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var inbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		await SyncTests.ReconcileAsync(harness);
 
-		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		var occurrenceId = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		inbox.Messages[occurrenceId].Subject = "A routed notification";
+		inbox.Messages[occurrenceId].From = [new Address("Ada", "ada@example.test")];
 		await SyncTests.SyncAsync(harness);
 		var notification = Assert.Single(harness.Events.Notifications);
 		Assert.Null(notification.MessageId);
@@ -255,31 +258,137 @@ public sealed class NotificationEligibilityTests
 		var unresolved = await harness.UsingAsync(async scope =>
 		{
 			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
-			return await hub.ResolveStagedMessage(notification.Id);
+			return await hub.ResolveNotificationNavigation(notification.Id);
 		});
-		Assert.Null(unresolved);
+		Assert.NotNull(unresolved);
+		Assert.Equal(NotificationNavigationStatus.Pending, unresolved.Status);
+		Assert.Equal(harness.Account.Id, unresolved.AccountId);
+		Assert.Null(unresolved.MessageId);
+		Assert.Null(unresolved.MailboxId);
 
 		await SyncTests.CoverAsync(harness);
 		var resolved = await harness.UsingAsync(async scope =>
 		{
 			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
-			return await hub.ResolveStagedMessage(notification.Id);
+			return await hub.ResolveNotificationNavigation(notification.Id);
 		});
 
 		Assert.NotNull(resolved);
+		Assert.Equal(NotificationNavigationStatus.Ready, resolved.Status);
+		Assert.Equal(harness.Account.Id, resolved.AccountId);
+		Assert.Equal("A routed notification", resolved.Subject);
+		Assert.Equal("ada@example.test", resolved.SenderAddress);
 		await harness.UsingAsync(async scope =>
 		{
-			var message = await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync();
-			Assert.Equal(message.Id, resolved);
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync();
+			var mailbox = await context.Mailboxes.SingleAsync(candidate => candidate.SpecialUse == SpecialUse.Inbox);
+			Assert.Equal(message.Id, resolved.MessageId);
+			Assert.Equal(mailbox.Id, resolved.MailboxId);
 		});
 
-		// A second call, once already resolved, returns it straight from the record without
+		// A second call, once already resolved, returns the same canonical route without
 		// draining anything further.
 		var resolvedAgain = await harness.UsingAsync(async scope =>
 		{
 			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
-			return await hub.ResolveStagedMessage(notification.Id);
+			return await hub.ResolveNotificationNavigation(notification.Id);
 		});
 		Assert.Equal(resolved, resolvedAgain);
+	}
+
+	[Fact]
+	public async Task An_orphaned_staged_notification_becomes_unavailable_after_replacement_coverage()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		var occurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch
+		);
+		await SyncTests.SyncAsync(harness);
+		var notification = Assert.Single(harness.Events.Notifications);
+
+		// Cursor invalidation discards the old staged epoch. The provider then no longer has
+		// the message, so replacement coverage cannot link this durable notification.
+		harness.Provider.InvalidateCursors();
+		var invalidated = await SyncTests.SyncAsync(harness);
+		Assert.True(invalidated.ResyncTriggered);
+		harness.Provider.RemoveMessage(occurrenceId);
+		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
+
+		var navigation = await harness.UsingAsync(async scope =>
+		{
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			var resolved = await hub.ResolveNotificationNavigation(notification.Id);
+			Assert.Empty(await scope.GetRequiredService<MyloMailDbContext>().StagedChangeEvents.ToListAsync());
+			return resolved;
+		});
+
+		Assert.Null(navigation);
+	}
+
+	[Fact]
+	public async Task Notification_navigation_prefers_the_effective_inbox_when_a_message_has_several_labels()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Archive");
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		var (navigation, inboxId) = await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var archive = await context.Mailboxes.SingleAsync(mailbox => mailbox.Name == "Archive");
+			var inbox = await context.Mailboxes.SingleAsync(mailbox => mailbox.SpecialUse == SpecialUse.Inbox);
+			var message = new Message
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.Account.Id,
+				Subject = "Labelled message",
+				From = [new Address("Grace", "grace@example.test")],
+				ReceivedAt = DateTimeOffset.UnixEpoch,
+			};
+			var notification = new NotificationRecord
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.Account.Id,
+				MessageId = message.Id,
+				Kind = NotificationKind.NewMessage,
+				CreatedAt = DateTimeOffset.UnixEpoch,
+			};
+			context.AddRange(
+				message,
+				new MessageMailbox
+				{
+					Id = Guid.NewGuid(),
+					MessageId = message.Id,
+					MailboxId = archive.Id,
+					ProviderOccurrenceId = "archive-occurrence",
+				},
+				new MessageMailbox
+				{
+					Id = Guid.NewGuid(),
+					MessageId = message.Id,
+					MailboxId = inbox.Id,
+					ProviderOccurrenceId = "inbox-occurrence",
+				},
+				notification
+			);
+			await context.SaveChangesAsync();
+
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			return (await hub.ResolveNotificationNavigation(notification.Id), inbox.Id);
+		});
+
+		Assert.NotNull(navigation);
+		Assert.Equal(NotificationNavigationStatus.Ready, navigation.Status);
+		Assert.Equal(inboxId, navigation.MailboxId);
+		Assert.Equal("Labelled message", navigation.Subject);
+		Assert.Equal("grace@example.test", navigation.SenderAddress);
 	}
 }
