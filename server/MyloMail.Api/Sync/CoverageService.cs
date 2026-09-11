@@ -89,6 +89,13 @@ public sealed class CoverageService(
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
+			if (!await context.Accounts.AnyAsync(a => a.Id == account.Id && a.IsEnabled, ct))
+			{
+				// Account removal starts by disabling the row. A provider call already in
+				// flight may still return, but none of its observations may commit afterward.
+				throw new CoverageBaselinePendingException();
+			}
+
 			await context.Entry(mailbox).ReloadAsync(ct);
 			await context.Entry(coverage).ReloadAsync(ct);
 			if (mailbox.CoveragePolicyGeneration != policyGeneration)

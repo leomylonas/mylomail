@@ -57,6 +57,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	public ProviderCapabilities Capabilities { get; }
 	public TimeSpan IdleCancellationDelay { get; set; }
 	public Func<MessageOccurrenceRef, Task>? BeforeFetchRawMessageReturnAsync { get; set; }
+	public Func<Task>? BeforeInitialSyncReturnAsync { get; set; }
 	public TaskCompletionSource<bool> IdleStarted { get; } =
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public TaskCompletionSource<bool> IdleCancellationObserved { get; } =
@@ -226,7 +227,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	public Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct) =>
 		Task.FromResult(Require(ProviderIdOf(mailbox)).Messages.Count);
 
-	public Task<InitialSyncPage> InitialSyncMailboxAsync(
+	public async Task<InitialSyncPage> InitialSyncMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		string? resumeToken,
@@ -249,13 +250,15 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		var consumed = offset + page.Count;
 		var hasMore = consumed < bounded.Count;
 
-		return Task.FromResult(
-			new InitialSyncPage(
-				[.. page.Select(kv => ToDto(mailboxState.ProviderMailboxId, kv.Key, kv.Value))],
-				hasMore ? consumed.ToString() : null,
-				hasMore,
-				bounded.Count
-			)
+		if (BeforeInitialSyncReturnAsync is not null)
+		{
+			await BeforeInitialSyncReturnAsync();
+		}
+		return new InitialSyncPage(
+			[.. page.Select(kv => ToDto(mailboxState.ProviderMailboxId, kv.Key, kv.Value))],
+			hasMore ? consumed.ToString() : null,
+			hasMore,
+			bounded.Count
 		);
 	}
 

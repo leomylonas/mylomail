@@ -17,10 +17,11 @@
 - Parity remediation 12/47: Gmail `LastNMessages` coverage now carries the remaining target alongside the opaque provider page token, caps each request and the reported estimate, and stops after consuming N observations even when Gmail advertises another page. A migration restarts legacy in-progress bounded walks so old raw tokens cannot silently add a second full bound. Coverage progress counts consumed provider observations, and mailbox-scoped policy generations plus an atomic SQL setter fence in-flight pages and concurrent multi-window bound changes without overloading topology identity.
 - Parity remediation 13/47: Graph coverage now honors count bounds across absolute `nextLink` pages and applies stable received-date filters for month bounds, then defers the first change stream until the requested recent subset is usable. Its unfiltered delta bootstrap still enumerates every page but materializes only already-selected stable ids and arrivals after the retained baseline, committing only the final `deltaLink`. Established streams remain live during later policy backfills; cursor invalidation, rebase cutoff, coverage reset, and integrity state now commit atomically, and a migration restarts legacy count-bounded raw continuations.
 - Parity remediation 14/47: content acquisition now captures the exact local occurrence, provider occurrence, mailbox, and topology generation before every provider fetch, then rechecks that snapshot inside the content transaction before any raw MIME, derived body, attachment, search, or state write. Successful and failed stale fetches are discarded without consuming the replacement incarnation's retry budget; crash injection proves the derived-content transaction rolls back before commit. Deferred acquisition is explicit, and bulk export retains the same manifest position until fresh content is available instead of silently omitting it.
+- Parity remediation 15/47: coverage pages now recheck the durable account row inside the same transaction that would apply provider observations and advance coverage. A page returning after soft disable or the first phase of account removal aborts before ingestion, notification linkage, resume-token updates, commit, and every successor enqueue; hard deletion fails the same existence-and-enabled check.
 
 ## Next task
 
-- Block in-flight coverage commits after account disable or removal.
+- Increment mailbox topology generation during mailbox-scoped cursor invalidation.
 
 ## Required reading
 
@@ -70,6 +71,9 @@
 - `pnpm check` after content topology fencing: format, TypeScript, ESLint, Stylelint, build, 542 .NET tests, and 146 Vitest tests passed.
 - Content-fence discrimination: replacing the exact occurrence/generation query with an unconditional current result made `Fetch_is_discarded_when_its_mailbox_generation_changes_in_flight` fail while 538 tests passed; restoring the guard returned the suite to green. Separate regressions cover provider-occurrence replacement, stale provider failures, export resume-token retention, and rollback/restart at `content.after-apply-before-commit`.
 - Content invariant review found and closed stale-failure accounting, export-success signaling, and incomplete occurrence-predicate coverage before commit. The final re-review found no remaining violations.
+- `pnpm check` after the post-disable coverage fence: format, TypeScript, ESLint, Stylelint, build, 543 .NET tests, and 146 Vitest tests passed.
+- Coverage-removal discrimination: bypassing the in-transaction account existence/enablement check made `Coverage_page_returning_after_account_disable_cannot_commit` fail while 542 tests passed; restoring the check returned the suite to green. Existing apply-before-commit coverage crash tests continue to prove page/cursor rollback.
+- Coverage invariant review found no violations. It confirmed soft disable and hard deletion share the durable guard, SQLite transaction ordering closes the commit race, and `CoverageBaselinePendingException` exits before every successor, replay, or content enqueue.
 
 ## Live risks / decisions
 

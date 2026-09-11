@@ -325,6 +325,56 @@ public sealed class SyncTests
 	}
 
 	[Fact]
+	public async Task Coverage_page_returning_after_account_disable_cannot_commit()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+
+		var enteredProvider = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var releaseProvider = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		harness.Provider.BeforeInitialSyncReturnAsync = async () =>
+		{
+			enteredProvider.SetResult();
+			await releaseProvider.Task;
+		};
+
+		var page = harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<CoverageService>()
+				.RunPageAsync(
+					await harness.AccountInScopeAsync(scope),
+					await harness.MailboxAsync(scope, "INBOX")
+				)
+		);
+		await enteredProvider.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			account.IsEnabled = false;
+			await context.SaveChangesAsync();
+		});
+		releaseProvider.SetResult();
+
+		await Assert.ThrowsAsync<CoverageBaselinePendingException>(() => page);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.False(await context.Accounts.Where(a => a.Id == harness.Account.Id).Select(a => a.IsEnabled).SingleAsync());
+			Assert.Empty(await context.Messages.ToListAsync());
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(CoverageStatus.Backfilling, coverage.Status);
+			Assert.Equal(0, coverage.MessagesFetched);
+			Assert.Null(coverage.ResumeToken);
+		});
+	}
+
+	[Fact]
 	public async Task Changing_a_mailbox_coverage_policy_restarts_its_persisted_walk()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
