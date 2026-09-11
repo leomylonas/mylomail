@@ -56,6 +56,11 @@ interface FormState {
 	reuseImapCredentialForSmtp: boolean;
 	smtpUserName: string;
 	smtpSecret: string;
+	enableCalDav: boolean;
+	calDavEndpoint: string;
+	calDavUserName: string;
+	reuseImapCredentialForCalDav: boolean;
+	calDavSecret: string;
 	/**
 	 * Set only by the "Trust this certificate and retry" action (§15) — the sole certificate
 	 * trust decision available before the account exists, since pinning a specific fingerprint
@@ -89,6 +94,11 @@ const initial: FormState = {
 	reuseImapCredentialForSmtp: true,
 	smtpUserName: "",
 	smtpSecret: "",
+	enableCalDav: false,
+	calDavEndpoint: "",
+	calDavUserName: "",
+	reuseImapCredentialForCalDav: true,
+	calDavSecret: "",
 	trustCertificateOnRetry: false,
 	initialSyncMode: InitialSyncMode.Full,
 	initialSyncBoundValue: 3,
@@ -125,6 +135,17 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 						? undefined
 						: form.smtpSecret,
 				},
+				calDav:
+					form.providerType === ProviderType.Imap && form.enableCalDav
+						? {
+								endpoint: form.calDavEndpoint,
+								userName: form.calDavUserName || form.emailAddress,
+								reuseImapCredential: form.reuseImapCredentialForCalDav,
+								secret: form.reuseImapCredentialForCalDav
+									? undefined
+									: form.calDavSecret,
+							}
+						: undefined,
 				certificateTrustMode: trustCertificate
 					? CertificateTrustMode.TrustAll
 					: CertificateTrustMode.Default,
@@ -178,7 +199,10 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		form.emailAddress &&
 		form.host &&
 		form.secret &&
-		form.smtpHost,
+		form.smtpHost &&
+		(!form.enableCalDav ||
+			(form.calDavEndpoint &&
+				(form.reuseImapCredentialForCalDav || form.calDavSecret))),
 	);
 	const oauthReady = Boolean(
 		form.displayName &&
@@ -300,6 +324,47 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 							/>
 						</>
 					)}
+					<Toggle
+						id="add-account-caldav"
+						labelText="Add a CalDAV calendar"
+						toggled={form.enableCalDav}
+						onToggle={(checked) => set("enableCalDav", checked)}
+					/>
+					{form.enableCalDav ? (
+						<>
+							<TextInput
+								id="add-account-caldav-endpoint"
+								labelText="CalDAV endpoint"
+								helperText="Use the absolute HTTPS calendar endpoint supplied by your provider."
+								type="url"
+								value={form.calDavEndpoint}
+								onChange={(event) => set("calDavEndpoint", event.target.value)}
+							/>
+							<TextInput
+								id="add-account-caldav-username"
+								labelText="CalDAV login name"
+								helperText="Leave blank to use the email address."
+								value={form.calDavUserName}
+								onChange={(event) => set("calDavUserName", event.target.value)}
+							/>
+							<Toggle
+								id="add-account-caldav-reuse"
+								labelText="Use the IMAP password for CalDAV"
+								toggled={form.reuseImapCredentialForCalDav}
+								onToggle={(checked) =>
+									set("reuseImapCredentialForCalDav", checked)
+								}
+							/>
+							{form.reuseImapCredentialForCalDav ? null : (
+								<PasswordInput
+									id="add-account-caldav-secret"
+									labelText="CalDAV password"
+									value={form.calDavSecret}
+									onChange={(event) => set("calDavSecret", event.target.value)}
+								/>
+							)}
+						</>
+					) : null}
 				</>
 			) : (
 				<>

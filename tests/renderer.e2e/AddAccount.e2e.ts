@@ -49,6 +49,41 @@ test("a new user adds an IMAP account through the form and reaches their inbox",
 	}
 });
 
+test("an IMAP account can include independent CalDAV configuration", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await window.getByLabel("Account name").fill("Self hosted");
+		await window.getByLabel("Email address").fill("ada@example.test");
+		await window.getByLabel("IMAP host").fill("imap.example.test");
+		await window.getByLabel("Password", { exact: true }).fill("mail-secret");
+		await window.getByLabel("SMTP host").fill("smtp.example.test");
+
+		const create = window.getByRole("button", { name: "Create account" });
+		await expect(create).toBeEnabled();
+		await window.locator('label[for="add-account-caldav"]').click();
+		await expect(create).toBeDisabled();
+		await expect(window.getByLabel("CalDAV endpoint")).toBeVisible();
+		await window
+			.getByLabel("CalDAV endpoint")
+			.fill("https://dav.example.test/calendars");
+		await expect(create).toBeEnabled();
+
+		await window.locator('label[for="add-account-caldav-reuse"]').click();
+		await expect(create).toBeDisabled();
+		await window.getByLabel("CalDAV password").fill("calendar-secret");
+		await expect(create).toBeEnabled();
+	} finally {
+		await app.close();
+	}
+});
+
 test("Google account setup is selectable and ready for interactive sign-in", async () => {
 	const { app, window } = await launchApp();
 
