@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -17,6 +18,7 @@ public sealed class MutationReconciler(
 	IMailProviderFactory providers,
 	MutationChainEvaluator chains,
 	TimeProvider clock,
+	IHubEvents events,
 	ILogger<MutationReconciler> logger
 )
 {
@@ -82,6 +84,7 @@ public sealed class MutationReconciler(
 				observed[item.Id] = await ObserveAsync(account, item.MessageId, ct);
 			}
 
+			var removedMessageIds = new List<Guid>();
 			foreach (var item in unresolved)
 			{
 				var locations = observed[item.Id];
@@ -96,7 +99,11 @@ public sealed class MutationReconciler(
 				var applied = IsApplied(account, item, resolvedTargetMailboxId, locations);
 				if (applied)
 				{
-					await SynchroniseLocationsAsync(item.MessageId, locations, ct);
+					if (await SynchroniseLocationsAsync(item.MessageId, locations, ct))
+					{
+						removedMessageIds.Add(item.MessageId);
+					}
+
 					item.State = MutationState.Completed;
 					item.CompletedAt = clock.GetUtcNow();
 					item.LeaseOwner = null;
@@ -112,6 +119,7 @@ public sealed class MutationReconciler(
 			attempt.State = MutationAttemptState.Completed;
 			attempt.ResultPersistedAt = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
+			await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
 			settled++;
 		}
 
@@ -291,14 +299,14 @@ public sealed class MutationReconciler(
 			&& message.MessageIdHeader == dto.MessageIdHeader
 			&& message.ReceivedAt == dto.ReceivedAt);
 
-	private async Task SynchroniseLocationsAsync(Guid messageId, IReadOnlyDictionary<Guid, string> locations, CancellationToken ct)
+	private async Task<bool> SynchroniseLocationsAsync(Guid messageId, IReadOnlyDictionary<Guid, string> locations, CancellationToken ct)
 	{
 		var existing = await context.MessageMailboxes.Where(o => o.MessageId == messageId).ToListAsync(ct);
-		foreach (var occurrence in existing.Where(o => !locations.ContainsKey(o.MailboxId)))
+		var vanished = existing.Where(o => !locations.ContainsKey(o.MailboxId)).ToList();
+		foreach (var occurrence in vanished)
 		{
 			context.MessageMailboxes.Remove(occurrence);
 		}
-
 		if (locations.Count > 0)
 		{
 			// Membership survives (or is regained) here — no longer a GC candidate (§6).
@@ -318,5 +326,7 @@ public sealed class MutationReconciler(
 				occurrence.ProviderOccurrenceId = providerId;
 			}
 		}
+
+		return vanished.Count > 0;
 	}
 }

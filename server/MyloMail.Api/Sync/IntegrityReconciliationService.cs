@@ -52,6 +52,7 @@ public sealed class IntegrityReconciliationService(
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		var availabilityRecovered = false;
+		IReadOnlyList<Guid> removedMessageIds = [];
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
@@ -59,7 +60,7 @@ public sealed class IntegrityReconciliationService(
 				.Where(o => !snapshot.ExistingOccurrenceIds.Contains(o.ProviderOccurrenceId))
 				.Select(o => o.ProviderOccurrenceId)
 				.ToList();
-			await ingestor.RemoveOccurrencesAsync(mailbox, missingIds, generations, ct);
+			removedMessageIds = await ingestor.RemoveOccurrencesAsync(mailbox, missingIds, generations, ct);
 			await ingestor.ApplyFlagChangesAsync(mailbox, snapshot.FlagChanges, generations, ct);
 
 			var state = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(s => s.MailboxId == mailbox.Id, ct);
@@ -79,6 +80,8 @@ public sealed class IntegrityReconciliationService(
 		{
 			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
 		}
+
+		await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
 
 		logger.LogInformation("Completed periodic integrity reconciliation for mailbox {MailboxId}.", mailbox.Id);
 	}

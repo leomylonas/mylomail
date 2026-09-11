@@ -258,7 +258,7 @@ public sealed class ChangeStreamService(
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
-		ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], []);
+		ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], [], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -315,6 +315,8 @@ public sealed class ChangeStreamService(
 		{
 			await events.MessageUpdatedAsync(summaries[message.Id]);
 		}
+
+		await MessageDeletionAnnouncer.AnnounceAsync(context, events, applied.RemovedMessageIds, ct);
 
 		await notifications.AnnounceAsync(applied.EligibleNotifications);
 
@@ -374,13 +376,16 @@ public sealed class ChangeStreamService(
 			}
 		}
 
+		var removedMessageIds = new List<Guid>();
 		foreach (var group in result.Removed.GroupBy(r => r.ProviderMailboxId))
 		{
 			if (mailboxes.TryGetValue(group.Key, out var target))
 			{
 				// Removes the occurrence, never the canonical message: a Graph move surfaces
 				// as a removal and an addition in either order.
-				await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct);
+				removedMessageIds.AddRange(
+					await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct)
+				);
 			}
 		}
 
@@ -397,7 +402,8 @@ public sealed class ChangeStreamService(
 				ingested.ContactSuggestionsChanged
 			),
 			draftIds.Distinct().ToArray(),
-			eligibleNotifications
+			eligibleNotifications,
+			removedMessageIds.Distinct().ToArray()
 		);
 	}
 
@@ -533,7 +539,7 @@ public sealed class ChangeStreamService(
 
 
 			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
-			ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], []);
+			ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], [], []);
 
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
@@ -582,6 +588,8 @@ public sealed class ChangeStreamService(
 			{
 				await events.MessageUpdatedAsync(summaries[message.Id]);
 			}
+
+			await MessageDeletionAnnouncer.AnnounceAsync(context, events, applied.RemovedMessageIds, ct);
 
 			foreach (var draftId in applied.DraftIds)
 			{
@@ -803,5 +811,6 @@ public sealed record ChangeStreamOutcome(int Pages, bool Staged, bool ResyncTrig
 internal sealed record ContentApplyResult(
 	IngestResult Messages,
 	IReadOnlyList<Guid> DraftIds,
-	IReadOnlyList<NotificationDto> EligibleNotifications
+	IReadOnlyList<NotificationDto> EligibleNotifications,
+	IReadOnlyList<Guid> RemovedMessageIds
 );

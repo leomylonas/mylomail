@@ -223,6 +223,12 @@ public sealed class TombstoneGcJobs(
 		}
 
 		await transaction.CommitAsync(ct);
+		// Announced again here, not only when the last membership went: a reading pane — and
+		// especially a popped-out message window with no list to drop its selection — polls
+		// GetMessageBody, which reports the message gone from the canonical row's absence.
+		// Until this collection that row still existed, so the earlier announcement's refetch
+		// legitimately returned a body, and nothing else would ever invalidate it (§7).
+		await events.MessageDeletedAsync(messageId);
 		foreach (var descendant in rethreaded.DistinctBy(message => message.Id))
 			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(descendant));
 		return true;

@@ -106,6 +106,39 @@ public sealed class SyncTests
 		});
 	}
 
+	/// <summary>
+	/// Memberships cascade with a vanished mailbox, so a message that lived only there is
+	/// gone from every window — and a folder disappearing is not, on its own, enough for the
+	/// renderer to know that about an individual message.
+	/// </summary>
+	[Fact]
+	public async Task A_vanished_mailbox_announces_the_messages_it_took_with_it()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("GOING");
+		harness.Provider.SeedMessage("GOING", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+		await SyncAsync(harness);
+		await CoverAsync(harness, "GOING");
+		await CoverAsync(harness);
+		var messageId = await harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).Id
+		);
+		harness.Events.Clear();
+
+		harness.Provider.RemoveMailbox("GOING");
+		await ReconcileAsync(harness);
+
+		Assert.Equal(messageId, Assert.Single(harness.Events.Deleted));
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.MessageMailboxes.ToListAsync());
+			Assert.NotEmpty(await context.Messages.ToListAsync());
+		});
+	}
+
 	[Fact]
 	public async Task Gmail_topology_derives_stable_synthetic_hierarchy_from_flat_labels()
 	{
@@ -1132,6 +1165,54 @@ public sealed class SyncTests
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
 			Assert.NotEmpty(await context.Messages.ToListAsync());
 		});
+		// The canonical row survives as a tombstone, but it is in no mailbox: every open
+		// window must drop it now, not when collection eventually runs (§7).
+		Assert.Equal(messageId, Assert.Single(harness.Events.Deleted));
+	}
+
+	/// <summary>
+	/// A message that still has another membership has not been deleted, however final the
+	/// removal looks from the mailbox reporting it.
+	/// </summary>
+	[Fact]
+	public async Task A_removal_is_not_announced_as_a_deletion_while_another_membership_remains()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("ARCHIVE");
+		var stableId = Guid.NewGuid();
+		var inboxOccurrence = harness.Provider.SeedMessage("INBOX", stableId, DateTimeOffset.UnixEpoch);
+		harness.Provider.SeedMessage("ARCHIVE", stableId, DateTimeOffset.UnixEpoch);
+
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+		await CoverAsync(harness, "ARCHIVE");
+		Assert.Equal(2, await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<MyloMailDbContext>().MessageMailboxes.CountAsync()
+		));
+
+		var messageId = await harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).Id
+		);
+		await harness.UsingAsync(async scope =>
+			await harness.Provider.RemoveFromMailboxAsync(
+				await harness.AccountInScopeAsync(scope),
+				[new MessageOccurrenceRef(messageId, Guid.Empty, inboxOccurrence)],
+				default
+			)
+		);
+		await SyncAsync(harness);
+
+		Assert.Empty(harness.Events.Deleted);
+		Assert.Equal(
+			"ARCHIVE",
+			await harness.UsingAsync(async scope =>
+			{
+				var context = scope.GetRequiredService<MyloMailDbContext>();
+				var occurrence = await context.MessageMailboxes.SingleAsync();
+				return (await context.Mailboxes.SingleAsync(m => m.Id == occurrence.MailboxId)).ProviderMailboxId;
+			})
+		);
 	}
 
 	/// <summary>

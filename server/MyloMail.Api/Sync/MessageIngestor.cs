@@ -680,7 +680,7 @@ public sealed class MessageIngestor(
 	/// integrity reconciliation and the live change stream) can report every expunge in a
 	/// mailbox on a single page, and a large mailbox made this the dominant cost.
 	/// </remarks>
-	public async Task RemoveOccurrencesAsync(
+	public async Task<IReadOnlyList<Guid>> RemoveOccurrencesAsync(
 		Mailbox mailbox,
 		IReadOnlyList<string> providerOccurrenceIds,
 		GenerationSnapshot generations,
@@ -692,7 +692,7 @@ public sealed class MessageIngestor(
 		// legitimately repeat across incarnations.
 		if (providerOccurrenceIds.Count == 0 || !generations.StillCurrent(mailbox.ProviderMailboxId, mailbox))
 		{
-			return;
+			return [];
 		}
 
 		var occurrences = await context
@@ -700,6 +700,7 @@ public sealed class MessageIngestor(
 			.ToListAsync(ct);
 
 		context.MessageMailboxes.RemoveRange(occurrences);
+		return [.. occurrences.Select(occurrence => occurrence.MessageId).Distinct()];
 	}
 
 	/// <summary>Applies a batch of server-observed flag changes to server-known state.</summary>

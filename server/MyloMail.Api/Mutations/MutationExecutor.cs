@@ -156,7 +156,7 @@ public sealed class MutationExecutor(
 		// Step 5 — per-item outcomes and the attempt's terminal state, in one transaction.
 		// An attempt is never observable as Completed with unpersisted results, nor results
 		// observable without the attempt closed.
-		var failures = await PersistResultsAsync(attempt, resolved, result, ct);
+		var (failures, removedMessageIds) = await PersistResultsAsync(attempt, resolved, result, ct);
 
 		// After the commit. The user's optimistic change has just been reverted, so this is
 		// the only thing standing between them and a flag that silently springs back.
@@ -164,9 +164,16 @@ public sealed class MutationExecutor(
 		{
 			await events.MessageSyncFailedAsync(failure);
 		}
+
+		// A confirmed removal of the last occurrence is the point the message stops existing
+		// as far as every open window is concerned (§7).
+		await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
 	}
 
-	private async Task<IReadOnlyList<MutationFailureDto>> PersistResultsAsync(
+	private async Task<(
+		IReadOnlyList<MutationFailureDto> Failures,
+		IReadOnlyList<Guid> RemovedMessageIds
+	)> PersistResultsAsync(
 		MutationExecutionAttempt attempt,
 		List<(MutationItem Item, MessageOccurrenceRef Ref)> resolved,
 		BatchResult result,
@@ -174,6 +181,7 @@ public sealed class MutationExecutor(
 	)
 	{
 		var failures = new List<MutationFailureDto>();
+		IReadOnlyList<Guid> removedMessageIds = [];
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -182,6 +190,7 @@ public sealed class MutationExecutor(
 			var byKey = result.Items.ToDictionary(r => (r.MessageId, r.MailboxId));
 			var failed = new List<MutationItem>();
 			var unresolved = 0;
+			var removed = new List<Guid>();
 
 			foreach (var (item, reference) in resolved)
 			{
@@ -206,7 +215,7 @@ public sealed class MutationExecutor(
 
 				if (outcome.Succeeded)
 				{
-					await ApplySuccessAsync(item, outcome, ct);
+					await ApplySuccessAsync(item, outcome, removed, ct);
 				}
 				else
 				{
@@ -265,13 +274,19 @@ public sealed class MutationExecutor(
 			}
 
 			await context.SaveChangesAsync(ct);
+			removedMessageIds = removed;
 			await transaction.CommitAsync(ct);
 		});
 
-		return failures;
+		return (failures, removedMessageIds);
 	}
 
-	private async Task ApplySuccessAsync(MutationItem item, BatchItemResult outcome, CancellationToken ct)
+	private async Task ApplySuccessAsync(
+		MutationItem item,
+		BatchItemResult outcome,
+		List<Guid> removedMessageIds,
+		CancellationToken ct
+	)
 	{
 		foreach (var change in outcome.OccurrenceChanges)
 		{
@@ -285,6 +300,7 @@ public sealed class MutationExecutor(
 				if (occurrence is not null)
 				{
 					context.MessageMailboxes.Remove(occurrence);
+					removedMessageIds.Add(outcome.MessageId);
 				}
 
 				continue;

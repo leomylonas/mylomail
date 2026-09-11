@@ -80,7 +80,7 @@ public sealed class TopologySyncService(
 			}
 		}
 
-		var removed = await RemoveVanishedAsync(existing, seen, ct);
+		var (removed, orphanedMessageIds) = await RemoveVanishedAsync(existing, seen, ct);
 		if (account.ProviderType == ProviderType.Gmail)
 		{
 			var hierarchy = ReconcileGmailHierarchy(account.Id, reported, existing, byProviderId);
@@ -118,6 +118,8 @@ public sealed class TopologySyncService(
 		{
 			await events.MailboxTreeChangedAsync(account.Id);
 		}
+
+		await MessageDeletionAnnouncer.AnnounceAsync(context, events, orphanedMessageIds, ct);
 		if (availabilityRecovered)
 		{
 			await MailboxSummaryDtoFactory.AnnounceAsync(
@@ -254,7 +256,7 @@ public sealed class TopologySyncService(
 	/// Gmail synthetic hierarchy nodes are handled separately: the complete reported label
 	/// set proves exactly which intermediate paths still exist.
 	/// </remarks>
-	private async Task<int> RemoveVanishedAsync(
+	private async Task<(int Removed, IReadOnlyList<Guid> OrphanedMessageIds)> RemoveVanishedAsync(
 		List<Mailbox> existing,
 		HashSet<string> seen,
 		CancellationToken ct
@@ -263,6 +265,20 @@ public sealed class TopologySyncService(
 		var vanished = existing
 			.Where(m => m.ProviderMailboxId is not null && !seen.Contains(m.ProviderMailboxId))
 			.ToList();
+		if (vanished.Count == 0)
+		{
+			return (0, []);
+		}
+
+		// Memberships cascade with the mailbox row, so the messages that lived only here are
+		// about to become invisible. Captured before the delete, because afterwards there is
+		// nothing left to join against (§7).
+		var vanishedIds = vanished.Select(mailbox => mailbox.Id).ToList();
+		var orphaned = await context
+			.MessageMailboxes.Where(occurrence => vanishedIds.Contains(occurrence.MailboxId))
+			.Select(occurrence => occurrence.MessageId)
+			.Distinct()
+			.ToListAsync(ct);
 
 		foreach (var mailbox in vanished)
 		{
@@ -278,7 +294,7 @@ public sealed class TopologySyncService(
 			context.Mailboxes.Remove(mailbox);
 		}
 
-		return vanished.Count;
+		return (vanished.Count, orphaned);
 	}
 
 	/// <summary>

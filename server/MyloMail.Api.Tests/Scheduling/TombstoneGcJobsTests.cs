@@ -50,6 +50,9 @@ public sealed class TombstoneGcJobsTests
 			var context = services.GetRequiredService<MyloMailDbContext>();
 			Assert.False(await context.Messages.AnyAsync(m => m.Id == harness.MessageId));
 		});
+		// Collection is the moment GetMessageBody starts reporting the message gone, so a
+		// reading pane still polling it has to be told now (§7).
+		Assert.Contains(harness.MessageId, harness.Events.Deleted);
 	}
 
 	[Fact]

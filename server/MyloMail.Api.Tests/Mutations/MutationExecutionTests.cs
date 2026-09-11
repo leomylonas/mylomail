@@ -62,6 +62,50 @@ public sealed class MutationExecutionTests
 	}
 
 	/// <summary>
+	/// A confirmed permanent delete is the local-change-confirmed half of §7's
+	/// <c>MessageDeleted</c>: the optimistic removal is only news once the provider agreed.
+	/// </summary>
+	[Fact]
+	public async Task A_confirmed_permanent_delete_announces_the_message_as_deleted()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+			Assert.Empty(
+				await services.GetRequiredService<MyloMailDbContext>().MessageMailboxes.ToListAsync()
+			)
+		);
+		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Deleted));
+	}
+
+	/// <summary>
+	/// A move removes the source occurrence within the same confirmed outcome that creates
+	/// the destination one. The message did not disappear, and announcing a deletion here
+	/// would empty it out of every open window.
+	/// </summary>
+	[Fact]
+	public async Task A_confirmed_move_announces_no_deletion_for_its_source_occurrence()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+
+		await ExecuteAsync(harness);
+
+		Assert.Empty(harness.Events.Deleted);
+	}
+
+	/// <summary>
 	/// Basic IMAP can confirm a move without returning the destination UID. The source
 	/// occurrence must remain locally addressable and the durable attempt must remain open
 	/// until provider observation materialises the replacement identity.

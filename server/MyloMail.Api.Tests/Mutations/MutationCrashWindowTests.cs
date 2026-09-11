@@ -262,6 +262,7 @@ public sealed class MutationCrashWindowTests
 			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
 		});
+		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Deleted));
 	}
 
 	[Fact]

@@ -38,12 +38,16 @@ public sealed class IntegrityReconciliationTests
 			await services.GetRequiredService<IntegrityReconciliationService>().ReconcileAsync(account, mailbox);
 		});
 
+		var messageId = await harness.UsingAsync(async services =>
+			(await services.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).Id
+		);
 		await harness.UsingAsync(async services =>
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
 			Assert.NotNull((await context.IntegrityReconciliationStates.SingleAsync()).LastReconciledAt);
 		});
+		Assert.Equal(messageId, Assert.Single(harness.Events.Deleted));
 	}
 
 	[Fact]
