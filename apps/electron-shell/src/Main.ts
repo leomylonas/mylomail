@@ -31,6 +31,7 @@ import { destroyTray, ensureTray } from "@mylomail/electron-shell/Tray";
 import { closeBehaviorFromValue } from "@mylomail/electron-shell/CloseBehavior";
 import { windowAlreadyEditing } from "@mylomail/electron-shell/DraftWindows";
 import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachment";
+import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -57,6 +58,28 @@ let quitting = false;
  * be found and removed without holding a reference to it.
  */
 const draftWindows = new Map<number, string | null>();
+const nativeNotifications = new NativeNotificationDispatcher((request) => {
+	const notification = new Notification({
+		title: request.title,
+		body: request.body,
+	});
+	notification.on("click", () => {
+		const clicked: NotificationClicked = {
+			notificationId: request.id,
+			messageId: request.messageId,
+		};
+		for (const window of BrowserWindow.getAllWindows()) {
+			if (window.isMinimized()) window.restore();
+			window.show();
+			window.focus();
+			// Always sent, even with messageId null (the message hasn't replayed locally
+			// yet, §3): the renderer resolves that case on demand; the shell keeps no
+			// notification content state of its own.
+			window.webContents.send(notificationClickedChannel, clicked);
+		}
+	});
+	notification.show();
+});
 let nextWindowSlot = 0;
 
 /**
@@ -162,10 +185,10 @@ export async function startShell(): Promise<void> {
 		},
 	);
 
-	// Dispatch is the shell's job, not the renderer's (§13 Epic 9): only main process code
-	// calls the native Notification API. A click focuses every open window and hands it the
-	// message id, which is as far as this goes until Epic 10 gives windows independent
-	// identities to navigate against.
+	// Every renderer receives `NotificationReady`, but native dispatch is the shell's job
+	// (§13 Epic 9). The process-local dispatcher elects one relay by durable notification id,
+	// so N open windows still produce one OS notification. A shell crash clears the election,
+	// preserving the architecture's at-least-once delivery policy.
 	ipcMain.handle(showNotificationChannel, (_event, request: unknown): void => {
 		if (!isNotificationRequest(request)) {
 			throw new Error("A valid notification request is required.");
@@ -181,26 +204,7 @@ export async function startShell(): Promise<void> {
 			throw new Error("Notifications are not supported on this platform.");
 		}
 
-		const notification = new Notification({
-			title: request.title,
-			body: request.body,
-		});
-		notification.on("click", () => {
-			const clicked: NotificationClicked = {
-				notificationId: request.id,
-				messageId: request.messageId,
-			};
-			for (const window of BrowserWindow.getAllWindows()) {
-				if (window.isMinimized()) window.restore();
-				window.show();
-				window.focus();
-				// Always sent, even with messageId null (the message hasn't replayed
-				// locally yet, §3): the renderer is what resolves that case on demand,
-				// not the shell, which keeps no notification state of its own.
-				window.webContents.send(notificationClickedChannel, clicked);
-			}
-		});
-		notification.show();
+		nativeNotifications.dispatch(request);
 	});
 
 	// Without this, a change made in ShellSettings only ever reaches the AppSettings row the
