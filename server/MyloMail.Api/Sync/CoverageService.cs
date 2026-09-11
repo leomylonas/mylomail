@@ -87,6 +87,7 @@ public sealed class CoverageService(
 		var remoteDrafts = await drafts.PrepareAsync(account, page.Messages, mailboxes, ct);
 		IReadOnlyList<Guid> changedDraftIds = [];
 		IReadOnlyList<Message> rethreaded = [];
+		IReadOnlyList<Guid> countedMailboxIds = [];
 		var contactSuggestionsChanged = false;
 
 		var strategy = context.Database.CreateExecutionStrategy();
@@ -125,6 +126,7 @@ public sealed class CoverageService(
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
 			rethreaded = ingested.Rethreaded;
+			countedMailboxIds = ingested.CountedMailboxIds;
 			contactSuggestionsChanged = ingested.ContactSuggestionsChanged;
 			changedDraftIds = await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct);
 
@@ -170,6 +172,16 @@ public sealed class CoverageService(
 			)
 		);
 		await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
+
+		// A page fetched for one mailbox can still fill another: under Gmail's canonical
+		// model one message carries several labels, so the mailbox being backfilled is not
+		// the set of mailboxes whose counts this page moved (§7).
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(
+			context,
+			events,
+			countedMailboxIds.Where(id => id != mailbox.Id),
+			ct
+		);
 		foreach (var draftId in changedDraftIds)
 		{
 			await events.DraftUpdatedAsync(draftId);

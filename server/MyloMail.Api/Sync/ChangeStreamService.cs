@@ -258,7 +258,7 @@ public sealed class ChangeStreamService(
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
-		ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], [], []);
+		ContentApplyResult applied = new(new IngestResult([], [], [], [], false, []), [], [], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -317,6 +317,16 @@ public sealed class ChangeStreamService(
 		}
 
 		await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, applied.RemovedMessageIds, ct);
+
+		// Counts, for every mailbox this page actually moved rather than only the mailbox the
+		// loop polls: an account-scoped stream reports many labels in one page, and its loop
+		// owns a single arbitrary mailbox (§7).
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(
+			context,
+			events,
+			applied.Messages.CountedMailboxIds,
+			ct
+		);
 
 		await notifications.AnnounceAsync(applied.EligibleNotifications);
 
@@ -377,15 +387,21 @@ public sealed class ChangeStreamService(
 		}
 
 		var removedMessageIds = new List<Guid>();
+		var counted = new HashSet<Guid>(ingested.CountedMailboxIds);
 		foreach (var group in result.Removed.GroupBy(r => r.ProviderMailboxId))
 		{
 			if (mailboxes.TryGetValue(group.Key, out var target))
 			{
 				// Removes the occurrence, never the canonical message: a Graph move surfaces
 				// as a removal and an addition in either order.
-				removedMessageIds.AddRange(
-					await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct)
-				);
+				var removed = await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct);
+				removedMessageIds.AddRange(removed);
+				if (removed.Count > 0)
+				{
+					// A removal that matched nothing locally leaves the count where it was, so
+					// it is not a mailbox change to announce.
+					counted.Add(target.Id);
+				}
 			}
 		}
 
@@ -399,7 +415,8 @@ public sealed class ChangeStreamService(
 				changed,
 				ingested.Observed,
 				ingested.Rethreaded,
-				ingested.ContactSuggestionsChanged
+				ingested.ContactSuggestionsChanged,
+				[.. counted]
 			),
 			draftIds.Distinct().ToArray(),
 			eligibleNotifications,
@@ -539,7 +556,7 @@ public sealed class ChangeStreamService(
 
 
 			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
-			ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], [], []);
+			ContentApplyResult applied = new(new IngestResult([], [], [], [], false, []), [], [], []);
 
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
@@ -590,6 +607,16 @@ public sealed class ChangeStreamService(
 			}
 
 			await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, applied.RemovedMessageIds, ct);
+
+			// Replay is where Gmail's memberships actually land: the staged page advanced the
+			// cursor without touching a count, so the mailboxes it fills are only ever
+			// announced here (§3, §7).
+			await MailboxSummaryDtoFactory.AnnounceManyAsync(
+				context,
+				events,
+				applied.Messages.CountedMailboxIds,
+				ct
+			);
 
 			foreach (var draftId in applied.DraftIds)
 			{

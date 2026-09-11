@@ -296,17 +296,28 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 			);
 		}
 
-		var source = Require(ProviderIdOf(mailbox));
-		var messages = source.Messages.Skip(int.TryParse(continuation, out var offset) ? offset : 0);
-		var page = messages.Take(SyncPageSize).ToList();
+		// An account-scoped stream reports the whole account in one walk, as Gmail's history
+		// does: a page is not confined to the mailbox whose loop happened to poll it. Modelling
+		// it per-mailbox would make the fake agree with a folder-scoped reading of §3 that no
+		// account-scoped provider actually offers.
+		var accountScoped = Capabilities.ChangeStreamScope == ChangeStreamScope.Account;
+		var sources = accountScoped
+			? mailboxes.Values.OrderBy(m => m.ProviderMailboxId, StringComparer.Ordinal).ToList()
+			: [Require(ProviderIdOf(mailbox))];
+		var occurrences = sources
+			.SelectMany(source => source.Messages.Select(message => (Source: source, Occurrence: message)))
+			.ToList();
+		var page = occurrences.Skip(int.TryParse(continuation, out var offset) ? offset : 0).Take(SyncPageSize).ToList();
 		var consumed = (int.TryParse(continuation, out var seen) ? seen : 0) + page.Count;
-		var more = consumed < source.Messages.Count;
+		var more = consumed < occurrences.Count;
 
-		var removed = source.Removed.AsEnumerable();
+		var removed = sources
+			.SelectMany(source => source.Removed.Select(item => (Source: source, Removal: item)))
+			.AsEnumerable();
 		if (Capabilities.ReportsExpungesIncrementally
 			&& cursor is ImapUidCursor { HighestModSeq: ulong highestModSeq })
 		{
-			removed = removed.Where(item => item.Value > highestModSeq);
+			removed = removed.Where(item => item.Removal.Value > highestModSeq);
 		}
 
 		return new SyncResult(
@@ -314,11 +325,11 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 			// over what has already been returned.
 			more && !Capabilities.AdvancesCursorMidWalk ? null : CurrentCursor(),
 			more ? consumed.ToString() : null,
-			[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
+			[.. page.Select(item => ToDto(item.Source.ProviderMailboxId, item.Occurrence.Key, item.Occurrence.Value))],
 			[],
 			[
 				.. removed.Select(item =>
-					new OccurrenceRemoval(source.ProviderMailboxId, item.Key)
+					new OccurrenceRemoval(item.Source.ProviderMailboxId, item.Removal.Key)
 				),
 			]
 		);

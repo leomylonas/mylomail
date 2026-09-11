@@ -76,7 +76,11 @@ public sealed class IntegrityReconciliationService(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
-		if (availabilityRecovered)
+
+		// Reconciliation exists to remove occurrences a degraded IMAP server never reported as
+		// expunged, so a run that removed any is a run that changed this mailbox's count —
+		// independently of whether it also recovered the mailbox's availability (§7).
+		if (availabilityRecovered || removedMessageIds.Count > 0)
 		{
 			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
 		}

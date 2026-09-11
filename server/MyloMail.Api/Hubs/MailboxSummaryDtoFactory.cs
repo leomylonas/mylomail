@@ -54,6 +54,30 @@ internal static class MailboxSummaryDtoFactory
 		}
 	}
 
+	/// <summary>
+	/// Announces exactly the mailboxes named, skipping any that no longer exist.
+	/// </summary>
+	/// <remarks>
+	/// A caller passes the mailboxes its own work changed, never every mailbox on the
+	/// account: an event for a mailbox nothing happened to is indistinguishable, to a
+	/// listener, from one for a mailbox that changed (§7).
+	/// </remarks>
+	public static async Task AnnounceManyAsync(
+		MyloMailDbContext context,
+		IHubEvents events,
+		IEnumerable<Guid> mailboxIds,
+		CancellationToken ct = default
+	)
+	{
+		foreach (var mailboxId in mailboxIds.Distinct())
+		{
+			if (await GetAsync(context, mailboxId, ct) is { } summary)
+			{
+				await events.MailboxUpdatedAsync(summary);
+			}
+		}
+	}
+
 	private static async Task<IReadOnlyList<MailboxSummaryDto>> LoadAsync(
 		MyloMailDbContext context,
 		Guid accountId,

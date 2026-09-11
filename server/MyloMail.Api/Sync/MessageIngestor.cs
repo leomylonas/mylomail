@@ -25,12 +25,21 @@ namespace MyloMail.Api.Sync;
 /// history), is genuinely new mail even though nothing about its row changed on this pass —
 /// exactly the case a row-creation or row-change rule gets wrong (§13 Epic 9).
 /// </param>
+/// <param name="CountedMailboxIds">
+/// Every mailbox whose membership set this ingest actually added a row to, so the caller can
+/// announce the mailboxes whose counts moved (§7). A membership whose provider occurrence id
+/// or <c>MODSEQ</c> was merely rewritten is excluded: the count is identical, and a mailbox
+/// event that fires when nothing a listener can see changed tells it nothing. An
+/// account-scoped page reports several mailboxes at once, so the mailbox that happened to be
+/// polled is not the set of mailboxes it changed.
+/// </param>
 public sealed record IngestResult(
 	IReadOnlyList<Message> Created,
 	IReadOnlyList<Message> Updated,
 	IReadOnlyList<Message> Observed,
 	IReadOnlyList<Message> Rethreaded,
-	bool ContactSuggestionsChanged
+	bool ContactSuggestionsChanged,
+	IReadOnlyList<Guid> CountedMailboxIds
 );
 
 /// <summary>
@@ -69,6 +78,7 @@ public sealed class MessageIngestor(
 		var created = new List<Message>();
 		var updated = new List<Message>();
 		var observed = new List<Message>();
+		var counted = new HashSet<Guid>();
 
 		// Batched up front rather than once per message (was up to ~3 queries per message plus
 		// one per occurrence): a page's worth of messages is exactly the shape IMAP's
@@ -209,13 +219,18 @@ public sealed class MessageIngestor(
 					continue;
 				}
 
-				membershipChanged |= await UpsertOccurrenceAsync(
+				var outcome = await UpsertOccurrenceAsync(
 					message,
 					mailbox,
 					occurrence,
 					existingMemberships,
 					ct
 				);
+				membershipChanged |= outcome != MembershipOutcome.Unchanged;
+				if (outcome == MembershipOutcome.Added)
+				{
+					counted.Add(mailbox.Id);
+				}
 			}
 
 			observed.Add(message);
@@ -239,7 +254,8 @@ public sealed class MessageIngestor(
 			updated.DistinctBy(message => message.Id).ToArray(),
 			observed.DistinctBy(message => message.Id).ToArray(),
 			rethreaded,
-			contactSuggestionsChanged
+			contactSuggestionsChanged,
+			[.. counted]
 		);
 	}
 
@@ -625,8 +641,20 @@ public sealed class MessageIngestor(
 		return rows.ToDictionary(o => (o.MessageId, o.MailboxId));
 	}
 
-	/// <summary>Upserts one membership, reporting whether it actually changed anything.</summary>
-	private async Task<bool> UpsertOccurrenceAsync(
+	/// <summary>What one membership upsert did, which is not the same question as whether it changed a row.</summary>
+	/// <remarks>
+	/// A rewritten provider occurrence id changes the row without changing the mailbox's
+	/// count; only <see cref="Added"/> moves a count (§7).
+	/// </remarks>
+	private enum MembershipOutcome
+	{
+		Unchanged,
+		Rewritten,
+		Added,
+	}
+
+	/// <summary>Upserts one membership, reporting what it actually did.</summary>
+	private async Task<MembershipOutcome> UpsertOccurrenceAsync(
 		Message message,
 		Mailbox mailbox,
 		MessageOccurrenceDto dto,
@@ -662,12 +690,14 @@ public sealed class MessageIngestor(
 					ImapModSeq = dto.ImapModSeq,
 				}
 			);
-			return true;
+			return MembershipOutcome.Added;
 		}
 
 		existing.ProviderOccurrenceId = dto.ProviderOccurrenceId;
 		existing.ImapModSeq = dto.ImapModSeq ?? existing.ImapModSeq;
-		return context.Entry(existing).State == EntityState.Modified;
+		return context.Entry(existing).State == EntityState.Modified
+			? MembershipOutcome.Rewritten
+			: MembershipOutcome.Unchanged;
 	}
 
 	/// <summary>
