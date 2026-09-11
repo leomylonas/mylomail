@@ -784,10 +784,40 @@ public class MailHub(
 			throw new HubException("A bounded initial sync needs a positive month/message count.");
 		}
 
-		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
-		mailbox.InitialSyncModeOverride = mode;
-		mailbox.InitialSyncBoundValueOverride = mode == InitialSyncMode.Full ? null : boundValue;
-		await context.SaveChangesAsync();
+		var overrideBound = mode is null or InitialSyncMode.Full ? null : boundValue;
+		var strategy = context.Database.CreateExecutionStrategy();
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync();
+			var updated = await context
+				.Mailboxes.Where(mailbox => mailbox.Id == mailboxId)
+				.ExecuteUpdateAsync(setters =>
+					setters
+						.SetProperty(mailbox => mailbox.InitialSyncModeOverride, mode)
+						.SetProperty(mailbox => mailbox.InitialSyncBoundValueOverride, overrideBound)
+						.SetProperty(
+							mailbox => mailbox.CoveragePolicyGeneration,
+							mailbox => mailbox.CoveragePolicyGeneration + 1
+						)
+				);
+			if (updated == 0)
+			{
+				throw new InvalidOperationException($"Mailbox '{mailboxId}' does not exist.");
+			}
+
+			await context
+				.MailboxCoverageStates.Where(coverage => coverage.MailboxId == mailboxId)
+				.ExecuteUpdateAsync(setters =>
+					setters
+						.SetProperty(coverage => coverage.Status, CoverageStatus.NotStarted)
+						.SetProperty(coverage => coverage.MessagesFetched, 0)
+						.SetProperty(coverage => coverage.EstimatedTotal, (int?)null)
+						.SetProperty(coverage => coverage.ResumeToken, (string?)null)
+						.SetProperty(coverage => coverage.StartedAt, (DateTimeOffset?)null)
+						.SetProperty(coverage => coverage.LastError, (string?)null)
+				);
+			await transaction.CommitAsync();
+		});
 	}
 
 	public async Task SetMailboxSpecialUseOverride(Guid mailboxId, SpecialUse? specialUse)

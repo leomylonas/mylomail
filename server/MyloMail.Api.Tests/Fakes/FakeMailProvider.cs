@@ -233,22 +233,25 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		CancellationToken ct
 	)
 	{
-		var source = Require(ProviderIdOf(mailbox));
-		var ordered = source
-			.Messages.OrderByDescending(kv => kv.Value.ReceivedAt)
-			.Skip(int.TryParse(resumeToken, out var offset) ? offset : 0)
-			.ToList();
-
-		var page = ordered.Take(pageSize).ToList();
-		var consumed = (int.TryParse(resumeToken, out var previous) ? previous : 0) + page.Count;
-		var hasMore = consumed < source.Messages.Count;
+		var mailboxState = Require(ProviderIdOf(mailbox));
+		IEnumerable<KeyValuePair<string, FakeMessage>> matching = mailboxState
+			.Messages.OrderByDescending(kv => kv.Value.ReceivedAt);
+		if (mode == InitialSyncMode.LastNMessages && bound is int count)
+		{
+			matching = matching.Take(count);
+		}
+		var bounded = matching.ToList();
+		var offset = int.TryParse(resumeToken, out var parsedOffset) ? parsedOffset : 0;
+		var page = bounded.Skip(offset).Take(pageSize).ToList();
+		var consumed = offset + page.Count;
+		var hasMore = consumed < bounded.Count;
 
 		return Task.FromResult(
 			new InitialSyncPage(
-				[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
+				[.. page.Select(kv => ToDto(mailboxState.ProviderMailboxId, kv.Key, kv.Value))],
 				hasMore ? consumed.ToString() : null,
 				hasMore,
-				source.Messages.Count
+				bounded.Count
 			)
 		);
 	}

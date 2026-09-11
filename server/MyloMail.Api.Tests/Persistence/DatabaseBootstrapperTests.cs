@@ -106,6 +106,104 @@ public sealed class DatabaseBootstrapperTests
 		Assert.Equal(SmtpAuthMethod.Password, config.SmtpAuthMethod);
 	}
 
+	[Fact]
+	public async Task Restarts_only_legacy_bounded_Gmail_coverage_before_cursor_cutover()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var boundedMailboxId = Guid.NewGuid();
+		var fullMailboxId = Guid.NewGuid();
+
+		await using (var scope = database.CreateScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context
+				.GetService<IMigrator>()
+				.MigrateAsync("20260911230000_AddResolvedMutationTarget");
+			context.Accounts.Add(
+				new Account
+				{
+					Id = accountId,
+					DisplayName = "Gmail",
+					ProviderType = ProviderType.Gmail,
+					ProviderConfig = new GmailProviderConfig(),
+					InitialSyncMode = InitialSyncMode.LastNMessages,
+					InitialSyncBoundValue = 3,
+				}
+			);
+			await context.SaveChangesAsync();
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""
+				INSERT INTO "Mailboxes" (
+					"Id", "AccountId", "ProviderMailboxId", "Name", "SpecialUse",
+					"IsSubscribed", "LocalSortOrder", "IsCollapsed", "TopologyGeneration"
+				)
+				VALUES (
+					{boundedMailboxId}, {accountId}, {"INBOX"}, {"Inbox"}, {0},
+					{false}, {0}, {false}, {0}
+				);
+				"""
+			);
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""
+				INSERT INTO "Mailboxes" (
+					"Id", "AccountId", "ProviderMailboxId", "Name", "SpecialUse",
+					"IsSubscribed", "LocalSortOrder", "IsCollapsed", "TopologyGeneration",
+					"InitialSyncModeOverride"
+				)
+				VALUES (
+					{fullMailboxId}, {accountId}, {"ARCHIVE"}, {"Archive"}, {0},
+					{false}, {0}, {false}, {0}, {(int)InitialSyncMode.Full}
+				);
+				"""
+			);
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""
+				INSERT INTO "MailboxCoverageStates" (
+					"MailboxId", "Status", "MessagesFetched", "EstimatedTotal",
+					"ResumeToken", "StartedAt", "LastError"
+				)
+				VALUES (
+					{boundedMailboxId}, {(int)CoverageStatus.Backfilling}, {2}, {3},
+					{"legacy-provider-page"}, {DateTimeOffset.UnixEpoch}, {"prior failure"}
+				);
+				"""
+			);
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""
+				INSERT INTO "MailboxCoverageStates" (
+					"MailboxId", "Status", "MessagesFetched", "ResumeToken"
+				)
+				VALUES (
+					{fullMailboxId}, {(int)CoverageStatus.Backfilling}, {2}, {"full-provider-page"}
+				);
+				"""
+			);
+		}
+
+		await database.MigrateAsync();
+
+		await using var verificationScope = database.CreateScope();
+		var verificationContext =
+			verificationScope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var bounded = await verificationContext.MailboxCoverageStates.SingleAsync(state =>
+			state.MailboxId == boundedMailboxId
+		);
+		Assert.Equal(CoverageStatus.NotStarted, bounded.Status);
+		Assert.Equal(0, bounded.MessagesFetched);
+		Assert.Null(bounded.EstimatedTotal);
+		Assert.Null(bounded.ResumeToken);
+		Assert.Null(bounded.StartedAt);
+		Assert.Null(bounded.LastError);
+
+		var full = await verificationContext.MailboxCoverageStates.SingleAsync(state =>
+			state.MailboxId == fullMailboxId
+		);
+		Assert.Equal("full-provider-page", full.ResumeToken);
+		Assert.Equal(2, full.MessagesFetched);
+	}
+
 	/// <summary>
 	/// The backup exists only for the duration of the migration; leaving it behind on
 	/// success would make the "a backup means a migration failed" signal meaningless.

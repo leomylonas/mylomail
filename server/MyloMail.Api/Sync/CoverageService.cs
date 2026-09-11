@@ -47,6 +47,8 @@ public sealed class CoverageService(
 			return false;
 		}
 
+		var policyGeneration = mailbox.CoveragePolicyGeneration;
+
 		if (account.ProviderType == ProviderType.Gmail
 			&& !await context.ChangeStreamStates.AnyAsync(
 				state => state.AccountId == account.Id
@@ -89,6 +91,10 @@ public sealed class CoverageService(
 
 			await context.Entry(mailbox).ReloadAsync(ct);
 			await context.Entry(coverage).ReloadAsync(ct);
+			if (mailbox.CoveragePolicyGeneration != policyGeneration)
+			{
+				throw new CoverageBaselinePendingException();
+			}
 			if (account.ProviderType == ProviderType.Gmail
 				&& !await context.ChangeStreamStates.AnyAsync(
 					state => state.AccountId == account.Id
@@ -123,7 +129,7 @@ public sealed class CoverageService(
 
 			// Backfill raises no new-message event: this is a backlog the user already has,
 			// but persisted descendants rethreaded by this page still invalidate their lists.
-			coverage.MessagesFetched += ingested.Created.Count + ingested.Updated.Count;
+			coverage.MessagesFetched += page.Messages.Count;
 			coverage.EstimatedTotal = page.EstimatedTotal ?? coverage.EstimatedTotal;
 			coverage.ResumeToken = page.ResumeToken;
 			coverage.LastError = null;

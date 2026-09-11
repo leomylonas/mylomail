@@ -45,6 +45,12 @@ public class Mailbox
 	public int? InitialSyncBoundValueOverride { get; set; }
 
 	/// <summary>
+	/// Incremented when the requested coverage mode or bound changes. A page fetched under an
+	/// older policy must not commit its data or continuation over the restarted walk.
+	/// </summary>
+	public int CoveragePolicyGeneration { get; set; }
+
+	/// <summary>
 	/// Provider-reported counts, refreshed on each sync. These are what the sidebar
 	/// displays — a locally computed count is wrong under bounded sync (§1).
 	/// </summary>

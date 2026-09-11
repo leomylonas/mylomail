@@ -805,6 +805,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<int?>("SpecialUseOverride")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("CoveragePolicyGeneration")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("TopologyGeneration")
                         .HasColumnType("INTEGER");
 
@@ -831,6 +834,7 @@ namespace MyloMail.Api.Persistence.Migrations
 
                     b.Property<int>("MessagesFetched")
                         .HasColumnType("INTEGER");
+
 
                     b.Property<string>("ResumeToken")
                         .HasColumnType("TEXT");

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -252,6 +253,128 @@ public sealed class SyncTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			Assert.Equal(3, await context.Mailboxes.CountAsync());
 			Assert.Single(await context.MailboxTopologySyncStates.ToListAsync());
+		});
+	}
+
+	[Fact]
+	public async Task Gmail_message_bound_and_resume_cursor_commit_with_each_coverage_page()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		for (var index = 0; index < 5; index++)
+		{
+			harness.Provider.SeedMessage(
+				"INBOX",
+				Guid.NewGuid(),
+				DateTimeOffset.UnixEpoch.AddMinutes(index)
+			);
+		}
+		await harness.UsingAsync(async scope =>
+		{
+			var account = await harness.AccountInScopeAsync(scope);
+			account.InitialSyncMode = InitialSyncMode.LastNMessages;
+			account.InitialSyncBoundValue = 3;
+			await scope.GetRequiredService<MyloMailDbContext>().SaveChangesAsync();
+		});
+		await ReconcileAsync(harness);
+		await SyncAsync(harness);
+
+		Assert.True(
+			await harness.UsingAsync(async scope =>
+				await scope.GetRequiredService<CoverageService>()
+					.RunPageAsync(
+						await harness.AccountInScopeAsync(scope),
+						await harness.MailboxAsync(scope, "INBOX"),
+						pageSize: 2
+					)
+			)
+		);
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterApplyBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(async scope =>
+				await scope.GetRequiredService<CoverageService>()
+					.RunPageAsync(
+						await harness.AccountInScopeAsync(scope),
+						await harness.MailboxAsync(scope, "INBOX"),
+						pageSize: 2
+					)
+			)
+		);
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(2, await context.Messages.CountAsync());
+			Assert.Equal(2, coverage.MessagesFetched);
+			Assert.Equal("2", coverage.ResumeToken);
+		});
+
+		await CoverAsync(harness, pageSize: 2);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(3, await context.Messages.CountAsync());
+			Assert.Equal(3, coverage.MessagesFetched);
+			Assert.Equal(3, coverage.EstimatedTotal);
+			Assert.Equal(CoverageStatus.Covered, coverage.Status);
+			Assert.Null(coverage.ResumeToken);
+		});
+	}
+
+	[Fact]
+	public async Task Changing_a_mailbox_coverage_policy_restarts_its_persisted_walk()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		for (var index = 0; index < 5; index++)
+		{
+			harness.Provider.SeedMessage(
+				"INBOX",
+				Guid.NewGuid(),
+				DateTimeOffset.UnixEpoch.AddMinutes(index)
+			);
+		}
+		await ReconcileAsync(harness);
+		await SyncAsync(harness);
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<CoverageService>()
+				.RunPageAsync(
+					await harness.AccountInScopeAsync(scope),
+					await harness.MailboxAsync(scope, "INBOX"),
+					pageSize: 2
+				)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var mailbox = await harness.MailboxAsync(scope, "INBOX");
+			await scope.GetRequiredService<MailHub>()
+				.SetMailboxInitialSyncOverride(
+					mailbox.Id,
+					InitialSyncMode.LastNMessages,
+					3
+				);
+			await scope.GetRequiredService<MyloMailDbContext>().Entry(mailbox).ReloadAsync();
+			var coverage = await scope.GetRequiredService<MyloMailDbContext>()
+				.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
+			Assert.Equal(1, mailbox.CoveragePolicyGeneration);
+			Assert.Equal(0, coverage.MessagesFetched);
+			Assert.Null(coverage.EstimatedTotal);
+			Assert.Null(coverage.ResumeToken);
+			Assert.Null(coverage.StartedAt);
+			Assert.Null(coverage.LastError);
+		});
+
+		await CoverAsync(harness, pageSize: 2);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(3, await context.Messages.CountAsync());
+			Assert.Equal(3, (await context.MailboxCoverageStates.SingleAsync()).MessagesFetched);
 		});
 	}
 

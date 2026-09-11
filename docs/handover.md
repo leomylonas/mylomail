@@ -14,10 +14,11 @@
 - Parity remediation 9/47: removed the bare `HttpClient` from Graph large-attachment uploads. Upload-session slices now use raw Kiota requests through the same Graph request adapter, preserving exact byte ranges, immutable-ID middleware, error mapping, and `Retry-After` translation. Graph authentication is explicitly allowlisted to `graph.microsoft.com`, so the pipeline omits bearer tokens from pre-authenticated Outlook upload URLs.
 - Parity remediation 10/47: resolved the Google contact deletion design conflict without weakening concurrency safety. The architecture now explicitly limits Google People two-way writes to creates and revision-checked updates, keeps remote deletion observations authoritative, permits local-contact deletion, and requires provider-backed contacts to be deleted in Google because `people.deleteContact` has no atomic revision precondition.
 - Parity remediation 11/47: Gmail topology now derives a stable local tree from flat slash-delimited labels. Real labels keep provider identity while missing intermediate paths receive reusable provider-id-less `Mailbox` rows; obsolete intermediates are removed, real labels replace matching synthetic paths without duplication, and synthetic rows are excluded defensively from provider coverage/change-stream scheduling. Mailbox rows and topology state commit in one explicit crash-tested transaction.
+- Parity remediation 12/47: Gmail `LastNMessages` coverage now carries the remaining target alongside the opaque provider page token, caps each request and the reported estimate, and stops after consuming N observations even when Gmail advertises another page. A migration restarts legacy in-progress bounded walks so old raw tokens cannot silently add a second full bound. Coverage progress counts consumed provider observations, and mailbox-scoped policy generations plus an atomic SQL setter fence in-flight pages and concurrent multi-window bound changes without overloading topology identity.
 
 ## Next task
 
-- Correct Gmail `LastNMessages` bound semantics.
+- Correct Graph bounded initial-sync semantics.
 
 ## Required reading
 
@@ -58,6 +59,9 @@
 - `pnpm check` after Gmail synthetic hierarchy support: format, TypeScript, ESLint, Stylelint, build, 525 .NET tests, and 146 Vitest tests passed.
 - Topology fault discrimination: moving the `topology.after-apply-before-commit` fault point after the transaction commit made `Gmail_topology_and_sync_state_roll_back_together_at_commit_boundary` fail; restoring it before commit returned the full check to green.
 - Topology invariant review found and closed two integration defects before commit: vanished real intermediates now reparent before final hierarchy derivation, and synthetic nodes are excluded from provider sync scheduling with defensive stale-job guards. The re-review found no remaining violations.
+- `pnpm check` after Gmail message-bound correction: format, TypeScript, ESLint, Stylelint, build, 531 .NET tests, and 146 Vitest tests passed.
+- Gmail bound fault discrimination: removing the fake provider's `LastNMessages` truncation made `Gmail_message_bound_and_resume_cursor_commit_with_each_coverage_page` fail after its apply-before-commit crash/restart; restoring the target returned the suite to green. Cursor tests separately cover three provider pages, exact final-page request size, opaque-token round trips, and legacy-token rejection.
+- Gmail bound invariant review found and closed upgrade and concurrency defects before commit: legacy raw cursors now restart via migration, mode transitions reset and version coverage, lazy state creation is fenced from the mailbox, and concurrent multi-window setters use an atomic SQL increment/reset transaction. Final review found no remaining violations.
 
 ## Live risks / decisions
 

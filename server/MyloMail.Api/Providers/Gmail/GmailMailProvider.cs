@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Google;
 using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Gmail.v1;
@@ -25,6 +27,7 @@ public sealed partial class GmailMailProvider(
 {
 	private const string UserId = "me";
 	private const int SyncPageSize = 200;
+	private const string InitialSyncCursorPrefix = "mylomail-gmail-initial-v1.";
 
 	public ProviderType Type => ProviderType.Gmail;
 
@@ -123,23 +126,116 @@ public sealed partial class GmailMailProvider(
 	)
 	{
 		var service = await ServiceAsync(account, ct);
+		var cursor = InitialSyncCursor.Parse(resumeToken, mode, bound);
 		var request = service.Users.Messages.List(UserId);
 		request.LabelIds = new Google.Apis.Util.Repeatable<string>([ProviderMailboxId(mailbox)]);
-		request.PageToken = resumeToken;
-		request.MaxResults = Math.Min(pageSize, bound ?? pageSize);
+		request.PageToken = cursor.ProviderPageToken;
+		request.MaxResults = cursor.RequestLimit(pageSize);
 		if (mode == InitialSyncMode.LastNMonths && bound is int months)
 		{
 			request.Q = $"after:{DateTimeOffset.UtcNow.AddMonths(-months).ToUnixTimeSeconds()}";
 		}
 
 		var page = await request.ExecuteThrottleAwareAsync(ct);
-		var messages = await MessagesAsync(service, page.Messages ?? [], ct);
+		var summaries = page.Messages ?? [];
+		var messages = await MessagesAsync(service, summaries, ct);
+		var continuation = cursor.Advance(page.NextPageToken, summaries.Count);
+		int? estimatedTotal = page.ResultSizeEstimate is long total
+			? checked((int)Math.Min(total, mode == InitialSyncMode.LastNMessages && bound is int count ? count : total))
+			: null;
 		return new InitialSyncPage(
 			messages,
-			page.NextPageToken,
-			page.NextPageToken is not null,
-			page.ResultSizeEstimate is long total ? checked((int)total) : null
+			continuation.ResumeToken,
+			continuation.HasMore,
+			estimatedTotal
 		);
+	}
+
+	internal readonly record struct InitialSyncCursor(string? ProviderPageToken, int? Remaining)
+	{
+		public int RequestLimit(int pageSize) =>
+			Remaining is int remaining ? Math.Min(pageSize, remaining) : pageSize;
+
+		public (string? ResumeToken, bool HasMore) Advance(
+			string? nextProviderPageToken,
+			int consumed
+		)
+		{
+			if (nextProviderPageToken is null)
+			{
+				return (null, false);
+			}
+			if (Remaining is not int remaining)
+			{
+				return (nextProviderPageToken, true);
+			}
+
+			var nextRemaining = Math.Max(0, remaining - consumed);
+			return nextRemaining == 0
+				? (null, false)
+				: (Encode(nextProviderPageToken, nextRemaining), true);
+		}
+
+		public static InitialSyncCursor Parse(
+			string? resumeToken,
+			InitialSyncMode mode,
+			int? bound
+		)
+		{
+			if (resumeToken is null)
+			{
+				return new InitialSyncCursor(
+					null,
+					mode == InitialSyncMode.LastNMessages ? bound : null
+				);
+			}
+			if (!resumeToken.StartsWith(InitialSyncCursorPrefix, StringComparison.Ordinal))
+			{
+				if (mode == InitialSyncMode.LastNMessages)
+				{
+					throw new InvalidOperationException("Invalid Gmail initial-sync continuation.");
+				}
+				return new InitialSyncCursor(resumeToken, null);
+			}
+
+			var payload = resumeToken[InitialSyncCursorPrefix.Length..];
+			var separator = payload.IndexOf('.', StringComparison.Ordinal);
+			if (
+				separator <= 0
+				|| !int.TryParse(
+					payload.AsSpan(0, separator),
+					NumberStyles.None,
+					CultureInfo.InvariantCulture,
+					out var remaining
+				)
+				|| remaining <= 0
+			)
+			{
+				throw new InvalidOperationException("Invalid Gmail initial-sync continuation.");
+			}
+
+			try
+			{
+				var providerPageToken = Encoding.UTF8.GetString(FromBase64Url(payload[(separator + 1)..]));
+				return new InitialSyncCursor(
+					providerPageToken,
+					mode == InitialSyncMode.LastNMessages ? remaining : null
+				);
+			}
+			catch (FormatException ex)
+			{
+				throw new InvalidOperationException("Invalid Gmail initial-sync continuation.", ex);
+			}
+		}
+
+		private static string Encode(string providerPageToken, int remaining)
+		{
+			var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(providerPageToken))
+				.TrimEnd('=')
+				.Replace('+', '-')
+				.Replace('/', '_');
+			return $"{InitialSyncCursorPrefix}{remaining.ToString(CultureInfo.InvariantCulture)}.{encoded}";
+		}
 	}
 
 	public async Task<SyncResult> SyncMailboxAsync(
