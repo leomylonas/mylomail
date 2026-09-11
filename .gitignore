@@ -31,3 +31,4 @@ artifacts/
 
 # Generated test fixtures
 tests/caldav-matrix/certs/
+tests/imap-matrix/certs/

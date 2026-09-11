@@ -1,3 +1,4 @@
+using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Imap;
 
 namespace MyloMail.Api.Tests.Conformance;
@@ -30,9 +31,10 @@ public abstract class ImapConformanceTests : MailProviderConformanceTests
 				new ImapConnectionSettings(
 					Host!,
 					int.Parse(Port!),
-					UseSsl: false,
-					Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
-					Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password"
+					ImapSecurity: MailTransportSecurity.StartTls,
+					UserName: Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+					Password: Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password",
+					CertificateTrustMode: CertificateTrustMode.TrustAll
 				)
 			)
 			.ContinueWith(t => (IConformanceHarness)t.Result, TaskScheduler.Default);

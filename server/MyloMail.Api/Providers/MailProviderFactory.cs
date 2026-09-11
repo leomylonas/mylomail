@@ -26,9 +26,11 @@ public sealed class MailProviderFactory(
 	ITrustedCertificateStore certificates
 ) : IMailProviderFactory
 {
-	/// <summary>The credential-store format used for an IMAP account's password.</summary>
+	/// <summary>Credential-store formats distinguish passwords from OAuth bearer tokens.</summary>
 	public const string ImapPasswordFormat = "imap-password";
+	public const string ImapOAuth2TokenFormat = "imap-oauth2-token";
 	public const string SmtpPasswordFormat = "smtp-basic-password";
+	public const string SmtpOAuth2TokenFormat = "smtp-oauth2-token";
 
 	public IMailProvider For(Account account) =>
 		account.ProviderType switch
@@ -84,37 +86,58 @@ public sealed class MailProviderFactory(
 			credentials.RetrieveAsync(account.Id, CancellationToken.None).GetAwaiter().GetResult()
 			?? throw new ProviderNotConfiguredException(ProviderType.Imap, "a stored password");
 
-		if (stored.Format != ImapPasswordFormat)
+		var imapFormat = config.AuthMethod == ImapAuthMethod.OAuth2
+			? ImapOAuth2TokenFormat
+			: ImapPasswordFormat;
+		if (stored.Format != imapFormat)
 		{
 			throw new ProviderNotConfiguredException(
 				ProviderType.Imap,
-				$"a '{ImapPasswordFormat}' credential (found '{stored.Format}')"
+				$"a '{imapFormat}' credential (found '{stored.Format}')"
 			);
 		}
 
-		var smtpStored = config.SmtpCredentialSource == CredentialSource.ReuseImap
-			? stored
-			: credentials.RetrieveSlotAsync(account.Id, CredentialSlots.Smtp, CancellationToken.None).GetAwaiter().GetResult()
-				?? throw new ProviderNotConfiguredException(ProviderType.Imap, "a stored SMTP password");
-		if (config.SmtpCredentialSource == CredentialSource.Independent && smtpStored.Format != SmtpPasswordFormat)
+		CredentialPayload? smtpStored = null;
+		if (config.SmtpAuthMethod != SmtpAuthMethod.None)
 		{
-			throw new ProviderNotConfiguredException(ProviderType.Imap, $"a '{SmtpPasswordFormat}' credential");
+			smtpStored = config.SmtpCredentialSource == CredentialSource.ReuseImap
+				? stored
+				: credentials
+					.RetrieveSlotAsync(account.Id, CredentialSlots.Smtp, CancellationToken.None)
+					.GetAwaiter()
+					.GetResult()
+					?? throw new ProviderNotConfiguredException(ProviderType.Imap, "a stored SMTP credential");
+			if (config.SmtpCredentialSource == CredentialSource.Independent)
+			{
+				var smtpFormat = config.SmtpAuthMethod == SmtpAuthMethod.OAuth2
+					? SmtpOAuth2TokenFormat
+					: SmtpPasswordFormat;
+				if (smtpStored.Format != smtpFormat)
+				{
+					throw new ProviderNotConfiguredException(ProviderType.Imap, $"a '{smtpFormat}' credential");
+				}
+			}
 		}
 
 		return new ImapMailProvider(
 			new ImapConnectionSettings(
-				config.Host,
-				config.Port,
-				config.UseSsl,
-				config.UserName,
-				System.Text.Encoding.UTF8.GetString(stored.Data),
-				config.SmtpHost,
-				config.SmtpPort,
-				config.SmtpUserName,
-				System.Text.Encoding.UTF8.GetString(smtpStored.Data),
-				config.AppendToSentOnSend,
-				account.CertificateTrustMode,
-				certificates.GetForAccount(account.Id)
+				Host: config.Host,
+				Port: config.Port,
+				ImapSecurity: config.ImapSecurity,
+				UserName: config.UserName,
+				Password: System.Text.Encoding.UTF8.GetString(stored.Data),
+				AuthMethod: config.AuthMethod,
+				SmtpHost: config.SmtpHost,
+				SmtpPort: config.SmtpPort,
+				SmtpSecurity: config.SmtpSecurity,
+				SmtpAuthMethod: config.SmtpAuthMethod,
+				SmtpUserName: config.SmtpUserName,
+				SmtpPassword: smtpStored is null
+					? null
+					: System.Text.Encoding.UTF8.GetString(smtpStored.Data),
+				AppendToSent: config.AppendToSentOnSend,
+				CertificateTrustMode: account.CertificateTrustMode,
+				TrustedCertificates: certificates.GetForAccount(account.Id)
 			),
 			mailboxes
 		);

@@ -27,14 +27,22 @@ test("a new user adds an IMAP account through the form and reaches their inbox",
 		await window.getByLabel("Email address").fill("test@mylomail.local");
 		await window.getByLabel("IMAP host").fill("127.0.0.1");
 		await window.getByLabel("Port", { exact: true }).fill(String(imapPort));
-		// Carbon's Toggle keeps its actual <button> visually hidden for accessibility; the
-		// clickable surface a user sees is the <label>, which forwards the click natively.
-		await window.locator('label[for="add-account-ssl"]').click();
+		await window
+			.getByLabel("IMAP security")
+			.selectOption({ label: "STARTTLS (required)" });
 		await window.getByLabel("Password", { exact: true }).fill("password");
 		await window.getByLabel("SMTP host").fill("127.0.0.1");
 		await window.getByLabel("SMTP port").fill("11025");
 
 		await window.getByRole("button", { name: "Create account" }).click();
+		await expect(
+			window.getByText(
+				/disables certificate verification for all IMAP, SMTP, and CalDAV/,
+			),
+		).toBeVisible();
+		await window
+			.getByRole("button", { name: "Accept all certificates and retry" })
+			.click();
 
 		// The form is gone and the mailbox tree it unblocked is visible: the account round
 		// tripped through the real endpoint rather than the mutation merely resolving locally.
@@ -84,6 +92,52 @@ test("an IMAP account can include independent CalDAV configuration", async () =>
 	}
 });
 
+test("password authentication cannot be configured on plaintext IMAP or SMTP", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await window.getByLabel("Account name").fill("Self hosted");
+		await window.getByLabel("Email address").fill("ada@example.test");
+		await window.getByLabel("IMAP host").fill("imap.example.test");
+		await window.getByLabel("Password", { exact: true }).fill("mail-secret");
+		await window.getByLabel("SMTP host").fill("smtp.example.test");
+
+		const create = window.getByRole("button", { name: "Create account" });
+		await expect(create).toBeEnabled();
+		await window
+			.getByLabel("IMAP security")
+			.selectOption({ label: "No encryption" });
+		await expect(create).toBeDisabled();
+		await expect(
+			window.getByText(/Password authentication requires TLS on connect/),
+		).toBeVisible();
+
+		await window
+			.getByLabel("IMAP authentication")
+			.selectOption({ label: "OAuth 2 access token" });
+		await expect(create).toBeDisabled();
+		await window
+			.getByLabel("SMTP authentication")
+			.selectOption({ label: "OAuth 2 access token" });
+		await expect(create).toBeEnabled();
+
+		await window
+			.getByLabel("SMTP security")
+			.selectOption({ label: "No encryption" });
+		await expect(create).toBeDisabled();
+		await expect(
+			window.getByText(/SMTP authentication requires TLS on connect/),
+		).toBeVisible();
+	} finally {
+		await app.close();
+	}
+});
 test("Google account setup is selectable and ready for interactive sign-in", async () => {
 	const { app, window } = await launchApp();
 

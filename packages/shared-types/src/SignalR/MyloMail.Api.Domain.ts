@@ -78,6 +78,26 @@ export enum CertificateTrustMode {
     TrustAll = 1,
 }
 
+/** Transpiled from MyloMail.Api.Domain.MailTransportSecurity */
+export enum MailTransportSecurity {
+    None = 0,
+    TlsOnConnect = 1,
+    StartTls = 2,
+}
+
+/** Transpiled from MyloMail.Api.Domain.ImapAuthMethod */
+export enum ImapAuthMethod {
+    Password = 0,
+    OAuth2 = 1,
+}
+
+/** Transpiled from MyloMail.Api.Domain.SmtpAuthMethod */
+export enum SmtpAuthMethod {
+    None = 0,
+    Password = 1,
+    OAuth2 = 2,
+}
+
 /** Transpiled from MyloMail.Api.Domain.ExportJobStatus */
 export enum ExportJobStatus {
     Running = 0,

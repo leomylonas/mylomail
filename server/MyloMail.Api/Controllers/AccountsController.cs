@@ -106,11 +106,6 @@ public class AccountsController(
 		}
 		if (request.ProviderType == ProviderType.Imap && request.Imap is { Host: null or "" })
 		{
-			// AddAccount.tsx's "imapReady" gate keeps a blank host out of the normal flow, but
-			// nothing mirrors that here. An empty host reaches MailKit's ImapClient.ConnectAsync,
-			// which throws a bare ArgumentException — a type none of AuthenticateAsync's or this
-			// controller's catch clauses recognise, so it used to surface as an unhandled 500
-			// instead of the clean 400 every other rejected input gets.
 			return Problem(
 				"IMAP accounts need a host.",
 				statusCode: StatusCodes.Status400BadRequest,
@@ -119,30 +114,102 @@ public class AccountsController(
 		}
 		if (request.ProviderType == ProviderType.Imap && request.Imap is { SmtpHost: null or "" })
 		{
-			// Same failure mode as the IMAP host above, on the SMTP connection Send.cs opens.
 			return Problem(
 				"IMAP accounts need an SMTP host.",
 				statusCode: StatusCodes.Status400BadRequest,
 				title: "Missing SMTP host"
 			);
 		}
+		if (request.Imap is
+			{
+				ReuseImapCredentialForSmtp: false,
+				SmtpAuthMethod: not SmtpAuthMethod.None,
+				SmtpSecret: null or "",
+			})
+		{
+			return Problem(
+				"Independent SMTP credentials need a secret.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing SMTP credential"
+			);
+		}
+		if (request.Imap is
+			{
+				ReuseImapCredentialForSmtp: false,
+				SmtpAuthMethod: not SmtpAuthMethod.None,
+				SmtpUserName: null or "",
+			})
+		{
+			return Problem(
+				"Independent SMTP credentials need a user name.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing SMTP user name"
+			);
+		}
+		if (request.Imap is
+			{
+				AuthMethod: ImapAuthMethod.Password,
+				ImapSecurity: MailTransportSecurity.None,
+			})
+		{
+			return Problem(
+				"IMAP password authentication requires TLS on connect or mandatory STARTTLS.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Insecure IMAP authentication"
+			);
+		}
+		if (request.Imap is
+			{
+				SmtpAuthMethod: not SmtpAuthMethod.None,
+				SmtpSecurity: MailTransportSecurity.None,
+			})
+		{
+			return Problem(
+				"SMTP authentication requires TLS on connect or mandatory STARTTLS.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Insecure SMTP authentication"
+			);
+		}
+		if (request.Imap is
+			{
+				ReuseImapCredentialForSmtp: true,
+				SmtpAuthMethod: not SmtpAuthMethod.None,
+			} imap
+			&& (imap.AuthMethod == ImapAuthMethod.OAuth2)
+				!= (imap.SmtpAuthMethod == SmtpAuthMethod.OAuth2))
+		{
+			return Problem(
+				"Reusing the IMAP credential requires matching password or OAuth 2 authentication methods.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Incompatible SMTP credential"
+			);
+		}
+		if (request.Imap is { AuthMethod: ImapAuthMethod.OAuth2 }
+			&& request.CalDav is { ReuseImapCredential: true })
+		{
+			return Problem(
+				"CalDAV Basic authentication cannot reuse an IMAP OAuth 2 token. Supply an independent CalDAV password.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Incompatible CalDAV credential"
+			);
+		}
 		if (request.CalDav is { ReuseImapCredential: false, Secret: null or "" })
 		{
-			return Problem("Independent CalDAV credentials need a password.", statusCode: 400, title: "Missing CalDAV credential");
+			return Problem(
+				"Independent CalDAV credentials need a password.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Missing CalDAV credential"
+			);
 		}
 		if (request.CalDav is not null
 			&& (!Uri.TryCreate(request.CalDav.Endpoint, UriKind.Absolute, out var endpoint)
 				|| endpoint.Scheme != Uri.UriSchemeHttps))
 		{
-			return Problem("CalDAV Basic authentication requires an absolute HTTPS endpoint.", statusCode: 400, title: "Invalid CalDAV endpoint");
-		}
-		if (request.Imap is { ReuseImapCredentialForSmtp: false, SmtpSecret: null or "" })
-		{
-			return Problem("Independent SMTP credentials need a password.", statusCode: 400, title: "Missing SMTP credential");
-		}
-		if (request.Imap is { ReuseImapCredentialForSmtp: false, SmtpUserName: null or "" })
-		{
-			return Problem("Independent SMTP credentials need a user name.", statusCode: 400, title: "Missing SMTP user name");
+			return Problem(
+				"CalDAV Basic authentication requires an absolute HTTPS endpoint.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Invalid CalDAV endpoint"
+			);
 		}
 		if (request.InitialSyncMode != InitialSyncMode.Full && request.InitialSyncBoundValue is not > 0)
 		{
@@ -307,10 +374,13 @@ public class AccountsController(
 			{
 				Host = request.Imap.Host,
 				Port = request.Imap.Port,
-				UseSsl = request.Imap.UseSsl,
+				ImapSecurity = request.Imap.ImapSecurity,
+				AuthMethod = request.Imap.AuthMethod,
 				UserName = request.Imap.UserName,
 				SmtpHost = request.Imap.SmtpHost,
 				SmtpPort = request.Imap.SmtpPort,
+				SmtpSecurity = request.Imap.SmtpSecurity,
+				SmtpAuthMethod = request.Imap.SmtpAuthMethod,
 				SmtpCredentialSource = request.Imap.ReuseImapCredentialForSmtp ? CredentialSource.ReuseImap : CredentialSource.Independent,
 				SmtpUserName = request.Imap.SmtpUserName,
 				CalDav = request.CalDav is null ? null : new CalDavProviderConfig
@@ -331,7 +401,9 @@ public class AccountsController(
 		string.IsNullOrEmpty(request.Secret)
 			? null
 			: new CredentialPayload(
-				MailProviderFactory.ImapPasswordFormat,
+				request.Imap?.AuthMethod == ImapAuthMethod.OAuth2
+					? MailProviderFactory.ImapOAuth2TokenFormat
+					: MailProviderFactory.ImapPasswordFormat,
 				System.Text.Encoding.UTF8.GetBytes(request.Secret)
 			);
 
@@ -343,7 +415,12 @@ public class AccountsController(
 	private static CredentialPayload? ToSmtpSecret(AddAccountRequest request) =>
 		string.IsNullOrEmpty(request.Imap?.SmtpSecret)
 			? null
-			: new CredentialPayload("smtp-basic-password", System.Text.Encoding.UTF8.GetBytes(request.Imap.SmtpSecret));
+			: new CredentialPayload(
+				request.Imap.SmtpAuthMethod == SmtpAuthMethod.OAuth2
+					? MailProviderFactory.SmtpOAuth2TokenFormat
+					: MailProviderFactory.SmtpPasswordFormat,
+				System.Text.Encoding.UTF8.GetBytes(request.Imap.SmtpSecret)
+			);
 
 	private static CredentialPayload? ToGmailClientSecret(AddAccountRequest request) =>
 		string.IsNullOrWhiteSpace(request.GmailClientSecret)

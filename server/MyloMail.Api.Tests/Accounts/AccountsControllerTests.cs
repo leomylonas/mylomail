@@ -76,7 +76,17 @@ public sealed class AccountsControllerTests
 					ProviderType.Imap,
 					"someone@example.org",
 					"hunter2",
-					new ImapAccountSettings("", 993, true, "someone@example.org", "smtp.example.org", 465)
+					new ImapAccountSettings(
+						"",
+						993,
+						MailTransportSecurity.TlsOnConnect,
+						ImapAuthMethod.Password,
+						"someone@example.org",
+						"smtp.example.org",
+						465,
+						MailTransportSecurity.TlsOnConnect,
+						SmtpAuthMethod.Password
+					)
 				),
 				default
 			)
@@ -98,7 +108,118 @@ public sealed class AccountsControllerTests
 					ProviderType.Imap,
 					"someone@example.org",
 					"hunter2",
-					new ImapAccountSettings("imap.example.org", 993, true, "someone@example.org", "", 465)
+					new ImapAccountSettings(
+						"imap.example.org",
+						993,
+						MailTransportSecurity.TlsOnConnect,
+						ImapAuthMethod.Password,
+						"someone@example.org",
+						"",
+						465,
+						MailTransportSecurity.TlsOnConnect,
+						SmtpAuthMethod.Password
+					)
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	/// <summary>Password credentials must never be sent before an encrypted channel exists.</summary>
+	[Fact]
+	public async Task Plaintext_imap_password_authentication_is_rejected_before_connecting()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Imap,
+					"someone@example.org",
+					"hunter2",
+					new ImapAccountSettings(
+						"imap.example.org",
+						143,
+						MailTransportSecurity.None,
+						ImapAuthMethod.Password,
+						"someone@example.org",
+						"smtp.example.org",
+						587,
+						MailTransportSecurity.StartTls,
+						SmtpAuthMethod.Password
+					)
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	/// <summary>SMTP credentials have the same encrypted-channel invariant as IMAP.</summary>
+	[Fact]
+	public async Task Plaintext_smtp_authentication_is_rejected_before_connecting()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Imap,
+					"someone@example.org",
+					"hunter2",
+					new ImapAccountSettings(
+						"imap.example.org",
+						993,
+						MailTransportSecurity.TlsOnConnect,
+						ImapAuthMethod.Password,
+						"someone@example.org",
+						"smtp.example.org",
+						25,
+						MailTransportSecurity.None,
+						SmtpAuthMethod.Password
+					)
+				),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+	}
+
+	[Fact]
+	public async Task OAuth_IMAP_credentials_cannot_be_reused_for_CalDAV_Basic_authentication()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Test",
+					ProviderType.Imap,
+					"someone@example.org",
+					"oauth-token",
+					new ImapAccountSettings(
+						"imap.example.org",
+						993,
+						MailTransportSecurity.TlsOnConnect,
+						ImapAuthMethod.OAuth2,
+						"someone@example.org",
+						"smtp.example.org",
+						587,
+						MailTransportSecurity.StartTls,
+						SmtpAuthMethod.None
+					),
+					new CalDavAccountSettings(
+						"https://calendar.example.org/",
+						"someone@example.org",
+						true,
+						null
+					)
 				),
 				default
 			)
@@ -329,10 +450,13 @@ public sealed class AccountsControllerTests
 	private static readonly ImapAccountSettings ImapSettings = new(
 		"imap.example.org",
 		993,
-		true,
+		MailTransportSecurity.TlsOnConnect,
+		ImapAuthMethod.Password,
 		"someone@example.org",
 		"smtp.example.org",
-		587
+		587,
+		MailTransportSecurity.StartTls,
+		SmtpAuthMethod.Password
 	);
 
 	private static AccountsController Controller(IServiceProvider services) =>

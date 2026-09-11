@@ -7,8 +7,8 @@
 #   pnpm imap:up      start all three
 #   pnpm imap:down    stop and discard their mail
 #
-# Test-only: no TLS, plaintext auth, one static user, and mail lives in a tmpfs so every
-# restart is a clean server.
+# Test-only: one static user and mail in tmpfs. Password authentication is still carried
+# over mandatory STARTTLS so the fixture exercises the same invariant as production.
 
 name: mylomail-imap-matrix
 
@@ -34,6 +34,8 @@ services:
       - "127.0.0.1:11143:143"
     volumes:
       - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./certs/cert.pem:/etc/dovecot/certs/server.crt:ro
+      - ./certs/key.pem:/etc/dovecot/private/server.key:ro
       - ./conf/Tier-QResync.conf:/etc/dovecot/dovecot.conf:ro
 
   # Tier 2 — CONDSTORE, no QRESYNC. Also uses a "." delimiter and an INBOX. prefix, so a
@@ -45,6 +47,8 @@ services:
       - "127.0.0.1:12143:143"
     volumes:
       - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./certs/cert.pem:/etc/dovecot/certs/server.crt:ro
+      - ./certs/key.pem:/etc/dovecot/private/server.key:ro
       - ./conf/Tier-CondStore.conf:/etc/dovecot/dovecot.conf:ro
 
   # Tier 3 — neither, and no UIDPLUS or MOVE, so a move cannot report its destination UID.
@@ -55,6 +59,8 @@ services:
       - "127.0.0.1:13143:143"
     volumes:
       - ./conf/Base.conf:/etc/dovecot/Base.conf:ro
+      - ./certs/cert.pem:/etc/dovecot/certs/server.crt:ro
+      - ./certs/key.pem:/etc/dovecot/private/server.key:ro
       - ./conf/Tier-Basic.conf:/etc/dovecot/dovecot.conf:ro
 
   # An SMTP sink, so sending can be verified rather than assumed. Dovecot does not speak

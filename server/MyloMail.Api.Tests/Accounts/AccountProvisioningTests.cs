@@ -6,6 +6,7 @@ using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -145,6 +146,41 @@ public sealed class AccountProvisioningTests
 
 			var stored = await services.GetRequiredService<ICredentialStore>().RetrieveAsync(account.Id, CancellationToken.None);
 			Assert.Equal("new-password"u8.ToArray(), stored!.Data);
+		});
+	}
+
+	[Fact]
+	public async Task Reauthenticating_an_OAuth_IMAP_account_preserves_the_token_format()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var account = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<AccountProvisioningService>()
+				.AddAsync(
+					new NewAccount(
+						"Test",
+						ProviderType.Imap,
+						"someone@example.org",
+						new ImapProviderConfig { AuthMethod = ImapAuthMethod.OAuth2 },
+						new CredentialPayload(
+							MailProviderFactory.ImapOAuth2TokenFormat,
+							"old-token"u8.ToArray()
+						)
+					)
+				)
+		);
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<AccountProvisioningService>().ReauthenticateAsync(account.Id, "new-token")
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var stored = await services
+				.GetRequiredService<ICredentialStore>()
+				.RetrieveAsync(account.Id, CancellationToken.None);
+			Assert.Equal(MailProviderFactory.ImapOAuth2TokenFormat, stored!.Format);
+			Assert.Equal("new-token"u8.ToArray(), stored.Data);
 		});
 	}
 

@@ -45,6 +45,14 @@ public sealed partial class ImapMailProvider
 	)
 	{
 		var message = Compose(draft, stableMessageId);
+		if (settings.SmtpAuthMethod != SmtpAuthMethod.None
+			&& settings.SmtpSecurity == MailTransportSecurity.None)
+		{
+			throw new ProviderAuthenticationException(
+				"SMTP authentication requires TLS on connect or mandatory STARTTLS."
+			);
+		}
+
 
 		using (var smtp = new SmtpClient())
 		{
@@ -76,7 +84,7 @@ public sealed partial class ImapMailProvider
 				await smtp.ConnectAsync(
 					settings.SmtpHost,
 					settings.SmtpPort,
-					settings.UseSsl ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None,
+					SocketOptions(settings.SmtpSecurity),
 					ct
 				);
 			}
@@ -94,31 +102,34 @@ public sealed partial class ImapMailProvider
 						.Detail!
 				);
 			}
+			catch (NotSupportedException ex)
+			{
+				// A mandatory STARTTLS capability rejection occurs before MAIL FROM and is
+				// therefore definite, never an ambiguous delivery outcome.
+				throw new ProviderAuthenticationException(ex.Message);
+			}
 
-			// Only authenticate where the server asks for it: the local test matrix and plenty
-			// of relays accept unauthenticated loopback submission, and offering credentials
-			// unprompted fails against them.
-			if (smtp.Capabilities.HasFlag(SmtpCapabilities.Authentication))
+			if (settings.SmtpAuthMethod != SmtpAuthMethod.None)
 			{
 				try
 				{
-					await smtp.AuthenticateAsync(
-						settings.SmtpUserName ?? settings.UserName,
-						settings.SmtpPassword ?? settings.Password,
-						ct
-					);
+					var userName = settings.SmtpUserName ?? settings.UserName;
+					var secret = settings.SmtpPassword ?? settings.Password;
+					if (settings.SmtpAuthMethod == SmtpAuthMethod.OAuth2)
+					{
+						await smtp.AuthenticateAsync(new SaslMechanismOAuth2(userName, secret), ct);
+					}
+					else
+					{
+						await smtp.AuthenticateAsync(userName, secret, ct);
+					}
 				}
-				catch (AuthenticationException ex)
+				catch (Exception ex)
+					when (ex is AuthenticationException or NotSupportedException)
 				{
-					// Same reasoning as the certificate-rejection catch above: a rejected
-					// SMTP credential is a definite pre-authentication rejection, nothing was
-					// sent, so this must not be allowed to fall into SendExecutor's generic
-					// catch — which treats a thrown send as "may have happened" and puts the
-					// item into AmbiguousOutcome, triggering a Sent-mailbox reconciliation for
-					// a send that provably never left. Left untranslated, SendExecutor's own
-					// ProviderAuthenticationException case (added for the connect-path
-					// equivalent of this problem) would never fire for a rejected SMTP
-					// password.
+					// Credential rejection and absence of the selected AUTH mechanism both
+					// happen before MAIL FROM. SendExecutor must retry them as definite
+					// pre-send failures, never reconcile them as ambiguous delivery.
 					throw new ProviderAuthenticationException(ex.Message);
 				}
 			}

@@ -63,6 +63,14 @@ public sealed partial class ImapMailProvider : IMailProvider
 
 	private async Task<ImapClient> ConnectAsync(CancellationToken ct)
 	{
+		if (settings.AuthMethod == ImapAuthMethod.Password
+			&& settings.ImapSecurity == MailTransportSecurity.None)
+		{
+			throw new ProviderAuthenticationException(
+				"IMAP password authentication requires TLS on connect or mandatory STARTTLS."
+			);
+		}
+
 		var client = new ImapClient();
 		rejectedCertificate = null;
 		client.ServerCertificateValidationCallback = (_, certificate, _, sslPolicyErrors) =>
@@ -91,10 +99,20 @@ public sealed partial class ImapMailProvider : IMailProvider
 			await client.ConnectAsync(
 				settings.Host,
 				settings.Port,
-				settings.UseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.None,
+				SocketOptions(settings.ImapSecurity),
 				ct
 			);
-			await client.AuthenticateAsync(settings.UserName, settings.Password, ct);
+			if (settings.AuthMethod == ImapAuthMethod.OAuth2)
+			{
+				await client.AuthenticateAsync(
+					new SaslMechanismOAuth2(settings.UserName, settings.Password),
+					ct
+				);
+			}
+			else
+			{
+				await client.AuthenticateAsync(settings.UserName, settings.Password, ct);
+			}
 
 			// Re-read on every session: a server can change what it advertises across a
 			// version upgrade, and a stale tier silently disables reconciliation.
@@ -112,6 +130,15 @@ public sealed partial class ImapMailProvider : IMailProvider
 			throw new ProviderAuthenticationException(
 				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer).Detail!
 			);
+		}
+		catch (NotSupportedException ex)
+		{
+			// Mandatory STARTTLS and explicit OAuth are configuration requirements, not
+			// opportunistic fallbacks. MailKit reports a server that cannot satisfy either
+			// as NotSupportedException; translate it so setup and background jobs pause the
+			// account with an actionable authentication/configuration error.
+			client.Dispose();
+			throw new ProviderAuthenticationException(ex.Message);
 		}
 		// Same reasoning, for rejected credentials rather than a rejected certificate: a
 		// password that stops working mid-session (changed on the server, a revoked app
@@ -132,6 +159,15 @@ public sealed partial class ImapMailProvider : IMailProvider
 			throw;
 		}
 	}
+
+	private static SecureSocketOptions SocketOptions(MailTransportSecurity security) =>
+		security switch
+		{
+			MailTransportSecurity.None => SecureSocketOptions.None,
+			MailTransportSecurity.TlsOnConnect => SecureSocketOptions.SslOnConnect,
+			MailTransportSecurity.StartTls => SecureSocketOptions.StartTls,
+			_ => throw new ArgumentOutOfRangeException(nameof(security), security, null),
+		};
 
 	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
 	{

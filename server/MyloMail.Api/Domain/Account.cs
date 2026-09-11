@@ -79,7 +79,7 @@ public sealed class ImapProviderConfig : ProviderConfig
 {
 	public string Host { get; set; } = string.Empty;
 	public int Port { get; set; }
-	public bool UseSsl { get; set; } = true;
+	public MailTransportSecurity ImapSecurity { get; set; } = MailTransportSecurity.TlsOnConnect;
 
 	/// <summary>
 	/// The login name. Deliberately separate from the account's address (the default
@@ -89,9 +89,11 @@ public sealed class ImapProviderConfig : ProviderConfig
 	/// </summary>
 	public string UserName { get; set; } = string.Empty;
 
-	public string AuthMethod { get; set; } = string.Empty;
+	public ImapAuthMethod AuthMethod { get; set; } = ImapAuthMethod.Password;
 	public string SmtpHost { get; set; } = string.Empty;
 	public int SmtpPort { get; set; }
+	public MailTransportSecurity SmtpSecurity { get; set; } = MailTransportSecurity.StartTls;
+	public SmtpAuthMethod SmtpAuthMethod { get; set; } = SmtpAuthMethod.Password;
 
 	/// <summary>
 	/// Whether to append a copy to the Sent mailbox after sending. IMAP only, and true by

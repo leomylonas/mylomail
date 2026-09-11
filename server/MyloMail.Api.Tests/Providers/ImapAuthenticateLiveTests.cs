@@ -30,9 +30,9 @@ public sealed class ImapAuthenticateLiveTests
 			new ImapConnectionSettings(
 				Host!,
 				int.Parse(Port!),
-				UseSsl: true,
-				Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
-				Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password"
+				ImapSecurity: MailTransportSecurity.TlsOnConnect,
+				UserName: Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+				Password: Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password"
 			),
 			new ThrowingMailboxResolver()
 		);
@@ -65,9 +65,10 @@ public sealed class ImapAuthenticateLiveTests
 			new ImapConnectionSettings(
 				Host!,
 				int.Parse(Port!),
-				UseSsl: false,
-				Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
-				"definitely-the-wrong-password"
+				ImapSecurity: MailTransportSecurity.StartTls,
+				UserName: Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+				Password: "definitely-the-wrong-password",
+				CertificateTrustMode: CertificateTrustMode.TrustAll
 			),
 			new ThrowingMailboxResolver()
 		);

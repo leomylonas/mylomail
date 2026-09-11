@@ -101,6 +101,62 @@ public sealed class MailProviderFactoryTests
 		Assert.IsType<ImapMailProvider>(provider);
 	}
 
+	[Fact]
+	public async Task An_imap_oauth_account_requires_and_accepts_an_oauth_token()
+	{
+		var accountId = Guid.NewGuid();
+		var store = new InMemoryCredentialStore();
+		await store.StoreAsync(
+			accountId,
+			new CredentialPayload(MailProviderFactory.ImapOAuth2TokenFormat, "access-token"u8.ToArray()),
+			CancellationToken.None
+		);
+
+		var provider = Create(new ProviderClientOptions(), store)
+			.For(
+				new Account
+				{
+					Id = accountId,
+					ProviderType = ProviderType.Imap,
+					ProviderConfig = new ImapProviderConfig
+					{
+						Host = "imap.example.org",
+						Port = 143,
+						ImapSecurity = MailTransportSecurity.None,
+						AuthMethod = ImapAuthMethod.OAuth2,
+						UserName = "someone",
+						SmtpAuthMethod = SmtpAuthMethod.None,
+					},
+				}
+			);
+
+		Assert.IsType<ImapMailProvider>(provider);
+	}
+
+	[Fact]
+	public async Task An_imap_provider_refuses_a_password_before_a_plaintext_connection()
+	{
+		var provider = new ImapMailProvider(
+			new ImapConnectionSettings(
+				"unreachable.example",
+				143,
+				MailTransportSecurity.None,
+				"someone",
+				"hunter2"
+			),
+			new StubResolver()
+		);
+
+		var result = await provider.AuthenticateAsync(
+			new Account { Id = Guid.NewGuid(), ProviderType = ProviderType.Imap },
+			CancellationToken.None
+		);
+
+		Assert.False(result.Succeeded);
+		Assert.Equal(AuthState.NeedsReauth, result.State);
+		Assert.Contains("requires TLS", result.Problem?.Detail);
+	}
+
 	/// <summary>
 	/// Without a stored password the account is unconfigured, not attempted. Trying an empty
 	/// password looks to the server like a failed login and can count against the account's

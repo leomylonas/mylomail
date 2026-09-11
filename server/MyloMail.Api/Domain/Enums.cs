@@ -53,3 +53,26 @@ public enum CertificateTrustMode
 	Default,
 	TrustAll,
 }
+
+[TranspilationSource]
+public enum MailTransportSecurity
+{
+	None,
+	TlsOnConnect,
+	StartTls,
+}
+
+[TranspilationSource]
+public enum ImapAuthMethod
+{
+	Password,
+	OAuth2,
+}
+
+[TranspilationSource]
+public enum SmtpAuthMethod
+{
+	None,
+	Password,
+	OAuth2,
+}

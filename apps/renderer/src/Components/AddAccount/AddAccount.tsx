@@ -5,6 +5,8 @@ import {
 	Button,
 	InlineNotification,
 	NumberInput,
+	Select,
+	SelectItem,
 	PasswordInput,
 	RadioButton,
 	RadioButtonGroup,
@@ -13,8 +15,11 @@ import {
 } from "@carbon/react";
 import {
 	CertificateTrustMode,
+	ImapAuthMethod,
 	InitialSyncMode,
+	MailTransportSecurity,
 	ProviderType,
+	SmtpAuthMethod,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import type { AddAccountRequest } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
@@ -30,6 +35,7 @@ interface ProblemResponse {
 	detail?: string;
 	category?: ErrorCategory;
 	extensions?: Record<string, unknown>;
+	[key: string]: unknown;
 }
 
 /** Thrown with the full presentation attached, so the UI can offer more than retry-and-hope. */
@@ -49,11 +55,14 @@ interface FormState {
 	gmailClientSecret: string;
 	host: string;
 	port: number;
-	useSsl: boolean;
+	imapSecurity: MailTransportSecurity;
+	imapAuthMethod: ImapAuthMethod;
 	userName: string;
 	smtpHost: string;
 	smtpPort: number;
 	reuseImapCredentialForSmtp: boolean;
+	smtpSecurity: MailTransportSecurity;
+	smtpAuthMethod: SmtpAuthMethod;
 	smtpUserName: string;
 	smtpSecret: string;
 	enableCalDav: boolean;
@@ -62,7 +71,7 @@ interface FormState {
 	reuseImapCredentialForCalDav: boolean;
 	calDavSecret: string;
 	/**
-	 * Set only by the "Trust this certificate and retry" action (§15) — the sole certificate
+	 * Set only by the "Accept all certificates and retry" action (§15) — the sole certificate
 	 * trust decision available before the account exists, since pinning a specific fingerprint
 	 * needs an account id to pin it against. A later, tighter pin can replace this from
 	 * `AccountSettings` once the account is there to pin one for.
@@ -87,11 +96,14 @@ const initial: FormState = {
 	gmailClientSecret: "",
 	host: "",
 	port: 993,
-	useSsl: true,
+	imapSecurity: MailTransportSecurity.TlsOnConnect,
+	imapAuthMethod: ImapAuthMethod.Password,
 	userName: "",
 	smtpHost: "",
 	smtpPort: 465,
 	reuseImapCredentialForSmtp: true,
+	smtpSecurity: MailTransportSecurity.StartTls,
+	smtpAuthMethod: SmtpAuthMethod.Password,
 	smtpUserName: "",
 	smtpSecret: "",
 	enableCalDav: false,
@@ -123,10 +135,13 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				imap: {
 					host: form.host,
 					port: form.port,
-					useSsl: form.useSsl,
+					imapSecurity: form.imapSecurity,
+					authMethod: form.imapAuthMethod,
 					userName: form.userName || form.emailAddress,
 					smtpHost: form.smtpHost,
 					smtpPort: form.smtpPort,
+					smtpSecurity: form.smtpSecurity,
+					smtpAuthMethod: form.smtpAuthMethod,
 					reuseImapCredentialForSmtp: form.reuseImapCredentialForSmtp,
 					smtpUserName: form.reuseImapCredentialForSmtp
 						? undefined
@@ -177,7 +192,11 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					.catch(() => null)) as ProblemResponse | null;
 				const presentation =
 					problem?.category !== undefined
-						? present(problem.category, problem.detail, problem.extensions)
+						? present(
+								problem.category,
+								problem.detail,
+								problem.extensions ?? problem,
+							)
 						: {
 								title: problem?.title ?? "Could not add the account",
 								detail:
@@ -200,9 +219,19 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		form.host &&
 		form.secret &&
 		form.smtpHost &&
+		(form.imapAuthMethod !== ImapAuthMethod.Password ||
+			form.imapSecurity !== MailTransportSecurity.None) &&
+		(form.smtpAuthMethod === SmtpAuthMethod.None ||
+			(form.smtpSecurity !== MailTransportSecurity.None &&
+				(form.reuseImapCredentialForSmtp
+					? (form.imapAuthMethod === ImapAuthMethod.OAuth2) ===
+						(form.smtpAuthMethod === SmtpAuthMethod.OAuth2)
+					: Boolean(form.smtpUserName && form.smtpSecret)))) &&
 		(!form.enableCalDav ||
 			(form.calDavEndpoint &&
-				(form.reuseImapCredentialForCalDav || form.calDavSecret))),
+				(form.reuseImapCredentialForCalDav
+					? form.imapAuthMethod !== ImapAuthMethod.OAuth2
+					: Boolean(form.calDavSecret)))),
 	);
 	const oauthReady = Boolean(
 		form.displayName &&
@@ -268,12 +297,50 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 							onChange={(_, { value }) => set("port", Number(value))}
 						/>
 					</div>
-					<Toggle
-						id="add-account-ssl"
-						labelText="Use TLS"
-						toggled={form.useSsl}
-						onToggle={(checked) => set("useSsl", checked)}
-					/>
+					<Select
+						id="add-account-imap-security"
+						labelText="IMAP security"
+						value={String(form.imapSecurity)}
+						onChange={(event) =>
+							set(
+								"imapSecurity",
+								Number(event.target.value) as MailTransportSecurity,
+							)
+						}
+					>
+						<SelectItem
+							value={String(MailTransportSecurity.TlsOnConnect)}
+							text="TLS on connect"
+						/>
+						<SelectItem
+							value={String(MailTransportSecurity.StartTls)}
+							text="STARTTLS (required)"
+						/>
+						<SelectItem
+							value={String(MailTransportSecurity.None)}
+							text="No encryption"
+						/>
+					</Select>
+					<Select
+						id="add-account-imap-auth"
+						labelText="IMAP authentication"
+						value={String(form.imapAuthMethod)}
+						onChange={(event) =>
+							set(
+								"imapAuthMethod",
+								Number(event.target.value) as ImapAuthMethod,
+							)
+						}
+					>
+						<SelectItem
+							value={String(ImapAuthMethod.Password)}
+							text="Password"
+						/>
+						<SelectItem
+							value={String(ImapAuthMethod.OAuth2)}
+							text="OAuth 2 access token"
+						/>
+					</Select>
 					<TextInput
 						id="add-account-username"
 						labelText="Login name"
@@ -283,10 +350,21 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					/>
 					<PasswordInput
 						id="add-account-secret"
-						labelText="Password"
+						labelText={
+							form.imapAuthMethod === ImapAuthMethod.Password
+								? "Password"
+								: "OAuth 2 access token"
+						}
 						value={form.secret}
 						onChange={(event) => set("secret", event.target.value)}
 					/>
+					{form.imapAuthMethod === ImapAuthMethod.Password &&
+					form.imapSecurity === MailTransportSecurity.None ? (
+						<p className={styles.helper}>
+							Password authentication requires TLS on connect or mandatory
+							STARTTLS.
+						</p>
+					) : null}
 
 					<div className={styles.row}>
 						<TextInput
@@ -302,28 +380,91 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 							onChange={(_, { value }) => set("smtpPort", Number(value))}
 						/>
 					</div>
-					<Toggle
-						id="add-account-smtp-reuse"
-						labelText="Use the IMAP password for sending"
-						toggled={form.reuseImapCredentialForSmtp}
-						onToggle={(checked) => set("reuseImapCredentialForSmtp", checked)}
-					/>
-					{form.reuseImapCredentialForSmtp ? null : (
+					<Select
+						id="add-account-smtp-security"
+						labelText="SMTP security"
+						value={String(form.smtpSecurity)}
+						onChange={(event) =>
+							set(
+								"smtpSecurity",
+								Number(event.target.value) as MailTransportSecurity,
+							)
+						}
+					>
+						<SelectItem
+							value={String(MailTransportSecurity.TlsOnConnect)}
+							text="TLS on connect"
+						/>
+						<SelectItem
+							value={String(MailTransportSecurity.StartTls)}
+							text="STARTTLS (required)"
+						/>
+						<SelectItem
+							value={String(MailTransportSecurity.None)}
+							text="No encryption"
+						/>
+					</Select>
+					<Select
+						id="add-account-smtp-auth"
+						labelText="SMTP authentication"
+						value={String(form.smtpAuthMethod)}
+						onChange={(event) =>
+							set(
+								"smtpAuthMethod",
+								Number(event.target.value) as SmtpAuthMethod,
+							)
+						}
+					>
+						<SelectItem value={String(SmtpAuthMethod.None)} text="None" />
+						<SelectItem
+							value={String(SmtpAuthMethod.Password)}
+							text="Password"
+						/>
+						<SelectItem
+							value={String(SmtpAuthMethod.OAuth2)}
+							text="OAuth 2 access token"
+						/>
+					</Select>
+					{form.smtpAuthMethod === SmtpAuthMethod.None ? null : (
 						<>
-							<TextInput
-								id="add-account-smtp-username"
-								labelText="SMTP login name"
-								value={form.smtpUserName}
-								onChange={(event) => set("smtpUserName", event.target.value)}
+							<Toggle
+								id="add-account-smtp-reuse"
+								labelText="Use the IMAP credential for sending"
+								toggled={form.reuseImapCredentialForSmtp}
+								onToggle={(checked) =>
+									set("reuseImapCredentialForSmtp", checked)
+								}
 							/>
-							<PasswordInput
-								id="add-account-smtp-secret"
-								labelText="SMTP password"
-								value={form.smtpSecret}
-								onChange={(event) => set("smtpSecret", event.target.value)}
-							/>
+							{form.reuseImapCredentialForSmtp ? null : (
+								<>
+									<TextInput
+										id="add-account-smtp-username"
+										labelText="SMTP login name"
+										value={form.smtpUserName}
+										onChange={(event) =>
+											set("smtpUserName", event.target.value)
+										}
+									/>
+									<PasswordInput
+										id="add-account-smtp-secret"
+										labelText={
+											form.smtpAuthMethod === SmtpAuthMethod.Password
+												? "SMTP password"
+												: "SMTP OAuth 2 access token"
+										}
+										value={form.smtpSecret}
+										onChange={(event) => set("smtpSecret", event.target.value)}
+									/>
+								</>
+							)}
 						</>
 					)}
+					{form.smtpAuthMethod !== SmtpAuthMethod.None &&
+					form.smtpSecurity === MailTransportSecurity.None ? (
+						<p className={styles.helper}>
+							SMTP authentication requires TLS on connect or mandatory STARTTLS.
+						</p>
+					) : null}
 					<Toggle
 						id="add-account-caldav"
 						labelText="Add a CalDAV calendar"
@@ -355,6 +496,13 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 									set("reuseImapCredentialForCalDav", checked)
 								}
 							/>
+							{form.reuseImapCredentialForCalDav &&
+							form.imapAuthMethod === ImapAuthMethod.OAuth2 ? (
+								<p className={styles.helper}>
+									CalDAV Basic authentication needs an independent password; it
+									cannot reuse an IMAP OAuth 2 token.
+								</p>
+							) : null}
 							{form.reuseImapCredentialForCalDav ? null : (
 								<PasswordInput
 									id="add-account-caldav-secret"
@@ -469,8 +617,8 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					<ActionableNotification
 						kind="warning"
 						title={add.error.presentation.title}
-						subtitle={`${add.error.presentation.detail} Only continue if you recognise and trust ${add.error.presentation.certificate.hostname}.`}
-						actionButtonLabel="Trust this certificate and retry"
+						subtitle={`${add.error.presentation.detail} Continuing disables certificate verification for all IMAP, SMTP, and CalDAV connections on this account—not only ${add.error.presentation.certificate.hostname}. Only continue if you accept that account-wide security downgrade.`}
+						actionButtonLabel="Accept all certificates and retry"
 						onActionButtonClick={() => {
 							set("trustCertificateOnRetry", true);
 							add.mutate(true);

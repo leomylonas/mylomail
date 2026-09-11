@@ -1,3 +1,4 @@
+using MyloMail.Api.Domain;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Imap;
@@ -21,7 +22,13 @@ public sealed class SendExecutorAppendFailureTests
 	public void An_imap_providers_append_failure_is_surfaced()
 	{
 		var provider = new ImapMailProvider(
-			new ImapConnectionSettings("imap.example.test", 993, true, "user@example.test", "password"),
+			new ImapConnectionSettings(
+				"imap.example.test",
+				993,
+				MailTransportSecurity.TlsOnConnect,
+				"user@example.test",
+				"password"
+			),
 			new ThrowingMailboxResolver()
 		);
 		provider.SimulateAppendFailure("the Sent folder does not exist");
@@ -33,7 +40,13 @@ public sealed class SendExecutorAppendFailureTests
 	public void An_imap_provider_with_no_append_failure_reports_none()
 	{
 		var provider = new ImapMailProvider(
-			new ImapConnectionSettings("imap.example.test", 993, true, "user@example.test", "password"),
+			new ImapConnectionSettings(
+				"imap.example.test",
+				993,
+				MailTransportSecurity.TlsOnConnect,
+				"user@example.test",
+				"password"
+			),
 			new ThrowingMailboxResolver()
 		);
 

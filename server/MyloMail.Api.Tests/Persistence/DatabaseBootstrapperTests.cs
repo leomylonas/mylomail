@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
@@ -52,6 +54,56 @@ public sealed class DatabaseBootstrapperTests
 			var account = await context.Accounts.SingleAsync(a => a.Id == accountId);
 			Assert.Equal("imap.example.org", Assert.IsType<ImapProviderConfig>(account.ProviderConfig).Host);
 		}
+	}
+
+	[Fact]
+	public async Task Migrates_legacy_IMAP_transport_settings_to_encrypted_explicit_modes()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+
+		await using (var scope = database.CreateScope())
+		{
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context
+				.GetService<IMigrator>()
+				.MigrateAsync("20260911210000_AddContactSyncCursor");
+			context.Accounts.Add(
+				new Account
+				{
+					Id = accountId,
+					DisplayName = "Legacy",
+					ProviderType = ProviderType.Imap,
+					ProviderConfig = new ImapProviderConfig
+					{
+						Host = "imap.example.org",
+						Port = 143,
+						UserName = "someone@example.org",
+						SmtpHost = "smtp.example.org",
+						SmtpPort = 587,
+					},
+				}
+			);
+			await context.SaveChangesAsync();
+			const string legacyConfig =
+				"""{"$providerConfig":"imap","Host":"imap.example.org","Port":143,"UseSsl":false,"UserName":"someone@example.org","AuthMethod":"","SmtpHost":"smtp.example.org","SmtpPort":587,"AppendToSentOnSend":true,"SmtpCredentialSource":0}""";
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""UPDATE "Accounts" SET "ProviderConfig" = {legacyConfig} WHERE "Id" = {accountId};"""
+			);
+		}
+
+		await database.MigrateAsync();
+
+		await using var verificationScope = database.CreateScope();
+		var verificationContext =
+			verificationScope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var account = await verificationContext.Accounts.SingleAsync(a => a.Id == accountId);
+		var config = Assert.IsType<ImapProviderConfig>(account.ProviderConfig);
+		Assert.Equal(MailTransportSecurity.StartTls, config.ImapSecurity);
+		Assert.Equal(ImapAuthMethod.Password, config.AuthMethod);
+		Assert.Equal(MailTransportSecurity.StartTls, config.SmtpSecurity);
+		Assert.Equal(SmtpAuthMethod.Password, config.SmtpAuthMethod);
 	}
 
 	/// <summary>

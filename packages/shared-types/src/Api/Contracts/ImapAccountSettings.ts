@@ -4,14 +4,20 @@
  * code is regenerated next time TypeContractor runs.
  */
 import { z } from 'zod';
+import { MailTransportSecurity } from '../Domain/MailTransportSecurity';
+import { ImapAuthMethod } from '../Domain/ImapAuthMethod';
+import { SmtpAuthMethod } from '../Domain/SmtpAuthMethod';
 
 export interface ImapAccountSettings {
   host: string;
   port: number;
-  useSsl: boolean;
+  imapSecurity: MailTransportSecurity;
+  authMethod: ImapAuthMethod;
   userName: string;
   smtpHost: string;
   smtpPort: number;
+  smtpSecurity: MailTransportSecurity;
+  smtpAuthMethod: SmtpAuthMethod;
   reuseImapCredentialForSmtp: boolean;
   smtpSecret?: string;
   smtpUserName?: string;
@@ -20,10 +26,13 @@ export interface ImapAccountSettings {
 export const ImapAccountSettingsSchema = z.object({
   host: z.string(),
   port: z.number(),
-  useSsl: z.boolean(),
+  imapSecurity: z.nativeEnum(MailTransportSecurity),
+  authMethod: z.nativeEnum(ImapAuthMethod),
   userName: z.string(),
   smtpHost: z.string(),
   smtpPort: z.number(),
+  smtpSecurity: z.nativeEnum(MailTransportSecurity),
+  smtpAuthMethod: z.nativeEnum(SmtpAuthMethod),
   reuseImapCredentialForSmtp: z.boolean(),
   smtpSecret: z.string().nullable(),
   smtpUserName: z.string().nullable(),

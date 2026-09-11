@@ -42,9 +42,10 @@ public sealed class ImapLiveSyncTests
 			new ImapConnectionSettings(
 				Host!,
 				int.Parse(Port!),
-				UseSsl: false,
-				Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
-				Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password"
+				ImapSecurity: MailTransportSecurity.StartTls,
+				UserName: Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+				Password: Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password",
+				CertificateTrustMode: CertificateTrustMode.TrustAll
 			)
 		);
 		await using var database = new TestDatabase();

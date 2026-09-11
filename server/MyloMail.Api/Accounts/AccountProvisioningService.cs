@@ -6,6 +6,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Scheduling;
 
 namespace MyloMail.Api.Accounts;
@@ -214,14 +215,32 @@ public sealed class AccountProvisioningService(
 				);
 			}
 			priorSecret = await credentials.RetrieveAsync(accountId, ct);
+			var credentialFormat = account.ProviderConfig is ImapProviderConfig
+			{
+				AuthMethod: ImapAuthMethod.OAuth2,
+			}
+				? MailProviderFactory.ImapOAuth2TokenFormat
+				: MailProviderFactory.ImapPasswordFormat;
 			await credentials.StoreAsync(
 				accountId,
-				new CredentialPayload(MailProviderFactory.ImapPasswordFormat, System.Text.Encoding.UTF8.GetBytes(secret)),
+				new CredentialPayload(credentialFormat, System.Text.Encoding.UTF8.GetBytes(secret)),
 				ct
 			);
 		}
 
-		var result = await providers.For(account).AuthenticateAsync(account, ct);
+		AuthResult result;
+		try
+		{
+			result = await providers.For(account).AuthenticateAsync(account, ct);
+		}
+		catch
+		{
+			if (priorSecret is not null)
+			{
+				await credentials.StoreAsync(accountId, priorSecret, ct);
+			}
+			throw;
+		}
 		if (!result.Succeeded)
 		{
 			if (priorSecret is not null)

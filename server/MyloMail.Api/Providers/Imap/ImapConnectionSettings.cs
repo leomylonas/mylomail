@@ -15,11 +15,14 @@ namespace MyloMail.Api.Providers.Imap;
 public sealed record ImapConnectionSettings(
 	string Host,
 	int Port,
-	bool UseSsl,
+	MailTransportSecurity ImapSecurity,
 	string UserName,
 	string Password,
+	ImapAuthMethod AuthMethod = ImapAuthMethod.Password,
 	string SmtpHost = "",
 	int SmtpPort = 0,
+	MailTransportSecurity SmtpSecurity = MailTransportSecurity.StartTls,
+	SmtpAuthMethod SmtpAuthMethod = SmtpAuthMethod.Password,
 	string? SmtpUserName = null,
 	string? SmtpPassword = null,
 	/// <summary>

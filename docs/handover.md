@@ -7,10 +7,11 @@
 - Parity remediation 2/47: enabled Microsoft 365 onboarding through the same interactive browser OAuth path.
 - Parity remediation 3/47: added per-account Google installed-app OAuth credentials. The non-secret client id persists in `GmailProviderConfig`; its client secret has a dedicated credential-store slot and is resolved by all Gmail mail, calendar, and contact factories. Add Account validates and gates the pair, explains Desktop-client/API/Testing requirements, and Google authentication now diagnoses wrong client types, expired Testing tokens, and a disabled Gmail API.
 - Parity remediation 4/47: exposed optional CalDAV setup for IMAP accounts. The form accepts an absolute HTTPS endpoint, an optional distinct login name, and either reuses the IMAP password or collects an independent CalDAV password; account creation stays gated until the selected credential mode is complete.
+- Parity remediation 5/47: replaced IMAP's shared `UseSsl` switch with explicit IMAP/SMTP transport-security and authentication modes. Password authentication is refused on plaintext transports; mandatory STARTTLS and OAuth2 are implemented; definite pre-send SMTP capability failures no longer become ambiguous sends. OAuth tokens retain their credential format during reauthentication, cannot be reused for CalDAV Basic authentication, and certificate bypass now carries an explicit account-wide warning. A data migration upgrades legacy settings to encrypted modes while preserving SMTP password authentication.
 
 ## Next task
 
-- Refuse plaintext password authentication and model IMAP/SMTP transport security independently.
+- Populate QRESYNC expunge observations instead of advertising removals the provider does not return.
 
 ## Required reading
 
@@ -29,9 +30,15 @@
 - Actual Electron smoke: `pnpm e2e --grep "account-owned OAuth"` passed. The BYOC toggle reveals the client fields and setup guidance, keeps Create account disabled until both credentials are present, then enables it.
 - `pnpm check` after CalDAV onboarding: format, TypeScript, ESLint, Stylelint, build, 500 .NET tests, and 146 Vitest tests passed.
 - Actual Electron smoke: `pnpm e2e --grep "independent CalDAV"` passed. Enabling CalDAV reveals its fields, endpoint and independent-password gates are enforced, and both credential modes can make the account ready.
+- `pnpm imap:up`: all three Dovecot capability tiers healthy with mandatory STARTTLS.
+- `pnpm check` after encrypted IMAP/SMTP authentication: format, TypeScript, ESLint, Stylelint, build, 507 .NET tests, and 146 Vitest tests passed.
+- Actual Electron smoke: `pnpm e2e --grep "new user adds|plaintext IMAP"` passed 2/2. It exercised mandatory STARTTLS against the local server, surfaced the account-wide certificate-bypass warning, retried successfully, reached INBOX, and kept password authentication unavailable on plaintext IMAP/SMTP.
+- Persistence compatibility: the legacy-config migration test upgrades `UseSsl=false` to mandatory STARTTLS and preserves password authentication. It failed when the migration incorrectly selected unauthenticated SMTP, then passed after restoring `SmtpAuthMethod.Password`, so the assertion discriminates the upgrade regression it protects. No cursor or multi-write durable boundary changed; EF's transactional migration and pre-migration backup path remain unchanged.
+- Invariant review after remediation found no remaining violations. It specifically confirmed credential-format/rollback safety, definite pre-send failure classification, OAuth/CalDAV separation, the explicit TrustAll warning, and legacy SMTP-auth preservation.
 
 ## Live risks / decisions
 
 - Live Google provider authentication remains unverified without real external credentials; the account-owned registration path is covered through factory resolution and the actual Electron setup surface.
 - Provider-backed Google contact deletion remains disabled because Google People offers no atomic revision precondition. The architecture contract must be made explicit rather than weakening conflict safety.
+- Existing `UseSsl=false` accounts are upgraded to mandatory STARTTLS rather than allowed to continue sending passwords in plaintext. Servers without STARTTLS now fail closed with a mapped account error.
 - Work continues item-by-item from `docs/parity-audit.md`; each completed item updates this handover and receives its own commit.

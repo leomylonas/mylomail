@@ -110,10 +110,13 @@ public record ReauthenticateAccountRequest(string? Secret);
 public record ImapAccountSettings(
 	string Host,
 	int Port,
-	bool UseSsl,
+	MailTransportSecurity ImapSecurity,
+	ImapAuthMethod AuthMethod,
 	string UserName,
 	string SmtpHost,
 	int SmtpPort,
+	MailTransportSecurity SmtpSecurity,
+	SmtpAuthMethod SmtpAuthMethod,
 	bool ReuseImapCredentialForSmtp = true,
 	string? SmtpSecret = null,
 	string? SmtpUserName = null

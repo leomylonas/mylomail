@@ -49,8 +49,9 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 		// The delimiter and any namespace prefix are server-declared, so the destination
 		// folder's real name has to be read from the server rather than assembled here (§1).
 		using var client = new ImapClient();
-		await client.ConnectAsync(settings.Host, settings.Port, SecureSocketOptions.None, ct);
-		await client.AuthenticateAsync(settings.UserName, settings.Password, ct);
+		client.ServerCertificateValidationCallback = static (_, _, _, _) => true;
+		await client.ConnectAsync(settings.Host, settings.Port, SocketOptions(settings.ImapSecurity), ct);
+		await AuthenticateAsync(client, settings, ct);
 
 		var archive = (await client.GetFoldersAsync(client.PersonalNamespaces[0], cancellationToken: ct))
 			.First(f => f.Attributes.HasFlag(FolderAttributes.Archive));
@@ -135,10 +136,32 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 	private async Task<ImapClient> OpenClientAsync(CancellationToken ct)
 	{
 		var client = new ImapClient();
-		await client.ConnectAsync(settings.Host, settings.Port, SecureSocketOptions.None, ct);
-		await client.AuthenticateAsync(settings.UserName, settings.Password, ct);
+		client.ServerCertificateValidationCallback = static (_, _, _, _) => true;
+		await client.ConnectAsync(settings.Host, settings.Port, SocketOptions(settings.ImapSecurity), ct);
+		await AuthenticateAsync(client, settings, ct);
 		return client;
 	}
+
+	private static Task AuthenticateAsync(
+		ImapClient client,
+		ImapConnectionSettings settings,
+		CancellationToken ct
+	) =>
+		settings.AuthMethod == ImapAuthMethod.OAuth2
+			? client.AuthenticateAsync(
+				new SaslMechanismOAuth2(settings.UserName, settings.Password),
+				ct
+			)
+			: client.AuthenticateAsync(settings.UserName, settings.Password, ct);
+
+	private static SecureSocketOptions SocketOptions(MailTransportSecurity security) =>
+		security switch
+		{
+			MailTransportSecurity.None => SecureSocketOptions.None,
+			MailTransportSecurity.TlsOnConnect => SecureSocketOptions.SslOnConnect,
+			MailTransportSecurity.StartTls => SecureSocketOptions.StartTls,
+			_ => throw new ArgumentOutOfRangeException(nameof(security), security, null),
+		};
 
 	public Task<(MessageOccurrenceRef First, MessageOccurrenceRef Second)> SeedSharedMessageAsync(
 		Mailbox first,
