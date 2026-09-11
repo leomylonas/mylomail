@@ -50,6 +50,9 @@ public static class FaultPoints
 	/// </summary>
 	public const string SyncBeforeStagedReplay = "sync.before-staged-replay";
 
+	/// <summary>After fetched content is applied locally, before its transaction commits.</summary>
+	public const string ContentAfterApplyBeforeCommit = "content.after-apply-before-commit";
+
 	/// <summary>
 	/// A draft push's provider call has returned (the remote draft now genuinely exists),
 	/// before that result is saved. The window a batched save would have crossed without

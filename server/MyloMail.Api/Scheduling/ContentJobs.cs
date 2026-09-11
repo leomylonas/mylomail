@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -90,7 +91,7 @@ public sealed class ContentJobs(
 			// retry budget and mislabel readable content as permanently Failed.
 			logger.LogDebug(ex, "Skipping content for message {MessageId} (offline).", pending.Value);
 		}
-		catch (Exception ex)
+		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
 			// The message is marked Failed by the acquisition itself. One unreadable message
 			// must not stop the queue behind it.

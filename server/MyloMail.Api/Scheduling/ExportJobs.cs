@@ -124,6 +124,8 @@ public sealed class ExportJobs(
 				.MessageMailboxes.Where(o => pageIds.Contains(o.Id))
 				.ToDictionaryAsync(o => o.Id, ct);
 
+			var contentDeferred = false;
+
 			foreach (var occurrenceId in pageIds)
 			{
 				// A manifest entry can point at a row that no longer exists — the message was
@@ -146,6 +148,14 @@ public sealed class ExportJobs(
 						);
 						job.WrittenCount++;
 					}
+					catch (ContentAcquisitionDeferredException)
+					{
+						// The occurrence changed while its provider call was in flight. Keep
+						// this manifest position until a fresh incarnation can supply content;
+						// advancing would permanently omit the message from this export.
+						contentDeferred = true;
+						break;
+					}
 					catch (Exception ex)
 					{
 						// One unreadable message must not abandon the rest of the export — the
@@ -161,6 +171,16 @@ public sealed class ExportJobs(
 				}
 
 				job.ResumeToken++;
+			}
+
+			if (contentDeferred)
+			{
+				await context.SaveChangesAsync(ct);
+				jobs.Schedule<ExportJobs>(
+					j => j.RunBatchAsync(job.Id, default),
+					TimeSpan.FromSeconds(1)
+				);
+				return;
 			}
 
 			// Fewer than a full page of manifest entries means this was the tail: no point
@@ -196,8 +216,11 @@ public sealed class ExportJobs(
 			return existing.Content;
 		}
 
-		await content.AcquireAsync(account, messageId, ct);
-		var fetched = await context.MessageRaws.FirstAsync(r => r.MessageId == messageId, ct);
+		if (await content.AcquireAsync(account, messageId, ct) == ContentAcquisitionResult.Deferred)
+		{
+			throw new ContentAcquisitionDeferredException(messageId);
+		}
+		var fetched = await context.MessageRaws.SingleAsync(r => r.MessageId == messageId, ct);
 		return fetched.Content;
 	}
 
@@ -231,3 +254,7 @@ public sealed class ExportJobs(
 		return paths;
 	}
 }
+
+internal sealed class ContentAcquisitionDeferredException(Guid messageId)
+	: Exception($"Content acquisition for message '{messageId}' was deferred.")
+{ }

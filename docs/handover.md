@@ -16,10 +16,11 @@
 - Parity remediation 11/47: Gmail topology now derives a stable local tree from flat slash-delimited labels. Real labels keep provider identity while missing intermediate paths receive reusable provider-id-less `Mailbox` rows; obsolete intermediates are removed, real labels replace matching synthetic paths without duplication, and synthetic rows are excluded defensively from provider coverage/change-stream scheduling. Mailbox rows and topology state commit in one explicit crash-tested transaction.
 - Parity remediation 12/47: Gmail `LastNMessages` coverage now carries the remaining target alongside the opaque provider page token, caps each request and the reported estimate, and stops after consuming N observations even when Gmail advertises another page. A migration restarts legacy in-progress bounded walks so old raw tokens cannot silently add a second full bound. Coverage progress counts consumed provider observations, and mailbox-scoped policy generations plus an atomic SQL setter fence in-flight pages and concurrent multi-window bound changes without overloading topology identity.
 - Parity remediation 13/47: Graph coverage now honors count bounds across absolute `nextLink` pages and applies stable received-date filters for month bounds, then defers the first change stream until the requested recent subset is usable. Its unfiltered delta bootstrap still enumerates every page but materializes only already-selected stable ids and arrivals after the retained baseline, committing only the final `deltaLink`. Established streams remain live during later policy backfills; cursor invalidation, rebase cutoff, coverage reset, and integrity state now commit atomically, and a migration restarts legacy count-bounded raw continuations.
+- Parity remediation 14/47: content acquisition now captures the exact local occurrence, provider occurrence, mailbox, and topology generation before every provider fetch, then rechecks that snapshot inside the content transaction before any raw MIME, derived body, attachment, search, or state write. Successful and failed stale fetches are discarded without consuming the replacement incarnation's retry budget; crash injection proves the derived-content transaction rolls back before commit. Deferred acquisition is explicit, and bulk export retains the same manifest position until fresh content is available instead of silently omitting it.
 
 ## Next task
 
-- Fence content fetches by topology generation.
+- Block in-flight coverage commits after account disable or removal.
 
 ## Required reading
 
@@ -66,6 +67,9 @@
 - `pnpm check` after Graph bounded-bootstrap correction: format, TypeScript, ESLint, Stylelint, build, 537 .NET tests, and 146 Vitest tests passed.
 - Graph bootstrap fault discrimination: removing initial-delta filtering made `Graph_bootstrap_enumerates_fully_without_materialising_history_outside_the_bound` fail after its apply-before-commit crash/restart; restoring the filter returned the suite to green. The scenario fully walks three delta pages, retains the bounded subset plus a post-setup arrival, and commits only the final `GraphDeltaCursor`.
 - Graph invariant review found and closed four orchestration defects before commit: completed rebase coverage is no longer reset twice, the notification cutoff predates deferred coverage without changing Gmail/IMAP semantics, the rebase cutoff remains fixed through every delta page, and established Graph streams continue during policy backfills. Final review found no remaining violations.
+- `pnpm check` after content topology fencing: format, TypeScript, ESLint, Stylelint, build, 542 .NET tests, and 146 Vitest tests passed.
+- Content-fence discrimination: replacing the exact occurrence/generation query with an unconditional current result made `Fetch_is_discarded_when_its_mailbox_generation_changes_in_flight` fail while 538 tests passed; restoring the guard returned the suite to green. Separate regressions cover provider-occurrence replacement, stale provider failures, export resume-token retention, and rollback/restart at `content.after-apply-before-commit`.
+- Content invariant review found and closed stale-failure accounting, export-success signaling, and incomplete occurrence-predicate coverage before commit. The final re-review found no remaining violations.
 
 ## Live risks / decisions
 

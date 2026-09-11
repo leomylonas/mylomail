@@ -56,6 +56,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 	public ProviderCapabilities Capabilities { get; }
 	public TimeSpan IdleCancellationDelay { get; set; }
+	public Func<MessageOccurrenceRef, Task>? BeforeFetchRawMessageReturnAsync { get; set; }
 	public TaskCompletionSource<bool> IdleStarted { get; } =
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public TaskCompletionSource<bool> IdleCancellationObserved { get; } =
@@ -331,7 +332,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 			_ => throw new InvalidOperationException($"unhandled cursor kind '{cursor.Kind}'"),
 		};
 
-	public Task<RawMessageResult> FetchRawMessageAsync(
+	public async Task<RawMessageResult> FetchRawMessageAsync(
 		Account account,
 		MessageOccurrenceRef occurrence,
 		CancellationToken ct,
@@ -350,7 +351,11 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		{
 			throw new InvalidOperationException($"Provider content exceeds the {maximum}-byte limit.");
 		}
-		return Task.FromResult(new RawMessageResult(found.Message.RawBytes));
+		if (BeforeFetchRawMessageReturnAsync is not null)
+		{
+			await BeforeFetchRawMessageReturnAsync(occurrence);
+		}
+		return new RawMessageResult(found.Message.RawBytes);
 	}
 
 	public AttachmentConstraints AttachmentConstraintsToReturn { get; set; } =

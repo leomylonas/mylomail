@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MimeKit;
 using MimeKit.Text;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -10,6 +11,12 @@ using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Content;
+
+public enum ContentAcquisitionResult
+{
+	Stored,
+	Deferred,
+}
 
 /// <summary>
 /// Fetches a message's raw MIME and derives everything else from it (§1, §8).
@@ -33,6 +40,7 @@ public sealed class ContentAcquisition(
 	SearchIndexer search,
 	MailInviteMaterializer invites,
 	IHubEvents events,
+	IFaultInjector faults,
 	ILogger<ContentAcquisition> logger
 )
 {
@@ -46,7 +54,11 @@ public sealed class ContentAcquisition(
 	internal const int MaximumRawMessageBytes = 64 * 1024 * 1024;
 
 	/// <summary>Fetches and stores one message's content.</summary>
-	public async Task AcquireAsync(Account account, Guid messageId, CancellationToken ct = default)
+	public async Task<ContentAcquisitionResult> AcquireAsync(
+		Account account,
+		Guid messageId,
+		CancellationToken ct = default
+	)
 	{
 		var state = await context.MessageContentStates.FirstOrDefaultAsync(c => c.MessageId == messageId, ct);
 		if (state is null)
@@ -55,13 +67,27 @@ public sealed class ContentAcquisition(
 			context.MessageContentStates.Add(state);
 		}
 
-		var occurrence = await context.MessageMailboxes.FirstOrDefaultAsync(o => o.MessageId == messageId, ct);
-		if (occurrence is null)
+		var issued = await context
+			.MessageMailboxes.Where(o => o.MessageId == messageId)
+			.Join(
+				context.Mailboxes.Where(m => m.AccountId == account.Id),
+				o => o.MailboxId,
+				m => m.Id,
+				(o, m) =>
+					new ContentFetchSnapshot(
+						o.Id,
+						o.MailboxId,
+						o.ProviderOccurrenceId,
+						m.TopologyGeneration
+					)
+			)
+			.FirstOrDefaultAsync(ct);
+		if (issued is null)
 		{
 			// No membership means nothing addressable on the server. A message can legitimately
 			// be in this state for a moment during a move (§3), so it is left alone rather
 			// than failed.
-			return;
+			return ContentAcquisitionResult.Deferred;
 		}
 
 		state.Status = ContentStatus.Fetching;
@@ -75,7 +101,7 @@ public sealed class ContentAcquisition(
 				.For(account)
 				.FetchRawMessageAsync(
 					account,
-					new MessageOccurrenceRef(messageId, occurrence.MailboxId, occurrence.ProviderOccurrenceId),
+					new MessageOccurrenceRef(messageId, issued.MailboxId, issued.ProviderOccurrenceId),
 					ct,
 					MaximumRawMessageBytes
 				);
@@ -84,55 +110,101 @@ public sealed class ContentAcquisition(
 		{
 			// Not evidence the content is unreadable -- nothing about this message was even
 			// attempted, providers.For(account) failed before it could dial out. Left uncounted
-			// against MaxAttempts (undoing the increment above) so a sustained local
-			// credential-store outage can never exhaust the retry budget and mislabel readable
-			// content as permanently Failed; SendExecutor treats the same exception as "nothing
-			// dispatched" for the identical reason.
-			state.Attempts--;
-			state.Status = ContentStatus.Queued;
-			state.LastError = ex.Message;
-			await context.SaveChangesAsync(ct);
+			// against MaxAttempts so a sustained local credential-store outage can never
+			// exhaust the retry budget and mislabel readable content as permanently Failed.
+			if (
+				await RecordFailureAsync(
+					state,
+					issued,
+					messageId,
+					ex,
+					consumeAttempt: false,
+					clearTracker: false,
+					ct
+				)
+			)
+			{
+				return ContentAcquisitionResult.Deferred;
+			}
 			logger.LogWarning(ex, "Content fetch for message {MessageId} could not reach the credential store.", messageId);
 			throw;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			// Same reasoning as the credential-store case above: a sustained outage recurs on
-			// every fetch attempt while it lasts, and the message was never actually unreadable
-			// — only unreachable. Left uncounted against MaxAttempts so a prolonged network
-			// outage can never exhaust the retry budget and mislabel readable content as
-			// permanently Failed (the exact gap tracked in docs/handover.md's Next-task list).
-			state.Attempts--;
-			state.Status = ContentStatus.Queued;
-			state.LastError = ex.Message;
-			await context.SaveChangesAsync(ct);
+			// A sustained outage recurs on every fetch while it lasts, and the message was
+			// never actually unreadable — only unreachable. Leave it uncounted against
+			// MaxAttempts. The failure write is fenced with the issued occurrence so an old
+			// mailbox cannot exhaust the retry budget of its replacement.
+			if (
+				await RecordFailureAsync(
+					state,
+					issued,
+					messageId,
+					ex,
+					consumeAttempt: false,
+					clearTracker: false,
+					ct
+				)
+			)
+			{
+				return ContentAcquisitionResult.Deferred;
+			}
 			logger.LogDebug(ex, "Content fetch for message {MessageId} could not reach the network.", messageId);
 			throw;
 		}
 		catch (Exception ex)
 		{
-			// Requeued rather than failed outright while attempts remain: a transient network
-			// blip mid-fetch must not read the same as permanently malformed data. `Attempts`
-			// was already incremented above the fetch, so this is attempt-counted correctly.
-			state.Status = state.Attempts < MaxAttempts ? ContentStatus.Queued : ContentStatus.Failed;
-			state.LastError = ex.Message;
-			await context.SaveChangesAsync(ct);
+			// Requeued rather than failed outright while attempts remain: a transient blip
+			// must not read as permanently malformed content. The current-occurrence check
+			// and this failure state commit atomically.
+			if (
+				await RecordFailureAsync(
+					state,
+					issued,
+					messageId,
+					ex,
+					consumeAttempt: true,
+					clearTracker: false,
+					ct
+				)
+			)
+			{
+				return ContentAcquisitionResult.Deferred;
+			}
 			logger.LogWarning(ex, "Content fetch failed for message {MessageId}.", messageId);
 			throw;
 		}
 
-		MimeMessage mime;
+		MimeMessage? mime;
 		try
 		{
-			mime = await StoreAsync(state, messageId, raw.RawBytes, ct);
+			mime = await StoreAsync(state, issued, messageId, raw.RawBytes, ct);
 		}
-		catch (Exception ex)
+		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
-			// Parsing or storage failed, which will fail again on the same bytes. Left in
-			// Fetching it would be picked up forever — the first version of this looped
-			// thousands of times on one malformed write, logging a warning each pass.
-			await MarkFailedAsync(state, ex, ct);
+			// Parsing or storage failed, which will fail again on the same bytes. The failed
+			// content transaction may have left tracked entities inconsistent, so recovery
+			// reloads fresh state before atomically checking the issued occurrence.
+			if (
+				await RecordFailureAsync(
+					state,
+					issued,
+					messageId,
+					ex,
+					consumeAttempt: true,
+					clearTracker: true,
+					ct
+				)
+			)
+			{
+				return ContentAcquisitionResult.Deferred;
+			}
 			throw;
+		}
+
+		if (mime is null)
+		{
+			return ContentAcquisitionResult.Deferred;
 		}
 
 		// Deliberately after the content transaction has committed, not inside it: calendar
@@ -148,25 +220,86 @@ public sealed class ContentAcquisition(
 		{
 			logger.LogWarning(ex, "Invite materialisation failed for message {MessageId}.", messageId);
 		}
+
+		return ContentAcquisitionResult.Stored;
 	}
 
-	private async Task MarkFailedAsync(MessageContentState state, Exception ex, CancellationToken ct)
+	private async Task<bool> RecordFailureAsync(
+		MessageContentState state,
+		ContentFetchSnapshot issued,
+		Guid messageId,
+		Exception ex,
+		bool consumeAttempt,
+		bool clearTracker,
+		CancellationToken ct
+	)
 	{
-		// A fresh context state: the failed transaction may have left the tracked entities
-		// inconsistent with the database.
-		context.ChangeTracker.Clear();
-
-		// See the fetch-failure catch above: retried while attempts remain, permanently
-		// failed only once they run out.
-		var status = state.Attempts < MaxAttempts ? ContentStatus.Queued : ContentStatus.Failed;
-		await context
-			.MessageContentStates.Where(c => c.MessageId == state.MessageId)
-			.ExecuteUpdateAsync(
-				updates =>
-					updates.SetProperty(c => c.Status, status).SetProperty(c => c.LastError, ex.Message),
+		if (clearTracker)
+		{
+			context.ChangeTracker.Clear();
+			var persistedState = await context.MessageContentStates.SingleOrDefaultAsync(
+				c => c.MessageId == messageId,
 				ct
 			);
+			if (persistedState is null)
+			{
+				return false;
+			}
+			state = persistedState;
+		}
+
+		var stale = false;
+		var strategy = context.Database.CreateExecutionStrategy();
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			if (!await FetchStillCurrentAsync(issued, messageId, ct))
+			{
+				state.Attempts = Math.Max(0, state.Attempts - 1);
+				state.Status = ContentStatus.Queued;
+				state.LastError = null;
+				stale = true;
+			}
+			else
+			{
+				if (!consumeAttempt)
+				{
+					state.Attempts = Math.Max(0, state.Attempts - 1);
+				}
+				state.Status =
+					consumeAttempt && state.Attempts >= MaxAttempts
+						? ContentStatus.Failed
+						: ContentStatus.Queued;
+				state.LastError = ex.Message;
+			}
+
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+		});
+		return stale;
 	}
+
+	private Task<bool> FetchStillCurrentAsync(
+		ContentFetchSnapshot issued,
+		Guid messageId,
+		CancellationToken ct
+	) =>
+		context
+			.MessageMailboxes.Where(o =>
+				o.Id == issued.OccurrenceId
+				&& o.MessageId == messageId
+				&& o.MailboxId == issued.MailboxId
+				&& o.ProviderOccurrenceId == issued.ProviderOccurrenceId
+			)
+			.Join(
+				context.Mailboxes.Where(m =>
+					m.Id == issued.MailboxId && m.TopologyGeneration == issued.TopologyGeneration
+				),
+				o => o.MailboxId,
+				m => m.Id,
+				(_, _) => true
+			)
+			.AnyAsync(ct);
 
 	/// <summary>
 	/// Stores the raw bytes and everything parsed from them, in one transaction.
@@ -176,8 +309,9 @@ public sealed class ContentAcquisition(
 	/// content it describes: a committed body with no index entry is invisible to search
 	/// forever, and an index entry with no body is a hit pointing at nothing (§8).
 	/// </remarks>
-	private async Task<MimeMessage> StoreAsync(
+	private async Task<MimeMessage?> StoreAsync(
 		MessageContentState state,
+		ContentFetchSnapshot issued,
 		Guid messageId,
 		byte[] rawBytes,
 		CancellationToken ct
@@ -191,10 +325,26 @@ public sealed class ContentAcquisition(
 		var hasNonInlineAttachmentsChanged = false;
 		var snippetChanged = false;
 
+		var discarded = false;
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+			var stillCurrent = await FetchStillCurrentAsync(issued, messageId, ct);
+			if (!stillCurrent)
+			{
+				// The provider result belongs to a mailbox incarnation that no longer exists.
+				// It says nothing about whether the message is readable through a current
+				// occurrence, so discard it without consuming a content retry.
+				state.Attempts = Math.Max(0, state.Attempts - 1);
+				state.Status = ContentStatus.Queued;
+				state.LastError = null;
+				await context.SaveChangesAsync(ct);
+				await transaction.CommitAsync(ct);
+				discarded = true;
+				return;
+			}
 
 			await UpsertRawAsync(messageId, rawBytes, ct);
 			await UpsertHeadersAsync(messageId, mime, ct);
@@ -241,8 +391,14 @@ public sealed class ContentAcquisition(
 			state.LastError = null;
 
 			await context.SaveChangesAsync(ct);
+			faults.Reached(FaultPoints.ContentAfterApplyBeforeCommit);
 			await transaction.CommitAsync(ct);
 		});
+
+		if (discarded)
+		{
+			return null;
+		}
 
 		// After the commit, never before: an event announcing a correction a crash then
 		// discarded would leave the UI showing something the database does not have.
@@ -392,4 +548,11 @@ public sealed class ContentAcquisition(
 			);
 		}
 	}
+	private sealed record ContentFetchSnapshot(
+		Guid OccurrenceId,
+		Guid MailboxId,
+		string ProviderOccurrenceId,
+		int TopologyGeneration
+	);
+
 }

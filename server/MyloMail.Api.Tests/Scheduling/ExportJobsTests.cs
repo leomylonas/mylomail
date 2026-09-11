@@ -132,6 +132,101 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Equal(2, Directory.GetFiles(Path.Combine(destination, "INBOX"), "*.eml").Length);
 	}
 
+	[Fact]
+	public async Task Stale_fetch_failure_keeps_manifest_position_until_content_is_refetched()
+	{
+		var (mailboxId, messageId) = await SeedUnfetchedAsync();
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		harness.Provider.BeforeFetchRawMessageReturnAsync = async _ =>
+		{
+			await harness.UsingAsync(async scope =>
+			{
+				var context = scope.GetRequiredService<MyloMailDbContext>();
+				var mailbox = await context.Mailboxes.SingleAsync(m => m.Id == mailboxId);
+				mailbox.TopologyGeneration++;
+				await context.SaveChangesAsync();
+			});
+			throw new InvalidOperationException("Old occurrence disappeared.");
+		};
+
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+
+		var deferred = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().ExportJobs.SingleAsync(j => j.Id == exportId)
+		);
+		Assert.Equal(ExportJobStatus.Running, deferred.Status);
+		Assert.Equal(0, deferred.ResumeToken);
+		Assert.Equal(0, deferred.WrittenCount);
+
+		harness.Provider.BeforeFetchRawMessageReturnAsync = null;
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+
+		var completed = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().ExportJobs.SingleAsync(j => j.Id == exportId)
+		);
+		Assert.Equal(ExportJobStatus.Completed, completed.Status);
+		Assert.Equal(1, completed.ResumeToken);
+		Assert.Equal(1, completed.WrittenCount);
+		Assert.True(File.Exists(Path.Combine(destination, "INBOX", $"{messageId:N}.eml")));
+	}
+
+	private async Task<(Guid MailboxId, Guid MessageId)> SeedUnfetchedAsync()
+	{
+		var providerMailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var messageId = Guid.NewGuid();
+		var providerOccurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			messageId,
+			DateTimeOffset.UnixEpoch
+		);
+		providerMailbox.Messages[providerOccurrenceId].RawBytes =
+			"From: author@example.test\r\nTo: recipient@example.test\r\nSubject: Export\r\n\r\nBody"u8.ToArray();
+		var mailboxId = Guid.NewGuid();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.Mailboxes.Add(
+				new Mailbox
+				{
+					Id = mailboxId,
+					AccountId = harness.Account.Id,
+					ProviderMailboxId = "INBOX",
+					Name = "INBOX",
+					SpecialUse = SpecialUse.Inbox,
+				}
+			);
+			context.Messages.Add(
+				new Message
+				{
+					Id = messageId,
+					AccountId = harness.Account.Id,
+					Occurrences =
+					[
+						new MessageMailbox
+						{
+							Id = Guid.NewGuid(),
+							MailboxId = mailboxId,
+							ProviderOccurrenceId = providerOccurrenceId,
+						},
+					],
+				}
+			);
+			context.MessageContentStates.Add(
+				new MessageContentState
+				{
+					MessageId = messageId,
+					Status = ContentStatus.Queued,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		return (mailboxId, messageId);
+	}
+
 	private async Task SeedAsync(int inboxMessages, int sentMessages)
 	{
 		await harness.UsingAsync(async scope =>
