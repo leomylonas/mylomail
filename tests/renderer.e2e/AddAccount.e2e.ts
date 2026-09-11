@@ -64,11 +64,45 @@ test("Google account setup is selectable and ready for interactive sign-in", asy
 		await window.getByLabel("Email address").fill("ada@example.test");
 
 		await expect(
-			window.getByText("A browser window will open for secure provider sign-in."),
+			window.getByText(
+				"A browser window will open for secure provider sign-in.",
+			),
 		).toBeVisible();
 		await expect(
 			window.getByRole("button", { name: "Create account" }),
 		).toBeEnabled();
+	} finally {
+		await app.close();
+	}
+});
+
+test("Google account setup accepts an account-owned OAuth registration", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await expect(
+			window.getByRole("heading", { name: "Add account" }),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await window.locator('label[for="provider-gmail"]').click();
+		await window.getByLabel("Account name").fill("Personal Gmail");
+		await window.getByLabel("Email address").fill("ada@example.test");
+		await window.locator('label[for="add-account-google-byoc"]').click();
+
+		const create = window.getByRole("button", { name: "Create account" });
+		await expect(create).toBeDisabled();
+		await expect(
+			window.getByText(/Create a Desktop app OAuth client/),
+		).toBeVisible();
+		await expect(
+			window.getByText(/refresh tokens that expire after about seven days/),
+		).toBeVisible();
+
+		await window.getByLabel("Google OAuth client ID").fill("client-id");
+		await window.getByLabel("Google OAuth client secret").fill("client-secret");
+		await expect(create).toBeEnabled();
 	} finally {
 		await app.close();
 	}
@@ -89,7 +123,9 @@ test("Microsoft 365 setup is selectable and ready for interactive sign-in", asyn
 		await window.getByLabel("Email address").fill("ada@example.test");
 
 		await expect(
-			window.getByText("A browser window will open for secure provider sign-in."),
+			window.getByText(
+				"A browser window will open for secure provider sign-in.",
+			),
 		).toBeVisible();
 		await expect(
 			window.getByRole("button", { name: "Create account" }),

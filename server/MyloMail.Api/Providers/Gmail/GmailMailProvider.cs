@@ -43,8 +43,34 @@ public sealed partial class GmailMailProvider(
 		DeletingMailboxDeletesMessages = false,
 	};
 
-	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
-		oauth.AuthenticateAsync(account, ct);
+	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	{
+		var authorization = await oauth.AuthenticateAsync(account, ct);
+		if (!authorization.Succeeded)
+		{
+			return authorization;
+		}
+
+		try
+		{
+			var service = await ServiceAsync(account, ct);
+			await service.Users.GetProfile(UserId).ExecuteAsync(ct);
+			return authorization;
+		}
+		catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden)
+		{
+			return new AuthResult(
+				false,
+				AuthState.NeedsReauth,
+				new MutationProblemDetails
+				{
+					Title = "Gmail API unavailable",
+					Detail = "Google denied Gmail API access. Enable the Gmail API for this OAuth project, then try again.",
+					Category = ErrorCategory.Auth,
+				}
+			);
+		}
+	}
 
 	public async Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(
 		Account account,

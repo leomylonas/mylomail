@@ -119,7 +119,17 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		}
 		catch (TokenResponseException ex)
 		{
-			return Failure(ErrorCategory.Auth, "Google authentication failed", ex.Message);
+			var detail = ex.Error?.Error switch
+			{
+				"invalid_client" or "unauthorized_client" =>
+					"Google rejected this OAuth registration. Use a Desktop app client ID and its matching secret.",
+				"invalid_grant" =>
+					"Google rejected or expired the authorization. Reauthorize the account; if the OAuth consent screen is in Testing, its refresh tokens expire after about seven days.",
+				"insufficient_scope" =>
+					"Google did not grant every required permission. Reauthorize and allow Gmail, Calendar, and Contacts access.",
+				_ => ex.Message,
+			};
+			return Failure(ErrorCategory.Auth, "Google authentication failed", detail);
 		}
 		catch (IOException ex)
 		{

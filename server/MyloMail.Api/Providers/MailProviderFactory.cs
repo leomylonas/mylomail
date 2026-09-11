@@ -33,7 +33,7 @@ public sealed class MailProviderFactory(
 	public IMailProvider For(Account account) =>
 		account.ProviderType switch
 		{
-			ProviderType.Gmail => Gmail(),
+			ProviderType.Gmail => Gmail(account),
 			ProviderType.Microsoft365 => Graph(),
 			ProviderType.Imap => Imap(account),
 			_ => throw new ArgumentOutOfRangeException(
@@ -43,22 +43,14 @@ public sealed class MailProviderFactory(
 			),
 		};
 
-	private GmailMailProvider Gmail()
-	{
-		var gmail = options.Value.Gmail;
-		if (!gmail.IsConfigured)
-		{
-			throw new ProviderNotConfiguredException(ProviderType.Gmail, "Providers:Gmail:ClientId/ClientSecret");
-		}
-
-		return new GmailMailProvider(
+	private GmailMailProvider Gmail(Account account) =>
+		new(
 			new GmailOAuthAuthenticator(
 				credentials,
-				new ClientSecrets { ClientId = gmail.ClientId, ClientSecret = gmail.ClientSecret }
+				GmailClientRegistration.Resolve(account, options.Value, credentials)
 			),
 			mailboxes
 		);
-	}
 
 	private GraphMailProvider Graph()
 	{

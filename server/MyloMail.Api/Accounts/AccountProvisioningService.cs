@@ -27,7 +27,8 @@ public sealed record NewAccount(
 	CredentialPayload? SmtpSecret = null,
 	CertificateTrustMode CertificateTrustMode = CertificateTrustMode.Default,
 	InitialSyncMode InitialSyncMode = InitialSyncMode.Full,
-	int? InitialSyncBoundValue = null
+	int? InitialSyncBoundValue = null,
+	CredentialPayload? GmailClientSecret = null
 );
 
 /// <summary>
@@ -101,6 +102,15 @@ public sealed class AccountProvisioningService(
 			{
 				await credentials.StoreSlotAsync(accountId, CredentialSlots.Smtp, smtpSecret, ct);
 			}
+			if (request.GmailClientSecret is CredentialPayload gmailClientSecret)
+			{
+				await credentials.StoreSlotAsync(
+					accountId,
+					CredentialSlots.GmailClientSecret,
+					gmailClientSecret,
+					ct
+				);
+			}
 
 			var result = await providers.For(account).AuthenticateAsync(account, ct);
 			if (!result.Succeeded)
@@ -140,6 +150,7 @@ public sealed class AccountProvisioningService(
 				await credentials.DeleteAsync(accountId, ct);
 				await credentials.DeleteSlotAsync(accountId, CredentialSlots.CalDav, ct);
 				await credentials.DeleteSlotAsync(accountId, CredentialSlots.Smtp, ct);
+				await credentials.DeleteSlotAsync(accountId, CredentialSlots.GmailClientSecret, ct);
 			}
 			else
 			{
@@ -305,6 +316,7 @@ public sealed class AccountProvisioningService(
 		await credentials.DeleteAsync(accountId, ct);
 		await credentials.DeleteSlotAsync(accountId, CredentialSlots.CalDav, ct);
 		await credentials.DeleteSlotAsync(accountId, CredentialSlots.Smtp, ct);
+		await credentials.DeleteSlotAsync(accountId, CredentialSlots.GmailClientSecret, ct);
 
 		logger.LogInformation("Account {AccountId} removed at {At}.", accountId, clock.GetUtcNow());
 

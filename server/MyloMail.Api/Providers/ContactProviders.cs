@@ -570,27 +570,19 @@ public sealed class ContactProviderFactory(
 
 	public IContactProvider For(Account account) => account.ProviderType switch
 	{
-		ProviderType.Gmail => Gmail(),
+		ProviderType.Gmail => Gmail(account),
 		ProviderType.Microsoft365 => Graph(),
 		_ => local,
 	};
 
-	private GooglePeopleContactProvider Gmail()
-	{
-		var gmail = options.Value.Gmail;
-		if (!gmail.IsConfigured)
-			throw new ProviderNotConfiguredException(
-				ProviderType.Gmail,
-				"Providers:Gmail:ClientId/ClientSecret"
-			);
-		return new GooglePeopleContactProvider(
+	private GooglePeopleContactProvider Gmail(Account account) =>
+		new(
 			new GmailOAuthAuthenticator(
 				credentials,
-				new ClientSecrets { ClientId = gmail.ClientId, ClientSecret = gmail.ClientSecret }
+				GmailClientRegistration.Resolve(account, options.Value, credentials)
 			),
 			clients.CreateClient("google-contacts")
 		);
-	}
 
 	private GraphContactProvider Graph()
 	{

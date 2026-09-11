@@ -64,6 +64,26 @@ public class AccountsController(
 				title: "Unexpected credential"
 			);
 		}
+		if (request.ProviderType != ProviderType.Gmail
+			&& (!string.IsNullOrWhiteSpace(request.GmailClientId)
+				|| !string.IsNullOrWhiteSpace(request.GmailClientSecret)))
+		{
+			return Problem(
+				"Google OAuth client credentials can only be used with a Gmail account.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Unexpected Google OAuth credentials"
+			);
+		}
+		if (request.ProviderType == ProviderType.Gmail
+			&& string.IsNullOrWhiteSpace(request.GmailClientId)
+				!= string.IsNullOrWhiteSpace(request.GmailClientSecret))
+		{
+			return Problem(
+				"A custom Google OAuth registration needs both its client id and client secret.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Incomplete Google OAuth credentials"
+			);
+		}
 
 		if (request.ProviderType == ProviderType.Imap && request.Imap is null)
 		{
@@ -146,7 +166,8 @@ public class AccountsController(
 					ToSmtpSecret(request),
 					request.CertificateTrustMode,
 					request.InitialSyncMode,
-					request.InitialSyncBoundValue
+					request.InitialSyncBoundValue,
+					ToGmailClientSecret(request)
 				),
 				ct
 			);
@@ -274,9 +295,15 @@ public class AccountsController(
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>
-		request.Imap is null
-			? null
-			: new ImapProviderConfig
+		request.ProviderType switch
+		{
+			ProviderType.Gmail => new GmailProviderConfig
+			{
+				ClientId = string.IsNullOrWhiteSpace(request.GmailClientId)
+					? null
+					: request.GmailClientId.Trim(),
+			},
+			ProviderType.Imap when request.Imap is not null => new ImapProviderConfig
 			{
 				Host = request.Imap.Host,
 				Port = request.Imap.Port,
@@ -292,7 +319,9 @@ public class AccountsController(
 					UserName = request.CalDav.UserName,
 					CredentialSource = request.CalDav.ReuseImapCredential ? CredentialSource.ReuseImap : CredentialSource.Independent,
 				},
-			};
+			},
+			_ => null,
+		};
 
 	/// <summary>
 	/// The IMAP password, as an opaque store payload. Only IMAP has one: Gmail and Graph
@@ -315,4 +344,12 @@ public class AccountsController(
 		string.IsNullOrEmpty(request.Imap?.SmtpSecret)
 			? null
 			: new CredentialPayload("smtp-basic-password", System.Text.Encoding.UTF8.GetBytes(request.Imap.SmtpSecret));
+
+	private static CredentialPayload? ToGmailClientSecret(AddAccountRequest request) =>
+		string.IsNullOrWhiteSpace(request.GmailClientSecret)
+			? null
+			: new CredentialPayload(
+				GmailClientRegistration.SecretFormat,
+				System.Text.Encoding.UTF8.GetBytes(request.GmailClientSecret)
+			);
 }

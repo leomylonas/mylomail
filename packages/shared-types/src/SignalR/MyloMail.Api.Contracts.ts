@@ -64,6 +64,10 @@ export type AddAccountRequest = {
     initialSyncMode: InitialSyncMode;
     /** Transpiled from int */
     initialSyncBoundValue?: number;
+    /** Transpiled from string? */
+    gmailClientId?: string;
+    /** Transpiled from string? */
+    gmailClientSecret?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ReauthenticateAccountRequest */

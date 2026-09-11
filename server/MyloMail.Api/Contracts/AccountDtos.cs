@@ -80,7 +80,11 @@ public record AddAccountRequest(
 	/// </summary>
 	InitialSyncMode InitialSyncMode = InitialSyncMode.Full,
 	/// <summary>Required when <see cref="InitialSyncMode"/> is not <see cref="Domain.InitialSyncMode.Full"/>.</summary>
-	int? InitialSyncBoundValue = null
+	int? InitialSyncBoundValue = null,
+	/// <summary>Optional installed-app OAuth client id supplied by the user for this Gmail account.</summary>
+	string? GmailClientId = null,
+	/// <summary>The matching client secret; stored only in the platform credential store.</summary>
+	string? GmailClientSecret = null
 );
 
 /// <summary>

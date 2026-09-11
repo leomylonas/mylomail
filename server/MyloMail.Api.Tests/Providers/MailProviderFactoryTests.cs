@@ -43,6 +43,31 @@ public sealed class MailProviderFactoryTests
 		Assert.Equal(ProviderType.Gmail, provider.Type);
 	}
 
+	[Fact]
+	public async Task A_gmail_account_can_supply_its_own_client_registration()
+	{
+		var accountId = Guid.NewGuid();
+		var store = new InMemoryCredentialStore();
+		await store.StoreSlotAsync(
+			accountId,
+			CredentialSlots.GmailClientSecret,
+			new CredentialPayload(GmailClientRegistration.SecretFormat, "account-secret"u8.ToArray()),
+			CancellationToken.None
+		);
+
+		var provider = Create(new ProviderClientOptions(), store)
+			.For(
+				new Account
+				{
+					Id = accountId,
+					ProviderType = ProviderType.Gmail,
+					ProviderConfig = new GmailProviderConfig { ClientId = "account-client" },
+				}
+			);
+
+		Assert.Equal(ProviderType.Gmail, provider.Type);
+	}
+
 	/// <summary>
 	/// IMAP is resolved per account: the password comes from the credential store at the moment
 	/// of use, never from the <see cref="Account"/> (§4).

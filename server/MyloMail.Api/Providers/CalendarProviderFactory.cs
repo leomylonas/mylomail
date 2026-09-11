@@ -31,27 +31,19 @@ public sealed class CalendarProviderFactory(
 {
 	public ICalendarProvider For(Account account) => account.ProviderType switch
 	{
-		ProviderType.Gmail => Gmail(),
+		ProviderType.Gmail => Gmail(account),
 		ProviderType.Microsoft365 => Graph(),
 		ProviderType.Imap => CalDav(account),
 		_ => throw new ArgumentOutOfRangeException(nameof(account.ProviderType), account.ProviderType, null),
 	};
 
-	private GoogleCalendarProvider Gmail()
-	{
-		var gmail = options.Value.Gmail;
-		if (!gmail.IsConfigured)
-		{
-			throw new ProviderNotConfiguredException(ProviderType.Gmail, "Google OAuth client registration");
-		}
-
-		return new GoogleCalendarProvider(
+	private GoogleCalendarProvider Gmail(Account account) =>
+		new(
 			new GmailOAuthAuthenticator(
 				credentials,
-				new ClientSecrets { ClientId = gmail.ClientId, ClientSecret = gmail.ClientSecret }
+				GmailClientRegistration.Resolve(account, options.Value, credentials)
 			)
 		);
-	}
 
 	private GraphCalendarProvider Graph()
 	{

@@ -20,6 +20,8 @@ export interface AddAccountRequest {
   certificateTrustMode: CertificateTrustMode;
   initialSyncMode: InitialSyncMode;
   initialSyncBoundValue?: number;
+  gmailClientId?: string;
+  gmailClientSecret?: string;
 }
 
 export const AddAccountRequestSchema = z.object({
@@ -32,4 +34,6 @@ export const AddAccountRequestSchema = z.object({
   certificateTrustMode: z.nativeEnum(CertificateTrustMode),
   initialSyncMode: z.nativeEnum(InitialSyncMode),
   initialSyncBoundValue: z.number().nullable(),
+  gmailClientId: z.string().nullable(),
+  gmailClientSecret: z.string().nullable(),
 });

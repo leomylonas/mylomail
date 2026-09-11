@@ -44,6 +44,9 @@ interface FormState {
 	providerType: ProviderType;
 	emailAddress: string;
 	secret: string;
+	useOwnGoogleClient: boolean;
+	gmailClientId: string;
+	gmailClientSecret: string;
 	host: string;
 	port: number;
 	useSsl: boolean;
@@ -74,6 +77,9 @@ const initial: FormState = {
 	providerType: ProviderType.Imap,
 	emailAddress: "",
 	secret: "",
+	useOwnGoogleClient: false,
+	gmailClientId: "",
+	gmailClientSecret: "",
 	host: "",
 	port: 993,
 	useSsl: true,
@@ -127,6 +133,14 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					form.initialSyncMode === InitialSyncMode.Full
 						? undefined
 						: form.initialSyncBoundValue,
+				gmailClientId:
+					form.providerType === ProviderType.Gmail && form.useOwnGoogleClient
+						? form.gmailClientId
+						: undefined,
+				gmailClientSecret:
+					form.providerType === ProviderType.Gmail && form.useOwnGoogleClient
+						? form.gmailClientSecret
+						: undefined,
 			};
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
@@ -166,7 +180,13 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		form.secret &&
 		form.smtpHost,
 	);
-	const oauthReady = Boolean(form.displayName && form.emailAddress);
+	const oauthReady = Boolean(
+		form.displayName &&
+		form.emailAddress &&
+		(form.providerType !== ProviderType.Gmail ||
+			!form.useOwnGoogleClient ||
+			(form.gmailClientId && form.gmailClientSecret)),
+	);
 
 	return (
 		<div className={styles.form}>
@@ -210,7 +230,6 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 			/>
 			{form.providerType === ProviderType.Imap ? (
 				<>
-
 					<div className={styles.row}>
 						<TextInput
 							id="add-account-host"
@@ -283,9 +302,47 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					)}
 				</>
 			) : (
-				<p className={styles.helper}>
-					A browser window will open for secure provider sign-in.
-				</p>
+				<>
+					<p className={styles.helper}>
+						A browser window will open for secure provider sign-in.
+					</p>
+					{form.providerType === ProviderType.Gmail ? (
+						<>
+							<Toggle
+								id="add-account-google-byoc"
+								labelText="Use your own Google OAuth client"
+								toggled={form.useOwnGoogleClient}
+								onToggle={(checked) => set("useOwnGoogleClient", checked)}
+							/>
+							{form.useOwnGoogleClient ? (
+								<>
+									<TextInput
+										id="add-account-google-client-id"
+										labelText="Google OAuth client ID"
+										value={form.gmailClientId}
+										onChange={(event) =>
+											set("gmailClientId", event.target.value)
+										}
+									/>
+									<PasswordInput
+										id="add-account-google-client-secret"
+										labelText="Google OAuth client secret"
+										value={form.gmailClientSecret}
+										onChange={(event) =>
+											set("gmailClientSecret", event.target.value)
+										}
+									/>
+									<p className={styles.helper}>
+										Create a Desktop app OAuth client, enable the Gmail, Google
+										Calendar, and People APIs, and publish the consent screen
+										for normal use. Projects left in Testing issue refresh
+										tokens that expire after about seven days.
+									</p>
+								</>
+							) : null}
+						</>
+					) : null}
+				</>
 			)}
 
 			<RadioButtonGroup

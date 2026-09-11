@@ -12,6 +12,7 @@ public static class CredentialSlots
 	public const string Primary = "primary";
 	public const string CalDav = "caldav-basic";
 	public const string Smtp = "smtp-basic";
+	public const string GmailClientSecret = "gmail-client-secret";
 
 	/// <summary>
 	/// Derives an opaque account-local key for a secondary credential. The underlying store is

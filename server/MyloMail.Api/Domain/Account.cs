@@ -130,7 +130,15 @@ public enum CredentialSource
 	Independent,
 }
 
-public sealed class GmailProviderConfig : ProviderConfig;
+public sealed class GmailProviderConfig : ProviderConfig
+{
+	/// <summary>
+	/// Optional per-account installed-app client id for bring-your-own-credentials (§5).
+	/// The matching client secret stays in <c>ICredentialStore</c>; a null value selects the
+	/// deployment registration.
+	/// </summary>
+	public string? ClientId { get; set; }
+}
 
 public sealed class Microsoft365ProviderConfig : ProviderConfig
 {
