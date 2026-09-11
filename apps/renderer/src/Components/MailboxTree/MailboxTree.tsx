@@ -15,6 +15,7 @@ import {
 import {
 	CoverageStatus,
 	InitialSyncMode,
+	MailboxAvailability,
 	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
@@ -37,6 +38,7 @@ export interface Mailbox {
 	providerUnreadCount: number | null;
 	localCount: number;
 	isCollapsed: boolean;
+	availability: MailboxAvailability;
 	coverage: CoverageStatus;
 	initialSyncModeOverride: InitialSyncMode | null;
 	initialSyncBoundValueOverride: number | null;

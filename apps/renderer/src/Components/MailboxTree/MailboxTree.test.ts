@@ -3,6 +3,7 @@ import {
 	mailboxMoveActions,
 	type Mailbox,
 } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
+import { MailboxAvailability } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 	return {
@@ -12,6 +13,7 @@ function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 		providerUnreadCount: null,
 		localCount: 0,
 		isCollapsed: false,
+		availability: MailboxAvailability.Usable,
 		coverage: 0,
 		initialSyncModeOverride: null,
 		initialSyncBoundValueOverride: null,

@@ -19,10 +19,11 @@
 - Parity remediation 14/47: content acquisition now captures the exact local occurrence, provider occurrence, mailbox, and topology generation before every provider fetch, then rechecks that snapshot inside the content transaction before any raw MIME, derived body, attachment, search, or state write. Successful and failed stale fetches are discarded without consuming the replacement incarnation's retry budget; crash injection proves the derived-content transaction rolls back before commit. Deferred acquisition is explicit, and bulk export retains the same manifest position until fresh content is available instead of silently omitting it.
 - Parity remediation 15/47: coverage pages now recheck the durable account row inside the same transaction that would apply provider observations and advance coverage. A page returning after soft disable or the first phase of account removal aborts before ingestion, notification linkage, resume-token updates, commit, and every successor enqueue; hard deletion fails the same existence-and-enabled check.
 - Parity remediation 16/47: triggered cursor resynchronisation now advances topology generation for mailbox-scoped streams as well as every mailbox owned by an account-scoped stream. Cursor clearing, rebase cutoff/state, coverage reset, staged-event removal, generation invalidation, and integrity state share one save boundary, so in-flight content and mailbox work cannot survive a provider-identity epoch change.
+- Parity remediation 17/47: mailbox summaries now expose `Availability` independently from `Coverage`. Disabled accounts and unmaterialised provider mailboxes are unavailable; healthy backfills and covered mailboxes are usable; auth, topology, change-stream, coverage, and integrity failures are degraded; synthetic Gmail hierarchy nodes remain usable containers. One central projection serves API and SignalR producers, terminal sync failures and recoveries persist and publish their health transitions, cursor invalidation publishes every affected scope, and account-status events invalidate mailbox caches in every window.
 
 ## Next task
 
-- Expose the required mailbox availability projection separately from coverage.
+- Produce the required `MessageDeleted` SignalR events.
 
 ## Required reading
 
@@ -78,6 +79,9 @@
 - `pnpm check` after cursor-invalidation generation fencing: format, TypeScript, ESLint, Stylelint, build, 544 .NET tests, and 146 Vitest tests passed.
 - Cursor invalidation discrimination: removing the mailbox-scoped generation increment and moving `cursor-invalidation.after-apply-before-commit` after `SaveChangesAsync` made both `An_invalidated_cursor_triggers_resynchronisation` and `Cursor_invalidation_generation_and_reset_roll_back_together_on_crash` fail; restoring both invariants returned the suite to green.
 - Cursor invariant review found and closed test-scope gaps before commit. Graph now proves only the invalidated mailbox advances, Gmail proves every mailbox advances exactly once for its account-scoped stream, and the crash scenario observes all tracked resets before the fault then proves none persisted after restart. Final re-review found no remaining violations.
+- `pnpm check` after mailbox availability projection: format, TypeScript, ESLint, Stylelint, build, 554 .NET tests, and 146 Vitest tests passed.
+- Availability fault discrimination: moving `mailbox-health.after-apply-before-commit` after the coverage failure transaction made `Crash_before_health_commit_leaves_the_previous_availability_durable` fail; restoring it before the commit returned the full check to green. Failure/recovery regressions cover coverage, topology, integrity, mailbox-scoped change streams, the Gmail account-scoped baseline, cursor invalidation publication, and durable rebase recovery. Separate in-flight races prove stale Graph change-stream and IMAP integrity failures cannot degrade a replacement topology generation while Gmail health remains correctly account-scoped.
+- Availability invariant review found and closed missing terminal change-stream health, recovery announcements, Gmail concern attribution, and stale-generation failure writes before commit. Final re-review found no remaining violations.
 
 ## Live risks / decisions
 

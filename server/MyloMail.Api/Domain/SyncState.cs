@@ -51,6 +51,19 @@ public enum CoverageStatus
 }
 
 /// <summary>
+/// Whether a mailbox can currently serve its cached view. Orthogonal to
+/// <see cref="CoverageStatus"/>: a backfill in progress is usable, while a completed cache
+/// can be degraded by a sync or authentication fault.
+/// </summary>
+[TranspilationSource]
+public enum MailboxAvailability
+{
+	Usable,
+	Degraded,
+	Unavailable,
+}
+
+/// <summary>
 /// Live change tracking. Scope varies by provider: <see cref="MailboxId"/> is null for
 /// Gmail, whose history sequence is account-wide. Per-label cursors would be fiction, would
 /// consume the same stream repeatedly, and would race between label jobs (§1).

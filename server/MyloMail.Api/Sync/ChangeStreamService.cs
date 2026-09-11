@@ -127,6 +127,64 @@ public sealed class ChangeStreamService(
 		return new ChangeStreamOutcome(pages, stage, ResyncTriggered: false);
 	}
 
+	public async Task RecordFailureAsync(
+		Guid accountId,
+		Guid mailboxId,
+		int expectedTopologyGeneration,
+		Exception ex,
+		CancellationToken ct = default
+	)
+	{
+		context.ChangeTracker.Clear();
+		var strategy = context.Database.CreateExecutionStrategy();
+		Guid? scope = null;
+		var recorded = false;
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			var account = await context.Accounts.FirstOrDefaultAsync(
+				candidate => candidate.Id == accountId && candidate.IsEnabled,
+				ct
+			);
+			if (account is null)
+			{
+				return;
+			}
+
+			scope = account.ProviderType == ProviderType.Gmail ? null : mailboxId;
+			if (scope is not null
+				&& !await context.Mailboxes.AnyAsync(
+					mailbox => mailbox.Id == mailboxId
+						&& mailbox.AccountId == accountId
+						&& mailbox.ProviderMailboxId != null
+						&& mailbox.TopologyGeneration == expectedTopologyGeneration,
+					ct
+				))
+			{
+				return;
+			}
+
+			var state = await context.ChangeStreamStates.FirstOrDefaultAsync(
+				stream => stream.AccountId == accountId && stream.MailboxId == scope,
+				ct
+			);
+			if (state is null)
+			{
+				return;
+			}
+
+			state.LastError = ex.Message;
+			faults.Reached(FaultPoints.MailboxHealthAfterApplyBeforeCommit);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+			recorded = true;
+		});
+		if (recorded)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, accountId, scope, ct);
+		}
+	}
+
 	/// <summary>
 	/// Reports the mailbox's counts at the end of a run.
 	/// </summary>
@@ -137,36 +195,11 @@ public sealed class ChangeStreamService(
 	/// </remarks>
 	private async Task AnnounceMailboxAsync(Mailbox mailbox, CancellationToken ct)
 	{
-		var current = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailbox.Id, ct);
-		if (current is null)
+		var summary = await MailboxSummaryDtoFactory.GetAsync(context, mailbox.Id, ct);
+		if (summary is not null)
 		{
-			return;
+			await events.MailboxUpdatedAsync(summary);
 		}
-
-		var localCount = await context.MessageMailboxes.CountAsync(o => o.MailboxId == mailbox.Id, ct);
-		var coverage = await context
-			.MailboxCoverageStates.Where(c => c.MailboxId == mailbox.Id)
-			.Select(c => (CoverageStatus?)c.Status)
-			.FirstOrDefaultAsync(ct);
-
-		await events.MailboxUpdatedAsync(
-			new MailboxSummaryDto(
-				current.Id,
-				current.AccountId,
-				current.ParentId,
-				current.Name,
-				current.SpecialUse,
-				current.ProviderTotalCount,
-				current.ProviderUnreadCount,
-				localCount,
-				coverage ?? CoverageStatus.NotStarted,
-				current.IsCollapsed,
-				current.InitialSyncModeOverride,
-				current.InitialSyncBoundValueOverride,
-				current.ProviderMailboxId is null,
-				current.SpecialUseOverride
-			)
-		);
 	}
 
 	/// <summary>
@@ -242,11 +275,16 @@ public sealed class ChangeStreamService(
 				ct
 			);
 
+			var completesRebase = state.IsRebasing && result.NewCursor is not null;
 			if (result.NewCursor is not null)
 			{
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
 				state.IsRebasing = false;
+			}
+			if (completesRebase)
+			{
+				await ClearIntegrityErrorsAsync(account.Id, state.MailboxId, ct);
 			}
 
 			state.LastSyncedAt = clock.GetUtcNow();
@@ -404,10 +442,15 @@ public sealed class ChangeStreamService(
 
 			if (result.NewCursor is not null)
 			{
+				var completesRebase = state.IsRebasing;
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
+				state.IsRebasing = false;
+				if (completesRebase)
+				{
+					await ClearIntegrityErrorsAsync(account.Id, state.MailboxId, ct);
+				}
 			}
-			state.IsRebasing = false;
 
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
@@ -641,11 +684,39 @@ public sealed class ChangeStreamService(
 		faults.Reached(FaultPoints.CursorInvalidationAfterApplyBeforeCommit);
 		await context.SaveChangesAsync(ct);
 
+		await MailboxSummaryDtoFactory.AnnounceAsync(
+			context,
+			events,
+			account.Id,
+			state.MailboxId,
+			ct
+
+		);
+
 		logger.LogWarning(
 			"Cursor for mailbox {MailboxId} on account {AccountId} was invalidated; baseline will be re-established.",
 			mailbox.Id,
 			account.Id
 		);
+	}
+	private async Task ClearIntegrityErrorsAsync(
+		Guid accountId,
+		Guid? mailboxId,
+		CancellationToken ct
+	)
+	{
+		var states = await (
+			from integrityState in context.IntegrityReconciliationStates
+			join integrityMailbox in context.Mailboxes
+				on integrityState.MailboxId equals integrityMailbox.Id
+			where integrityMailbox.AccountId == accountId
+				&& (mailboxId == null || integrityState.MailboxId == mailboxId)
+			select integrityState
+		).ToListAsync(ct);
+		foreach (var integrityState in states)
+		{
+			integrityState.LastError = null;
+		}
 	}
 
 	/// <summary>

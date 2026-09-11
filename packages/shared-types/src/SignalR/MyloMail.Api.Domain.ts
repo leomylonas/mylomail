@@ -138,3 +138,10 @@ export enum CoverageStatus {
     Failed = 3,
 }
 
+/** Transpiled from MyloMail.Api.Domain.MailboxAvailability */
+export enum MailboxAvailability {
+    Usable = 0,
+    Degraded = 1,
+    Unavailable = 2,
+}
+

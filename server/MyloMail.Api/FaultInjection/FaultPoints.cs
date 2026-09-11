@@ -31,6 +31,9 @@ public static class FaultPoints
 	/// </summary>
 	public const string SyncPageBeforeCommit = "sync.page-before-commit";
 
+	/// <summary>A mailbox health failure is applied, before its transaction commits.</summary>
+	public const string MailboxHealthAfterApplyBeforeCommit = "mailbox-health.after-apply-before-commit";
+
 	/// <summary>After a sync page is applied locally, before its data and cursor commit.</summary>
 	public const string SyncPageAfterApplyBeforeCommit = "sync.page-after-apply-before-commit";
 

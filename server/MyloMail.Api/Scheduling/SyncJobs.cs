@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
@@ -129,6 +130,9 @@ public sealed class SyncJobs(
 		}
 
 		List<Guid> pending;
+		Guid? changeStreamMailboxId = null;
+		var changeStreamTopologyGeneration = 0;
+		var runningChangeStream = false;
 		try
 		{
 			await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
@@ -159,7 +163,11 @@ public sealed class SyncJobs(
 					.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 					.ThenBy(m => m.Id)
 					.FirstAsync(ct);
+				changeStreamMailboxId = streamMailbox.Id;
+				changeStreamTopologyGeneration = streamMailbox.TopologyGeneration;
+				runningChangeStream = true;
 				await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+				runningChangeStream = false;
 				pending = await context
 					.Mailboxes.Where(m => m.AccountId == accountId && m.ProviderMailboxId != null)
 					.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
@@ -180,8 +188,22 @@ public sealed class SyncJobs(
 			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
-		catch (Exception)
+		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
+			if (runningChangeStream && changeStreamMailboxId is Guid streamMailboxId)
+			{
+				await changes.RecordFailureAsync(
+					accountId,
+					streamMailboxId,
+					changeStreamTopologyGeneration,
+					ex,
+					ct
+				);
+			}
+			else
+			{
+				await topology.RecordFailureAsync(accountId, ex, ct);
+			}
 			polls.Stop(accountId, TopologyScope);
 			throw;
 		}
@@ -418,6 +440,18 @@ public sealed class SyncJobs(
 			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
+		catch (Exception ex) when (ex is not SimulatedCrashException)
+		{
+			await coverage.RecordFailureAsync(
+				accountId,
+				mailboxId,
+				mailbox.TopologyGeneration,
+				mailbox.CoveragePolicyGeneration,
+				ex,
+				ct
+			);
+			throw;
+		}
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{
@@ -499,8 +533,15 @@ public sealed class SyncJobs(
 			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
-		catch (Exception)
+		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
+			await changes.RecordFailureAsync(
+				accountId,
+				mailboxId,
+				mailbox.TopologyGeneration,
+				ex,
+				ct
+			);
 			polls.Stop(accountId, mailboxId);
 			throw;
 		}
@@ -612,8 +653,15 @@ public sealed class SyncJobs(
 			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
 			return;
 		}
-		catch (Exception)
+		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
+			await integrity.RecordFailureAsync(
+				accountId,
+				mailboxId,
+				mailbox.TopologyGeneration,
+				ex,
+				ct
+			);
 			integrityLoops.Stop(accountId, mailboxId);
 			throw;
 		}

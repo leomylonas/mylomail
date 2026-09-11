@@ -571,6 +571,7 @@ public sealed class SyncTests
 			}
 		);
 
+		harness.Events.Mailboxes.Clear();
 		harness.Provider.InvalidateCursors();
 		var outcome = await SyncAsync(harness);
 
@@ -596,6 +597,9 @@ public sealed class SyncTests
 			Assert.Equal(generationsBeforeInvalidation.Inbox + 1, mailbox.TopologyGeneration);
 			Assert.Equal(generationsBeforeInvalidation.Archive, archive.TopologyGeneration);
 		});
+		var invalidatedMailbox = Assert.Single(harness.Events.Mailboxes);
+		Assert.Equal("INBOX", invalidatedMailbox.Name);
+		Assert.Equal(MailboxAvailability.Unavailable, invalidatedMailbox.Availability);
 
 		await CoverAsync(harness);
 		await SyncAsync(harness);
@@ -609,7 +613,12 @@ public sealed class SyncTests
 				CoverageStatus.Covered,
 				(await context.MailboxCoverageStates.SingleAsync()).Status
 			);
+			Assert.Null((await context.IntegrityReconciliationStates.SingleAsync()).LastError);
 		});
+		Assert.Equal(
+			MailboxAvailability.Usable,
+			harness.Events.Mailboxes.Last().Availability
+		);
 	}
 
 	[Fact]
@@ -706,6 +715,7 @@ public sealed class SyncTests
 				.GetRequiredService<MyloMailDbContext>()
 				.Mailboxes.ToDictionaryAsync(m => m.Id, m => m.TopologyGeneration)
 		);
+		harness.Events.Mailboxes.Clear();
 
 		harness.Provider.InvalidateCursors();
 		var outcome = await SyncAsync(harness);
@@ -727,6 +737,11 @@ public sealed class SyncTests
 					)
 			);
 		});
+		Assert.Equal(2, harness.Events.Mailboxes.Count);
+		Assert.All(
+			harness.Events.Mailboxes,
+			mailbox => Assert.Equal(MailboxAvailability.Unavailable, mailbox.Availability)
+		);
 	}
 
 	/// <summary>

@@ -89,6 +89,7 @@ public sealed class TopologySyncService(
 		}
 
 		var state = await context.MailboxTopologySyncStates.FirstOrDefaultAsync(s => s.AccountId == account.Id, ct);
+		var availabilityRecovered = state?.LastError is not null;
 		if (state is null)
 		{
 			state = new MailboxTopologySyncState { AccountId = account.Id };
@@ -117,8 +118,62 @@ public sealed class TopologySyncService(
 		{
 			await events.MailboxTreeChangedAsync(account.Id);
 		}
+		if (availabilityRecovered)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(
+				context,
+				events,
+				account.Id,
+				mailboxId: null,
+				ct
+			);
+		}
 
 		return new TopologyChange(added, updated, removed);
+	}
+
+	public async Task RecordFailureAsync(
+		Guid accountId,
+		Exception ex,
+		CancellationToken ct = default
+	)
+	{
+		context.ChangeTracker.Clear();
+		var strategy = context.Database.CreateExecutionStrategy();
+		var recorded = false;
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			if (!await context.Accounts.AnyAsync(a => a.Id == accountId && a.IsEnabled, ct))
+			{
+				return;
+			}
+
+			var state = await context.MailboxTopologySyncStates.FirstOrDefaultAsync(
+				topologyState => topologyState.AccountId == accountId,
+				ct
+			);
+			if (state is null)
+			{
+				state = new MailboxTopologySyncState { AccountId = accountId };
+				context.MailboxTopologySyncStates.Add(state);
+			}
+			state.LastError = ex.Message;
+			faults.Reached(FaultPoints.MailboxHealthAfterApplyBeforeCommit);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+			recorded = true;
+		});
+		if (recorded)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(
+				context,
+				events,
+				accountId,
+				mailboxId: null,
+				ct
+			);
+		}
 	}
 
 	private (int Added, int Removed) ReconcileGmailHierarchy(

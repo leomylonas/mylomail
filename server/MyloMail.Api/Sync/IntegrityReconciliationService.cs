@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -21,6 +23,8 @@ public sealed class IntegrityReconciliationService(
 	IMailProviderFactory providers,
 	MessageIngestor ingestor,
 	TimeProvider clock,
+	IHubEvents events,
+	IFaultInjector faults,
 	ILogger<IntegrityReconciliationService> logger
 )
 {
@@ -47,6 +51,7 @@ public sealed class IntegrityReconciliationService(
 		var snapshot = await provider.GetMailboxIntegritySnapshotAsync(account, mailbox, known, ct);
 
 		var strategy = context.Database.CreateExecutionStrategy();
+		var availabilityRecovered = false;
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
@@ -58,6 +63,7 @@ public sealed class IntegrityReconciliationService(
 			await ingestor.ApplyFlagChangesAsync(mailbox, snapshot.FlagChanges, generations, ct);
 
 			var state = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(s => s.MailboxId == mailbox.Id, ct);
+			availabilityRecovered = state?.LastError is not null;
 			if (state is null)
 			{
 				state = new IntegrityReconciliationState { MailboxId = mailbox.Id };
@@ -69,7 +75,58 @@ public sealed class IntegrityReconciliationService(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+		if (availabilityRecovered)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
+		}
 
 		logger.LogInformation("Completed periodic integrity reconciliation for mailbox {MailboxId}.", mailbox.Id);
+	}
+
+	public async Task RecordFailureAsync(
+		Guid accountId,
+		Guid mailboxId,
+		int expectedTopologyGeneration,
+		Exception ex,
+		CancellationToken ct = default
+	)
+	{
+		context.ChangeTracker.Clear();
+		var strategy = context.Database.CreateExecutionStrategy();
+		var recorded = false;
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			if (!await context.Accounts.AnyAsync(a => a.Id == accountId && a.IsEnabled, ct)
+				|| !await context.Mailboxes.AnyAsync(
+					mailbox => mailbox.Id == mailboxId
+						&& mailbox.AccountId == accountId
+						&& mailbox.ProviderMailboxId != null
+						&& mailbox.TopologyGeneration == expectedTopologyGeneration,
+					ct
+				))
+			{
+				return;
+			}
+
+			var state = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(
+				integrityState => integrityState.MailboxId == mailboxId,
+				ct
+			);
+			if (state is null)
+			{
+				state = new IntegrityReconciliationState { MailboxId = mailboxId };
+				context.IntegrityReconciliationStates.Add(state);
+			}
+			state.LastError = ex.Message;
+			faults.Reached(FaultPoints.MailboxHealthAfterApplyBeforeCommit);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+			recorded = true;
+		});
+		if (recorded)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, accountId, mailboxId, ct);
+		}
 	}
 }

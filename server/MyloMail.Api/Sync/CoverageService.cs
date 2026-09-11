@@ -64,9 +64,14 @@ public sealed class CoverageService(
 		var mode = mailbox.InitialSyncModeOverride ?? account.InitialSyncMode;
 		var bound = mailbox.InitialSyncBoundValueOverride ?? account.InitialSyncBoundValue;
 
+		var availabilityChanged = coverage.Status != CoverageStatus.Backfilling;
 		coverage.Status = CoverageStatus.Backfilling;
 		coverage.StartedAt ??= clock.GetUtcNow();
 		await context.SaveChangesAsync(ct);
+		if (availabilityChanged)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
+		}
 
 		// Captured before the call: this records the incarnation the page is being fetched
 		// for, which is the only thing it is valid to write against.
@@ -158,6 +163,7 @@ public sealed class CoverageService(
 		await events.SyncProgressAsync(
 			new SyncProgressDto(mailbox.Id, coverage.Status, coverage.MessagesFetched, coverage.EstimatedTotal)
 		);
+		await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
 		foreach (var draftId in changedDraftIds)
 		{
 			await events.DraftUpdatedAsync(draftId);
@@ -175,6 +181,65 @@ public sealed class CoverageService(
 		);
 
 		return page.HasMore;
+	}
+
+	public async Task RecordFailureAsync(
+		Guid accountId,
+		Guid mailboxId,
+		int expectedTopologyGeneration,
+		int expectedPolicyGeneration,
+		Exception ex,
+		CancellationToken ct = default
+	)
+	{
+		context.ChangeTracker.Clear();
+		var strategy = context.Database.CreateExecutionStrategy();
+		var recorded = false;
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			if (!await context.Accounts.AnyAsync(a => a.Id == accountId && a.IsEnabled, ct))
+			{
+				return;
+			}
+			if (!await context.Mailboxes.AnyAsync(
+					mailbox => mailbox.Id == mailboxId
+						&& mailbox.AccountId == accountId
+						&& mailbox.ProviderMailboxId != null
+						&& mailbox.TopologyGeneration == expectedTopologyGeneration
+						&& mailbox.CoveragePolicyGeneration == expectedPolicyGeneration,
+					ct
+				))
+			{
+				return;
+			}
+
+
+			var state = await context.MailboxCoverageStates.FirstOrDefaultAsync(
+				coverage => coverage.MailboxId == mailboxId,
+				ct
+			);
+			if (state is null)
+			{
+				return;
+			}
+			if (state.Status == CoverageStatus.Covered)
+			{
+				return;
+			}
+
+
+			state.Status = CoverageStatus.Failed;
+			state.LastError = ex.Message;
+			faults.Reached(FaultPoints.MailboxHealthAfterApplyBeforeCommit);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+			recorded = true;
+		});
+		if (recorded)
+		{
+			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, accountId, mailboxId, ct);
+		}
 	}
 
 	/// <summary>Runs pages until coverage completes.</summary>

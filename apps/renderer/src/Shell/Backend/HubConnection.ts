@@ -86,10 +86,13 @@ export function connectHub(
 		);
 	});
 
-	// Adding or removing an account changes what every window can show, and the account list
-	// is otherwise fetched once and never again.
-	hub.on("AccountStatusChanged", () => {
+	// Account health contributes to every mailbox's availability as well as the account row,
+	// so both caches move together in every open window.
+	hub.on("AccountStatusChanged", (account: { id: string }) => {
 		void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+		void queryClient.invalidateQueries({
+			queryKey: queryKeys.mailboxes(account.id),
+		});
 	});
 
 	hub.on("MailboxUpdated", (mailbox: { accountId: string }) => {

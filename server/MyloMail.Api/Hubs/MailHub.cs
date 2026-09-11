@@ -301,43 +301,8 @@ public class MailHub(
 	IIncomingMailAuthentication authentication
 ) : Hub<IMailClient>, IMailHub
 {
-	public async Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId)
-	{
-		var mailboxes = await context
-			.Mailboxes.Where(m => m.AccountId == accountId)
-			.Select(m => new
-			{
-				Mailbox = m,
-				LocalCount = context.MessageMailboxes.Count(o => o.MailboxId == m.Id),
-				Coverage = context
-					.MailboxCoverageStates.Where(c => c.MailboxId == m.Id)
-					.Select(c => (CoverageStatus?)c.Status)
-					.FirstOrDefault(),
-			})
-			.ToListAsync();
-
-		return
-		[
-			.. mailboxes
-				.OrderBy(row => row.Mailbox.LocalSortOrder)
-				.Select(row => new MailboxSummaryDto(
-					row.Mailbox.Id,
-					row.Mailbox.AccountId,
-					row.Mailbox.ParentId,
-					row.Mailbox.Name,
-					row.Mailbox.SpecialUse,
-					row.Mailbox.ProviderTotalCount,
-					row.Mailbox.ProviderUnreadCount,
-					row.LocalCount,
-					row.Coverage ?? CoverageStatus.NotStarted,
-					row.Mailbox.IsCollapsed,
-					row.Mailbox.InitialSyncModeOverride,
-					row.Mailbox.InitialSyncBoundValueOverride,
-					row.Mailbox.ProviderMailboxId is null,
-					row.Mailbox.SpecialUseOverride
-				)),
-		];
-	}
+	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
+		MailboxSummaryDtoFactory.ListAsync(context, accountId);
 
 	public async Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take)
 	{

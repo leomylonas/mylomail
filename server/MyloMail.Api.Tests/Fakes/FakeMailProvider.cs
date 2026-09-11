@@ -35,6 +35,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	private Exception? mailboxOperationFailure;
 	private Exception? deleteDraftFailure;
 	private Exception? listMailboxesFailure;
+	private Exception? integrityFailure;
+	private Exception? changeStreamFailure;
 	private int draftPushSuccessesBeforeFailure;
 	private string? authFailure;
 	private readonly Dictionary<string, DraftResult> draftsByStableMessageId = [];
@@ -58,6 +60,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	public TimeSpan IdleCancellationDelay { get; set; }
 	public Func<MessageOccurrenceRef, Task>? BeforeFetchRawMessageReturnAsync { get; set; }
 	public Func<Task>? BeforeInitialSyncReturnAsync { get; set; }
+	public Func<Task>? BeforeChangeStreamReturnAsync { get; set; }
+	public Func<Task>? BeforeIntegritySnapshotReturnAsync { get; set; }
 	public TaskCompletionSource<bool> IdleStarted { get; } =
 		new(TaskCreationOptions.RunContinuationsAsynchronously);
 	public TaskCompletionSource<bool> IdleCancellationObserved { get; } =
@@ -101,6 +105,10 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 	/// <summary>One-shot: fails the next <see cref="ListMailboxesAsync"/> call, then clears.</summary>
 	public void FailListMailboxesWith(Exception failure) => listMailboxesFailure = failure;
+
+	public void FailNextIntegrityWith(Exception failure) => integrityFailure = failure;
+
+	public void FailNextChangeStreamWith(Exception failure) => changeStreamFailure = failure;
 
 	/// <summary>
 	/// Makes a later draft push throw after minting a provider id (a real remote draft was
@@ -262,7 +270,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		);
 	}
 
-	public Task<SyncResult> SyncMailboxAsync(
+	public async Task<SyncResult> SyncMailboxAsync(
 		Account account,
 		Mailbox mailbox,
 		ProviderCursorState? cursor,
@@ -270,6 +278,17 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		CancellationToken ct
 	)
 	{
+		if (BeforeChangeStreamReturnAsync is not null)
+		{
+			await BeforeChangeStreamReturnAsync();
+		}
+
+		if (changeStreamFailure is { } failure)
+		{
+			changeStreamFailure = null;
+			throw failure;
+		}
+
 		if (cursor is not null && CursorGenerationOf(cursor) != cursorGeneration)
 		{
 			throw new ProviderCursorInvalidException(
@@ -290,30 +309,39 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 			removed = removed.Where(item => item.Value > highestModSeq);
 		}
 
-		return Task.FromResult(
-			new SyncResult(
-				// Null while the walk is incomplete, unless this provider's cursor is monotone
-				// over what has already been returned.
-				more && !Capabilities.AdvancesCursorMidWalk ? null : CurrentCursor(),
-				more ? consumed.ToString() : null,
-				[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
-				[],
-				[
-					.. removed.Select(item =>
-						new OccurrenceRemoval(source.ProviderMailboxId, item.Key)
-					),
-				]
-			)
+		return new SyncResult(
+			// Null while the walk is incomplete, unless this provider's cursor is monotone
+			// over what has already been returned.
+			more && !Capabilities.AdvancesCursorMidWalk ? null : CurrentCursor(),
+			more ? consumed.ToString() : null,
+			[.. page.Select(kv => ToDto(source.ProviderMailboxId, kv.Key, kv.Value))],
+			[],
+			[
+				.. removed.Select(item =>
+					new OccurrenceRemoval(source.ProviderMailboxId, item.Key)
+				),
+			]
 		);
 	}
 
-	public Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
+	public async Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(
 		Account account,
 		Mailbox mailbox,
 		IReadOnlyList<MessageOccurrenceRef> knownOccurrences,
 		CancellationToken ct
 	)
 	{
+		if (BeforeIntegritySnapshotReturnAsync is not null)
+		{
+			await BeforeIntegritySnapshotReturnAsync();
+		}
+
+		if (integrityFailure is { } failure)
+		{
+			integrityFailure = null;
+			throw failure;
+		}
+
 		var source = Require(ProviderIdOf(mailbox));
 		var flags = Capabilities.SupportsIncrementalFlagChanges
 			? []
@@ -323,7 +351,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 				pair.Value.IsRead,
 				pair.Value.IsFlagged
 			)).ToList();
-		return Task.FromResult(new MailboxIntegritySnapshot(source.Messages.Keys.ToHashSet(), flags));
+		return new MailboxIntegritySnapshot(source.Messages.Keys.ToHashSet(), flags);
 	}
 
 	private static int CursorGenerationOf(ProviderCursorState cursor) =>

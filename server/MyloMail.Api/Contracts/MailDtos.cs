@@ -37,6 +37,7 @@ public record MailboxSummaryDto(
 	int? ProviderTotalCount,
 	int? ProviderUnreadCount,
 	int LocalCount,
+	MailboxAvailability Availability,
 	CoverageStatus Coverage,
 	bool IsCollapsed,
 	InitialSyncMode? InitialSyncModeOverride,
