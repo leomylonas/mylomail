@@ -1045,12 +1045,21 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 - **Live per-window state** is independent — resizing one window updates only that window's in-memory layout and writes back to the shared default for future windows; it does not live-sync to other currently-open windows.
 ### Epic 12 — Contacts
 
-- Each account has a local contact projection. Google People and Microsoft Graph contacts synchronise two-way when their APIs are available; IMAP accounts use local-only contacts.
+- Each account has a local contact projection. Microsoft Graph contacts synchronise two-way when its API is available. Google People contacts synchronise provider creates and updates in both directions, but provider-backed deletion is deliberately unsupported as described below. IMAP accounts use local-only contacts.
 - A contact owns one or more normalised email addresses, a display name, a provider identifier when remote-backed, and a provider revision where the API supplies one. Local identity is permanent; provider identifiers are never used as primary keys.
-- Provider contact writes use their revision/ETag as a precondition. A stale write creates a durable conflict: the UI exposes keep-mine or keep-theirs rather than silently merging unrelated edits.
+- Provider contact writes use their revision/ETag as a precondition. A stale write creates a durable conflict: the UI exposes keep-mine or keep-theirs rather than silently merging unrelated edits. An operation that cannot enforce this precondition is not offered merely to claim uniform provider capability.
 - Compose autocompletes all account-local contacts. Contacts discovered from a received or sent message are suggestions only; they never overwrite a user or provider-backed contact.
 
 **Contact-create ambiguity policy.** Google People and Microsoft Graph contacts do not accept a client-chosen idempotency key that guarantees create replay deduplication. After a dispatched create whose response was not durably recorded, reconciliation searches the full provider contact projection for exactly one contact whose normalised display name and complete normalised email set match the durable intended payload. It adopts that one result; zero or multiple matches remain `AmbiguousOutcome` and are never retried automatically. This favours an actionable unresolved contact over silently duplicating a person.
+
+**Google People deletion exception.** Google People does not offer an atomic revision or
+ETag precondition on `people.deleteContact`. MyloMail therefore does not delete a
+provider-backed Google contact: a read-then-delete sequence would race a remote edit and
+violate the conflict policy above. Locally created contacts under a Gmail account remain
+locally deletable, and remote deletions observed through Google sync still remove the local
+projection. Google creates and updates remain two-way. This is a deliberate capability
+limit, not an unimplemented retry path; a provider-backed contact must instead be deleted
+in Google.
 
 ### Epic 13 — Message Threading
 

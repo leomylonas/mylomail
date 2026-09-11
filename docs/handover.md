@@ -12,10 +12,11 @@
 - Parity remediation 7/47: separated IMAP Move to Trash from permanent deletion. Each dispatch resolves and durably records one stable local Trash target before the provider boundary; IMAP moves into that target, stale UIDs fail without side effects, and Basic-tier partial COPY recovery deletes only the exact original source UID. Ambiguous recovery uses the attempt-time target despite later special-use override changes and never treats heuristic Message-ID duplicates as mutation members.
 - Parity remediation 8/47: replaced per-message mutation requests with provider-native batches. IMAP now searches, changes flags, moves, and expunges UID sets per folder; Gmail trashes up to 100 messages per multipart batch; Graph permanently deletes up to 20 messages per JSON batch. Per-item outcomes remain correlated, Graph inner requests retain immutable-ID preference, and inner/outer throttling escalates the longest provider delay to the account gate.
 - Parity remediation 9/47: removed the bare `HttpClient` from Graph large-attachment uploads. Upload-session slices now use raw Kiota requests through the same Graph request adapter, preserving exact byte ranges, immutable-ID middleware, error mapping, and `Retry-After` translation. Graph authentication is explicitly allowlisted to `graph.microsoft.com`, so the pipeline omits bearer tokens from pre-authenticated Outlook upload URLs.
+- Parity remediation 10/47: resolved the Google contact deletion design conflict without weakening concurrency safety. The architecture now explicitly limits Google People two-way writes to creates and revision-checked updates, keeps remote deletion observations authoritative, permits local-contact deletion, and requires provider-backed contacts to be deleted in Google because `people.deleteContact` has no atomic revision precondition.
 
 ## Next task
 
-- Make the Google contact deletion limitation an explicit architecture contract.
+- Build Gmail's synthetic slash-delimited label hierarchy.
 
 ## Required reading
 
@@ -51,11 +52,12 @@
 - `pnpm check` after routing Graph upload-session PUTs through the central pipeline: format, TypeScript, ESLint, Stylelint, build, 520 .NET tests, and 146 Vitest tests passed.
 - Graph upload transport tests exercised a two-slice attachment, exact `Content-Range`/length values, immutable-ID middleware, off-host bearer suppression with zero token requests, and 429 `Retry-After` translation.
 - Graph upload invariant review found no remaining violations after restricting authentication to the Graph API host. It confirmed off-host pre-authenticated uploads retain the central middleware without leaking a bearer token.
+- `pnpm check` after resolving the Google contact deletion contract: format, TypeScript, ESLint, Stylelint, build, 520 .NET tests, and 146 Vitest tests passed.
+- Contact contract review matched the implemented boundary: Google creates/updates remain revision-aware and two-way; local deletes and remote deletion observations remain supported; only unsafe provider-backed Google deletion is deliberately unavailable.
 
 ## Live risks / decisions
 
 - Live Google provider authentication remains unverified without real external credentials; the account-owned registration path is covered through factory resolution and the actual Electron setup surface.
-- Provider-backed Google contact deletion remains disabled because Google People offers no atomic revision precondition. The architecture contract must be made explicit rather than weakening conflict safety.
 - Existing `UseSsl=false` accounts are upgraded to mandatory STARTTLS rather than allowed to continue sending passwords in plaintext. Servers without STARTTLS now fail closed with a mapped account error.
 - The real-Dovecot QRESYNC regression is committed under the existing `Deep`/`Conformance` suite but was not executed because `pnpm check:deep` was not requested; the normal fake-provider crash/replay scenario passed.
 - The live-Dovecot Move-to-Trash regression covers all three IMAP capability tiers but remains under the existing `Deep`/`Conformance` suite; it was not executed because `pnpm check:deep` was not requested.
