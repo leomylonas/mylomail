@@ -11,7 +11,12 @@ namespace MyloMail.Api.Providers.Contracts;
 /// staleness the mutation chain exists to prevent (§1, §6). It is constructed at execution
 /// time, from stable local intent, and discarded with the attempt.
 /// </remarks>
-public record MessageOccurrenceRef(Guid MessageId, Guid MailboxId, string ProviderOccurrenceId);
+public record MessageOccurrenceRef(
+	Guid MessageId,
+	Guid MailboxId,
+	string ProviderOccurrenceId,
+	Guid? ResolvedTargetMailboxId = null
+);
 
 /// <summary>
 /// A partial flag update: null means leave unchanged. A mixed multi-select must not clobber

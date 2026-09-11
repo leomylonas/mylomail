@@ -1,3 +1,5 @@
+using MyloMail.Api.Domain;
+
 namespace MyloMail.Api.Providers;
 
 /// <summary>
@@ -15,6 +17,12 @@ public interface IProviderMailboxResolver
 	/// <summary>The current provider mailbox identifier for a local mailbox id.</summary>
 	/// <exception cref="KeyNotFoundException">The mailbox is not known locally.</exception>
 	string ProviderMailboxId(Guid mailboxId);
+
+	/// <summary>
+	/// Resolves a well-known mailbox to its stable local identity at execution time.
+	/// Returns null unless exactly one mailbox has that effective role.
+	/// </summary>
+	Guid? SpecialMailboxId(Guid accountId, SpecialUse specialUse);
 
 	/// <summary>
 	/// The full <paramref name="separator"/>-joined name from the account root down to this

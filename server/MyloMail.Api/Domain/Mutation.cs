@@ -188,6 +188,13 @@ public class MutationExecutionAttemptItem
 {
 	public Guid AttemptId { get; set; }
 	public Guid MutationItemId { get; set; }
+
+	/// <summary>
+	/// Stable local target selected for this dispatch. Provider identity is still resolved
+	/// at call time; persisting this prevents a later special-use override from changing
+	/// what an ambiguous attempt meant.
+	/// </summary>
+	public Guid? ResolvedTargetMailboxId { get; set; }
 }
 
 /// <summary>

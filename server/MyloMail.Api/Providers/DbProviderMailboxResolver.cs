@@ -30,6 +30,21 @@ public sealed class DbProviderMailboxResolver(MyloMailDbContext context) : IProv
 			);
 	}
 
+	public Guid? SpecialMailboxId(Guid accountId, Domain.SpecialUse specialUse)
+	{
+		var candidates = context
+			.Mailboxes.AsNoTracking()
+			.Where(m =>
+				m.AccountId == accountId
+				&& (m.SpecialUseOverride ?? m.SpecialUse) == specialUse
+			)
+			.Select(m => m.Id)
+			.Take(2)
+			.ToList();
+
+		return candidates.Count == 1 ? candidates[0] : null;
+	}
+
 	public string LocalPath(Guid mailboxId, char separator)
 	{
 		var segments = new List<string>();

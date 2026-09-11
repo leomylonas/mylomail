@@ -24,7 +24,11 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 	private readonly Dictionary<Guid, string> folders = [];
 	private readonly ImapMailProvider provider;
 
-	private ImapConformanceHarness(ImapConnectionSettings settings, string destinationFolder)
+	private ImapConformanceHarness(
+		ImapConnectionSettings settings,
+		string destinationFolder,
+		string trashFolder
+	)
 	{
 		this.settings = settings;
 		provider = new ImapMailProvider(settings, this);
@@ -39,6 +43,7 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 
 		Source = Register(SourceFolder, SpecialUse.Inbox);
 		Destination = Register(destinationFolder, SpecialUse.Archive);
+		Trash = Register(trashFolder, SpecialUse.Trash);
 	}
 
 	public static async Task<ImapConformanceHarness> CreateAsync(
@@ -53,13 +58,17 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 		await client.ConnectAsync(settings.Host, settings.Port, SocketOptions(settings.ImapSecurity), ct);
 		await AuthenticateAsync(client, settings, ct);
 
-		var archive = (await client.GetFoldersAsync(client.PersonalNamespaces[0], cancellationToken: ct))
-			.First(f => f.Attributes.HasFlag(FolderAttributes.Archive));
-
-		var destination = archive.FullName;
+		var folders = await client.GetFoldersAsync(
+			client.PersonalNamespaces[0],
+			cancellationToken: ct
+		);
+		var destination = folders
+			.First(f => f.Attributes.HasFlag(FolderAttributes.Archive))
+			.FullName;
+		var trash = folders.First(f => f.Attributes.HasFlag(FolderAttributes.Trash)).FullName;
 		await client.DisconnectAsync(true, ct);
 
-		return new ImapConformanceHarness(settings, destination);
+		return new ImapConformanceHarness(settings, destination, trash);
 	}
 
 	private Mailbox Register(string providerId, SpecialUse specialUse)
@@ -88,7 +97,12 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 
 	public Mailbox Destination { get; }
 
+	public Mailbox Trash { get; }
+
 	public string ProviderMailboxId(Guid mailboxId) => folders[mailboxId];
+
+	public Guid? SpecialMailboxId(Guid accountId, SpecialUse specialUse) =>
+		accountId == Account.Id && specialUse == SpecialUse.Trash ? Trash.Id : null;
 
 	public string LocalPath(Guid mailboxId, char separator) => folders[mailboxId];
 
@@ -97,11 +111,16 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 		CancellationToken ct = default
 	)
 	{
-		var uid = await AppendAsync(mailbox, ct);
-		return new MessageOccurrenceRef(Guid.NewGuid(), mailbox.Id, uid.Id.ToString());
+		var messageId = Guid.NewGuid();
+		var uid = await AppendAsync(mailbox, ct, messageId);
+		return new MessageOccurrenceRef(messageId, mailbox.Id, uid.Id.ToString());
 	}
 
-	private async Task<UniqueId> AppendAsync(Mailbox mailbox, CancellationToken ct)
+	private async Task<UniqueId> AppendAsync(
+		Mailbox mailbox,
+		CancellationToken ct,
+		Guid? messageId = null
+	)
 	{
 		using var client = await OpenClientAsync(ct);
 		var folder = await client.GetFolderAsync(ProviderMailboxId(mailbox.Id), ct);
@@ -109,6 +128,7 @@ public sealed class ImapConformanceHarness : IConformanceHarness, IProviderMailb
 
 		var message = new MimeMessage
 		{
+			MessageId = $"<{(messageId ?? Guid.NewGuid()):N}@mylomail.local>",
 			Subject = $"Conformance {Guid.NewGuid():N}",
 			Body = new TextPart("plain") { Text = "seeded by the conformance suite" },
 		};

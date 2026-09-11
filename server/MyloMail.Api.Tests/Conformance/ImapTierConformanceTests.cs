@@ -1,5 +1,6 @@
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Imap;
+using Xunit;
 
 namespace MyloMail.Api.Tests.Conformance;
 
@@ -38,6 +39,75 @@ public abstract class ImapConformanceTests : MailProviderConformanceTests
 				)
 			)
 			.ContinueWith(t => (IConformanceHarness)t.Result, TaskScheduler.Default);
+
+	[SkippableFact]
+	public async Task Move_to_trash_preserves_the_message_in_the_trash_mailbox()
+	{
+		Skip.If(SkipReason is not null, SkipReason ?? string.Empty);
+		var harness = Assert.IsType<ImapConformanceHarness>(Harness);
+		var occurrence = (await harness.SeedMessageAsync(harness.Source)) with
+		{
+			ResolvedTargetMailboxId = harness.Trash.Id,
+		};
+
+		var result = await harness.Provider.MoveToTrashAsync(
+			harness.Account,
+			[occurrence],
+			CancellationToken.None
+		);
+
+		var item = Assert.Single(result.Items);
+		Assert.True(item.Succeeded, item.Problem?.Detail);
+		Assert.Contains(
+			item.OccurrenceChanges,
+			change => change.MailboxId == harness.Source.Id && change.Removed
+		);
+
+		var staleOriginal = (await harness.SeedMessageAsync(harness.Source)) with
+		{
+			ResolvedTargetMailboxId = harness.Trash.Id,
+		};
+		var stale = staleOriginal with { ProviderOccurrenceId = "4294967000" };
+		var staleResult = await harness.Provider.MoveToTrashAsync(
+			harness.Account,
+			[stale],
+			CancellationToken.None
+		);
+		var staleItem = Assert.Single(staleResult.Items);
+		Assert.False(staleItem.Succeeded);
+		Assert.Equal("NOTFOUND", staleItem.Problem?.ProviderCode);
+
+		var source = await harness.Provider.InitialSyncMailboxAsync(
+			harness.Account,
+			harness.Source,
+			null,
+			InitialSyncMode.Full,
+			null,
+			int.MaxValue,
+			CancellationToken.None
+		);
+		var trash = await harness.Provider.InitialSyncMailboxAsync(
+			harness.Account,
+			harness.Trash,
+			null,
+			InitialSyncMode.Full,
+			null,
+			int.MaxValue,
+			CancellationToken.None
+		);
+		var messageIdHeader = $"<{occurrence.MessageId:N}@mylomail.local>";
+		var staleMessageIdHeader = $"<{stale.MessageId:N}@mylomail.local>";
+		Assert.DoesNotContain(source.Messages, message => message.MessageIdHeader == messageIdHeader);
+		Assert.Contains(
+			source.Messages,
+			message => message.MessageIdHeader == staleMessageIdHeader
+		);
+		Assert.Contains(trash.Messages, message => message.MessageIdHeader == messageIdHeader);
+		Assert.DoesNotContain(
+			trash.Messages,
+			message => message.MessageIdHeader == staleMessageIdHeader
+		);
+	}
 }
 
 /// <summary>CONDSTORE, QRESYNC, UIDPLUS and MOVE.</summary>

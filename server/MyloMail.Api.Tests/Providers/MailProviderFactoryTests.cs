@@ -223,6 +223,8 @@ public sealed class MailProviderFactoryTests
 	{
 		public string ProviderMailboxId(Guid mailboxId) => mailboxId.ToString();
 
+		public Guid? SpecialMailboxId(Guid accountId, MyloMail.Api.Domain.SpecialUse specialUse) => null;
+
 		public string LocalPath(Guid mailboxId, char separator) => mailboxId.ToString();
 	}
 

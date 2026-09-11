@@ -2,8 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
+using MyloMail.Api.Tests.Fakes;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Mutations;
@@ -55,6 +58,184 @@ public sealed class MutationExecutionTests
 
 			Assert.Equal(harness.ArchiveId, occurrence.MailboxId);
 			Assert.NotEqual(before, occurrence.ProviderOccurrenceId);
+		});
+	}
+
+	/// <summary>
+	/// Basic IMAP can confirm a move without returning the destination UID. The source
+	/// occurrence must remain locally addressable and the durable attempt must remain open
+	/// until provider observation materialises the replacement identity.
+	/// </summary>
+	[Fact]
+	public async Task A_uidless_imap_move_is_completed_only_after_destination_observation()
+	{
+		await using var harness = await MutationHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+
+		await ExecuteAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(harness.InboxId, (await context.MessageMailboxes.SingleAsync()).MailboxId);
+			Assert.Equal(MutationState.Leased, (await context.MutationItems.SingleAsync()).State);
+			Assert.Equal(
+				MutationAttemptState.Ambiguous,
+				(await context.MutationExecutionAttempts.SingleAsync()).State
+			);
+		});
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var occurrence = await context.MessageMailboxes.SingleAsync();
+			Assert.Equal(harness.ArchiveId, occurrence.MailboxId);
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+		});
+	}
+	/// <summary>
+	/// Basic IMAP can crash after COPY creates the Trash occurrence but before the source is
+	/// marked deleted and expunged. Recovery must finish only that source deletion; replaying
+	/// the whole move can create another Trash copy.
+	/// </summary>
+	[Fact]
+	public async Task A_partial_basic_imap_trash_move_finishes_source_deletion_without_recopying()
+	{
+		await using var harness = await MutationHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveToTrashAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		// The only durable fact is Dispatched. This server state is the Basic-tier crash
+		// window: COPY happened, while the source UID remains live.
+		harness.Provider.SeedMessage("TRASH", harness.MessageId, DateTimeOffset.UnixEpoch);
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var occurrence = await context.MessageMailboxes.SingleAsync();
+			Assert.Equal(harness.TrashId, occurrence.MailboxId);
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+		});
+	}
+
+	/// <summary>
+	/// The effective Trash role can change after dispatch. Recovery must keep the stable
+	/// local target captured by that attempt rather than reinterpret an ambiguous call.
+	/// </summary>
+	[Fact]
+	public async Task Trash_recovery_keeps_the_target_resolved_before_dispatch()
+	{
+		await using var harness = await MutationHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveToTrashAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(
+				harness.TrashId,
+				(await context.MutationExecutionAttemptItems.SingleAsync()).ResolvedTargetMailboxId
+			);
+
+			var originalTrash = await context.Mailboxes.SingleAsync(mailbox =>
+				mailbox.Id == harness.TrashId
+			);
+			var replacementTrash = await context.Mailboxes.SingleAsync(mailbox =>
+				mailbox.Id == harness.ArchiveId
+			);
+			originalTrash.SpecialUseOverride = SpecialUse.None;
+			replacementTrash.SpecialUseOverride = SpecialUse.Trash;
+			await context.SaveChangesAsync();
+		});
+
+		// Simulate the Basic-tier partial remote outcome in the originally resolved target.
+		harness.Provider.SeedMessage("TRASH", harness.MessageId, DateTimeOffset.UnixEpoch);
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+			Assert.Equal(harness.TrashId, (await context.MessageMailboxes.SingleAsync()).MailboxId);
+		});
+	}
+
+	/// <summary>
+	/// Message-ID and received-time matching is only a heuristic. A duplicate in another
+	/// folder must never be expunged while completing the known source half of a Trash COPY.
+	/// </summary>
+	[Fact]
+	public async Task Partial_trash_recovery_never_deletes_a_heuristic_duplicate()
+	{
+		await using var harness = await MutationHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveToTrashAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		harness.Provider.SeedMessage("TRASH", harness.MessageId, DateTimeOffset.UnixEpoch);
+		harness.Provider.SeedMessage("ARCHIVE", harness.MessageId, DateTimeOffset.UnixEpoch);
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
+			Assert.Equal(harness.TrashId, (await context.MessageMailboxes.SingleAsync()).MailboxId);
+
+			var archive = await context.Mailboxes.SingleAsync(mailbox =>
+				mailbox.Id == harness.ArchiveId
+			);
+			var page = await harness.Provider.InitialSyncMailboxAsync(
+				harness.Account,
+				archive,
+				null,
+				InitialSyncMode.Full,
+				null,
+				200,
+				CancellationToken.None
+			);
+			Assert.Contains(
+				page.Messages,
+				message => message.MessageIdHeader == $"<{harness.MessageId:N}@fake.test>"
+			);
 		});
 	}
 

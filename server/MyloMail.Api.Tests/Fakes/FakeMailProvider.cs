@@ -139,7 +139,10 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	{
 		var mailbox = Require(providerMailboxId);
 		var occurrenceId = NextOccurrenceId();
-		mailbox.Messages[occurrenceId] = new FakeMessage(messageId, receivedAt);
+		mailbox.Messages[occurrenceId] = new FakeMessage(messageId, receivedAt)
+		{
+			MessageIdHeader = $"<{messageId:N}@fake.test>",
+		};
 		return occurrenceId;
 	}
 

@@ -89,6 +89,16 @@ public sealed partial class ImapMailProvider
 
 				foreach (var (reference, uid) in group)
 				{
+					var present = await folder.SearchAsync(
+						MailKit.Search.SearchQuery.Uids(new UniqueIdRange(uid, uid)),
+						ct
+					);
+					if (present.Count == 0)
+					{
+						results.Add(NotFound(reference));
+						continue;
+					}
+
 					// A move mints a new UID in the destination, so the id the caller holds is
 					// dead the moment this succeeds. With UIDPLUS or MOVE the server returns
 					// the replacement; otherwise nothing does, and the absent id is what tells
@@ -124,11 +134,66 @@ public sealed partial class ImapMailProvider
 		CancellationToken ct
 	) => ExpungeAsync(refs, ct);
 
-	public Task<BatchResult> MoveToTrashAsync(
+	public async Task<BatchResult> MoveToTrashAsync(
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
-	) => ExpungeAsync(refs, ct);
+	)
+	{
+		var trashTargets = refs
+			.Select(reference => reference.ResolvedTargetMailboxId)
+			.Distinct()
+			.ToList();
+		if (trashTargets.Count != 1 || trashTargets[0] is not Guid trashId)
+		{
+			return new BatchResult(
+				[
+					.. refs.Select(reference => new BatchItemResult(
+						reference.MessageId,
+						reference.MailboxId,
+						false,
+						Problem(
+							ErrorCategory.ProviderRejected,
+							"Trash unavailable",
+							"The dispatch did not resolve exactly one Trash mailbox.",
+							"TRASH_UNAVAILABLE"
+						),
+						[]
+					)),
+				]
+			);
+		}
+
+		var alreadyTrashed = refs
+			.Where(reference => reference.MailboxId == trashId)
+			.Select(reference => new BatchItemResult(
+				reference.MessageId,
+				reference.MailboxId,
+				true,
+				null,
+				[]
+			))
+			.ToList();
+		var toMove = refs.Where(reference => reference.MailboxId != trashId).ToList();
+		if (toMove.Count == 0)
+		{
+			return new BatchResult(alreadyTrashed);
+		}
+
+		var moved = await MoveMessagesAsync(
+			account,
+			toMove,
+			new Mailbox
+			{
+				Id = trashId,
+				AccountId = account.Id,
+				ProviderMailboxId = mailboxes.ProviderMailboxId(trashId),
+				SpecialUse = SpecialUse.Trash,
+			},
+			ct
+		);
+		return new BatchResult([.. alreadyTrashed, .. moved.Items]);
+	}
 
 	public Task<BatchResult> DeletePermanentlyAsync(
 		Account account,
@@ -137,14 +202,10 @@ public sealed partial class ImapMailProvider
 	) => ExpungeAsync(refs, ct);
 
 	/// <summary>
-	/// Thin: all three deletion shapes flag <c>\Deleted</c> and expunge.
+	/// Membership removal and permanent deletion flag <c>\Deleted</c> and expunge.
+	/// Move-to-trash is deliberately separate and moves into the account's current Trash
+	/// mailbox instead.
 	/// </summary>
-	/// <remarks>
-	/// They stay separate methods because they mean different things and the difference is
-	/// user-visible (§2, §6) — trash should move to the Trash folder and permanent deletion
-	/// should not, which is stage C work. Collapsing them here is an implementation shortcut,
-	/// not a statement that they are the same operation.
-	/// </remarks>
 	private Task<BatchResult> ExpungeAsync(
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct

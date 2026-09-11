@@ -41,6 +41,7 @@ public sealed class MutationReconciler(
 		var settled = 0;
 		foreach (var attempt in attempts)
 		{
+			var memberships = attempt.Items.ToDictionary(membership => membership.MutationItemId);
 			var unresolved = attempt.Items
 				.Select(membership => items[membership.MutationItemId])
 				.Where(item => item.State is MutationState.Pending or MutationState.Leased)
@@ -84,7 +85,15 @@ public sealed class MutationReconciler(
 			foreach (var item in unresolved)
 			{
 				var locations = observed[item.Id];
-				var applied = await IsAppliedAsync(account, item, locations, ct);
+				var resolvedTargetMailboxId = memberships[item.Id].ResolvedTargetMailboxId;
+				locations = await CompletePartialImapTrashMoveAsync(
+					account,
+					item,
+					resolvedTargetMailboxId,
+					locations,
+					ct
+				);
+				var applied = IsApplied(account, item, resolvedTargetMailboxId, locations);
 				if (applied)
 				{
 					await SynchroniseLocationsAsync(item.MessageId, locations, ct);
@@ -136,23 +145,94 @@ public sealed class MutationReconciler(
 		return Task.CompletedTask;
 	}
 
-	private async Task<bool> IsAppliedAsync(
+	private async Task<IReadOnlyDictionary<Guid, string>> CompletePartialImapTrashMoveAsync(
 		Account account,
 		MutationItem item,
+		Guid? resolvedTargetMailboxId,
 		IReadOnlyDictionary<Guid, string> locations,
 		CancellationToken ct
+	)
+	{
+		if (account.ProviderType != ProviderType.Imap
+			|| item.OperationKind != MutationOperationKind.MoveToTrash)
+		{
+			return locations;
+		}
+
+		if (resolvedTargetMailboxId is not Guid trash || !locations.ContainsKey(trash))
+		{
+			return locations;
+		}
+
+		var source = await context
+			.MessageMailboxes.Where(occurrence => occurrence.MessageId == item.MessageId)
+			.OrderBy(occurrence => occurrence.MailboxId)
+			.FirstOrDefaultAsync(ct);
+		if (source is null || source.MailboxId == trash)
+		{
+			return locations;
+		}
+
+		// A basic IMAP server may have completed COPY but crashed before marking and
+		// expunging the source. The durable original dispatch already covers this
+		// continuation. Address only the still-persisted source UID selected for the original
+		// execution; heuristic Message-ID matches in other folders are observations, not proof
+		// that those messages belong to this mutation.
+		var sourceReference = new MessageOccurrenceRef(
+			item.MessageId,
+			source.MailboxId,
+			source.ProviderOccurrenceId
+		);
+		var provider = providers.For(account);
+		var sourceMailbox = await context.Mailboxes.FirstAsync(
+			mailbox => mailbox.Id == source.MailboxId,
+			ct
+		);
+		var sourceSnapshot = await provider.GetMailboxIntegritySnapshotAsync(
+			account,
+			sourceMailbox,
+			[sourceReference],
+			ct
+		);
+		if (sourceSnapshot.ExistingOccurrenceIds.Contains(source.ProviderOccurrenceId))
+		{
+			await provider.RemoveFromMailboxAsync(account, [sourceReference], ct);
+			sourceSnapshot = await provider.GetMailboxIntegritySnapshotAsync(
+				account,
+				sourceMailbox,
+				[sourceReference],
+				ct
+			);
+		}
+		var after = await ObserveAsync(account, item.MessageId, ct);
+		if (sourceSnapshot.ExistingOccurrenceIds.Contains(source.ProviderOccurrenceId)
+			|| !after.TryGetValue(trash, out var trashProviderId))
+		{
+			return after;
+		}
+
+		// The exact source UID is gone and Trash is present, so the intent is complete.
+		// Do not attach other heuristic Message-ID matches to this canonical message.
+		return new Dictionary<Guid, string> { [trash] = trashProviderId };
+	}
+
+	private static bool IsApplied(
+		Account account,
+		MutationItem item,
+		Guid? resolvedTargetMailboxId,
+		IReadOnlyDictionary<Guid, string> locations
 	)
 	{
 		switch (item.OperationKind)
 		{
 			case MutationOperationKind.MoveMessage:
-				return item.TargetMailboxId is Guid target && locations.ContainsKey(target);
+				return item.TargetMailboxId is Guid target
+					&& locations.ContainsKey(target)
+					&& (account.ProviderType != ProviderType.Imap || locations.Count == 1);
 			case MutationOperationKind.MoveToTrash:
-				var trashId = await context.Mailboxes
-					.Where(m => m.AccountId == account.Id && (m.SpecialUseOverride ?? m.SpecialUse) == SpecialUse.Trash)
-					.Select(m => (Guid?)m.Id)
-					.FirstOrDefaultAsync(ct);
-				return trashId is Guid trash && locations.ContainsKey(trash);
+				return resolvedTargetMailboxId is Guid trash
+					&& locations.ContainsKey(trash)
+					&& (account.ProviderType != ProviderType.Imap || locations.Count == 1);
 			case MutationOperationKind.RemoveFromMailbox:
 				return item.ScopeMailboxId is Guid scope && !locations.ContainsKey(scope);
 			case MutationOperationKind.DeletePermanently:

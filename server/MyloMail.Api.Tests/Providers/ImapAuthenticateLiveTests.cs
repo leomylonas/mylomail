@@ -85,6 +85,9 @@ public sealed class ImapAuthenticateLiveTests
 	{
 		public string ProviderMailboxId(Guid mailboxId) => throw new NotSupportedException();
 
+		public Guid? SpecialMailboxId(Guid accountId, MyloMail.Api.Domain.SpecialUse specialUse) =>
+			throw new NotSupportedException();
+
 		public string LocalPath(Guid mailboxId, char separator) => throw new NotSupportedException();
 	}
 }

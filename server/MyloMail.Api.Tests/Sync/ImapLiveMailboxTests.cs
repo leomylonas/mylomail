@@ -156,6 +156,14 @@ public sealed class ImapLiveMailboxTests
 			).ProviderMailboxId(mailboxId);
 		}
 
+		public Guid? SpecialMailboxId(Guid accountId, SpecialUse specialUse)
+		{
+			using var scope = services.CreateScope();
+			return new DbProviderMailboxResolver(
+				scope.ServiceProvider.GetRequiredService<MyloMailDbContext>()
+			).SpecialMailboxId(accountId, specialUse);
+		}
+
 		public string LocalPath(Guid mailboxId, char separator)
 		{
 			using var scope = services.CreateScope();

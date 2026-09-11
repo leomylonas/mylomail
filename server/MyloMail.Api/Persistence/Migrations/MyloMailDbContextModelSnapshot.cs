@@ -1174,6 +1174,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<Guid>("MutationItemId")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("ResolvedTargetMailboxId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("AttemptId", "MutationItemId");
 
                     b.HasIndex("MutationItemId");

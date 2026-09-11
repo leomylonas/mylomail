@@ -2,7 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Tests.Fakes;
+using MyloMail.Api.Tests.Persistence;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Sync;
@@ -26,6 +28,52 @@ public sealed class MailboxSpecialUseOverrideTests
 	{
 		var mailbox = new Mailbox { SpecialUse = synced, SpecialUseOverride = overrideValue };
 		Assert.Equal(expected, mailbox.EffectiveSpecialUse);
+	}
+
+	[Fact]
+	public async Task Special_mailbox_resolution_requires_one_effective_role()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		await using var scope = database.CreateScope();
+		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var accountId = Guid.NewGuid();
+		var primary = new Mailbox
+		{
+			Id = Guid.NewGuid(),
+			AccountId = accountId,
+			Name = "Trash",
+			ProviderMailboxId = "Trash",
+			SpecialUse = SpecialUse.Trash,
+		};
+		context.Accounts.Add(
+			new Account
+			{
+				Id = accountId,
+				DisplayName = "IMAP",
+				ProviderType = ProviderType.Imap,
+			}
+		);
+		context.Mailboxes.Add(primary);
+		await context.SaveChangesAsync();
+
+		var resolver = new DbProviderMailboxResolver(context);
+		Assert.Equal(primary.Id, resolver.SpecialMailboxId(accountId, SpecialUse.Trash));
+
+		context.Mailboxes.Add(
+			new Mailbox
+			{
+				Id = Guid.NewGuid(),
+				AccountId = accountId,
+				Name = "Bin",
+				ProviderMailboxId = "Bin",
+				SpecialUse = SpecialUse.None,
+				SpecialUseOverride = SpecialUse.Trash,
+			}
+		);
+		await context.SaveChangesAsync();
+
+		Assert.Null(resolver.SpecialMailboxId(accountId, SpecialUse.Trash));
 	}
 
 	/// <summary>

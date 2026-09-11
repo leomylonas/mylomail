@@ -61,9 +61,14 @@ internal sealed class MutationHarness : IAsyncDisposable
 
 	public Account Account { get; private set; } = null!;
 
-	public static async Task<MutationHarness> CreateAsync()
+	public static async Task<MutationHarness> CreateAsync(
+		ProviderCapabilities? capabilities = null
+	)
 	{
-		var harness = new MutationHarness(new TestDatabase(), new FakeMailProvider(ProviderShapes.Gmail));
+		var harness = new MutationHarness(
+			new TestDatabase(),
+			new FakeMailProvider(capabilities ?? ProviderShapes.Gmail)
+		);
 		await harness.Database.MigrateAsync();
 		await harness.SeedAsync();
 		return harness;
@@ -118,6 +123,8 @@ internal sealed class MutationHarness : IAsyncDisposable
 
 	public Guid ArchiveId { get; private set; }
 
+	public Guid TrashId { get; private set; }
+
 	public Guid MessageId { get; private set; }
 
 	private async Task SeedAsync()
@@ -129,10 +136,11 @@ internal sealed class MutationHarness : IAsyncDisposable
 		{
 			Id = Guid.NewGuid(),
 			DisplayName = "Fake",
-			ProviderType = ProviderType.Gmail,
+			ProviderType = Provider.Type,
 		};
 		InboxId = Guid.NewGuid();
 		ArchiveId = Guid.NewGuid();
+		TrashId = Guid.NewGuid();
 		MessageId = Guid.NewGuid();
 
 		// The fake server is seeded first, and the local occurrence id is whatever it minted
@@ -140,17 +148,22 @@ internal sealed class MutationHarness : IAsyncDisposable
 		// observe a move changing one.
 		Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		Provider.AddMailbox("ARCHIVE", SpecialUse.Archive);
+		Provider.AddMailbox("TRASH", SpecialUse.Trash);
 		var occurrenceId = Provider.SeedMessage("INBOX", MessageId, DateTimeOffset.UnixEpoch);
 
 		context.Accounts.Add(Account);
-		context.Mailboxes.Add(NewMailbox(InboxId, "INBOX"));
-		context.Mailboxes.Add(NewMailbox(ArchiveId, "ARCHIVE"));
+		context.Mailboxes.Add(NewMailbox(InboxId, "INBOX", SpecialUse.Inbox));
+		context.Mailboxes.Add(NewMailbox(ArchiveId, "ARCHIVE", SpecialUse.Archive));
+		context.Mailboxes.Add(NewMailbox(TrashId, "TRASH", SpecialUse.Trash));
 		context.Messages.Add(
 			new Message
 			{
 				Id = MessageId,
 				AccountId = Account.Id,
-				ProviderStableId = $"message-{MessageId}",
+				ProviderStableId = Provider.Type == ProviderType.Imap
+					? null
+					: $"message-{MessageId}",
+				MessageIdHeader = $"<{MessageId:N}@fake.test>",
 				ReceivedAt = DateTimeOffset.UnixEpoch,
 				Occurrences =
 				[
@@ -167,13 +180,14 @@ internal sealed class MutationHarness : IAsyncDisposable
 		await context.SaveChangesAsync();
 	}
 
-	private Mailbox NewMailbox(Guid id, string name) =>
+	private Mailbox NewMailbox(Guid id, string name, SpecialUse specialUse) =>
 		new()
 		{
 			Id = id,
 			AccountId = Account.Id,
 			ProviderMailboxId = name,
 			Name = name,
+			SpecialUse = specialUse,
 		};
 
 	public async ValueTask DisposeAsync()

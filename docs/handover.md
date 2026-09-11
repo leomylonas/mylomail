@@ -9,10 +9,11 @@
 - Parity remediation 4/47: exposed optional CalDAV setup for IMAP accounts. The form accepts an absolute HTTPS endpoint, an optional distinct login name, and either reuses the IMAP password or collects an independent CalDAV password; account creation stays gated until the selected credential mode is complete.
 - Parity remediation 5/47: replaced IMAP's shared `UseSsl` switch with explicit IMAP/SMTP transport-security and authentication modes. Password authentication is refused on plaintext transports; mandatory STARTTLS and OAuth2 are implemented; definite pre-send SMTP capability failures no longer become ambiguous sends. OAuth tokens retain their credential format during reauthentication, cannot be reused for CalDAV Basic authentication, and certificate bypass now carries an explicit account-wide warning. A data migration upgrades legacy settings to encrypted modes while preserving SMTP password authentication.
 - Parity remediation 6/47: enabled RFC 5162 QRESYNC immediately after IMAP authentication and changed incremental mailbox sync to resume from the prior UIDVALIDITY/mod-sequence, collect and deduplicate `VANISHED` UIDs, and return them as occurrence removals. QRESYNC IDLE sessions now wake on `MessagesVanished`. Removal application and cursor advancement remain one transaction, with an apply-before-commit fault boundary and a mod-sequence-aware fake provider.
+- Parity remediation 7/47: separated IMAP Move to Trash from permanent deletion. Each dispatch resolves and durably records one stable local Trash target before the provider boundary; IMAP moves into that target, stale UIDs fail without side effects, and Basic-tier partial COPY recovery deletes only the exact original source UID. Ambiguous recovery uses the attempt-time target despite later special-use override changes and never treats heuristic Message-ID duplicates as mutation members.
 
 ## Next task
 
-- Implement distinct IMAP Move to Trash semantics instead of permanently expunging messages.
+- Replace per-item provider mutation loops with native batch requests while preserving per-item results.
 
 ## Required reading
 
@@ -39,6 +40,9 @@
 - `pnpm check` after QRESYNC expunge support: format, TypeScript, ESLint, Stylelint, build, 508 .NET tests, and 146 Vitest tests passed.
 - Fault discrimination: removing change-stream occurrence application made `A_crash_before_a_qresync_removal_commit_replays_the_vanished_uid` fail; restoring the invariant returned the full check to green. The scenario now crashes after removals and the new mod-sequence are applied but before their transaction commits.
 - QRESYNC invariant review found no violations. It confirmed authentication-time enablement, pre-open `VANISHED` subscription, UIDVALIDITY handling, pagination/replay safety, atomic removal/cursor persistence, IDLE wakeups, and discriminating fake/live coverage.
+- `pnpm check` after distinct IMAP Trash semantics: format, TypeScript, ESLint, Stylelint, build, 513 .NET tests, and 146 Vitest tests passed.
+- Fault discrimination: replacing the persisted attempt-time Trash target with `MutationItem.TargetMailboxId` made all three Basic-tier recovery scenarios fail, including the override-change race. Earlier removals of unknown-destination waiting, partial cleanup, and exact-source scoping also failed their dedicated scenarios. Restoring each invariant returned the full check to green.
+- IMAP Trash invariant review found no remaining violations. It confirmed stale-UID handling, UID-less destination reconciliation, partial-COPY continuation, heuristic-duplicate isolation, attempt-time target persistence, role-change safety, and conservative requeue of legacy attempts whose target cannot be known.
 
 ## Live risks / decisions
 
@@ -46,4 +50,5 @@
 - Provider-backed Google contact deletion remains disabled because Google People offers no atomic revision precondition. The architecture contract must be made explicit rather than weakening conflict safety.
 - Existing `UseSsl=false` accounts are upgraded to mandatory STARTTLS rather than allowed to continue sending passwords in plaintext. Servers without STARTTLS now fail closed with a mapped account error.
 - The real-Dovecot QRESYNC regression is committed under the existing `Deep`/`Conformance` suite but was not executed because `pnpm check:deep` was not requested; the normal fake-provider crash/replay scenario passed.
+- The live-Dovecot Move-to-Trash regression covers all three IMAP capability tiers but remains under the existing `Deep`/`Conformance` suite; it was not executed because `pnpm check:deep` was not requested.
 - Work continues item-by-item from `docs/parity-audit.md`; each completed item updates this handover and receives its own commit.

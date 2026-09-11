@@ -17,6 +17,7 @@ namespace MyloMail.Api.Mutations;
 public sealed class MutationExecutor(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
+	IProviderMailboxResolver mailboxResolver,
 	TimeProvider clock,
 	IFaultInjector faults,
 	MutationChainEvaluator chains,
@@ -43,6 +44,24 @@ public sealed class MutationExecutor(
 		var provider = providers.For(account);
 		var operation = items[0].OperationKind;
 
+
+		Guid? resolvedTargetMailboxId = null;
+		if (operation == MutationOperationKind.MoveToTrash)
+		{
+			resolvedTargetMailboxId = mailboxResolver.SpecialMailboxId(account.Id, SpecialUse.Trash);
+			if (resolvedTargetMailboxId is null)
+			{
+				foreach (var item in items)
+				{
+					await chains.CancelUnsatisfiableAsync(
+						item,
+						"This account must have exactly one mailbox configured as Trash.",
+						ct
+					);
+				}
+				return;
+			}
+		}
 		// Execution identity is resolved here, after preceding mutations have settled —
 		// never captured at enqueue time, which would preserve the staleness the chain
 		// exists to prevent.
@@ -65,7 +84,10 @@ public sealed class MutationExecutor(
 				continue;
 			}
 
-			resolved.Add((item, occurrence));
+			resolved.Add((
+				item,
+				occurrence with { ResolvedTargetMailboxId = resolvedTargetMailboxId }
+			));
 		}
 
 		if (resolved.Count == 0)
@@ -84,7 +106,11 @@ public sealed class MutationExecutor(
 			CreatedAt = clock.GetUtcNow(),
 			Items =
 			[
-				.. resolved.Select(r => new MutationExecutionAttemptItem { MutationItemId = r.Item.Id }),
+				.. resolved.Select(r => new MutationExecutionAttemptItem
+				{
+					MutationItemId = r.Item.Id,
+					ResolvedTargetMailboxId = r.Ref.ResolvedTargetMailboxId,
+				}),
 			],
 		};
 		context.MutationExecutionAttempts.Add(attempt);
@@ -164,6 +190,16 @@ public sealed class MutationExecutor(
 					// An item the batch did not report on is unresolved, not successful.
 					// Leaving it in the dispatched attempt is what routes it to
 					// reconciliation rather than to a blind retry.
+					unresolved++;
+					continue;
+				}
+
+				if (outcome.Succeeded
+					&& outcome.OccurrenceChanges.Any(change => change.RequiresDestinationReconciliation))
+				{
+					// The provider confirmed the move but could not report the destination
+					// occurrence identity. Keep the durable attempt open until observation
+					// materialises that identity; completing here silently orphans the message.
 					unresolved++;
 					continue;
 				}
