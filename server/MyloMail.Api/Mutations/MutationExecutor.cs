@@ -46,6 +46,7 @@ public sealed class MutationExecutor(
 
 
 		Guid? resolvedTargetMailboxId = null;
+		var cancellations = new List<MutationFailureDto>();
 		if (operation == MutationOperationKind.MoveToTrash)
 		{
 			resolvedTargetMailboxId = mailboxResolver.SpecialMailboxId(account.Id, SpecialUse.Trash);
@@ -53,12 +54,15 @@ public sealed class MutationExecutor(
 			{
 				foreach (var item in items)
 				{
-					await chains.CancelUnsatisfiableAsync(
-						item,
-						"This account must have exactly one mailbox configured as Trash.",
-						ct
+					cancellations.Add(
+						await chains.CancelUnsatisfiableAsync(
+							item,
+							"This account must have exactly one mailbox configured as Trash.",
+							ct
+						)
 					);
 				}
+				await AnnounceCancellationsAsync(cancellations, ct);
 				return;
 			}
 		}
@@ -72,7 +76,9 @@ public sealed class MutationExecutor(
 				&& (item.TargetMailboxId is null
 					|| !await context.Mailboxes.AnyAsync(mailbox => mailbox.Id == item.TargetMailboxId, ct)))
 			{
-				await chains.CancelUnsatisfiableAsync(item, "The target mailbox no longer exists.", ct);
+				cancellations.Add(
+					await chains.CancelUnsatisfiableAsync(item, "The target mailbox no longer exists.", ct)
+				);
 				continue;
 			}
 			var occurrence = await ResolveAsync(item, ct);
@@ -80,7 +86,13 @@ public sealed class MutationExecutor(
 			{
 				// The intent is no longer satisfiable. It is cancelled, never silently
 				// broadened to a different occurrence.
-				await chains.CancelUnsatisfiableAsync(item, "The message is no longer where this operation refers to.", ct);
+				cancellations.Add(
+					await chains.CancelUnsatisfiableAsync(
+						item,
+						"The message is no longer where this operation refers to.",
+						ct
+					)
+				);
 				continue;
 			}
 
@@ -90,6 +102,7 @@ public sealed class MutationExecutor(
 			));
 		}
 
+		await AnnounceCancellationsAsync(cancellations, ct);
 		if (resolved.Count == 0)
 		{
 			return;
@@ -156,32 +169,68 @@ public sealed class MutationExecutor(
 		// Step 5 — per-item outcomes and the attempt's terminal state, in one transaction.
 		// An attempt is never observable as Completed with unpersisted results, nor results
 		// observable without the attempt closed.
-		var (failures, removedMessageIds) = await PersistResultsAsync(attempt, resolved, result, ct);
+		var persisted = await PersistResultsAsync(attempt, resolved, result, ct);
 
 		// After the commit. The user's optimistic change has just been reverted, so this is
 		// the only thing standing between them and a flag that silently springs back.
-		foreach (var failure in failures)
+		foreach (var failure in persisted.Failures)
 		{
 			await events.MessageSyncFailedAsync(failure);
 		}
 
 		// A confirmed removal of the last occurrence is the point the message stops existing
 		// as far as every open window is concerned (§7).
-		await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
+		var deleted = await MessageChangeAnnouncer.AnnounceDeletedAsync(
+			context,
+			events,
+			persisted.RemovedMessageIds,
+			ct
+		);
+
+		// A message this batch deleted is not also updated; for the rest, this is the
+		// confirmation §7 pairs with mutation job completion.
+		await MessageChangeAnnouncer.AnnounceUpdatedAsync(
+			context,
+			events,
+			[.. persisted.ConfirmedMessageIds.Except(deleted)],
+			ct
+		);
 	}
 
-	private async Task<(
-		IReadOnlyList<MutationFailureDto> Failures,
-		IReadOnlyList<Guid> RemovedMessageIds
-	)> PersistResultsAsync(
+	private async Task AnnounceCancellationsAsync(
+		List<MutationFailureDto> cancellations,
+		CancellationToken ct
+	)
+	{
+		if (cancellations.Count == 0)
+		{
+			return;
+		}
+
+		foreach (var cancellation in cancellations)
+		{
+			await events.MessageSyncFailedAsync(cancellation);
+		}
+
+		// The reverted optimistic state is as much of a change to what a window shows as a
+		// confirmed one, and only the acting window learns it from its own mutation call.
+		await MessageChangeAnnouncer.AnnounceUpdatedAsync(
+			context,
+			events,
+			[.. cancellations.Select(cancellation => cancellation.MessageId)],
+			ct
+		);
+		cancellations.Clear();
+	}
+
+	private async Task<PersistedResults> PersistResultsAsync(
 		MutationExecutionAttempt attempt,
 		List<(MutationItem Item, MessageOccurrenceRef Ref)> resolved,
 		BatchResult result,
 		CancellationToken ct
 	)
 	{
-		var failures = new List<MutationFailureDto>();
-		IReadOnlyList<Guid> removedMessageIds = [];
+		PersistedResults persisted = new([], [], []);
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -191,6 +240,8 @@ public sealed class MutationExecutor(
 			var failed = new List<MutationItem>();
 			var unresolved = 0;
 			var removed = new List<Guid>();
+			var failures = new List<MutationFailureDto>();
+			var confirmed = new List<Guid>();
 
 			foreach (var (item, reference) in resolved)
 			{
@@ -216,6 +267,7 @@ public sealed class MutationExecutor(
 				if (outcome.Succeeded)
 				{
 					await ApplySuccessAsync(item, outcome, removed, ct);
+					confirmed.Add(item.MessageId);
 				}
 				else
 				{
@@ -270,15 +322,15 @@ public sealed class MutationExecutor(
 			// current server-known state, not cancelled wholesale.
 			foreach (var item in failed)
 			{
-				await chains.ReevaluateAfterFailureAsync(item, ct);
+				failures.AddRange(await chains.ReevaluateAfterFailureAsync(item, ct));
 			}
 
 			await context.SaveChangesAsync(ct);
-			removedMessageIds = removed;
+			persisted = new PersistedResults([.. failures], [.. confirmed], [.. removed]);
 			await transaction.CommitAsync(ct);
 		});
 
-		return (failures, removedMessageIds);
+		return persisted;
 	}
 
 	private async Task ApplySuccessAsync(
@@ -420,3 +472,10 @@ public sealed class MutationExecutor(
 		}
 	}
 }
+
+/// <summary>What one persisted batch settled, for the announcements that follow its commit.</summary>
+internal sealed record PersistedResults(
+	IReadOnlyList<MutationFailureDto> Failures,
+	IReadOnlyList<Guid> ConfirmedMessageIds,
+	IReadOnlyList<Guid> RemovedMessageIds
+);

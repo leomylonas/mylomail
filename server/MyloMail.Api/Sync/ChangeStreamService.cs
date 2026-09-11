@@ -316,7 +316,7 @@ public sealed class ChangeStreamService(
 			await events.MessageUpdatedAsync(summaries[message.Id]);
 		}
 
-		await MessageDeletionAnnouncer.AnnounceAsync(context, events, applied.RemovedMessageIds, ct);
+		await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, applied.RemovedMessageIds, ct);
 
 		await notifications.AnnounceAsync(applied.EligibleNotifications);
 
@@ -589,7 +589,7 @@ public sealed class ChangeStreamService(
 				await events.MessageUpdatedAsync(summaries[message.Id]);
 			}
 
-			await MessageDeletionAnnouncer.AnnounceAsync(context, events, applied.RemovedMessageIds, ct);
+			await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, applied.RemovedMessageIds, ct);
 
 			foreach (var draftId in applied.DraftIds)
 			{

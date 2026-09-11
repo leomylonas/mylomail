@@ -81,7 +81,7 @@ public sealed class IntegrityReconciliationService(
 			await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailbox.Id, ct);
 		}
 
-		await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
+		await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, removedMessageIds, ct);
 
 		logger.LogInformation("Completed periodic integrity reconciliation for mailbox {MailboxId}.", mailbox.Id);
 	}

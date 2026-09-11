@@ -37,6 +37,42 @@ public sealed class MutationExecutionTests
 	}
 
 	/// <summary>
+	/// §7 pairs `MessageUpdated` with mutation job completion. Every window holds its own
+	/// optimistic projection, and only the one that issued the change hears the confirmation
+	/// from its own call.
+	/// </summary>
+	[Fact]
+	public async Task A_confirmed_flag_set_announces_the_message_as_updated()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+
+		await ExecuteAsync(harness);
+
+		var announced = Assert.Single(harness.Events.Updated);
+		Assert.Equal(harness.MessageId, announced.Id);
+		Assert.True(announced.IsRead);
+		Assert.Empty(harness.Events.SyncFailures);
+	}
+
+	/// <summary>
+	/// An intent the provider rejected is announced as a failure, not as a confirmation: the
+	/// server-known state it wanted never happened.
+	/// </summary>
+	[Fact]
+	public async Task A_rejected_flag_set_announces_no_confirmation()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		harness.Provider.RemoveMessage(await OccurrenceIdAsync(harness));
+
+		await ExecuteAsync(harness);
+
+		Assert.Empty(harness.Events.Updated);
+		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.SyncFailures).MessageId);
+	}
+
+	/// <summary>
 	/// A move mints a new occurrence id, exactly as an IMAP move changes the UID. The local
 	/// occurrence must be re-pointed at it, or the message is unaddressable from then on.
 	/// </summary>
@@ -134,6 +170,7 @@ public sealed class MutationExecutionTests
 			);
 		});
 
+		harness.Events.Clear();
 		await harness.UsingAsync(services =>
 			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
 		);
@@ -144,7 +181,11 @@ public sealed class MutationExecutionTests
 			Assert.Equal(harness.ArchiveId, occurrence.MailboxId);
 			Assert.Equal(MutationState.Completed, (await context.MutationItems.SingleAsync()).State);
 		});
+		// Settling an ambiguous attempt is a job completing just as much as a reported batch
+		// outcome is, and it is the point the pending badge stops being true.
+		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Updated).Id);
 	}
+
 	/// <summary>
 	/// Basic IMAP can crash after COPY creates the Trash occurrence but before the source is
 	/// marked deleted and expunged. Recovery must finish only that source deletion; replaying
@@ -500,6 +541,10 @@ public sealed class MutationExecutionTests
 			Assert.Equal(MutationState.Cancelled, (await context.MutationItems.SingleAsync()).State);
 			Assert.Empty(await context.MessagePendingChanges.ToListAsync());
 		});
+		// A reverted intent is a change to what every window shows, and the cancellation
+		// itself is the only explanation the user gets for the flag springing back.
+		Assert.Equal(ErrorCategory.Conflict, Assert.Single(harness.Events.SyncFailures).Category);
+		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Updated).Id);
 	}
 
 	/// <summary>

@@ -85,6 +85,7 @@ public sealed class MutationReconciler(
 			}
 
 			var removedMessageIds = new List<Guid>();
+			var confirmedMessageIds = new List<Guid>();
 			foreach (var item in unresolved)
 			{
 				var locations = observed[item.Id];
@@ -104,6 +105,7 @@ public sealed class MutationReconciler(
 						removedMessageIds.Add(item.MessageId);
 					}
 
+					confirmedMessageIds.Add(item.MessageId);
 					item.State = MutationState.Completed;
 					item.CompletedAt = clock.GetUtcNow();
 					item.LeaseOwner = null;
@@ -119,7 +121,18 @@ public sealed class MutationReconciler(
 			attempt.State = MutationAttemptState.Completed;
 			attempt.ResultPersistedAt = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
-			await MessageDeletionAnnouncer.AnnounceAsync(context, events, removedMessageIds, ct);
+			var deleted = await MessageChangeAnnouncer.AnnounceDeletedAsync(
+				context,
+				events,
+				removedMessageIds,
+				ct
+			);
+			await MessageChangeAnnouncer.AnnounceUpdatedAsync(
+				context,
+				events,
+				[.. confirmedMessageIds.Except(deleted)],
+				ct
+			);
 			settled++;
 		}
 

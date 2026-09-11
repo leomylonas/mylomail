@@ -115,10 +115,16 @@ export function connectHub(
 	// New mail, a changed flag, or a deletion all mean the list is stale. Invalidating by
 	// prefix rather than by mailbox because a message can belong to several at once, and the
 	// event does not say which lists are showing it.
+	//
+	// The pending projection goes with them: a mutation job confirming, cancelling or
+	// reverting an intent removes its `MessagePendingChanges` row and announces the message,
+	// and only the window that started it learns that from its own mutation call — every
+	// other window would keep rendering the optimistic badge indefinitely (§7, Epic 10).
 	for (const event of ["MessageReceived", "MessageUpdated", "MessageDeleted"]) {
 		hub.on(event, () => {
 			void queryClient.invalidateQueries({ queryKey: ["messages"] });
 			void queryClient.invalidateQueries({ queryKey: ["search"] });
+			void queryClient.invalidateQueries({ queryKey: ["pending"] });
 		});
 	}
 

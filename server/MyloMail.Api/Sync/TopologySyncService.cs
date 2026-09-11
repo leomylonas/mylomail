@@ -119,7 +119,7 @@ public sealed class TopologySyncService(
 			await events.MailboxTreeChangedAsync(account.Id);
 		}
 
-		await MessageDeletionAnnouncer.AnnounceAsync(context, events, orphanedMessageIds, ct);
+		await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, orphanedMessageIds, ct);
 		if (availabilityRecovered)
 		{
 			await MailboxSummaryDtoFactory.AnnounceAsync(

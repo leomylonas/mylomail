@@ -11,7 +11,7 @@ namespace MyloMail.Api.Mutations;
 /// What happens to the rest of a chain after one of its items fails, and the optimistic
 /// state that goes with it (§6).
 /// </summary>
-public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvider clock, IHubEvents events)
+public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvider clock)
 {
 	/// <summary>
 	/// Re-evaluates later intentions against current server-known state.
@@ -23,7 +23,14 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 	/// remain independently satisfiable continue; only those whose prerequisites are no
 	/// longer satisfiable are cancelled, carrying the originating failure.
 	/// </remarks>
-	public async Task ReevaluateAfterFailureAsync(MutationItem failed, CancellationToken ct = default)
+	/// <returns>
+	/// The cancellations to announce. They are returned rather than raised here, so the caller
+	/// announces them after the transaction this runs inside has committed (§7).
+	/// </returns>
+	public async Task<IReadOnlyList<MutationFailureDto>> ReevaluateAfterFailureAsync(
+		MutationItem failed,
+		CancellationToken ct = default
+	)
 	{
 		var later = await context
 			.MutationItems.Where(m =>
@@ -36,6 +43,7 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 			)
 			.OrderBy(m => m.Sequence)
 			.ToListAsync(ct);
+		var cancellations = new List<MutationFailureDto>();
 
 		foreach (var item in later)
 		{
@@ -60,7 +68,7 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 			// the failure carries the originating cause (§6).
 			// No Extensions here: only the persisted Category/LastError survive a cancelled
 			// downstream item, not the originating failure's raw problem details.
-			await events.MessageSyncFailedAsync(
+			cancellations.Add(
 				new MutationFailureDto(
 					item.MessageId,
 					item.AccountId,
@@ -69,6 +77,8 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 				)
 			);
 		}
+
+		return cancellations;
 	}
 
 	/// <summary>
@@ -100,7 +110,11 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 	}
 
 	/// <summary>Cancels an intent whose target no longer exists, and reverts its desired state.</summary>
-	public async Task CancelUnsatisfiableAsync(MutationItem item, string reason, CancellationToken ct = default)
+	public async Task<MutationFailureDto> CancelUnsatisfiableAsync(
+		MutationItem item,
+		string reason,
+		CancellationToken ct = default
+	)
 	{
 		item.State = MutationState.Cancelled;
 		item.CompletedAt = clock.GetUtcNow();
@@ -111,6 +125,16 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 
 		await RevertDesiredStateAsync(item, ct);
 		await context.SaveChangesAsync(ct);
+
+		// Announced by the caller, for the same reason as a chain cancellation: an intention
+		// the user expressed is not going to happen, and the optimistic state it was holding
+		// has just been reverted in every window.
+		return new MutationFailureDto(
+			item.MessageId,
+			item.AccountId,
+			ErrorCategory.Conflict,
+			reason
+		);
 	}
 
 	/// <summary>
