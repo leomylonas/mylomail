@@ -18,10 +18,11 @@
 - Parity remediation 13/47: Graph coverage now honors count bounds across absolute `nextLink` pages and applies stable received-date filters for month bounds, then defers the first change stream until the requested recent subset is usable. Its unfiltered delta bootstrap still enumerates every page but materializes only already-selected stable ids and arrivals after the retained baseline, committing only the final `deltaLink`. Established streams remain live during later policy backfills; cursor invalidation, rebase cutoff, coverage reset, and integrity state now commit atomically, and a migration restarts legacy count-bounded raw continuations.
 - Parity remediation 14/47: content acquisition now captures the exact local occurrence, provider occurrence, mailbox, and topology generation before every provider fetch, then rechecks that snapshot inside the content transaction before any raw MIME, derived body, attachment, search, or state write. Successful and failed stale fetches are discarded without consuming the replacement incarnation's retry budget; crash injection proves the derived-content transaction rolls back before commit. Deferred acquisition is explicit, and bulk export retains the same manifest position until fresh content is available instead of silently omitting it.
 - Parity remediation 15/47: coverage pages now recheck the durable account row inside the same transaction that would apply provider observations and advance coverage. A page returning after soft disable or the first phase of account removal aborts before ingestion, notification linkage, resume-token updates, commit, and every successor enqueue; hard deletion fails the same existence-and-enabled check.
+- Parity remediation 16/47: triggered cursor resynchronisation now advances topology generation for mailbox-scoped streams as well as every mailbox owned by an account-scoped stream. Cursor clearing, rebase cutoff/state, coverage reset, staged-event removal, generation invalidation, and integrity state share one save boundary, so in-flight content and mailbox work cannot survive a provider-identity epoch change.
 
 ## Next task
 
-- Increment mailbox topology generation during mailbox-scoped cursor invalidation.
+- Expose the required mailbox availability projection separately from coverage.
 
 ## Required reading
 
@@ -74,6 +75,9 @@
 - `pnpm check` after the post-disable coverage fence: format, TypeScript, ESLint, Stylelint, build, 543 .NET tests, and 146 Vitest tests passed.
 - Coverage-removal discrimination: bypassing the in-transaction account existence/enablement check made `Coverage_page_returning_after_account_disable_cannot_commit` fail while 542 tests passed; restoring the check returned the suite to green. Existing apply-before-commit coverage crash tests continue to prove page/cursor rollback.
 - Coverage invariant review found no violations. It confirmed soft disable and hard deletion share the durable guard, SQLite transaction ordering closes the commit race, and `CoverageBaselinePendingException` exits before every successor, replay, or content enqueue.
+- `pnpm check` after cursor-invalidation generation fencing: format, TypeScript, ESLint, Stylelint, build, 544 .NET tests, and 146 Vitest tests passed.
+- Cursor invalidation discrimination: removing the mailbox-scoped generation increment and moving `cursor-invalidation.after-apply-before-commit` after `SaveChangesAsync` made both `An_invalidated_cursor_triggers_resynchronisation` and `Cursor_invalidation_generation_and_reset_roll_back_together_on_crash` fail; restoring both invariants returned the suite to green.
+- Cursor invariant review found and closed test-scope gaps before commit. Graph now proves only the invalidated mailbox advances, Gmail proves every mailbox advances exactly once for its account-scoped stream, and the crash scenario observes all tracked resets before the fault then proves none persisted after restart. Final re-review found no remaining violations.
 
 ## Live risks / decisions
 

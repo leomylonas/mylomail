@@ -53,6 +53,10 @@ public static class FaultPoints
 	/// <summary>After fetched content is applied locally, before its transaction commits.</summary>
 	public const string ContentAfterApplyBeforeCommit = "content.after-apply-before-commit";
 
+	/// <summary>After cursor invalidation state is changed, before its atomic save.</summary>
+	public const string CursorInvalidationAfterApplyBeforeCommit =
+		"cursor-invalidation.after-apply-before-commit";
+
 	/// <summary>
 	/// A draft push's provider call has returned (the remote draft now genuinely exists),
 	/// before that result is saved. The window a batched save would have crossed without

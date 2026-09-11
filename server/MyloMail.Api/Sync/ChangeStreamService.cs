@@ -598,6 +598,12 @@ public sealed class ChangeStreamService(
 				accountMailbox.TopologyGeneration++;
 			}
 		}
+		else
+		{
+			// A mailbox-scoped cursor reset is a new provider-identity epoch for every
+			// mailbox-bound worker, including content already in flight.
+			mailbox.TopologyGeneration++;
+		}
 
 		var coverages = state.MailboxId is null
 			? await (
@@ -631,6 +637,8 @@ public sealed class ChangeStreamService(
 
 		integrity.LastError = ex.Message;
 
+
+		faults.Reached(FaultPoints.CursorInvalidationAfterApplyBeforeCommit);
 		await context.SaveChangesAsync(ct);
 
 		logger.LogWarning(

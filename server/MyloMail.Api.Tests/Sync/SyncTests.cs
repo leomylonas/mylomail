@@ -557,10 +557,19 @@ public sealed class SyncTests
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("ARCHIVE");
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		await ReconcileAsync(harness);
 		await CoverAsync(harness);
 		await SyncAsync(harness);
+
+		var generationsBeforeInvalidation = await harness.UsingAsync(async scope =>
+			new
+			{
+				Inbox = (await harness.MailboxAsync(scope, "INBOX")).TopologyGeneration,
+				Archive = (await harness.MailboxAsync(scope, "ARCHIVE")).TopologyGeneration,
+			}
+		);
 
 		harness.Provider.InvalidateCursors();
 		var outcome = await SyncAsync(harness);
@@ -573,6 +582,8 @@ public sealed class SyncTests
 			var state = await context.ChangeStreamStates.SingleAsync();
 			var coverage = await context.MailboxCoverageStates.SingleAsync();
 
+			var mailbox = await context.Mailboxes.SingleAsync(m => m.ProviderMailboxId == "INBOX");
+			var archive = await context.Mailboxes.SingleAsync(m => m.ProviderMailboxId == "ARCHIVE");
 			Assert.Null(state.CursorState);
 			Assert.Null(state.BaselineEstablishedAt);
 			Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
@@ -582,6 +593,8 @@ public sealed class SyncTests
 			// M" backfill progress past the real total.
 			Assert.Equal(0, coverage.MessagesFetched);
 			Assert.NotNull(await context.IntegrityReconciliationStates.SingleOrDefaultAsync());
+			Assert.Equal(generationsBeforeInvalidation.Inbox + 1, mailbox.TopologyGeneration);
+			Assert.Equal(generationsBeforeInvalidation.Archive, archive.TopologyGeneration);
 		});
 
 		await CoverAsync(harness);
@@ -600,16 +613,98 @@ public sealed class SyncTests
 	}
 
 	[Fact]
+	public async Task Cursor_invalidation_generation_and_reset_roll_back_together_on_crash()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+		await SyncAsync(harness);
+
+		var generationBeforeInvalidation = await harness.UsingAsync(async scope =>
+			(await harness.MailboxAsync(scope, "INBOX")).TopologyGeneration
+		);
+		harness.Provider.InvalidateCursors();
+		harness.Faults.ArmAt(FaultPoints.CursorInvalidationAfterApplyBeforeCommit);
+
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(async scope =>
+			{
+				var context = scope.GetRequiredService<MyloMailDbContext>();
+				var account = await harness.AccountInScopeAsync(scope);
+				var mailbox = await harness.MailboxAsync(scope, "INBOX");
+				try
+				{
+					await scope
+						.GetRequiredService<ChangeStreamService>()
+						.SyncAsync(account, mailbox);
+				}
+				catch (SimulatedCrashException)
+				{
+					var trackedState = Assert.Single(context.ChangeStreamStates.Local);
+					var trackedCoverage = Assert.Single(context.MailboxCoverageStates.Local);
+					var trackedMailbox = Assert.Single(context.Mailboxes.Local);
+					var trackedIntegrity = Assert.Single(context.IntegrityReconciliationStates.Local);
+					Assert.Null(trackedState.CursorState);
+					Assert.True(trackedState.IsRebasing);
+					Assert.Equal(CoverageStatus.NotStarted, trackedCoverage.Status);
+					Assert.Equal(
+						generationBeforeInvalidation + 1,
+						trackedMailbox.TopologyGeneration
+					);
+					Assert.NotNull(trackedIntegrity.LastError);
+					throw;
+				}
+			})
+		);
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var state = await context.ChangeStreamStates.SingleAsync();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			var mailbox = await context.Mailboxes.SingleAsync();
+			Assert.NotNull(state.CursorState);
+			Assert.False(state.IsRebasing);
+			Assert.Equal(CoverageStatus.Covered, coverage.Status);
+			Assert.Equal(generationBeforeInvalidation, mailbox.TopologyGeneration);
+		});
+
+		var outcome = await SyncAsync(harness);
+		Assert.True(outcome.ResyncTriggered);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var state = await context.ChangeStreamStates.SingleAsync();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			var mailbox = await context.Mailboxes.SingleAsync();
+			Assert.Null(state.CursorState);
+			Assert.True(state.IsRebasing);
+			Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
+			Assert.Equal(generationBeforeInvalidation + 1, mailbox.TopologyGeneration);
+		});
+	}
+
+	[Fact]
 	public async Task Gmail_cursor_invalidation_discards_staged_history_from_the_expired_baseline()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("RECEIPTS");
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		await ReconcileAsync(harness);
 		await SyncAsync(harness);
 
 		await harness.UsingAsync(async scope =>
 			Assert.NotEmpty(await scope.GetRequiredService<MyloMailDbContext>().StagedChangeEvents.ToListAsync())
+		);
+
+		var generationsBeforeInvalidation = await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes.ToDictionaryAsync(m => m.Id, m => m.TopologyGeneration)
 		);
 
 		harness.Provider.InvalidateCursors();
@@ -621,6 +716,16 @@ public sealed class SyncTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			Assert.Empty(await context.StagedChangeEvents.ToListAsync());
 			Assert.True((await context.ChangeStreamStates.SingleAsync()).IsRebasing);
+			var mailboxes = await context.Mailboxes.ToListAsync();
+			Assert.Equal(2, mailboxes.Count);
+			Assert.All(
+				mailboxes,
+				mailbox =>
+					Assert.Equal(
+						generationsBeforeInvalidation[mailbox.Id] + 1,
+						mailbox.TopologyGeneration
+					)
+			);
 		});
 	}
 
