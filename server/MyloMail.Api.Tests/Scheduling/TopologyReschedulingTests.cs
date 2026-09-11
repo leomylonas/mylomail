@@ -49,6 +49,37 @@ public sealed class TopologyReschedulingTests
 		Assert.Contains(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
 	}
 
+	[Fact]
+	public async Task Gmail_synthetic_intermediates_never_receive_provider_sync_jobs()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Projects/Client");
+
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
+		);
+
+		var created = await CreatedJobsAsync(harness);
+		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync));
+
+		var syntheticId = await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes.Where(mailbox => mailbox.ProviderMailboxId == null)
+				.Select(mailbox => mailbox.Id)
+				.SingleAsync()
+		);
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<SyncJobs>()
+				.CoveragePageAsync(harness.Account.Id, syntheticId)
+		);
+		await harness.UsingAsync(async scope =>
+			Assert.False(
+				await scope.GetRequiredService<MyloMailDbContext>()
+					.MailboxCoverageStates.AnyAsync(state => state.MailboxId == syntheticId)
+			)
+		);
+	}
+
 	/// <summary>
 	/// Runs <see cref="SyncJobs.TopologyAsync"/> twice in a row — the second call standing in
 	/// for Hangfire actually firing the job the first call scheduled — and asserts the second

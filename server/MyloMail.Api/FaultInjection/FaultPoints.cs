@@ -40,6 +40,10 @@ public static class FaultPoints
 	/// </summary>
 	public const string SyncPageAfterCommit = "sync.page-after-commit";
 
+	/// <summary>After a reconciled mailbox tree is written, before its transaction commits.</summary>
+	public const string TopologyAfterApplyBeforeCommit =
+		"topology.after-apply-before-commit";
+
 	/// <summary>
 	/// Gmail only: staged history has been drained durably and coverage has completed, but the
 	/// staged events have not yet been replayed into the canonical model.

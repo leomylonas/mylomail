@@ -13,10 +13,11 @@
 - Parity remediation 8/47: replaced per-message mutation requests with provider-native batches. IMAP now searches, changes flags, moves, and expunges UID sets per folder; Gmail trashes up to 100 messages per multipart batch; Graph permanently deletes up to 20 messages per JSON batch. Per-item outcomes remain correlated, Graph inner requests retain immutable-ID preference, and inner/outer throttling escalates the longest provider delay to the account gate.
 - Parity remediation 9/47: removed the bare `HttpClient` from Graph large-attachment uploads. Upload-session slices now use raw Kiota requests through the same Graph request adapter, preserving exact byte ranges, immutable-ID middleware, error mapping, and `Retry-After` translation. Graph authentication is explicitly allowlisted to `graph.microsoft.com`, so the pipeline omits bearer tokens from pre-authenticated Outlook upload URLs.
 - Parity remediation 10/47: resolved the Google contact deletion design conflict without weakening concurrency safety. The architecture now explicitly limits Google People two-way writes to creates and revision-checked updates, keeps remote deletion observations authoritative, permits local-contact deletion, and requires provider-backed contacts to be deleted in Google because `people.deleteContact` has no atomic revision precondition.
+- Parity remediation 11/47: Gmail topology now derives a stable local tree from flat slash-delimited labels. Real labels keep provider identity while missing intermediate paths receive reusable provider-id-less `Mailbox` rows; obsolete intermediates are removed, real labels replace matching synthetic paths without duplication, and synthetic rows are excluded defensively from provider coverage/change-stream scheduling. Mailbox rows and topology state commit in one explicit crash-tested transaction.
 
 ## Next task
 
-- Build Gmail's synthetic slash-delimited label hierarchy.
+- Correct Gmail `LastNMessages` bound semantics.
 
 ## Required reading
 
@@ -54,6 +55,9 @@
 - Graph upload invariant review found no remaining violations after restricting authentication to the Graph API host. It confirmed off-host pre-authenticated uploads retain the central middleware without leaking a bearer token.
 - `pnpm check` after resolving the Google contact deletion contract: format, TypeScript, ESLint, Stylelint, build, 520 .NET tests, and 146 Vitest tests passed.
 - Contact contract review matched the implemented boundary: Google creates/updates remain revision-aware and two-way; local deletes and remote deletion observations remain supported; only unsafe provider-backed Google deletion is deliberately unavailable.
+- `pnpm check` after Gmail synthetic hierarchy support: format, TypeScript, ESLint, Stylelint, build, 525 .NET tests, and 146 Vitest tests passed.
+- Topology fault discrimination: moving the `topology.after-apply-before-commit` fault point after the transaction commit made `Gmail_topology_and_sync_state_roll_back_together_at_commit_boundary` fail; restoring it before commit returned the full check to green.
+- Topology invariant review found and closed two integration defects before commit: vanished real intermediates now reparent before final hierarchy derivation, and synthetic nodes are excluded from provider sync scheduling with defensive stale-job guards. The re-review found no remaining violations.
 
 ## Live risks / decisions
 

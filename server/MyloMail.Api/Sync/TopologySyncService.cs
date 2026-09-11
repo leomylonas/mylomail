@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -19,6 +20,7 @@ public sealed class TopologySyncService(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	TimeProvider clock,
+	IFaultInjector faults,
 	IHubEvents events,
 	ILogger<TopologySyncService> logger
 )
@@ -34,6 +36,7 @@ public sealed class TopologySyncService(
 			.Mailboxes.Include(m => m.ImapMetadata)
 			.Where(m => m.AccountId == account.Id)
 			.ToListAsync(ct);
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
 		var byProviderId = existing
 			.Where(m => m.ProviderMailboxId is not null)
@@ -46,15 +49,18 @@ public sealed class TopologySyncService(
 		foreach (var dto in reported)
 		{
 			seen.Add(dto.ProviderMailboxId);
+			var effectiveDto = account.ProviderType == ProviderType.Gmail
+				? dto with { Name = GmailSegments(dto.Name)[^1] }
+				: dto;
 
 			if (byProviderId.TryGetValue(dto.ProviderMailboxId, out var mailbox))
 			{
-				Update(mailbox, dto);
+				Update(mailbox, effectiveDto);
 				updated++;
 			}
 			else
 			{
-				mailbox = Create(account, dto);
+				mailbox = Create(account, effectiveDto);
 				context.Mailboxes.Add(mailbox);
 				byProviderId[dto.ProviderMailboxId] = mailbox;
 				added++;
@@ -75,6 +81,12 @@ public sealed class TopologySyncService(
 		}
 
 		var removed = await RemoveVanishedAsync(existing, seen, ct);
+		if (account.ProviderType == ProviderType.Gmail)
+		{
+			var hierarchy = ReconcileGmailHierarchy(account.Id, reported, existing, byProviderId);
+			added += hierarchy.Added;
+			removed += hierarchy.Removed;
+		}
 
 		var state = await context.MailboxTopologySyncStates.FirstOrDefaultAsync(s => s.AccountId == account.Id, ct);
 		if (state is null)
@@ -87,6 +99,8 @@ public sealed class TopologySyncService(
 		state.LastError = null;
 
 		await context.SaveChangesAsync(ct);
+		faults.Reached(FaultPoints.TopologyAfterApplyBeforeCommit);
+		await transaction.CommitAsync(ct);
 
 		logger.LogInformation(
 			"Topology for account {AccountId}: {Added} added, {Updated} updated, {Removed} removed.",
@@ -107,12 +121,83 @@ public sealed class TopologySyncService(
 		return new TopologyChange(added, updated, removed);
 	}
 
+	private (int Added, int Removed) ReconcileGmailHierarchy(
+		Guid accountId,
+		IReadOnlyList<MailboxDto> reported,
+		List<Mailbox> existing,
+		IReadOnlyDictionary<string, Mailbox> byProviderId
+	)
+	{
+		var realByPath = reported.ToDictionary(
+			dto => dto.Name,
+			dto => byProviderId[dto.ProviderMailboxId],
+			StringComparer.Ordinal
+		);
+		var synthetic = existing.Where(mailbox => mailbox.ProviderMailboxId is null).ToList();
+		var retained = new HashSet<Guid>();
+		var added = 0;
+
+		foreach (var dto in reported.OrderBy(dto => GmailSegments(dto.Name).Length))
+		{
+			var segments = GmailSegments(dto.Name);
+			Mailbox? parent = null;
+			var path = string.Empty;
+			for (var index = 0; index < segments.Length; index++)
+			{
+				var segment = segments[index];
+				path = path.Length == 0 ? segment : $"{path}/{segment}";
+				Mailbox node;
+				if (index == segments.Length - 1)
+				{
+					node = byProviderId[dto.ProviderMailboxId];
+				}
+				else if (realByPath.TryGetValue(path, out var real))
+				{
+					node = real;
+				}
+				else
+				{
+					node = synthetic.FirstOrDefault(candidate =>
+						candidate.ParentId == parent?.Id
+							&& string.Equals(candidate.Name, segment, StringComparison.Ordinal)
+					) ?? new Mailbox
+					{
+						Id = Guid.NewGuid(),
+						AccountId = accountId,
+						Name = segment,
+					};
+					if (!synthetic.Contains(node))
+					{
+						context.Mailboxes.Add(node);
+						synthetic.Add(node);
+						added++;
+					}
+					retained.Add(node.Id);
+				}
+
+				node.Name = segment;
+				node.ParentId = parent?.Id;
+				parent = node;
+			}
+		}
+
+		var stale = synthetic.Where(node => !retained.Contains(node.Id)).ToList();
+		context.Mailboxes.RemoveRange(stale);
+		return (added, stale.Count);
+	}
+
+	private static string[] GmailSegments(string name)
+	{
+		var segments = name.Split('/', StringSplitOptions.RemoveEmptyEntries);
+		return segments.Length == 0 ? [name] : segments;
+	}
+
 	/// <summary>
 	/// A mailbox the provider no longer reports is removed along with its memberships.
 	/// </summary>
 	/// <remarks>
-	/// Synthesised hierarchy nodes are kept: they have no provider object to be reported, so
-	/// absence from the provider's list says nothing about them.
+	/// Gmail synthetic hierarchy nodes are handled separately: the complete reported label
+	/// set proves exactly which intermediate paths still exist.
 	/// </remarks>
 	private async Task<int> RemoveVanishedAsync(
 		List<Mailbox> existing,

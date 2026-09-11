@@ -106,6 +106,156 @@ public sealed class SyncTests
 	}
 
 	[Fact]
+	public async Task Gmail_topology_derives_stable_synthetic_hierarchy_from_flat_labels()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Projects/Client/Invoices");
+		harness.Provider.AddMailbox("Projects/Personal");
+
+		await ReconcileAsync(harness);
+		var initialSyntheticIds = await harness.UsingAsync(async scope =>
+		{
+			var mailboxes = await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes
+				.ToListAsync();
+			var projects = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId is null && mailbox.Name == "Projects"
+			);
+			var client = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId is null && mailbox.Name == "Client"
+			);
+			var invoices = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId == "Projects/Client/Invoices"
+			);
+			var personal = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId == "Projects/Personal"
+			);
+
+			Assert.Null(projects.ParentId);
+			Assert.Equal(projects.Id, client.ParentId);
+			Assert.Equal(client.Id, invoices.ParentId);
+			Assert.Equal("Invoices", invoices.Name);
+			Assert.Equal(projects.Id, personal.ParentId);
+			Assert.Equal("Personal", personal.Name);
+			return new[] { projects.Id, client.Id };
+		});
+
+		await ReconcileAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var syntheticIds = await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes
+				.Where(mailbox => mailbox.ProviderMailboxId == null)
+				.Select(mailbox => mailbox.Id)
+				.OrderBy(id => id)
+				.ToListAsync();
+			Assert.Equal(initialSyntheticIds.OrderBy(id => id), syntheticIds);
+		});
+
+		harness.Provider.RemoveMailbox("Projects/Client/Invoices");
+		harness.Provider.RemoveMailbox("Projects/Personal");
+		harness.Provider.AddMailbox("Archive/2025");
+		await ReconcileAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var mailboxes = await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes
+				.ToListAsync();
+			var synthetic = Assert.Single(mailboxes, mailbox => mailbox.ProviderMailboxId is null);
+			Assert.Equal("Archive", synthetic.Name);
+			Assert.DoesNotContain(mailboxes, mailbox => initialSyntheticIds.Contains(mailbox.Id));
+		});
+	}
+
+	[Fact]
+	public async Task Gmail_topology_uses_real_labels_as_existing_path_segments()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Projects");
+		harness.Provider.AddMailbox("Projects/Client");
+		harness.Provider.AddMailbox("Projects/Client/Invoices");
+
+		await ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var mailboxes = await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes
+				.ToListAsync();
+			var projects = mailboxes.Single(mailbox => mailbox.ProviderMailboxId == "Projects");
+			var client = mailboxes.Single(mailbox => mailbox.ProviderMailboxId == "Projects/Client");
+			var invoices = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId == "Projects/Client/Invoices"
+			);
+
+			Assert.Equal(3, mailboxes.Count);
+			Assert.DoesNotContain(mailboxes, mailbox => mailbox.ProviderMailboxId is null);
+			Assert.Equal("Projects", projects.Name);
+			Assert.Null(projects.ParentId);
+			Assert.Equal("Client", client.Name);
+			Assert.Equal(projects.Id, client.ParentId);
+			Assert.Equal("Invoices", invoices.Name);
+			Assert.Equal(client.Id, invoices.ParentId);
+		});
+	}
+
+	[Fact]
+	public async Task Gmail_topology_replaces_a_vanished_real_intermediate_with_a_synthetic_one()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Projects");
+		harness.Provider.AddMailbox("Projects/Client");
+		harness.Provider.AddMailbox("Projects/Client/Invoices");
+		await ReconcileAsync(harness);
+
+		harness.Provider.RemoveMailbox("Projects/Client");
+		await ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var mailboxes = await scope.GetRequiredService<MyloMailDbContext>()
+				.Mailboxes
+				.ToListAsync();
+			var projects = mailboxes.Single(mailbox => mailbox.ProviderMailboxId == "Projects");
+			var client = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId is null && mailbox.Name == "Client"
+			);
+			var invoices = mailboxes.Single(mailbox =>
+				mailbox.ProviderMailboxId == "Projects/Client/Invoices"
+			);
+
+			Assert.Equal(projects.Id, client.ParentId);
+			Assert.Equal(client.Id, invoices.ParentId);
+		});
+	}
+
+	[Fact]
+	public async Task Gmail_topology_and_sync_state_roll_back_together_at_commit_boundary()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("Projects/Client/Invoices");
+		harness.Faults.ArmAt(FaultPoints.TopologyAfterApplyBeforeCommit);
+
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ReconcileAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.Mailboxes.ToListAsync());
+			Assert.Empty(await context.MailboxTopologySyncStates.ToListAsync());
+		});
+
+		await ReconcileAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(3, await context.Mailboxes.CountAsync());
+			Assert.Single(await context.MailboxTopologySyncStates.ToListAsync());
+		});
+	}
+
+	[Fact]
 	public async Task Coverage_backfills_and_records_progress()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);

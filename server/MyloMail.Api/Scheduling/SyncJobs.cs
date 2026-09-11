@@ -134,7 +134,7 @@ public sealed class SyncJobs(
 			await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
 
 			pending = await context
-				.Mailboxes.Where(m => m.AccountId == accountId)
+				.Mailboxes.Where(m => m.AccountId == accountId && m.ProviderMailboxId != null)
 				.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
 				.Select(m => m.Id)
 				.ToListAsync(ct);
@@ -155,13 +155,13 @@ public sealed class SyncJobs(
 			if (needsGmailBaseline)
 			{
 				var streamMailbox = await context
-					.Mailboxes.Where(m => m.AccountId == accountId)
+					.Mailboxes.Where(m => m.AccountId == accountId && m.ProviderMailboxId != null)
 					.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 					.ThenBy(m => m.Id)
 					.FirstAsync(ct);
 				await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
 				pending = await context
-					.Mailboxes.Where(m => m.AccountId == accountId)
+					.Mailboxes.Where(m => m.AccountId == accountId && m.ProviderMailboxId != null)
 					.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
 					.Select(m => m.Id)
 					.ToListAsync(ct);
@@ -311,7 +311,10 @@ public sealed class SyncJobs(
 			return;
 		}
 
-		var mailboxIds = await context.Mailboxes.Where(m => m.AccountId == account.Id).Select(m => m.Id).ToListAsync(ct);
+		var mailboxIds = await context
+			.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null)
+			.Select(m => m.Id)
+			.ToListAsync(ct);
 		foreach (var mailboxId in mailboxIds)
 		{
 			if (integrityLoops.TryStart(account.Id, mailboxId))
@@ -336,7 +339,7 @@ public sealed class SyncJobs(
 			providers.For(account).Capabilities.ChangeStreamScope == ChangeStreamScope.Account;
 
 		var mailboxes = await context
-			.Mailboxes.Where(m => m.AccountId == account.Id)
+			.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null)
 			.OrderBy(m => m.SpecialUse == SpecialUse.Inbox ? 0 : 1)
 			.ThenBy(m => m.Id)
 			.Select(m => m.Id)
@@ -372,7 +375,7 @@ public sealed class SyncJobs(
 		}
 
 		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
-		if (mailbox is null)
+		if (mailbox is null || mailbox.ProviderMailboxId is null)
 		{
 			// Removed by topology reconciliation between this job being enqueued and running.
 			return;
@@ -433,7 +436,7 @@ public sealed class SyncJobs(
 		}
 
 		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
-		if (mailbox is null)
+		if (mailbox is null || mailbox.ProviderMailboxId is null)
 		{
 			polls.Stop(accountId, mailboxId);
 			return;
