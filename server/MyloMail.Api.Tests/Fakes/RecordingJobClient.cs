@@ -16,9 +16,17 @@ namespace MyloMail.Api.Tests.Fakes;
 internal sealed class RecordingJobClient : IBackgroundJobClient
 {
 	public List<Job> Created { get; } = [];
+	public List<IState> States { get; } = [];
+	public Exception? CreateFailure { get; set; }
 
 	public string Create(Job job, IState state)
 	{
+		if (CreateFailure is { } failure)
+		{
+			CreateFailure = null;
+			throw failure;
+		}
+		States.Add(state);
 		Created.Add(job);
 		return Guid.NewGuid().ToString();
 	}

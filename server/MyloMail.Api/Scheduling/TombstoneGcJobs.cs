@@ -2,7 +2,9 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Scheduling;
 
@@ -35,7 +37,9 @@ namespace MyloMail.Api.Scheduling;
 public sealed class TombstoneGcJobs(
 	MyloMailDbContext context,
 	SearchIndexer search,
+	MessageIngestor ingestor,
 	TimeProvider clock,
+	IHubEvents events,
 	IBackgroundJobClient jobs,
 	ILogger<TombstoneGcJobs> logger
 )
@@ -196,6 +200,9 @@ public sealed class TombstoneGcJobs(
 			await transaction.RollbackAsync(ct);
 			return false;
 		}
+		var accountId = message.AccountId;
+		var changedHeader = message.MessageIdHeader;
+		IReadOnlyList<Message> rethreaded = [];
 
 		// The FTS5 external-content row must go in the same operation as the message row it
 		// mirrors, or search returns hits pointing at nothing (§6). Its own foreign key is
@@ -205,8 +212,19 @@ public sealed class TombstoneGcJobs(
 
 		context.Messages.Remove(message);
 		await context.SaveChangesAsync(ct);
+		if (!string.IsNullOrWhiteSpace(changedHeader))
+		{
+			rethreaded = await ingestor.RecomputeFallbackThreadsAsync(
+				accountId,
+				[changedHeader],
+				ct
+			);
+			await context.SaveChangesAsync(ct);
+		}
 
 		await transaction.CommitAsync(ct);
+		foreach (var descendant in rethreaded.DistinctBy(message => message.Id))
+			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(descendant));
 		return true;
 	}
 }

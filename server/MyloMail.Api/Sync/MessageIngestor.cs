@@ -1,4 +1,7 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contacts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.Contracts;
@@ -25,14 +28,19 @@ namespace MyloMail.Api.Sync;
 public sealed record IngestResult(
 	IReadOnlyList<Message> Created,
 	IReadOnlyList<Message> Updated,
-	IReadOnlyList<Message> Observed
+	IReadOnlyList<Message> Observed,
+	IReadOnlyList<Message> Rethreaded,
+	bool ContactSuggestionsChanged
 );
 
 /// <summary>
 /// Turns provider observations into local rows. Every write here is an upsert, which is what
 /// makes replaying a page safe — and replay is the price of never skipping one (§3).
 /// </summary>
-public sealed class MessageIngestor(MyloMailDbContext context)
+public sealed class MessageIngestor(
+	MyloMailDbContext context,
+	ContactSuggestionService contactSuggestions
+)
 {
 	/// <summary>
 	/// Upserts a page of messages into one account, resolving provider mailbox ids to local
@@ -81,47 +89,110 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 			byHeader,
 			ct
 		);
-
+		var threadCandidates = await LoadThreadCandidatesAsync(account.Id, messages, ct);
+		var pageMessages = new Dictionary<MessageDto, (Message Message, bool IsNew)>(
+			ReferenceEqualityComparer.Instance
+		);
+		var pageCreatedIds = new HashSet<Guid>();
 		foreach (var dto in messages)
 		{
-			// A draft on the server is a Draft, never both (§1), so one drafts occurrence
-			// excludes the whole observation rather than just that occurrence. Under Gmail's
-			// label model a draft carries DRAFT alongside its other labels, and dropping only
-			// the DRAFT occurrence would materialise the remaining one as ordinary mail —
-			// the same draft appearing twice, which is precisely what the rule forbids.
-			//
-			// It also has to happen before matching: a drafts observation that found an
-			// unrelated message would have its fields overwritten by Apply.
-			if (
-				dto.Occurrences.Any(occurrence =>
-					mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox)
-					&& mailbox.EffectiveSpecialUse == SpecialUse.Drafts
-				)
-			)
-			{
-				continue;
-			}
-
+			// Draft observations never materialise as Message rows (§1). Exclude them before
+			// matching so their fields cannot overwrite an unrelated message.
+			if (IsDraftObservation(dto, mailboxesByProviderId)) continue;
 			var message = Match(dto, mailboxesByProviderId, byStableId, byOccurrence, byHeader);
-			var isNew = message is null;
-			var membershipChanged = false;
-
+			var createsPageIdentity = message is null;
 			if (message is null)
 			{
-				// Where no match can be established a new local message is created:
-				// duplicating a message is recoverable, whereas merging two distinct
-				// messages is not (§1).
+				// Allocate every page-local identity before assigning threads. This makes
+				// header cardinality independent of provider page order and prevents a child
+				// from binding before a duplicate Message-ID later in the same page is known.
 				message = new Message { Id = Guid.NewGuid(), AccountId = account.Id };
 				context.Messages.Add(message);
-
-				// Queued as part of the same write that creates the message, so a message can
-				// never exist without a content state for the sweep to find (§6).
 				context.MessageContentStates.Add(
 					new MessageContentState { MessageId = message.Id, Status = ContentStatus.Queued }
 				);
 			}
+			if (createsPageIdentity) pageCreatedIds.Add(message.Id);
+			var isNew = pageCreatedIds.Contains(message.Id);
+			if (dto.ProviderStableId is not null)
+				byStableId[dto.ProviderStableId] = message;
+			foreach (var occurrence in dto.Occurrences)
+			{
+				if (mailboxesByProviderId.TryGetValue(
+					occurrence.ProviderMailboxId,
+					out var providerMailbox
+				))
+					byOccurrence[(providerMailbox.Id, occurrence.ProviderOccurrenceId)] = message;
+			}
+			pageMessages[dto] = (message, isNew);
+			if (!string.IsNullOrWhiteSpace(dto.MessageIdHeader))
+			{
+				if (!threadCandidates.TryGetValue(dto.MessageIdHeader, out var sameHeader))
+					threadCandidates.Add(dto.MessageIdHeader, sameHeader = []);
+				if (sameHeader.All(candidate => candidate.Id != message.Id)) sameHeader.Add(message);
+			}
+		}
+		var priorMessages = pageMessages.Values
+			.Where(item => !item.IsNew)
+			.Select(item => item.Message)
+			.DistinctBy(message => message.Id)
+			.ToArray();
+		var priorThreadIds = priorMessages.ToDictionary(
+			message => message.Id,
+			message => message.ThreadId
+		);
+		var priorMessageIdHeaders = priorMessages
+			.Select(message => message.MessageIdHeader)
+			.OfType<string>()
+			.ToArray();
+		foreach (var (dto, resolved) in pageMessages)
+			Apply(dto, resolved.Message);
+		var contactSuggestionsChanged = await contactSuggestions.ObserveAsync(
+			account.Id,
+			pageMessages.Values
+				.Select(item => item.Message)
+				.DistinctBy(message => message.Id)
+				.SelectMany(SuggestionAddresses),
+			ct
+		);
+		threadCandidates = threadCandidates.Values
+			.SelectMany(candidates => candidates)
+			.Concat(pageMessages.Values.Select(item => item.Message))
+			.DistinctBy(message => message.Id)
+			.Where(message => !string.IsNullOrWhiteSpace(message.MessageIdHeader))
+			.GroupBy(message => message.MessageIdHeader!, StringComparer.Ordinal)
+			.ToDictionary(
+				group => group.Key,
+				group => group.ToList(),
+				StringComparer.Ordinal
+			);
+		// Give new ancestors a stable local root before propagating their headers through
+		// persisted descendants; assign once more afterward so new descendants observe that
+		// propagated root in the same page.
+		AssignFallbackThreads(pageMessages, threadCandidates);
+		var changedHeaders = priorMessageIdHeaders.Concat(pageMessages.Values
+			.Select(item => item.Message.MessageIdHeader)
+			.OfType<string>());
+		var propagatedRethreads = await RecomputeFallbackThreadsAsync(
+			account.Id,
+			changedHeaders,
+			ct
+		);
+		AssignFallbackThreads(pageMessages, threadCandidates);
+		var rethreaded = pageMessages.Values
+			.Select(item => item.Message)
+			.Where(message => priorThreadIds.TryGetValue(message.Id, out var priorThreadId)
+				&& priorThreadId != message.ThreadId)
+			.Concat(propagatedRethreads)
+			.DistinctBy(message => message.Id)
+			.ToArray();
 
-			Apply(dto, message);
+
+		foreach (var dto in messages)
+		{
+			if (!pageMessages.TryGetValue(dto, out var resolved)) continue;
+			var (message, isNew) = resolved;
+			var membershipChanged = false;
 
 			foreach (var occurrence in dto.Occurrences)
 			{
@@ -163,7 +234,13 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 			}
 		}
 
-		return new IngestResult(created, updated, observed);
+		return new IngestResult(
+			created.DistinctBy(message => message.Id).ToArray(),
+			updated.DistinctBy(message => message.Id).ToArray(),
+			observed.DistinctBy(message => message.Id).ToArray(),
+			rethreaded,
+			contactSuggestionsChanged
+		);
 	}
 
 	/// <summary>
@@ -241,6 +318,13 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 		return (byStableId, byOccurrence, byHeader);
 	}
 
+	private static bool IsDraftObservation(
+		MessageDto message,
+		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId
+	) => message.Occurrences.Any(occurrence =>
+		mailboxesByProviderId.TryGetValue(occurrence.ProviderMailboxId, out var mailbox)
+		&& mailbox.EffectiveSpecialUse == SpecialUse.Drafts);
+
 	/// <summary>
 	/// The matching precedence from §1, in order: the provider's stable id where it supplies
 	/// one, then the per-mailbox occurrence identity, then
@@ -298,12 +382,13 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 	private static void Apply(MessageDto dto, Message message)
 	{
 		message.ProviderStableId = dto.ProviderStableId ?? message.ProviderStableId;
-		message.MessageIdHeader = dto.MessageIdHeader;
-		message.InReplyToHeader = dto.InReplyToHeader;
-		message.ReferencesHeader = dto.ReferencesHeader;
+		message.MessageIdHeader = dto.MessageIdHeader ?? message.MessageIdHeader;
+		message.InReplyToHeader = dto.InReplyToHeader ?? message.InReplyToHeader;
+		message.ReferencesHeader = dto.ReferencesHeader ?? message.ReferencesHeader;
 		message.ReplyToAddresses = dto.ReplyToAddresses;
 		message.SenderAddress = dto.SenderAddress;
-		message.ThreadId = dto.ThreadId;
+		message.HasProviderThreadId = !string.IsNullOrWhiteSpace(dto.ThreadId);
+		if (message.HasProviderThreadId) message.ThreadId = dto.ThreadId;
 		message.From = dto.From;
 		message.To = dto.To;
 		message.Cc = dto.Cc;
@@ -320,6 +405,189 @@ public sealed class MessageIngestor(MyloMailDbContext context)
 			message.HasNonInlineAttachments = hasNonInlineAttachments;
 		}
 		message.SizeEstimate = dto.SizeEstimate;
+	}
+
+
+	private static IEnumerable<Address> SuggestionAddresses(Message message)
+	{
+		foreach (var address in message.From) yield return address;
+		foreach (var address in message.To) yield return address;
+		foreach (var address in message.Cc) yield return address;
+		foreach (var address in message.Bcc) yield return address;
+		foreach (var address in message.ReplyToAddresses) yield return address;
+		if (message.SenderAddress is not null) yield return message.SenderAddress;
+	}
+
+	/// <summary>
+	/// Resolves RFC fallback ancestry as a page-local graph before writing any thread. A
+	/// provider may return descendants before ancestors; recursive root resolution keeps the
+	/// result independent of that order. Ambiguous or missing headers deliberately form a
+	/// separate local conversation because an incorrect merge is irrecoverable.
+	/// </summary>
+	private static void AssignFallbackThreads(
+		IReadOnlyDictionary<MessageDto, (Message Message, bool IsNew)> pageMessages,
+		IReadOnlyDictionary<string, List<Message>> candidates
+	)
+	{
+		var resolved = new Dictionary<Guid, string>();
+		var recomputed = pageMessages.Values
+			.Select(item => item.Message.Id)
+			.ToHashSet();
+		foreach (var message in pageMessages.Values.Select(item => item.Message).DistinctBy(item => item.Id))
+			message.ThreadId = ResolveFallbackThread(message, candidates, resolved, [], recomputed);
+	}
+
+	private static string ResolveFallbackThread(
+		Message message,
+		IReadOnlyDictionary<string, List<Message>> candidates,
+		Dictionary<Guid, string> resolved,
+		HashSet<Guid> path,
+		IReadOnlySet<Guid> recomputed
+	)
+	{
+		if (message.HasProviderThreadId && !string.IsNullOrWhiteSpace(message.ThreadId))
+			return message.ThreadId;
+		if (!recomputed.Contains(message.Id) && !string.IsNullOrWhiteSpace(message.ThreadId))
+			return message.ThreadId;
+		if (resolved.TryGetValue(message.Id, out var threadId)) return threadId;
+		if (!path.Add(message.Id))
+			return $"local:{path.Min():N}";
+
+		foreach (var header in ParentHeaders(message))
+		{
+			if (!candidates.TryGetValue(header, out var parents)
+				|| parents.Count != 1
+				|| parents[0].Id == message.Id) continue;
+			threadId = ResolveFallbackThread(parents[0], candidates, resolved, path, recomputed);
+			path.Remove(message.Id);
+			return resolved[message.Id] = threadId;
+		}
+
+		path.Remove(message.Id);
+		return resolved[message.Id] = $"local:{message.Id:N}";
+	}
+	internal async Task<IReadOnlyList<Message>> RecomputeFallbackThreadsAsync(
+		Guid accountId,
+		IEnumerable<string> changedHeaders,
+		CancellationToken ct
+	)
+	{
+		var changed = new List<Message>();
+		var frontier = changedHeaders
+			.Where(header => !string.IsNullOrWhiteSpace(header))
+			.Distinct(StringComparer.Ordinal)
+			.ToList();
+		while (frontier.Count > 0)
+		{
+			var headers = frontier.ToArray();
+			var headersJson = JsonSerializer.Serialize(headers);
+			var descendants = (await context.Messages.FromSqlInterpolated($"""
+				SELECT *
+				FROM "Messages" AS "m"
+				WHERE "m"."AccountId" = {accountId}
+					AND EXISTS (
+						SELECT 1
+						FROM json_each({headersJson}) AS "h"
+						WHERE instr(COALESCE("m"."InReplyToHeader", ''), "h"."value") > 0
+							OR instr(COALESCE("m"."ReferencesHeader", ''), "h"."value") > 0
+					)
+				""").ToListAsync(ct))
+				.Where(message => ParentHeaders(message).Any(headers.Contains))
+				.ToList();
+			if (descendants.Count == 0) break;
+
+			var referencedHeaders = descendants.SelectMany(ParentHeaders)
+				.Distinct(StringComparer.Ordinal)
+				.ToArray();
+			var persistedParents = await context.Messages
+				.Where(message => message.AccountId == accountId
+					&& message.MessageIdHeader != null
+					&& referencedHeaders.Contains(message.MessageIdHeader))
+				.ToListAsync(ct);
+			var parents = persistedParents
+				.Concat(context.ChangeTracker.Entries<Message>()
+					.Select(entry => entry.Entity)
+					.Where(message => message.AccountId == accountId
+						&& message.MessageIdHeader is not null
+						&& referencedHeaders.Contains(message.MessageIdHeader)))
+				.DistinctBy(message => message.Id)
+				.GroupBy(message => message.MessageIdHeader!, StringComparer.Ordinal)
+				.ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+
+			var next = new List<string>();
+			foreach (var descendant in descendants)
+			{
+				if (descendant.HasProviderThreadId) continue;
+				var parent = ParentHeaders(descendant)
+					.Select(header => parents.GetValueOrDefault(header))
+					.Where(candidates => candidates is { Length: 1 })
+					.Select(candidates => candidates![0])
+					.FirstOrDefault(candidate => candidate.Id != descendant.Id
+						&& !string.IsNullOrEmpty(candidate.ThreadId));
+				var threadId = parent?.ThreadId ?? $"local:{descendant.Id:N}";
+				if (descendant.ThreadId == threadId) continue;
+				descendant.ThreadId = threadId;
+				changed.Add(descendant);
+				if (!string.IsNullOrWhiteSpace(descendant.MessageIdHeader))
+					next.Add(descendant.MessageIdHeader);
+			}
+			frontier = next.Distinct(StringComparer.Ordinal).ToList();
+		}
+		return changed;
+	}
+	internal async Task RebuildFallbackThreadsAsync(Guid accountId, CancellationToken ct)
+	{
+		var messages = await context.Messages
+			.Where(message => message.AccountId == accountId)
+			.ToListAsync(ct);
+		var candidates = messages
+			.Where(message => !string.IsNullOrWhiteSpace(message.MessageIdHeader))
+			.GroupBy(message => message.MessageIdHeader!, StringComparer.Ordinal)
+			.ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+		var resolved = new Dictionary<Guid, string>();
+		var recomputed = messages.Select(message => message.Id).ToHashSet();
+		foreach (var message in messages.Where(message => !message.HasProviderThreadId))
+			message.ThreadId = ResolveFallbackThread(message, candidates, resolved, [], recomputed);
+		await context.SaveChangesAsync(ct);
+	}
+
+
+
+	private async Task<Dictionary<string, List<Message>>> LoadThreadCandidatesAsync(
+		Guid accountId,
+		IReadOnlyList<MessageDto> messages,
+		CancellationToken ct
+	)
+	{
+		var headers = messages.SelectMany(ParentHeaders).Distinct(StringComparer.Ordinal).ToList();
+		if (headers.Count == 0) return [];
+		return (await context.Messages
+			.Where(message => message.AccountId == accountId
+				&& message.MessageIdHeader != null
+				&& headers.Contains(message.MessageIdHeader))
+			.ToListAsync(ct))
+			.GroupBy(message => message.MessageIdHeader!, StringComparer.Ordinal)
+			.ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+	}
+
+	private static IEnumerable<string> ParentHeaders(MessageDto message)
+	{
+		foreach (var header in ParseMessageIds(message.InReplyToHeader)) yield return header;
+		foreach (var header in ParseMessageIds(message.ReferencesHeader).Reverse()) yield return header;
+	}
+	private static IEnumerable<string> ParentHeaders(Message message)
+	{
+		foreach (var header in ParseMessageIds(message.InReplyToHeader)) yield return header;
+		foreach (var header in ParseMessageIds(message.ReferencesHeader).Reverse()) yield return header;
+	}
+
+	private static IReadOnlyList<string> ParseMessageIds(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value)) return [];
+		var matches = Regex.Matches(value, "<[^<>]+>");
+		return matches.Count == 0
+			? [value.Trim()]
+			: matches.Select(match => match.Value).ToArray();
 	}
 
 	/// <summary>

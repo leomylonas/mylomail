@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -23,6 +23,18 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
     */
     getMessages(mailboxId: string, skip: number, take: number): Promise<MessageSummaryDto[]>;
+    /**
+    * @param mailboxId Transpiled from System.Guid
+    * @param threadId Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
+    */
+    getThreadMessages(mailboxId: string, threadId: string): Promise<MessageSummaryDto[]>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @param mailboxId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setActiveMailbox(accountId: string, mailboxId: string): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Hubs.PendingChangeDto>>
@@ -137,6 +149,43 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.DraftDto>
     */
     resolveDraftConflict(draftId: string, keepMine: boolean): Promise<DraftDto>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ContactDto>>
+    */
+    getContacts(accountId: string): Promise<ContactDto[]>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ContactSuggestionDto>>
+    */
+    getContactSuggestions(accountId: string): Promise<ContactSuggestionDto[]>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @param query Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ContactDto>>
+    */
+    searchContacts(accountId: string, query: string): Promise<ContactDto[]>;
+    /**
+    * @param request Transpiled from MyloMail.Api.Contracts.SaveContactRequest
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ContactDto>
+    */
+    saveContact(request: SaveContactRequest): Promise<ContactDto>;
+    /**
+    * @param contactId Transpiled from System.Guid
+    * @param keepMine Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ContactDto>
+    */
+    resolveContactConflict(contactId: string, keepMine: boolean): Promise<ContactDto>;
+    /**
+    * @param request Transpiled from MyloMail.Api.Contracts.DeleteContactRequest
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    deleteContact(request: DeleteContactRequest): Promise<void>;
+    /**
+    * @param contactId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    abandonAmbiguousContactCreate(contactId: string): Promise<void>;
     /**
     * @param draftId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task
@@ -453,6 +502,11 @@ export type IMailClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     calendarConflictDetected(eventId: string): Promise<void>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    contactsChanged(accountId: string): Promise<void>;
     /**
     * Emitted when network-class failures begin and when connectivity returns, so the UI can
     * show one calm offline state rather than per-mailbox errors multiplying every poll (§15).

@@ -74,8 +74,13 @@ public record MessageSummaryDto(
 	bool IsFlagged,
 	bool HasNonInlineAttachments,
 	ErrorCategory? MutationFailure,
-	string? SearchSnippet = null
-);
+	string? SearchSnippet = null,
+	string? ThreadId = null
+)
+{
+	/// <summary>Complete local membership count for this conversation in the listed mailbox.</summary>
+	public int ThreadMessageCount { get; init; } = 1;
+}
 
 /// <summary>
 /// Backfill progress for one mailbox (§1).

@@ -196,6 +196,36 @@ public sealed class OutboxTests
 		});
 	}
 
+	[Fact]
+	public async Task A_successful_send_records_recipients_without_a_provider_sent_copy()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await QueueAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			draft.To = [new Address("Grace Hopper", "grace@example.test")];
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			await services.GetRequiredService<SendExecutor>().SendAsync(account, item.Id);
+		});
+
+		await harness.UsingAsync(async services =>
+		{
+			var suggestion = await services.GetRequiredService<MyloMailDbContext>()
+				.ContactSuggestions.SingleAsync();
+			Assert.Equal("grace@example.test", suggestion.Email);
+			Assert.Equal("Grace Hopper", suggestion.DisplayName);
+		});
+		Assert.Contains(harness.AccountId, harness.Events.ContactAccounts);
+	}
+
 	/// <summary>
 	/// RFC 5322 §3.6.4: a reply's References must carry the parent's own References chain with
 	/// the parent's Message-ID appended, not just the immediate parent's id — otherwise a client

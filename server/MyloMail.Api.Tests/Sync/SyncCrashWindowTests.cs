@@ -124,6 +124,43 @@ public sealed class SyncCrashWindowTests
 		});
 	}
 
+	/// <summary>Kill point: message-derived suggestions are applied before the page cursor commits.</summary>
+	[Fact]
+	public async Task A_crash_after_suggestion_apply_replays_message_and_suggestion_together()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		var inbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		var occurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch
+		);
+		inbox.Messages[occurrenceId].From =
+			[new Address("Grace Hopper", "grace@example.test")];
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterApplyBeforeCommit);
+
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SyncTests.CoverAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.Messages.ToListAsync());
+			Assert.Empty(await context.ContactSuggestions.ToListAsync());
+		});
+
+		await SyncTests.CoverAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Single(await context.Messages.ToListAsync());
+			var suggestion = await context.ContactSuggestions.SingleAsync();
+			Assert.Equal("grace@example.test", suggestion.Email);
+		});
+	}
+
 	/// <summary>
 	/// Kill point: after a page and its cursor commit. The replay of an already-applied page
 	/// must converge, because that is the cost the never-skip rule is paid for with.

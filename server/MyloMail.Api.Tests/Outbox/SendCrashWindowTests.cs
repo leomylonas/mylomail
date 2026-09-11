@@ -55,10 +55,24 @@ public sealed class SendCrashWindowTests
 	{
 		await using var harness = await MutationHarness.CreateAsync();
 		var item = await OutboxTests.QueueAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			draft.Bcc = [new Address("Ada Lovelace", "ada@example.test")];
+			await context.SaveChangesAsync();
+		});
 
 		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
 		await Assert.ThrowsAsync<SimulatedCrashException>(() => SendAsync(harness, item.Id));
 		await harness.RestartAsync();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			draft.Bcc = [new Address("Edited later", "later@example.test")];
+			await context.SaveChangesAsync();
+		});
 
 		await MaterialiseInSentAsync(harness, item.StableMessageId);
 		await ReconcileAsync(harness);
@@ -72,7 +86,12 @@ public sealed class SendCrashWindowTests
 
 			Assert.Equal(MutationAttemptState.Completed, attempt.State);
 			Assert.NotNull(attempt.ResultPersistedAt);
+			var suggestion = await context.ContactSuggestions.SingleAsync();
+			Assert.Equal("ada@example.test", suggestion.Email);
+			Assert.Equal("Ada Lovelace", suggestion.DisplayName);
+			Assert.Empty(await context.Drafts.ToListAsync());
 		});
+		Assert.Contains(harness.AccountId, harness.Events.ContactAccounts);
 	}
 
 	/// <summary>

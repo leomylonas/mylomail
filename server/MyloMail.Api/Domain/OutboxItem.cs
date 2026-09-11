@@ -32,6 +32,12 @@ public class OutboxItem
 	/// </remarks>
 	public string StableMessageId { get; set; } = string.Empty;
 
+	/// <summary>
+	/// Recipients frozen with the prepared attempt, before the irreversible send call.
+	/// Reconciliation uses this snapshot rather than a draft another window may have edited.
+	/// </summary>
+	public IReadOnlyList<Address> RecipientSnapshot { get; set; } = [];
+
 	public int Attempts { get; set; }
 	public string? LastError { get; set; }
 	public DateTimeOffset CreatedAt { get; set; }

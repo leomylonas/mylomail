@@ -19,13 +19,15 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 	[
 		"https://www.googleapis.com/auth/gmail.modify",
 		"https://www.googleapis.com/auth/calendar",
+		"https://www.googleapis.com/auth/contacts",
 	];
 	public Task<UserCredential> AuthorizeAsync(Account account, CancellationToken ct) =>
-		AuthorizeAsync(account, requireCalendarScope: false, ct);
+		AuthorizeAsync(account, requireCalendarScope: false, requireContactsScope: false, ct);
 
 	public async Task<UserCredential> AuthorizeAsync(
 		Account account,
 		bool requireCalendarScope,
+		bool requireContactsScope,
 		CancellationToken ct
 	)
 	{
@@ -33,7 +35,7 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		await gate.WaitAsync(ct);
 		try
 		{
-			return await AuthorizeUnlockedAsync(account, requireCalendarScope, ct);
+			return await AuthorizeUnlockedAsync(account, requireCalendarScope, requireContactsScope, ct);
 		}
 		finally
 		{
@@ -44,6 +46,7 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 	private async Task<UserCredential> AuthorizeUnlockedAsync(
 		Account account,
 		bool requireCalendarScope,
+		bool requireContactsScope,
 		CancellationToken ct
 	)
 	{
@@ -65,7 +68,9 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		);
 		var requiredScope = requireCalendarScope
 			? "https://www.googleapis.com/auth/calendar"
-			: "https://www.googleapis.com/auth/gmail.modify";
+			: requireContactsScope
+				? "https://www.googleapis.com/auth/contacts"
+				: "https://www.googleapis.com/auth/gmail.modify";
 		if (string.IsNullOrWhiteSpace(credential.Token.Scope)
 			|| !credential.Token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
 				.Contains(requiredScope, StringComparer.Ordinal))

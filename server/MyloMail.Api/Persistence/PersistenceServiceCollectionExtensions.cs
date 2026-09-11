@@ -81,7 +81,14 @@ public static class PersistenceServiceCollectionExtensions
 			}
 		});
 
+		services.AddHttpClient("google-contacts");
+		services.AddTransient<Providers.Graph.GraphImmutableIdHandler>();
+		services
+			.AddHttpClient("graph-contacts")
+			.AddHttpMessageHandler<Providers.Graph.GraphImmutableIdHandler>();
 		return services;
+
+
 	}
 
 	public static IServiceCollection AddMutations(this IServiceCollection services)
@@ -93,6 +100,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddScoped<ITrustedCertificateStore, TrustedCertificateStore>();
 		services.TryAddScoped<IMailProviderFactory, MailProviderFactory>();
 		services.TryAddScoped<ICalendarProviderFactory, CalendarProviderFactory>();
+		services.TryAddScoped<IContactProviderFactory, ContactProviderFactory>();
 		services.TryAddScoped<ItipReplySender>();
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
@@ -104,6 +112,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MutationExecutor>();
 		services.AddScoped<MutationReconciler>();
 		services.AddScoped<StartupReconciliation>();
+		services.TryAddScoped<Contacts.ContactSuggestionService>();
 		services.AddScoped<OutboxService>();
 		services.AddScoped<SendExecutor>();
 		services.AddScoped<SendReconciler>();
@@ -117,11 +126,17 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton(TimeProvider.System);
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
+		services.TryAddScoped<Contacts.ContactSuggestionService>();
 		services.AddScoped<MessageIngestor>();
 		services.AddSingleton<CalendarSyncGate>();
 		services.AddSingleton<ChangeStreamGate>();
+		services.TryAddSingleton<ImapIdleRegistry>();
+		services.TryAddSingleton<ImapIdleWakeRegistry>();
+		services.TryAddSingleton<ContactRefreshRegistry>();
 		services.AddScoped<CalendarSyncService>();
 		services.AddScoped<CalendarEventService>();
+		services.AddSingleton<Contacts.ContactGate>();
+		services.AddScoped<Contacts.ContactService>();
 		services.TryAddSingleton<IDnsQuery>(_ => new LookupClient());
 		services.TryAddSingleton<IEmailAuthenticationDns, EmailAuthenticationDns>();
 		services.TryAddSingleton<IIncomingMailAuthentication, DkimDmarcAuthentication>();
@@ -154,8 +169,13 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddSingleton<AccountGate>();
 		services.AddSingleton<PollRegistry>();
 		services.AddSingleton<IntegrityRegistry>();
+		services.TryAddSingleton<ImapIdleRegistry>();
+		services.TryAddSingleton<ImapIdleWakeRegistry>();
+		services.TryAddSingleton<ContactRefreshRegistry>();
+		services.AddHostedService<ImapIdleWorker>();
 		services.AddScoped<SyncJobs>();
 		services.AddScoped<MutationJobs>();
+		services.AddScoped<ContactJobs>();
 
 		// Replaces the no-op default, so intent enqueued by the hub is executed promptly
 		// instead of waiting for the next startup sweep.

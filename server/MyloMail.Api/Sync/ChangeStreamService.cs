@@ -183,7 +183,7 @@ public sealed class ChangeStreamService(
 	)
 	{
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
-		ContentApplyResult applied = new(new IngestResult([], [], []), [], []);
+		ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -220,14 +220,17 @@ public sealed class ChangeStreamService(
 		//
 		// These are steady-state changes by construction — this is the change stream, not
 		// backfill — so a new message here is genuinely new mail (§7).
-		var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
+		var summaries = applied.Messages.Observed.Concat(applied.Messages.Rethreaded)
+			.DistinctBy(message => message.Id)
+			.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
 		foreach (var message in applied.Messages.Created)
 		{
 			await events.MessageReceivedAsync(summaries[message.Id]);
 		}
 
-		foreach (var message in applied.Messages.Updated)
+		foreach (var message in applied.Messages.Updated.Concat(applied.Messages.Rethreaded)
+			.DistinctBy(message => message.Id))
 		{
 			await events.MessageUpdatedAsync(summaries[message.Id]);
 		}
@@ -238,6 +241,8 @@ public sealed class ChangeStreamService(
 		{
 			await events.DraftUpdatedAsync(draftId);
 		}
+		if (applied.Messages.ContactSuggestionsChanged)
+			await events.ContactsChangedAsync(account.Id);
 	}
 
 	private async Task<ContentApplyResult> ApplyContentAsync(
@@ -303,7 +308,13 @@ public sealed class ChangeStreamService(
 		);
 
 		return new ContentApplyResult(
-			new IngestResult(ingested.Created, changed, ingested.Observed),
+			new IngestResult(
+				ingested.Created,
+				changed,
+				ingested.Observed,
+				ingested.Rethreaded,
+				ingested.ContactSuggestionsChanged
+			),
 			draftIds.Distinct().ToArray(),
 			eligibleNotifications
 		);
@@ -436,7 +447,7 @@ public sealed class ChangeStreamService(
 
 
 			var (result, remoteDrafts, generations) = SyncPagePayload.Deserialize(staged.Payload);
-			ContentApplyResult applied = new(new IngestResult([], [], []), [], []);
+			ContentApplyResult applied = new(new IngestResult([], [], [], [], false), [], []);
 
 			var strategy = context.Database.CreateExecutionStrategy();
 			await strategy.ExecuteAsync(async () =>
@@ -471,14 +482,17 @@ public sealed class ChangeStreamService(
 			// These are steady-state changes too — replayed live-stream history, not
 			// backfill — so a message reported here is genuinely new mail just as it is on
 			// the non-staged path (§7).
-			var summaries = applied.Messages.Observed.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
+			var summaries = applied.Messages.Observed.Concat(applied.Messages.Rethreaded)
+				.DistinctBy(message => message.Id)
+				.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
 			foreach (var message in applied.Messages.Created)
 			{
 				await events.MessageReceivedAsync(summaries[message.Id]);
 			}
 
-			foreach (var message in applied.Messages.Updated)
+			foreach (var message in applied.Messages.Updated.Concat(applied.Messages.Rethreaded)
+				.DistinctBy(message => message.Id))
 			{
 				await events.MessageUpdatedAsync(summaries[message.Id]);
 			}
@@ -487,6 +501,8 @@ public sealed class ChangeStreamService(
 			{
 				await events.DraftUpdatedAsync(draftId);
 			}
+			if (applied.Messages.ContactSuggestionsChanged)
+				await events.ContactsChangedAsync(account.Id);
 
 			replayed++;
 		}

@@ -32,8 +32,11 @@ public class Message
 	/// <summary>RFC 5322 <c>Sender</c>, where it differs from <see cref="From"/>.</summary>
 	public Address? SenderAddress { get; set; }
 
-	/// <summary>Provider-native thread id where offered; not used in the current UI.</summary>
+	/// <summary>Effective conversation id: provider-native where offered, otherwise RFC fallback.</summary>
 	public string? ThreadId { get; set; }
+
+	/// <summary>Whether <see cref="ThreadId"/> came from the provider rather than fallback inference.</summary>
+	public bool HasProviderThreadId { get; set; }
 
 	public IReadOnlyList<Address> From { get; set; } = [];
 	public IReadOnlyList<Address> To { get; set; } = [];

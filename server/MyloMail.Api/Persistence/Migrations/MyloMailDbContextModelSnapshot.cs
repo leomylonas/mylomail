@@ -36,6 +36,9 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ContactSyncCursor")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -121,6 +124,9 @@ namespace MyloMail.Api.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("MailtoPromptDismissed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MessageThreadBackfillVersion")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PanelLayout")
@@ -410,6 +416,142 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ChangeStreamStates");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.Contact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderContactId")
+                        .HasColumnType("TEXT");
+                    b.Property<string>("ProviderContainerId")
+                        .HasColumnType("TEXT");
+
+
+                    b.Property<string>("ProviderRevision")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("ProviderMissingSince")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("SyncConflict")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId", "ProviderContactId")
+                        .IsUnique();
+
+                    b.ToTable("Contacts");
+                });
+
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactSuggestion", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("AccountId", "NormalizedEmail");
+
+                    b.ToTable("ContactSuggestions");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("TEXT");
+                    b.Property<long>("Sequence")
+                        .HasColumnType("INTEGER");
+
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EmailsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExpectedRevision")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("DispatchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("SettledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId");
+                    b.HasIndex("ContactId", "Sequence")
+                        .IsUnique();
+
+
+                    b.HasIndex("State", "CreatedAt");
+
+                    b.ToTable("ContactOperations");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactAddress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId", "NormalizedEmail")
+                        .IsUnique();
+
+                    b.HasIndex("NormalizedEmail");
+
+                    b.ToTable("ContactAddresses");
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.CredentialFallbackSettings", b =>
@@ -798,6 +940,9 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("HasProviderThreadId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ThreadId")
                         .HasColumnType("TEXT");
 
@@ -1164,6 +1309,10 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<string>("LastError")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RecipientSnapshot")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset?>("ReconcilingSince")
                         .HasColumnType("TEXT");
 
@@ -1315,6 +1464,43 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.HasOne("MyloMail.Api.Domain.Calendar", null)
                         .WithMany()
                         .HasForeignKey("CalendarId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.Contact", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactAddress", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Contact", "Contact")
+                        .WithMany("Addresses")
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactOperation", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Contact", null)
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+
+            modelBuilder.Entity("MyloMail.Api.Domain.ContactSuggestion", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

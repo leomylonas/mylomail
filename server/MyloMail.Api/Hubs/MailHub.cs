@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Compose;
+using MyloMail.Api.Contacts;
 using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
@@ -38,6 +39,10 @@ public interface IMailHub
 	Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId);
 
 	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take);
+
+	Task<IReadOnlyList<MessageSummaryDto>> GetThreadMessages(Guid mailboxId, string threadId);
+
+	Task SetActiveMailbox(Guid accountId, Guid mailboxId);
 
 	Task<IReadOnlyList<PendingChangeDto>> GetPendingSyncState(Guid accountId);
 
@@ -118,6 +123,20 @@ public interface IMailHub
 	/// discards the local edit and pulls the server's actual current content instead.
 	/// </summary>
 	Task<DraftDto> ResolveDraftConflict(Guid draftId, bool keepMine);
+
+	Task<IReadOnlyList<ContactDto>> GetContacts(Guid accountId);
+
+	Task<IReadOnlyList<ContactSuggestionDto>> GetContactSuggestions(Guid accountId);
+
+	Task<IReadOnlyList<ContactDto>> SearchContacts(Guid accountId, string query);
+
+	Task<ContactDto> SaveContact(SaveContactRequest request);
+
+	Task<ContactDto> ResolveContactConflict(Guid contactId, bool keepMine);
+
+	Task DeleteContact(DeleteContactRequest request);
+
+	Task AbandonAmbiguousContactCreate(Guid contactId);
 
 	Task DeleteDraft(Guid draftId);
 
@@ -266,6 +285,7 @@ public class MailHub(
 	MessageSearch search,
 	DraftService drafts,
 	SendIdentityService identities,
+	ContactService contacts,
 	MailboxManagement mailboxes,
 	CalendarEventService calendarEvents,
 	Notifications.NotificationService notifications,
@@ -276,6 +296,7 @@ public class MailHub(
 	IBackgroundJobClient jobs,
 	Scheduling.ConnectivityMonitor connectivity,
 	Scheduling.PollRegistry polls,
+	Scheduling.ImapIdleRegistry imapIdle,
 	MailInviteMaterializer invites,
 	IIncomingMailAuthentication authentication
 ) : Hub<IMailClient>, IMailHub
@@ -336,26 +357,81 @@ public class MailHub(
 			.Skip(skip)
 			.Take(take)
 			.ToList();
+		var threadCounts = messages
+			.GroupBy(ThreadKey, StringComparer.Ordinal)
+			.ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+		return await ToMessageSummariesAsync(shown, threadCounts);
+	}
+
+	public async Task<IReadOnlyList<MessageSummaryDto>> GetThreadMessages(
+		Guid mailboxId,
+		string threadId
+	)
+	{
+		var messages = await context
+			.MessageMailboxes.Where(occurrence => occurrence.MailboxId == mailboxId)
+			.Join(
+				context.Messages.Where(message => message.ThreadId == threadId),
+				occurrence => occurrence.MessageId,
+				message => message.Id,
+				(_, message) => message
+			)
+			.ToListAsync();
+		messages.Sort((left, right) =>
+		{
+			var received = right.ReceivedAt.CompareTo(left.ReceivedAt);
+			return received != 0 ? received : right.Id.CompareTo(left.Id);
+		});
+		var counts = new Dictionary<string, int>(StringComparer.Ordinal)
+		{
+			[threadId] = messages.Count,
+		};
+		return await ToMessageSummariesAsync(messages, counts);
+	}
+
+	private async Task<IReadOnlyList<MessageSummaryDto>> ToMessageSummariesAsync(
+		IReadOnlyList<Message> messages,
+		IReadOnlyDictionary<string, int> threadCounts
+	)
+	{
 		var failures = await MessageMutationFailures.ForMessagesAsync(
 			context,
-			shown.Select(m => m.Id).ToList()
+			messages.Select(message => message.Id).ToList()
 		);
-
 		return
 		[
-			.. shown.Select(m => new MessageSummaryDto(
-				m.Id,
-				m.AccountId,
-				m.Subject,
-				m.Snippet,
-				m.From,
-				m.ReceivedAt,
-				m.IsRead,
-				m.IsFlagged,
-				m.HasNonInlineAttachments,
-				failures.TryGetValue(m.Id, out var category) ? category : null
-			)),
+			.. messages.Select(message => new MessageSummaryDto(
+				message.Id,
+				message.AccountId,
+				message.Subject,
+				message.Snippet,
+				message.From,
+				message.ReceivedAt,
+				message.IsRead,
+				message.IsFlagged,
+				message.HasNonInlineAttachments,
+				failures.TryGetValue(message.Id, out var category) ? category : null,
+				ThreadId: message.ThreadId
+			)
+			{
+				ThreadMessageCount = threadCounts.GetValueOrDefault(ThreadKey(message), 1),
+			}),
 		];
+	}
+
+	private static string ThreadKey(Message message) =>
+		message.ThreadId ?? message.Id.ToString();
+
+	public Task SetActiveMailbox(Guid accountId, Guid mailboxId)
+	{
+		imapIdle.SetActiveMailbox(Context.ConnectionId, accountId, mailboxId);
+		return Task.CompletedTask;
+	}
+
+	public override async Task OnDisconnectedAsync(Exception? exception)
+	{
+		imapIdle.RemoveConnection(Context.ConnectionId);
+		await base.OnDisconnectedAsync(exception);
 	}
 
 	/// <summary>
@@ -804,6 +880,8 @@ public class MailHub(
 			{
 				jobs.Enqueue<Scheduling.SyncJobs>(j => j.TopologyAsync(account.Id, default));
 			}
+			if (account.ProviderType != ProviderType.Imap)
+				jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(account.Id));
 		}
 		return settings with
 		{
@@ -900,12 +978,126 @@ public class MailHub(
 		if (failures is { Count: > 0 })
 		{
 			// A HubException specifically: SignalR replaces any other exception type's message
+
 			// with a generic fallback on the wire (no EnableDetailedErrors here), so an
 			// AggregateException's carefully built summary would never actually reach the
 			// renderer's error toast — every other hub method in this file that surfaces a
 			// message to the caller does the same for the same reason.
 			throw new HubException($"{failures.Count} of {messageIds.Count} message(s) could not be updated.");
 		}
+	}
+
+	public async Task<IReadOnlyList<ContactDto>> GetContacts(Guid accountId)
+	{
+		// The cache is the offline contract. Refresh work gets its own scope after this hub
+		// call returns; it must never retain the connection-scoped DbContext.
+		jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(accountId));
+		return await ToContactDtosAsync(
+			await contacts.ListAsync(accountId, null, Context.ConnectionAborted)
+		);
+	}
+
+	public async Task<IReadOnlyList<ContactSuggestionDto>> GetContactSuggestions(Guid accountId)
+	{
+		jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(accountId));
+		return (await contacts.ListSuggestionsAsync(accountId, Context.ConnectionAborted))
+			.Select(suggestion => new ContactSuggestionDto(
+				suggestion.DisplayName,
+				suggestion.Emails.Select(email => new ContactAddressDto(email)).ToArray()
+			))
+			.ToArray();
+	}
+
+	public async Task<IReadOnlyList<ContactDto>> SearchContacts(Guid accountId, string query) =>
+		await ToContactDtosAsync(
+			await contacts.ListAsync(accountId, query, Context.ConnectionAborted)
+		);
+
+	public async Task<ContactDto> SaveContact(SaveContactRequest request)
+	{
+		var contact = await contacts.SaveAsync(
+			new ContactInput(
+				request.ContactId,
+				request.AccountId,
+				request.DisplayName,
+				request.Emails,
+				request.ExpectedRevision
+			),
+			Context.ConnectionAborted
+		);
+		return (await ToContactDtosAsync([contact])).Single();
+	}
+
+	public async Task<ContactDto> ResolveContactConflict(Guid contactId, bool keepMine)
+	{
+		var contact = await contacts.ResolveConflictAsync(
+			contactId,
+			keepMine,
+			Context.ConnectionAborted
+		);
+		return (await ToContactDtosAsync([contact])).Single();
+	}
+
+	public Task DeleteContact(DeleteContactRequest request) =>
+		contacts.DeleteAsync(request.ContactId, request.ExpectedRevision, Context.ConnectionAborted);
+	public Task AbandonAmbiguousContactCreate(Guid contactId) =>
+		contacts.AbandonAmbiguousCreateAsync(contactId, Context.ConnectionAborted);
+
+
+	private async Task<IReadOnlyList<ContactDto>> ToContactDtosAsync(
+		IReadOnlyList<Contact> contactsToMap
+	)
+	{
+		var ids = contactsToMap.Select(contact => contact.Id).ToArray();
+		var accountIds = contactsToMap.Select(contact => contact.AccountId).Distinct().ToArray();
+		var providerTypes = await context.Accounts
+			.Where(account => accountIds.Contains(account.Id))
+			.ToDictionaryAsync(
+				account => account.Id,
+				account => account.ProviderType,
+				Context.ConnectionAborted
+			);
+		var operations = await context.ContactOperations
+			.Where(operation => ids.Contains(operation.ContactId))
+			.Select(operation => new
+			{
+				operation.ContactId,
+				operation.Sequence,
+				operation.Kind,
+				operation.State,
+			})
+			.ToListAsync(Context.ConnectionAborted);
+		return contactsToMap.Select(contact =>
+		{
+			var contactOperations = operations
+				.Where(operation => operation.ContactId == contact.Id)
+				.OrderBy(operation => operation.Sequence)
+				.ToArray();
+			var states = contactOperations.Select(operation => operation.State).ToArray();
+			var latestState = contactOperations.LastOrDefault()?.State;
+			var ambiguousCreate = contactOperations.Any(operation =>
+				operation.Kind == ContactOperationKind.Create
+				&& operation.State is ContactOperationState.Dispatched
+					or ContactOperationState.Ambiguous
+			);
+			var canDelete = !contact.SyncConflict
+				&& !ambiguousCreate
+				&& (providerTypes[contact.AccountId] != ProviderType.Gmail
+					|| contact.ProviderContactId is null);
+			return new ContactDto(
+				contact.Id,
+				contact.AccountId,
+				contact.DisplayName,
+				contact.Addresses.Select(address => new ContactAddressDto(address.Email)).ToArray(),
+				contact.ProviderRevision,
+				contact.SyncConflict,
+				states.Any(state => state is ContactOperationState.Pending or ContactOperationState.Dispatched),
+				states.Contains(ContactOperationState.Ambiguous),
+				ambiguousCreate,
+				latestState == ContactOperationState.Rejected,
+				canDelete
+			);
+		}).ToArray();
 	}
 
 	public async Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId) =>

@@ -11,6 +11,7 @@ import {
 	type NotificationState,
 } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
+import type { WindowState } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
 
 /** Query keys, in one place so an event and the query it invalidates cannot drift apart. */
 export const queryKeys = {
@@ -18,12 +19,16 @@ export const queryKeys = {
 	accountCapabilities: (accountId: string) =>
 		["account-capabilities", accountId] as const,
 	messages: (mailboxId: string) => ["messages", mailboxId] as const,
+	threadMessages: (mailboxId: string, threadId: string) =>
+		["messages", mailboxId, "thread", threadId] as const,
 	pending: (accountId: string) => ["pending", accountId] as const,
 	search: (accountId: string, query: string, mailboxId: string | null) =>
 		["search", accountId, query, mailboxId] as const,
 	calendars: (accountId: string) => ["calendars", accountId] as const,
 	calendarEvents: (calendarId: string, from: string, to: string) =>
 		["calendar-events", calendarId, from, to] as const,
+	contacts: (accountId: string, query = "") =>
+		["contacts", accountId, query] as const,
 	/** Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3). */
 	syncProgress: (mailboxId: string) => ["sync-progress", mailboxId] as const,
 	/**
@@ -57,6 +62,7 @@ export interface SyncProgress {
 export function connectHub(
 	queryClient: QueryClient,
 	notifications: Store<NotificationState>,
+	windowStore: Store<WindowState>,
 ): HubConnection {
 	const hub = new HubConnectionBuilder()
 		// Relative: the page is served by the backend, so the handshake carries the httpOnly
@@ -95,6 +101,11 @@ export function connectHub(
 	hub.on("MailboxTreeChanged", (accountId: string) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(accountId),
+		});
+	});
+	hub.on("ContactsChanged", (accountId: string) => {
+		void queryClient.invalidateQueries({
+			queryKey: ["contacts", accountId],
 		});
 	});
 
@@ -254,6 +265,11 @@ export function connectHub(
 	// repair a cache that is now simply wrong (§7).
 	hub.onreconnected(() => {
 		void queryClient.invalidateQueries();
+		const accountId = windowStore.getState("selectedAccountId");
+		const mailboxId = windowStore.getState("selectedMailboxId");
+		if (accountId && mailboxId) {
+			void hub.invoke("SetActiveMailbox", accountId, mailboxId);
+		}
 	});
 
 	return hub;

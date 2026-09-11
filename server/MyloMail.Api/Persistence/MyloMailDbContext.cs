@@ -43,6 +43,10 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Calendar> Calendars => Set<Calendar>();
 	public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 	public DbSet<CalendarCreationAttempt> CalendarCreationAttempts => Set<CalendarCreationAttempt>();
+	public DbSet<Contact> Contacts => Set<Contact>();
+	public DbSet<ContactAddress> ContactAddresses => Set<ContactAddress>();
+	public DbSet<ContactOperation> ContactOperations => Set<ContactOperation>();
+	public DbSet<ContactSuggestion> ContactSuggestions => Set<ContactSuggestion>();
 	public DbSet<Domain.AppSettings> AppSettings => Set<Domain.AppSettings>();
 	public DbSet<CredentialFallbackSettings> CredentialFallbackSettings => Set<CredentialFallbackSettings>();
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
@@ -60,6 +64,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		ConfigureMutations(model);
 		ConfigureComposition(model);
 		ConfigureCalendar(model);
+		ConfigureContacts(model);
 		ConfigureNotifications(model);
 		ConfigureExport(model);
 		ConfigureCredentialFallback(model);
@@ -395,6 +400,8 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.HasForeignKey(x => x.AccountId)
 				.OnDelete(DeleteBehavior.Cascade);
 
+			e.Property(x => x.RecipientSnapshot).HasAddressListConversion();
+
 			// No FK to Draft: the draft is deleted once the message is sent, and the outbox
 			// row outlives it as the record of what happened.
 			e.HasIndex(x => new { x.AccountId, x.Status });
@@ -480,6 +487,41 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.OnDelete(DeleteBehavior.Cascade);
 			e.HasIndex(x => x.CalendarId);
 		});
+	}
+
+	private static void ConfigureContacts(ModelBuilder model)
+	{
+		model.Entity<Contact>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.AccountId, x.ProviderContactId }).IsUnique();
+		});
+		model.Entity<ContactAddress>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Contact>().WithMany(x => x.Addresses).HasForeignKey(x => x.ContactId).OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.ContactId, x.NormalizedEmail }).IsUnique();
+			e.HasIndex(x => x.NormalizedEmail);
+		});
+		model.Entity<ContactOperation>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasOne<Contact>().WithMany().HasForeignKey(x => x.ContactId).OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.State, x.CreatedAt });
+			e.HasIndex(x => new { x.ContactId, x.Sequence }).IsUnique();
+			e.HasIndex(x => x.ContactId);
+		});
+		model.Entity<ContactSuggestion>(e =>
+		{
+			e.HasKey(x => new { x.AccountId, x.NormalizedEmail });
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+
 	}
 
 	private static void ConfigureNotifications(ModelBuilder model)

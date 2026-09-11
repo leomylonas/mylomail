@@ -5,7 +5,7 @@
 
 .headerRow {
 	display: grid;
-	grid-template-columns: 160px 1fr 140px 48px;
+	grid-template-columns: 2rem 160px 1fr 140px 48px;
 	gap: var(--cds-spacing-03);
 	border-bottom: 1px solid var(--cds-border-subtle);
 }
@@ -44,7 +44,28 @@
 	position: absolute;
 	top: 0;
 	left: 0;
+	display: grid;
+	grid-template-columns: 2rem minmax(0, 1fr);
+	gap: var(--cds-spacing-03);
 	width: 100%;
+}
+
+.threadToggle,
+.threadPlaceholder {
+	height: 100%;
+	border: none;
+	border-bottom: 1px solid var(--cds-border-subtle);
+	background: none;
+	color: var(--cds-text-secondary);
+}
+
+.threadToggle {
+	cursor: pointer;
+}
+
+.threadToggle:hover {
+	background: var(--cds-layer-hover);
+	color: var(--cds-text-primary);
 }
 
 .row {

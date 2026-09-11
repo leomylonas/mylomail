@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { connectHub } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
+import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 
 export type HubStatus = "connecting" | "connected" | "failed";
 
@@ -10,11 +11,12 @@ export type HubStatus = "connecting" | "connected" | "failed";
 export function useHub(): { hub: HubConnection | null; status: HubStatus } {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
+	const windowStore = useWindowStore();
 	const [hub, setHub] = useState<HubConnection | null>(null);
 	const [status, setStatus] = useState<HubStatus>("connecting");
 
 	useEffect(() => {
-		const connection = connectHub(queryClient, notifications);
+		const connection = connectHub(queryClient, notifications, windowStore);
 		let cancelled = false;
 
 		connection
@@ -33,7 +35,7 @@ export function useHub(): { hub: HubConnection | null; status: HubStatus } {
 			cancelled = true;
 			void connection.stop();
 		};
-	}, [queryClient, notifications]);
+	}, [queryClient, notifications, windowStore]);
 
 	return { hub, status };
 }

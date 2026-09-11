@@ -79,6 +79,8 @@ public sealed class CoverageService(
 		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
 		var remoteDrafts = await drafts.PrepareAsync(account, page.Messages, mailboxes, ct);
 		IReadOnlyList<Guid> changedDraftIds = [];
+		IReadOnlyList<Message> rethreaded = [];
+		var contactSuggestionsChanged = false;
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -104,6 +106,8 @@ public sealed class CoverageService(
 			}
 
 			var ingested = await ingestor.IngestAsync(account, page.Messages, mailboxes, generations, ct);
+			rethreaded = ingested.Rethreaded;
+			contactSuggestionsChanged = ingested.ContactSuggestionsChanged;
 			changedDraftIds = await drafts.ApplyAsync(account, remoteDrafts, mailboxes, generations, ct);
 
 			// A message this page materialises may already have a pending, staged-path
@@ -117,8 +121,8 @@ public sealed class CoverageService(
 				.ToDictionary(m => m.ProviderStableId!, m => m.Id);
 			await notifications.BackfillMessageIdsAsync(account.Id, resolvedByProviderStableId, ct);
 
-			// Backfill raises no per-message events: this is a backlog the user already has,
-			// and announcing it would be the notification flood §13 Epic 9 rules out.
+			// Backfill raises no new-message event: this is a backlog the user already has,
+			// but persisted descendants rethreaded by this page still invalidate their lists.
 			coverage.MessagesFetched += ingested.Created.Count + ingested.Updated.Count;
 			coverage.EstimatedTotal = page.EstimatedTotal ?? coverage.EstimatedTotal;
 			coverage.ResumeToken = page.ResumeToken;
@@ -129,6 +133,7 @@ public sealed class CoverageService(
 				coverage.Status = CoverageStatus.Covered;
 			}
 
+			faults.Reached(FaultPoints.SyncPageAfterApplyBeforeCommit);
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
@@ -144,6 +149,10 @@ public sealed class CoverageService(
 		{
 			await events.DraftUpdatedAsync(draftId);
 		}
+		foreach (var message in rethreaded.DistinctBy(message => message.Id))
+			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(message));
+		if (contactSuggestionsChanged)
+			await events.ContactsChangedAsync(account.Id);
 
 		logger.LogInformation(
 			"Coverage page for mailbox {MailboxId}: {Count} messages, more={HasMore}.",

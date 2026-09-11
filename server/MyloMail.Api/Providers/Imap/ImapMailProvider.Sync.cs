@@ -217,6 +217,7 @@ public sealed partial class ImapMailProvider
 				| MessageSummaryItems.InternalDate
 				| MessageSummaryItems.Size
 				| MessageSummaryItems.ModSeq
+				| MessageSummaryItems.References
 				| MessageSummaryItems.BodyStructure,
 			ct
 		);
@@ -246,6 +247,7 @@ public sealed partial class ImapMailProvider
 			],
 			MessageIdHeader = envelope?.MessageId,
 			InReplyToHeader = envelope?.InReplyTo,
+			ReferencesHeader = SerializeReferences(summary.References),
 			ReplyToAddresses = Addresses(envelope?.ReplyTo),
 			From = Addresses(envelope?.From),
 			To = Addresses(envelope?.To),
@@ -277,6 +279,9 @@ public sealed partial class ImapMailProvider
 			BodyPartBasic basic => basic.ContentDisposition?.IsAttachment == true,
 			_ => false,
 		};
+
+	internal static string? SerializeReferences(MessageIdList? references) =>
+		references is { Count: > 0 } ? references.ToString() : null;
 
 	private static IReadOnlyList<Address> Addresses(InternetAddressList? list) =>
 		list is null

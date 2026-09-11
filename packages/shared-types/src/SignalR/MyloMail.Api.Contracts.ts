@@ -106,6 +106,68 @@ export type CalDavAccountSettings = {
     secret?: string;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.ContactAddressDto */
+export type ContactAddressDto = {
+    /** Transpiled from string */
+    email: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.ContactSuggestionDto */
+export type ContactSuggestionDto = {
+    /** Transpiled from string */
+    displayName: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ContactAddressDto> */
+    addresses: ContactAddressDto[];
+}
+
+/** Transpiled from MyloMail.Api.Contracts.ContactDto */
+export type ContactDto = {
+    /** Transpiled from System.Guid */
+    id: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    displayName: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ContactAddressDto> */
+    addresses: ContactAddressDto[];
+    /** Transpiled from string? */
+    providerRevision?: string;
+    /** Transpiled from bool */
+    syncConflict: boolean;
+    /** Transpiled from bool */
+    syncPending: boolean;
+    /** Transpiled from bool */
+    ambiguousOutcome: boolean;
+    /** Transpiled from bool */
+    ambiguousCreate: boolean;
+    /** Transpiled from bool */
+    syncRejected: boolean;
+    /** Transpiled from bool */
+    canDelete: boolean;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.SaveContactRequest */
+export type SaveContactRequest = {
+    /** Transpiled from System.Guid */
+    contactId?: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    displayName: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<string> */
+    emails: string[];
+    /** Transpiled from string? */
+    expectedRevision?: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.DeleteContactRequest */
+export type DeleteContactRequest = {
+    /** Transpiled from System.Guid */
+    contactId: string;
+    /** Transpiled from string? */
+    expectedRevision?: string;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ExportJobDto */
 export type ExportJobDto = {
     /** Transpiled from System.Guid */
@@ -182,6 +244,10 @@ export type MessageSummaryDto = {
     mutationFailure?: ErrorCategory;
     /** Transpiled from string? */
     searchSnippet?: string;
+    /** Transpiled from string? */
+    threadId?: string;
+    /** Transpiled from int */
+    threadMessageCount: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.SyncProgressDto */

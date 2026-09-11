@@ -145,6 +145,7 @@ public sealed class CrossWindowBroadcastTests
 		public Task DraftUpdatedAsync(Guid draftId) => Task.CompletedTask;
 		public Task CalendarEventUpdatedAsync(Guid eventId) => Task.CompletedTask;
 		public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
+		public Task ContactsChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 		public Task NotificationReadyAsync(NotificationDto notification) => Task.CompletedTask;
 		public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;

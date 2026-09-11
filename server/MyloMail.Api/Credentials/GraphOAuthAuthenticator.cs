@@ -12,7 +12,7 @@ namespace MyloMail.Api.Credentials;
 /// </summary>
 public sealed class GraphOAuthAuthenticator
 {
-	public static readonly IReadOnlyList<string> Scopes = ["Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"];
+	public static readonly IReadOnlyList<string> Scopes = ["Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"];
 
 	private readonly ICredentialStore credentials;
 	private readonly IPublicClientApplication application;

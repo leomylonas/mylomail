@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -90,6 +90,14 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetMessages", mailboxId, skip, take);
     }
 
+    public readonly getThreadMessages = async (mailboxId: string, threadId: string): Promise<MessageSummaryDto[]> => {
+        return await this.connection.invoke("GetThreadMessages", mailboxId, threadId);
+    }
+
+    public readonly setActiveMailbox = async (accountId: string, mailboxId: string): Promise<void> => {
+        return await this.connection.invoke("SetActiveMailbox", accountId, mailboxId);
+    }
+
     public readonly getPendingSyncState = async (accountId: string): Promise<PendingChangeDto[]> => {
         return await this.connection.invoke("GetPendingSyncState", accountId);
     }
@@ -156,6 +164,34 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly resolveDraftConflict = async (draftId: string, keepMine: boolean): Promise<DraftDto> => {
         return await this.connection.invoke("ResolveDraftConflict", draftId, keepMine);
+    }
+
+    public readonly getContacts = async (accountId: string): Promise<ContactDto[]> => {
+        return await this.connection.invoke("GetContacts", accountId);
+    }
+
+    public readonly getContactSuggestions = async (accountId: string): Promise<ContactSuggestionDto[]> => {
+        return await this.connection.invoke("GetContactSuggestions", accountId);
+    }
+
+    public readonly searchContacts = async (accountId: string, query: string): Promise<ContactDto[]> => {
+        return await this.connection.invoke("SearchContacts", accountId, query);
+    }
+
+    public readonly saveContact = async (request: SaveContactRequest): Promise<ContactDto> => {
+        return await this.connection.invoke("SaveContact", request);
+    }
+
+    public readonly resolveContactConflict = async (contactId: string, keepMine: boolean): Promise<ContactDto> => {
+        return await this.connection.invoke("ResolveContactConflict", contactId, keepMine);
+    }
+
+    public readonly deleteContact = async (request: DeleteContactRequest): Promise<void> => {
+        return await this.connection.invoke("DeleteContact", request);
+    }
+
+    public readonly abandonAmbiguousContactCreate = async (contactId: string): Promise<void> => {
+        return await this.connection.invoke("AbandonAmbiguousContactCreate", contactId);
     }
 
     public readonly deleteDraft = async (draftId: string): Promise<void> => {
@@ -320,6 +356,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
         const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
+        const __contactsChanged = (...args: [string]) => receiver.contactsChanged(...args);
         const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
         const __shellSettingsChanged = () => receiver.shellSettingsChanged();
         const __trustedSendersChanged = () => receiver.trustedSendersChanged();
@@ -338,6 +375,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("OutboxStatusChanged", __outboxStatusChanged);
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
         connection.on("CalendarConflictDetected", __calendarConflictDetected);
+        connection.on("ContactsChanged", __contactsChanged);
         connection.on("ConnectivityChanged", __connectivityChanged);
         connection.on("ShellSettingsChanged", __shellSettingsChanged);
         connection.on("TrustedSendersChanged", __trustedSendersChanged);
@@ -357,6 +395,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
             { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
+            { methodName: "ContactsChanged", method: __contactsChanged },
             { methodName: "ConnectivityChanged", method: __connectivityChanged },
             { methodName: "ShellSettingsChanged", method: __shellSettingsChanged },
             { methodName: "TrustedSendersChanged", method: __trustedSendersChanged },

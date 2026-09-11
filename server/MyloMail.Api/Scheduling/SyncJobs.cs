@@ -41,6 +41,7 @@ public sealed class SyncJobs(
 	AccountGate gate,
 	PollRegistry polls,
 	IntegrityRegistry integrityLoops,
+	ImapIdleWakeRegistry idleWakes,
 	IMailProviderFactory providers,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
@@ -473,6 +474,58 @@ public sealed class SyncJobs(
 			j => j.ChangeStreamAsync(accountId, mailboxId, default),
 			PollInterval(account) + gate.Delay(accountId)
 		);
+	}
+
+	/// <summary>
+	/// Consumes one non-authoritative IMAP IDLE wakeup without claiming or extending the
+	/// self-scheduling poll loop. The regular loop remains the sole owner of its registry slot
+	/// and successor scheduling.
+	/// </summary>
+	public async Task WakeChangeStreamAsync(
+		Guid accountId,
+		Guid mailboxId,
+		CancellationToken ct = default
+	)
+	{
+		try
+		{
+			var account = await RunnableAsync(accountId, ct);
+			var mailbox = await context.Mailboxes.FirstOrDefaultAsync(
+				candidate => candidate.Id == mailboxId,
+				ct
+			);
+			if (account is null || mailbox is null) return;
+
+			try
+			{
+				await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
+			}
+			catch (ProviderThrottledException)
+			{
+				// The account gate is set by GuardAsync. The existing poll loop will resume at its
+				// normal ownership boundary once the provider's exact delay has elapsed.
+			}
+			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+			{
+				// IDLE is only a latency hint. A failed hint must not create a second retry loop.
+			}
+		}
+		finally
+		{
+			if (idleWakes.Complete((accountId, mailboxId)))
+			{
+				try
+				{
+					jobs.Enqueue<SyncJobs>(job =>
+						job.WakeChangeStreamAsync(accountId, mailboxId, default));
+				}
+				catch
+				{
+					idleWakes.Release((accountId, mailboxId));
+					throw;
+				}
+			}
+		}
 	}
 
 	/// <summary>Replays staged history once coverage allows it.</summary>

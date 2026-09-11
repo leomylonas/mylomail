@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+	ActionableNotification,
 	Button,
+	ComboBox,
 	DatePicker,
 	DatePickerInput,
 	OverflowMenu,
@@ -16,6 +18,7 @@ import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
 import type { HubConnection } from "@microsoft/signalr";
 import type {
 	AttachmentConstraintsDto,
+	ContactSuggestionDto,
 	OutboxItemDto,
 	SendIdentityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
@@ -71,6 +74,64 @@ export interface OpenDraft {
 	/** The server's copy changed while this was being edited locally (§1, §15) — both are
 	 * kept until the user resolves it, never silently overwritten either direction. */
 	syncConflict?: boolean;
+}
+
+interface RecipientSuggestion {
+	email: string;
+	label: string;
+}
+
+export function appendRecipient(value: string, email: string): string {
+	const recipients = value
+		.split(",")
+		.map((recipient) => recipient.trim())
+		.filter(Boolean);
+	if (
+		!recipients.some(
+			(recipient) => recipient.toLowerCase() === email.toLowerCase(),
+		)
+	)
+		recipients.push(email);
+	return recipients.join(", ");
+}
+
+function RecipientField({
+	id,
+	label,
+	value,
+	suggestions,
+	onChange,
+}: {
+	id: string;
+	label: string;
+	value: string;
+	suggestions: RecipientSuggestion[];
+	onChange: (value: string) => void;
+}) {
+	const [pickerVersion, setPickerVersion] = useState(0);
+	return (
+		<>
+			<TextInput
+				id={id}
+				labelText={label}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+			/>
+			<ComboBox
+				key={pickerVersion}
+				id={`${id}-contact`}
+				titleText={`Add contact to ${label}`}
+				placeholder="Search contacts"
+				items={suggestions}
+				itemToString={(item) => item?.label ?? ""}
+				onChange={({ selectedItem }) => {
+					if (!selectedItem) return;
+					onChange(appendRecipient(value, selectedItem.email));
+					setPickerVersion((version) => version + 1);
+				}}
+			/>
+		</>
+	);
 }
 
 /**
@@ -143,6 +204,25 @@ export function Compose({
 				accountId,
 			),
 	});
+	const contacts = useQuery({
+		queryKey: ["contacts", accountId],
+		queryFn: () =>
+			hub.invoke<ContactSuggestionDto[]>("GetContactSuggestions", accountId),
+	});
+	const contactSuggestions = useMemo(
+		() =>
+			contacts.data?.flatMap((contact) =>
+				contact.addresses.map((address) => ({
+					email: address.email,
+					label:
+						contact.displayName &&
+						contact.displayName.toLowerCase() !== address.email.toLowerCase()
+							? `${contact.displayName} <${address.email}>`
+							: address.email,
+				})),
+			) ?? [],
+		[contacts.data],
+	);
 	const [attachments, setAttachments] = useState<DraftAttachment[]>(
 		draft?.attachments ?? [],
 	);
@@ -730,23 +810,40 @@ export function Compose({
 					))}
 				</Select>
 			) : null}
-			<TextInput
+			{contacts.isError ? (
+				<ActionableNotification
+					kind="error"
+					title="Couldn't load contact suggestions"
+					subtitle={
+						contacts.error instanceof Error
+							? contacts.error.message
+							: String(contacts.error)
+					}
+					actionButtonLabel="Retry"
+					onActionButtonClick={() => void contacts.refetch()}
+					lowContrast
+				/>
+			) : null}
+			<RecipientField
 				id="compose-to"
-				labelText="To"
+				label="To"
 				value={to}
-				onChange={(event) => setTo(event.target.value)}
+				suggestions={contactSuggestions}
+				onChange={setTo}
 			/>
-			<TextInput
+			<RecipientField
 				id="compose-cc"
-				labelText="Cc"
+				label="Cc"
 				value={cc}
-				onChange={(event) => setCc(event.target.value)}
+				suggestions={contactSuggestions}
+				onChange={setCc}
 			/>
-			<TextInput
+			<RecipientField
 				id="compose-bcc"
-				labelText="Bcc"
+				label="Bcc"
 				value={bcc}
-				onChange={(event) => setBcc(event.target.value)}
+				suggestions={contactSuggestions}
+				onChange={setBcc}
 			/>
 			<TextInput
 				id="compose-subject"

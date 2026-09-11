@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contacts;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Outbox;
@@ -24,7 +26,9 @@ namespace MyloMail.Api.Outbox;
 public sealed class SendReconciler(
 	MyloMailDbContext context,
 	TimeProvider clock,
+	ContactSuggestionService contactSuggestions,
 	OutboxService outbox,
+	IHubEvents events,
 	ILogger<SendReconciler> logger
 )
 {
@@ -39,18 +43,24 @@ public sealed class SendReconciler(
 
 	public async Task<int> ReconcileAsync(Guid accountId, CancellationToken ct = default)
 	{
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
 		var unresolved = await context
 			.OutboxItems.Where(o =>
 				o.AccountId == accountId
 				&& (o.Status == OutboxStatus.Sending || o.Status == OutboxStatus.AmbiguousOutcome)
 			)
 			.ToListAsync(ct);
+		var draftIds = unresolved.Select(item => item.DraftId).Distinct().ToArray();
+		var draftsById = await context.Drafts
+			.Where(draft => draftIds.Contains(draft.Id))
+			.ToDictionaryAsync(draft => draft.Id, ct);
 
 		var resolved = 0;
 		// Announced only after SaveChangesAsync commits, below: AnnounceStatusAsync reads back
 		// through an AsNoTracking query (§7), which would not see this loop's own uncommitted
 		// writes yet.
 		var toAnnounce = new List<Guid>();
+		var contactSuggestionsChanged = false;
 
 		foreach (var item in unresolved)
 		{
@@ -70,6 +80,13 @@ public sealed class SendReconciler(
 				item.SentAt = clock.GetUtcNow();
 				item.LastError = null;
 				resolved++;
+				contactSuggestionsChanged |= await contactSuggestions.ObserveAsync(
+					accountId,
+					item.RecipientSnapshot,
+					ct
+				);
+				if (draftsById.Remove(item.DraftId, out var draft))
+					context.Drafts.Remove(draft);
 
 				await CloseAttemptAsync(item.Id, ct);
 				toAnnounce.Add(item.Id);
@@ -94,6 +111,9 @@ public sealed class SendReconciler(
 		}
 
 		await context.SaveChangesAsync(ct);
+		await transaction.CommitAsync(ct);
+		if (contactSuggestionsChanged)
+			await events.ContactsChangedAsync(accountId);
 
 		// A resolved Sent, or an expiry that finally set LastError, both change what an
 		// already-open compose window shows (§7) — without this it stays on "Confirming this

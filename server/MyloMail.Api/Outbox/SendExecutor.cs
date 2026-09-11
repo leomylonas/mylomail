@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contacts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Imap;
@@ -22,8 +24,10 @@ public sealed class SendExecutor(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	OutboxService outbox,
+	ContactSuggestionService contactSuggestions,
 	TimeProvider clock,
 	IFaultInjector faults,
+	IHubEvents events,
 	ILogger<SendExecutor> logger
 )
 {
@@ -85,11 +89,7 @@ public sealed class SendExecutor(
 			draft.InReplyToHeader = parent?.MessageIdHeader;
 			// RFC 5322 §3.6.4: References is the parent's own References chain with the
 			// parent's Message-ID appended — not just the immediate parent's id — so a client
-			// that threads solely on References (rather than In-Reply-To) can still reconstruct
-			// a thread more than one reply deep. IMAP's ENVELOPE fetch never carries References
-			// at all (RFC 3501 does not include it), so this is empty more often for a reply to
-			// an IMAP-sourced message than a Gmail/Graph one — a real, accepted transport
-			// limitation, not something this fix can close.
+			// that threads solely on References can still reconstruct the entire conversation.
 			if (parent?.MessageIdHeader is string parentMessageId)
 			{
 				draft.ReferencesHeader = string.IsNullOrWhiteSpace(parent.ReferencesHeader)
@@ -110,6 +110,7 @@ public sealed class SendExecutor(
 			OutboxItemId = item.Id,
 		};
 		context.MutationExecutionAttempts.Add(attempt);
+		item.RecipientSnapshot = [.. draft.To, .. draft.Cc, .. draft.Bcc];
 		item.Attempts++;
 		await context.SaveChangesAsync(ct);
 
@@ -185,6 +186,7 @@ public sealed class SendExecutor(
 		faults.Reached(FaultPoints.AfterProviderCallBeforeResults);
 
 		// Step 5 — the outcome and the attempt's terminal state in one transaction.
+		var contactSuggestionsChanged = false;
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
@@ -197,6 +199,11 @@ public sealed class SendExecutor(
 			attempt.State = MutationAttemptState.Completed;
 			attempt.ResultPersistedAt = clock.GetUtcNow();
 
+			contactSuggestionsChanged |= await contactSuggestions.ObserveAsync(
+				account.Id,
+				item.RecipientSnapshot,
+				ct
+			);
 			// The draft has become a sent message and is no longer an authoring document.
 			context.Drafts.Remove(draft);
 
@@ -204,6 +211,8 @@ public sealed class SendExecutor(
 			await transaction.CommitAsync(ct);
 		});
 
+		if (contactSuggestionsChanged)
+			await events.ContactsChangedAsync(account.Id);
 		await outbox.AnnounceStatusAsync(item.Id, ct);
 	}
 

@@ -22,7 +22,7 @@ namespace MyloMail.Api.Tests.Fakes;
 /// <see cref="ProviderCursorInvalidException"/>.
 /// </para>
 /// </remarks>
-public sealed class FakeMailProvider : IMailProvider
+public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 {
 	private const int PageSize = 50;
 
@@ -52,6 +52,13 @@ public sealed class FakeMailProvider : IMailProvider
 	public ProviderType Type => Capabilities.Type;
 
 	public ProviderCapabilities Capabilities { get; }
+	public TimeSpan IdleCancellationDelay { get; set; }
+	public TaskCompletionSource<bool> IdleStarted { get; } =
+		new(TaskCreationOptions.RunContinuationsAsynchronously);
+	public TaskCompletionSource<bool> IdleCancellationObserved { get; } =
+		new(TaskCreationOptions.RunContinuationsAsynchronously);
+	public TaskCompletionSource<bool> IdleFinished { get; } =
+		new(TaskCreationOptions.RunContinuationsAsynchronously);
 
 	public FakeMailbox AddMailbox(string providerMailboxId, SpecialUse specialUse = SpecialUse.None)
 	{
@@ -324,6 +331,28 @@ public sealed class FakeMailProvider : IMailProvider
 		Account account,
 		CancellationToken ct
 	) => Task.FromResult(AttachmentConstraintsToReturn);
+	public async Task WaitForMailboxChangeAsync(
+		Account account,
+		Mailbox mailbox,
+		CancellationToken ct
+	)
+	{
+		IdleStarted.TrySetResult(true);
+		try
+		{
+			await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+		}
+		catch (OperationCanceledException) when (ct.IsCancellationRequested)
+		{
+			IdleCancellationObserved.TrySetResult(true);
+			await Task.Delay(IdleCancellationDelay);
+			throw;
+		}
+		finally
+		{
+			IdleFinished.TrySetResult(true);
+		}
+	}
 
 	public Task<BatchResult> SetFlagsAsync(
 		Account account,
@@ -495,6 +524,7 @@ public sealed class FakeMailProvider : IMailProvider
 			ProviderRevision = occurrenceId,
 			Occurrences = [new MessageOccurrenceDto(providerMailboxId, occurrenceId)],
 			MessageIdHeader = message.MessageIdHeader,
+			From = message.From,
 			ReceivedAt = message.ReceivedAt,
 			IsRead = message.IsRead,
 			IsFlagged = message.IsFlagged,
@@ -660,4 +690,5 @@ public sealed class FakeMessage(Guid messageId, DateTimeOffset receivedAt)
 	public bool IsRead { get; set; }
 	public bool IsFlagged { get; set; }
 	public byte[] RawBytes { get; set; } = [];
+	public IReadOnlyList<Address> From { get; set; } = [];
 }

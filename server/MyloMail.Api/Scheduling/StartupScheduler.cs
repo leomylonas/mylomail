@@ -2,9 +2,11 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Sync;
 
 namespace MyloMail.Api.Scheduling;
 
@@ -21,10 +23,12 @@ public sealed class StartupScheduler(
 	MyloMailDbContext context,
 	StartupReconciliation reconciliation,
 	SearchIndexer search,
+	MessageIngestor ingestor,
 	PollRegistry polls,
 	Notifications.NotificationService notifications,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
+	IFaultInjector faults,
 	ILogger<StartupScheduler> logger
 )
 {
@@ -45,6 +49,24 @@ public sealed class StartupScheduler(
 
 		var released = await reconciliation.ReleaseOrphanedLeasesAsync(ct);
 		var work = await reconciliation.FindAsync(ct);
+
+		var settings = await context.AppSettings.SingleOrDefaultAsync(ct);
+		if (settings is null)
+		{
+			settings = new AppSettings();
+			context.AppSettings.Add(settings);
+		}
+		if (settings.MessageThreadBackfillVersion < 1)
+		{
+			var threadAccountIds = await context.Accounts.Select(account => account.Id).ToListAsync(ct);
+			foreach (var accountId in threadAccountIds)
+			{
+				await ingestor.RebuildFallbackThreadsAsync(accountId, ct);
+				faults.Reached(FaultPoints.MessageThreadBackfillBeforeCompletion);
+			}
+			settings.MessageThreadBackfillVersion = 1;
+			await context.SaveChangesAsync(ct);
+		}
 
 		var accounts = await context
 			.Accounts.Where(a => a.IsEnabled && a.AuthState != AuthState.NeedsReauth)
@@ -97,6 +119,9 @@ public sealed class StartupScheduler(
 				await notifications.RedispatchPendingAsync(accountId, ct);
 			}
 		}
+		foreach (var accountId in accounts)
+			jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
+
 
 		foreach (var mailboxId in work.BackfillingMailboxes)
 		{
@@ -108,6 +133,25 @@ public sealed class StartupScheduler(
 			if (accountId != Guid.Empty)
 			{
 				jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
+			}
+		}
+
+		var contactOperations = await context.ContactOperations
+			.Where(operation => operation.State == ContactOperationState.Pending
+				|| operation.State == ContactOperationState.Dispatched
+				|| operation.State == ContactOperationState.Ambiguous)
+			.Where(operation => context.Contacts.Any(contact =>
+				contact.Id == operation.ContactId && accounts.Contains(contact.AccountId)))
+			.ToListAsync(ct);
+		foreach (var operation in contactOperations)
+		{
+			if (operation.State == ContactOperationState.Pending)
+			{
+				jobs.Enqueue<ContactJobs>(job => job.ExecuteAsync(operation.Id, default));
+			}
+			else
+			{
+				jobs.Enqueue<ContactJobs>(job => job.ReconcileAsync(operation.Id, default));
 			}
 		}
 
@@ -162,6 +206,22 @@ public sealed class StartupScheduler(
 		// Reauthentication restores provider access to every durable draft save too. The job
 		// no-ops when none is dirty, which is preferable to leaving a crash-lost dispatch inert.
 		jobs.Enqueue<DraftJobs>(j => j.PushAsync(accountId, default));
+		jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
 		jobs.Enqueue<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default));
+		var contactOperations = await context.ContactOperations
+			.Where(operation => context.Contacts.Any(contact =>
+				contact.Id == operation.ContactId && contact.AccountId == accountId))
+			.Where(operation => operation.State == ContactOperationState.Pending
+				|| operation.State == ContactOperationState.Dispatched
+				|| operation.State == ContactOperationState.Ambiguous)
+			.Select(operation => new { operation.Id, operation.State })
+			.ToListAsync(ct);
+		foreach (var operation in contactOperations)
+		{
+			if (operation.State == ContactOperationState.Pending)
+				jobs.Enqueue<ContactJobs>(job => job.ExecuteAsync(operation.Id, default));
+			else
+				jobs.Enqueue<ContactJobs>(job => job.ReconcileAsync(operation.Id, default));
+		}
 	}
 }

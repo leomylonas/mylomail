@@ -28,6 +28,8 @@ public class AppSettings
 
 	/// <summary>Sweeps orphaned temp attachments left by a crash.</summary>
 	public bool AttachmentTempCleanupOnStartup { get; set; } = true;
+	/// <summary>Durable completion marker for the restart-safe conversation-id upgrade.</summary>
+	public int MessageThreadBackfillVersion { get; set; }
 }
 
 public enum CloseBehavior

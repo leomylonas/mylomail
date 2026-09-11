@@ -31,6 +31,9 @@ public static class FaultPoints
 	/// </summary>
 	public const string SyncPageBeforeCommit = "sync.page-before-commit";
 
+	/// <summary>After a sync page is applied locally, before its data and cursor commit.</summary>
+	public const string SyncPageAfterApplyBeforeCommit = "sync.page-after-apply-before-commit";
+
 	/// <summary>
 	/// After a page and its cursor have been committed, before the next page is requested.
 	/// The boundary a resumed walk restarts from.
@@ -56,6 +59,20 @@ public static class FaultPoints
 	/// </summary>
 	public const string CalendarCreateAfterProviderCallBeforeCommit =
 		"calendar-create.after-provider-call-before-commit";
+
+	/// <summary>After a contact operation is durably dispatched, before its provider call.</summary>
+	public const string ContactAfterDispatchedBeforeProviderCall =
+		"contact.after-dispatched-before-provider-call";
+
+	/// <summary>After a contact provider call returns, before its result is persisted.</summary>
+	public const string ContactAfterProviderCallBeforeResults =
+		"contact.after-provider-call-before-results";
+
+	/// <summary>After contact observations and their cursor are staged, before either commits.</summary>
+	public const string ContactRefreshBeforeCommit = "contact-refresh.before-commit";
+	/// <summary>After fallback threads are rebuilt, before their one-time completion marker.</summary>
+	public const string MessageThreadBackfillBeforeCompletion =
+		"message-thread-backfill.before-completion";
 }
 
 /// <summary>Kills the process at a named point, or does nothing.</summary>

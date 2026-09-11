@@ -45,6 +45,55 @@ public sealed class MessageListPagingTests
 	}
 
 	[Fact]
+	public async Task A_page_reports_and_loads_thread_members_beyond_its_boundary()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var mailboxId = await SeedMessagesAsync(harness, count: 100);
+		const string threadId = "local:complete-thread";
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(services);
+			foreach (var receivedAt in new[]
+			{
+				DateTimeOffset.UnixEpoch.AddDays(2),
+				DateTimeOffset.UnixEpoch.AddDays(-2),
+			})
+			{
+				var message = new Message
+				{
+					Id = Guid.NewGuid(),
+					AccountId = account.Id,
+					ThreadId = threadId,
+					ReceivedAt = receivedAt,
+				};
+				context.Messages.Add(message);
+				context.MessageMailboxes.Add(new MessageMailbox
+				{
+					Id = Guid.NewGuid(),
+					MessageId = message.Id,
+					MailboxId = mailboxId,
+					ProviderOccurrenceId = $"thread-{receivedAt.Ticks}",
+				});
+			}
+			await context.SaveChangesAsync();
+		});
+
+		var (representative, members) = await harness.UsingAsync(async services =>
+		{
+			var hub = services.GetRequiredService<MailHub>();
+			var page = await hub.GetMessages(mailboxId, skip: 0, take: 100);
+			return (
+				page.Single(message => message.ThreadId == threadId),
+				await hub.GetThreadMessages(mailboxId, threadId)
+			);
+		});
+
+		Assert.Equal(2, representative.ThreadMessageCount);
+		Assert.Equal(2, members.Count);
+	}
+
+	[Fact]
 	public async Task A_page_past_the_end_is_empty_not_an_error()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);

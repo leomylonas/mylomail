@@ -1,16 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	useInfiniteQuery,
 	useMutation,
+	useQueries,
 	useQuery,
 	useQueryClient,
 	type QueryClient,
 } from "@tanstack/react-query";
-import {
-	flexRender,
-	type SortingState,
-	type FilterFn,
-} from "@tanstack/react-table";
+import { flexRender, type SortingState } from "@tanstack/react-table";
 // TanStack Table v9 replaced the v8 `useReactTable`/`createColumnHelper` API with a new
 // `useTable`/`createTableHook` paradigm; the `/legacy` subpath is the library's own official
 // v8-compatibility shim (deprecated, but a maintained export, not a hack) and is used here
@@ -19,15 +16,17 @@ import {
 import {
 	useLegacyTable as useReactTable,
 	getCoreRowModel,
-	getSortedRowModel,
-	getFilteredRowModel,
 	legacyCreateColumnHelper as createColumnHelper,
-	type LegacyFeatures,
 	type LegacyColumnDef,
 } from "@tanstack/react-table/legacy";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { HubConnection } from "@microsoft/signalr";
-import { Button, SkeletonText, TextInput } from "@carbon/react";
+import {
+	ActionableNotification,
+	Button,
+	SkeletonText,
+	TextInput,
+} from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
@@ -51,6 +50,8 @@ import {
 	nextFocusIndex,
 } from "@mylomail/renderer/Lib/RovingFocus";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
+import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
+import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 
 export interface MessageSummary {
 	id: string;
@@ -72,6 +73,8 @@ export interface MessageSummary {
 	 * (§8) — absent for an ordinary mailbox listing, which never ran a query to excerpt.
 	 */
 	searchSnippet?: string;
+	threadId?: string | null;
+	threadMessageCount?: number;
 }
 
 interface PendingChange {
@@ -110,20 +113,18 @@ const messagePageSize = 100;
  * local narrowing of whatever page of messages is already loaded, distinct from the `Search`
  * hub method the search box already triggers server-side (§12, §13 Epic 6).
  */
-const globalFilterFn: FilterFn<LegacyFeatures, MessageSummary> = (
-	row,
-	_columnId,
-	filterValue,
-) => {
-	const needle = String(filterValue).trim().toLowerCase();
+export function messageMatchesFilter(
+	message: MessageSummary,
+	filterValue: string,
+): boolean {
+	const needle = filterValue.trim().toLowerCase();
 	if (!needle) return true;
-	const message = row.original;
 	return (
 		message.subject.toLowerCase().includes(needle) ||
 		message.snippet.toLowerCase().includes(needle) ||
 		describeSender(message).toLowerCase().includes(needle)
 	);
-};
+}
 
 // TanStack Table's `ColumnDef` is invariant enough in its value type parameter that an array
 // mixing per-column accessor value types (string here, in every case, but inferred separately
@@ -178,6 +179,8 @@ export function MessageList({
 	/** Opens compose prefilled as a reply/reply-all/forward (§13). */
 	onCompose: (seed: ComposeSeed) => void;
 }) {
+	const store = useWindowStore();
+	const threadMode = useStoreValue(store, "messageListThreadMode");
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const searching = query.trim().length > 0;
@@ -198,6 +201,13 @@ export function MessageList({
 	// Outlook-style sortable columns and a local filter (§12) — client-side over whatever page
 	// is already loaded, not a new server round trip.
 	const [sorting, setSorting] = useState<SortingState>([]);
+	const [expandedThreads, setExpandedThreads] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
+	const expandedThreadKeys = useMemo(
+		() => expandedThreadKeysForAccount(expandedThreads, accountId),
+		[accountId, expandedThreads],
+	);
 	const [filterText, setFilterText] = useState("");
 
 	// Search never paginates: it is a bounded, already-ranked result set from FTS5, not a
@@ -231,13 +241,36 @@ export function MessageList({
 		enabled: !searching,
 	});
 
+	const baseMessages = useMemo(
+		() =>
+			searching ? (search.data ?? []) : (listing.data?.pages.flat() ?? []),
+		[listing.data, search.data, searching],
+	);
 	const messages = searching
 		? search
 		: {
-				data: listing.data?.pages.flat() ?? [],
+				data: baseMessages,
 				isPending: listing.isPending,
 				isError: listing.isError,
 			};
+	const representedExpandedThreadKeys = useMemo(() => {
+		const represented = new Set(
+			baseMessages.map((message) => message.threadId ?? message.id),
+		);
+		return [...expandedThreadKeys].filter((threadKey) =>
+			represented.has(threadKey),
+		);
+	}, [baseMessages, expandedThreadKeys]);
+	const expandedThreadQueries = useQueries({
+		queries: representedExpandedThreadKeys.map((threadId) => ({
+			queryKey: queryKeys.threadMessages(mailboxId, threadId),
+			queryFn: () =>
+				hub.invoke<MessageSummary[]>("GetThreadMessages", mailboxId, threadId),
+		})),
+	});
+	const failedThreadQuery = expandedThreadQueries.find(
+		(thread) => thread.isError,
+	);
 
 	// What the user has asked for and the server has not yet confirmed. Merged over
 	// server-known state so a flag they just toggled does not flicker back while its mutation
@@ -338,20 +371,55 @@ export function MessageList({
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
 	// filter narrowed the view stays selected, so a bulk action or shortcut still acts on
 	// everything the user actually picked, not just what happens to still be visible.
-	const selectedMessages = (messages.data ?? []).filter((message) =>
+
+	const sourceById = new Map(
+		baseMessages.map((message) => [message.id, message] as const),
+	);
+	for (const thread of expandedThreadQueries)
+		for (const message of thread.data ?? [])
+			sourceById.set(message.id, message);
+	const sourceMessages = [...sourceById.values()];
+	const selectedMessages = sourceMessages.filter((message) =>
 		selectedIds.has(message.id),
 	);
-
+	const filteredMessages = useMemo(
+		() =>
+			sourceMessages.filter((message) =>
+				messageMatchesFilter(message, filterText),
+			),
+		[sourceMessages, filterText],
+	);
+	const threadMembers = useMemo(() => {
+		const result = new Map<string, MessageSummary[]>();
+		for (const message of filteredMessages) {
+			const key = message.threadId ?? message.id;
+			const members = result.get(key) ?? [];
+			members.push(message);
+			result.set(key, members);
+		}
+		return result;
+	}, [filteredMessages]);
+	const sortedMessages = useMemo(
+		() => sortMessages(filteredMessages, sorting),
+		[filteredMessages, sorting],
+	);
+	const threadRepresentativeIds = useMemo(() => {
+		const representatives = new Map<string, string>();
+		for (const message of sortedMessages)
+			if (!representatives.has(message.threadId ?? message.id))
+				representatives.set(message.threadId ?? message.id, message.id);
+		return representatives;
+	}, [sortedMessages]);
+	const displayedMessages = useMemo(
+		() => collapseThreads(sortedMessages, threadMode, expandedThreadKeys),
+		[sortedMessages, threadMode, expandedThreadKeys],
+	);
 	const table = useReactTable({
-		data: messages.data ?? [],
+		data: displayedMessages,
 		columns: columns as LegacyColumnDef<MessageSummary>[],
-		state: { sorting, globalFilter: filterText },
+		state: { sorting },
 		onSortingChange: setSorting,
-		onGlobalFilterChange: setFilterText,
-		globalFilterFn,
 		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getFilteredRowModel: getFilteredRowModel(),
 	});
 	const rows = table.getRowModel().rows;
 
@@ -548,7 +616,36 @@ export function MessageList({
 					value={filterText}
 					onChange={(event) => setFilterText(event.target.value)}
 				/>
+				<Button
+					kind="ghost"
+					size="sm"
+					onClick={() =>
+						store.setState(
+							"messageListThreadMode",
+							threadMode === "flat" ? "collapsed" : "flat",
+						)
+					}
+				>
+					{threadMode === "flat" ? "Group conversations" : "Show flat list"}
+				</Button>
 			</div>
+			{failedThreadQuery ? (
+				<ActionableNotification
+					kind="error"
+					title="Couldn't load the complete conversation"
+					subtitle={
+						failedThreadQuery.error instanceof Error
+							? failedThreadQuery.error.message
+							: String(failedThreadQuery.error)
+					}
+					actionButtonLabel="Retry"
+					onActionButtonClick={() => {
+						for (const thread of expandedThreadQueries)
+							if (thread.isError) void thread.refetch();
+					}}
+					lowContrast
+				/>
+			) : null}
 			{/*
 				This is a selectable list of composite rows (whole-row click/select, à la a
 				listbox), not a cell-navigable data grid — `row`/`columnheader` roles require a
@@ -562,6 +659,7 @@ export function MessageList({
 				role="group"
 				aria-label="Sort messages by"
 			>
+				<span aria-hidden="true" />
 				{table.getHeaderGroups()[0].headers.map((header) => {
 					const sorted = header.column.getIsSorted();
 					const label = flexRender(
@@ -593,7 +691,12 @@ export function MessageList({
 			{rows.length === 0 ? (
 				<p className={styles.empty}>No messages match that filter.</p>
 			) : (
-				<div ref={parentRef} className={styles.scroller} role="list">
+				<div
+					id="message-list"
+					ref={parentRef}
+					className={styles.scroller}
+					role="list"
+				>
 					<div
 						className={styles.spacer}
 						style={{ height: virtualizer.getTotalSize() }}
@@ -603,15 +706,50 @@ export function MessageList({
 							const index = item.index;
 							const read = isRead(message, pending.data);
 							const isSelected = selectedIds.has(message.id);
+							const threadKey = message.threadId ?? message.id;
+							const threadMessageCount = Math.max(
+								message.threadMessageCount ?? 1,
+								threadMembers.get(threadKey)?.length ?? 1,
+							);
+							const canExpand =
+								threadMode === "collapsed" &&
+								threadMessageCount > 1 &&
+								threadRepresentativeIds.get(threadKey) === message.id;
+							const isExpanded = expandedThreadKeys.has(threadKey);
 							return (
 								<div
-									key={message.id}
+									key={item.key}
 									ref={virtualizer.measureElement}
 									data-index={index}
 									role="listitem"
 									className={styles.virtualRow}
 									style={{ transform: `translateY(${item.start}px)` }}
 								>
+									{canExpand ? (
+										<button
+											type="button"
+											className={styles.threadToggle}
+											aria-expanded={isExpanded}
+											aria-controls="message-list"
+											aria-label={`${isExpanded ? "Collapse" : "Expand"} conversation with ${threadMessageCount} messages`}
+											onClick={() =>
+												setExpandedThreads((current) => {
+													const next = new Set(current);
+													const scopedKey = `${accountId}:${threadKey}`;
+													if (isExpanded) next.delete(scopedKey);
+													else next.add(scopedKey);
+													return next;
+												})
+											}
+										>
+											<span aria-hidden="true">{isExpanded ? "−" : "+"}</span>
+										</button>
+									) : (
+										<span
+											className={styles.threadPlaceholder}
+											aria-hidden="true"
+										/>
+									)}
 									<button
 										type="button"
 										ref={(element) => {
@@ -706,6 +844,12 @@ export function MessageList({
 										</span>
 										<span className={styles.cell}>
 											{message.subject || "(no subject)"}
+											{threadMode === "collapsed" && threadMessageCount > 1 ? (
+												<span className={styles.sender}>
+													{" "}
+													({threadMessageCount})
+												</span>
+											) : null}
 											<br />
 											<span className={styles.sender}>
 												{message.searchSnippet
@@ -1036,6 +1180,69 @@ function describeSender(message: MessageSummary): string {
 	return first.name ?? first.email;
 }
 
+/**
+ * Applies the active sort before conversations are collapsed, so a thread's representative
+ * determines its position while every expanded member remains beside it.
+ */
+export function sortMessages(
+	messages: MessageSummary[],
+	sorting: SortingState,
+): MessageSummary[] {
+	if (sorting.length === 0) return messages;
+
+	const sorted = [...messages];
+	for (const sort of [...sorting].reverse()) {
+		sorted.sort((left, right) => {
+			const comparison =
+				sort.id === "from"
+					? describeSender(left).localeCompare(describeSender(right))
+					: sort.id === "subject"
+						? left.subject.localeCompare(right.subject)
+						: sort.id === "receivedAt"
+							? new Date(left.receivedAt).getTime() -
+								new Date(right.receivedAt).getTime()
+							: 0;
+			return sort.desc ? -comparison : comparison;
+		});
+	}
+	return sorted;
+}
+export function expandedThreadKeysForAccount(
+	expandedThreads: ReadonlySet<string>,
+	accountId: string,
+): ReadonlySet<string> {
+	const prefix = `${accountId}:`;
+	return new Set(
+		[...expandedThreads]
+			.filter((key) => key.startsWith(prefix))
+			.map((key) => key.slice(prefix.length)),
+	);
+}
+
+/**
+ * Collapses each conversation to its first sorted member, or emits all of its members as one
+ * contiguous block after expansion. Message rows themselves are never merged, preserving the
+ * identity each selection and action operates on.
+ */
+export function collapseThreads(
+	messages: MessageSummary[],
+	mode: "flat" | "collapsed",
+	expandedThreads: ReadonlySet<string>,
+): MessageSummary[] {
+	if (mode === "flat") return messages;
+
+	const threads = new Map<string, MessageSummary[]>();
+	for (const message of messages) {
+		const key = message.threadId ?? message.id;
+		const members = threads.get(key) ?? [];
+		members.push(message);
+		threads.set(key, members);
+	}
+
+	return [...threads].flatMap(([key, members]) =>
+		expandedThreads.has(key) ? members : [members[0]!],
+	);
+}
 /** The address the remote-content allow list keys on — never the display name. */
 function senderAddress(message: MessageSummary): string {
 	return message.from[0]?.email ?? "";

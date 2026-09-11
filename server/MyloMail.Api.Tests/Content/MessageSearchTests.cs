@@ -204,6 +204,51 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		Assert.DoesNotContain("<mark>", snippet, StringComparison.OrdinalIgnoreCase);
 	}
 
+	[Fact]
+	public async Task Search_results_retain_the_message_thread_id()
+	{
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Threaded invoice",
+			"invoice",
+			threadId: "provider-thread-42"
+		);
+
+		var result = Assert.Single(await SearchAsync("Threaded", inboxId));
+
+		Assert.Equal("provider-thread-42", result.ThreadId);
+	}
+
+	[Fact]
+	public async Task Search_results_report_complete_mailbox_thread_counts()
+	{
+		const string threadId = "provider-thread-count";
+		await using var scope = services.CreateAsyncScope();
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Matching thread member",
+			"unique-search-token",
+			threadId: threadId
+		);
+		await AddAsync(
+			scope.ServiceProvider,
+			Guid.NewGuid(),
+			inboxId,
+			"Unmatched thread member",
+			"other body",
+			threadId: threadId
+		);
+
+		var result = Assert.Single(await SearchAsync("unique-search-token", inboxId));
+
+		Assert.Equal(2, result.ThreadMessageCount);
+	}
+
 	/// <summary>
 	/// An ordinary listing never ran a query, so it has nothing to excerpt — confirmed via the
 	/// DTO's own default, which is what every non-search constructor site (e.g. `GetMessages`)
@@ -297,7 +342,8 @@ public sealed class MessageSearchTests : IAsyncLifetime
 		string subject,
 		string body,
 		DateTimeOffset? receivedAt = null,
-		string from = "alice@example.org"
+		string from = "alice@example.org",
+		string? threadId = null
 	)
 	{
 		var context = scope.GetRequiredService<MyloMailDbContext>();
@@ -308,6 +354,7 @@ public sealed class MessageSearchTests : IAsyncLifetime
 				AccountId = accountId,
 				Subject = subject,
 				ReceivedAt = receivedAt ?? DateTimeOffset.UnixEpoch,
+				ThreadId = threadId,
 				Occurrences =
 				[
 					new MessageMailbox

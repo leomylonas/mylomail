@@ -45,6 +45,8 @@ public interface IHubEvents
 
 	/// <summary>Raised when the provider rejects an event update's revision precondition.</summary>
 	Task CalendarConflictDetectedAsync(Guid eventId);
+	Task ContactsChangedAsync(Guid accountId);
+
 
 	Task AccountStatusChangedAsync(AccountDto account);
 
@@ -111,6 +113,8 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 	public Task CalendarEventUpdatedAsync(Guid eventId) => hub.Clients.All.CalendarEventUpdated(eventId);
 
 	public Task CalendarConflictDetectedAsync(Guid eventId) => hub.Clients.All.CalendarConflictDetected(eventId);
+	public Task ContactsChangedAsync(Guid accountId) => hub.Clients.All.ContactsChanged(accountId);
+
 
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
 
@@ -153,6 +157,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task CalendarEventUpdatedAsync(Guid eventId) => Task.CompletedTask;
 
 	public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
+	public Task ContactsChangedAsync(Guid accountId) => Task.CompletedTask;
+
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
 

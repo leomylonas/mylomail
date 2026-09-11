@@ -78,6 +78,23 @@ public sealed class MessageSearch(MyloMailDbContext context)
 			shown.Select(m => m.Id).ToList(),
 			ct
 		);
+		var threadIds = shown.Select(message => message.ThreadId)
+			.OfType<string>()
+			.Distinct(StringComparer.Ordinal)
+			.ToArray();
+		Dictionary<string, int> threadCounts = threadIds.Length == 0
+			? []
+			: await context.Messages
+				.Where(message => message.AccountId == accountId
+					&& message.ThreadId != null
+					&& threadIds.Contains(message.ThreadId)
+					&& (mailboxId == null
+						|| context.MessageMailboxes.Any(occurrence =>
+							occurrence.MessageId == message.Id
+							&& occurrence.MailboxId == mailboxId)))
+				.GroupBy(message => message.ThreadId!)
+				.Select(group => new { ThreadId = group.Key, Count = group.Count() })
+				.ToDictionaryAsync(group => group.ThreadId, group => group.Count, ct);
 
 		return
 		[
@@ -92,8 +109,15 @@ public sealed class MessageSearch(MyloMailDbContext context)
 				m.IsFlagged,
 				m.HasNonInlineAttachments,
 				failures.TryGetValue(m.Id, out var category) ? category : null,
-				snippets[m.Id]
-			)),
+				snippets[m.Id],
+				ThreadId: m.ThreadId
+			)
+			{
+				ThreadMessageCount = m.ThreadId is { } threadId
+					&& threadCounts.TryGetValue(threadId, out var count)
+						? count
+						: 1,
+			}),
 		];
 	}
 

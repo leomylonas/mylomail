@@ -57,6 +57,7 @@ let quitting = false;
  * be found and removed without holding a reference to it.
  */
 const draftWindows = new Map<number, string | null>();
+let nextWindowSlot = 0;
 
 /**
  * Launches the backend, then the window.
@@ -541,6 +542,7 @@ async function createWindow(
 	options?: { query?: string; bounds?: WindowBounds },
 ): Promise<BrowserWindow> {
 	const bounds = options?.bounds;
+	const windowSlot = nextWindowSlot++;
 	const window = new BrowserWindow({
 		width: bounds?.width ?? 1280,
 		height: bounds?.height ?? 800,
@@ -612,8 +614,10 @@ async function createWindow(
 	// httpOnly cookie authenticate documents, assets, fetches and the WebSocket handshake
 	// alike, and keeps the launch token out of every URL. The query string only ever picks a
 	// view within that same document — never a different origin.
-	const url = options?.query ? `${origin}/?${options.query}` : origin;
-	await window.loadURL(url);
+	const url = new URL(`${origin}/`);
+	url.search = options?.query ?? "";
+	url.searchParams.set("windowSlot", String(windowSlot));
+	await window.loadURL(url.toString());
 	return window;
 }
 

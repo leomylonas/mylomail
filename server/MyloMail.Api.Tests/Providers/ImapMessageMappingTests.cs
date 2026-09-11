@@ -48,6 +48,21 @@ public sealed class ImapMessageMappingTests
 	}
 
 	[Fact]
+	public void References_preserve_each_RFC_message_id_boundary()
+	{
+		var references = new MessageIdList
+		{
+			"root@example.test",
+			"parent@example.test",
+		};
+
+		Assert.Equal(
+			"<root@example.test> <parent@example.test>",
+			ImapMailProvider.SerializeReferences(references)
+		);
+	}
+
+	[Fact]
 	public void A_null_body_structure_is_not_an_attachment()
 	{
 		Assert.False(ImapMailProvider.HasNonInlineAttachment(null));

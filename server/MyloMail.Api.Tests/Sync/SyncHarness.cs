@@ -241,6 +241,8 @@ internal sealed class RecordingHubEvents : IHubEvents
 	public List<Guid> CalendarEvents { get; } = [];
 
 	public List<Guid> CalendarConflicts { get; } = [];
+	public List<Guid> ContactAccounts { get; } = [];
+
 
 	public List<NotificationDto> Notifications { get; } = [];
 
@@ -260,6 +262,7 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Drafts.Clear();
 		CalendarEvents.Clear();
 		CalendarConflicts.Clear();
+		ContactAccounts.Clear();
 		Notifications.Clear();
 		AccountStatuses.Clear();
 		OutboxStatuses.Clear();
@@ -295,6 +298,12 @@ internal sealed class RecordingHubEvents : IHubEvents
 		CalendarConflicts.Add(eventId);
 		return Task.CompletedTask;
 	}
+	public Task ContactsChangedAsync(Guid accountId)
+	{
+		ContactAccounts.Add(accountId);
+		return Task.CompletedTask;
+	}
+
 
 	public Task MessageDeletedAsync(Guid messageId)
 	{

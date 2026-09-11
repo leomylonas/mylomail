@@ -189,12 +189,13 @@ Provider-reported counts give honest "showing 2,400 of 18,900" messaging while c
 | `Id`                           | Guid           | **The canonical identity.** Local, permanent, never derived from provider or header data                                                                                                                             |
 | `AccountId`                    | Guid           | Mailbox membership is via `MessageMailbox` (below), not a column here                                                                                                                                                |
 | `ProviderStableId`             | string?        | Gmail message id; Graph **immutable** id (see §2). `null` for IMAP, which has no account-wide stable message identifier                                                                                              |
-| `MessageIdHeader`              | string?        | RFC 5322 `Message-ID`. **Nullable metadata, not identity** — RFC 5322 states a message SHOULD have one, not MUST, and duplicates occur in practice. Used for reconciliation, reply construction and future threading |
-| `InReplyToHeader`              | string?        | Required to construct correct replies (RFC 5322 identification fields)                                                                                                                                               |
-| `ReferencesHeader`             | string?        | As above; also the basis for any future threading                                                                                                                                                                    |
-| `ReplyToAddresses`             | Address[]      | **Reply routing uses this, not `From`**, when present                                                                                                                                                                |
-| `SenderAddress`                | Address?       | RFC 5322 `Sender`, where it differs from `From`                                                                                                                                                                      |
-| `ThreadId`                     | string?        | Provider-native thread id where offered; not used in the current UI                                                                                                                                                  |
+| `MessageIdHeader`              | string?        | RFC 5322 `Message-ID`. **Nullable metadata, not identity** — RFC 5322 states a message SHOULD have one, not MUST, and duplicates occur in practice. Used for reconciliation, reply construction and fallback threading |
+| `InReplyToHeader`              | string?        | Required to construct correct replies (RFC 5322 identification fields)                                                                                                                                                 |
+| `ReferencesHeader`             | string?        | As above; also the basis for fallback threading                                                                                                                                                                        |
+| `ReplyToAddresses`             | Address[]      | **Reply routing uses this, not `From`**, when present                                                                                                                                                                  |
+| `SenderAddress`                | Address?       | RFC 5322 `Sender`, where it differs from `From`                                                                                                                                                                        |
+| `ThreadId`                     | string?        | Effective conversation id: provider-native where offered, otherwise a local RFC-header fallback                                                                                                                       |
+| `HasProviderThreadId`          | bool           | Provenance for `ThreadId`; only provider-native ids are exempt from recomputation when header cardinality changes                                                                                                      |
 | `From`/`To`/`Cc`/`Bcc`         | Address[]      | `{Name, Email}`                                                                                                                                                                                                      |
 | `Subject`, `Snippet`           | string         |                                                                                                                                                                                                                      |
 | `ReceivedAt`                   | DateTimeOffset |                                                                                                                                                                                                                      |
@@ -854,10 +855,7 @@ Serilog, async sink. Never log message bodies, subjects, or credentials — `Mes
 
 ## Open items — backend
 
-- Contacts (explicitly out of scope)
-- Message threading (schema reserved via nullable `ThreadId`, not implemented)
 - **Local storage growth is deliberately unbounded** — no eviction or cap policy. With `MessageRaw` stored for every indexed message, a full-history mailbox consumes roughly the size of the mailbox itself, and that is accepted.
-- IMAP IDLE as a polling optimisation (poll-based sync is the baseline)
 
 ---
 
@@ -1045,6 +1043,26 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 - Layout remains usable across window sizes.
 - **Global persisted default** panel layout (via react-granular-store + local persistence through the preload bridge) — read once as the initial layout for any newly opened window.
 - **Live per-window state** is independent — resizing one window updates only that window's in-memory layout and writes back to the shared default for future windows; it does not live-sync to other currently-open windows.
+### Epic 12 — Contacts
+
+- Each account has a local contact projection. Google People and Microsoft Graph contacts synchronise two-way when their APIs are available; IMAP accounts use local-only contacts.
+- A contact owns one or more normalised email addresses, a display name, a provider identifier when remote-backed, and a provider revision where the API supplies one. Local identity is permanent; provider identifiers are never used as primary keys.
+- Provider contact writes use their revision/ETag as a precondition. A stale write creates a durable conflict: the UI exposes keep-mine or keep-theirs rather than silently merging unrelated edits.
+- Compose autocompletes all account-local contacts. Contacts discovered from a received or sent message are suggestions only; they never overwrite a user or provider-backed contact.
+
+**Contact-create ambiguity policy.** Google People and Microsoft Graph contacts do not accept a client-chosen idempotency key that guarantees create replay deduplication. After a dispatched create whose response was not durably recorded, reconciliation searches the full provider contact projection for exactly one contact whose normalised display name and complete normalised email set match the durable intended payload. It adopts that one result; zero or multiple matches remain `AmbiguousOutcome` and are never retried automatically. This favours an actionable unresolved contact over silently duplicating a person.
+
+### Epic 13 — Message Threading
+
+- Conversation membership is account-scoped. Provider-native thread/conversation ids are preferred; messages without one use RFC 5322 `References`/`In-Reply-To` relationships. `HasProviderThreadId` preserves that provenance so fallback ids can be recomputed when duplicate-header cardinality changes.
+- A nullable or duplicated RFC `Message-ID` is never sufficient evidence to merge messages. Header fallback can associate only a uniquely resolved known ancestor; otherwise it creates a distinct local conversation. A restart-safe, one-time startup backfill assigns fallback threads to rows created before threading was introduced.
+- The message list supports both flat and collapsed-conversation views. This is a persisted per-window setting. Collapsed rows expose an expandable member list; actions, pending state, unread state, and failures remain per message.
+
+### Epic 14 — IMAP IDLE
+
+- Polling remains the authoritative recovery path. IMAP IDLE only wakes the existing durable change-stream job; it never advances a cursor or commits observations itself.
+- The Inbox and currently active mailbox hold bounded IDLE sessions. Their server notifications are hints: reconnects, disconnects, and missed notifications are safe because polling still reconciles the stream.
+
 
 ### Standing conventions (not epics — applied continuously)
 
@@ -1060,10 +1078,7 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 
 ## 14. Open Questions / Deferred Topics
 
-Explicitly out of scope — no further design required:
-
-- **Contacts**
-- **Message threading** (schema reserves a nullable `ThreadId` for potential future use, but no implementation is planned)
+No open questions remain for contacts, message threading, or IMAP IDLE. Their contracts are defined in Epics 12–14.
 
 ---
 
@@ -1316,4 +1331,4 @@ Everything they depend on is now proven, so sequencing is a matter of preference
 
 ### Where the design deliberately stops
 
-Out of scope, decided rather than overlooked: contacts; message threading (`ThreadId` reserved, unimplemented); server-side rules and filters; mail import; auto-update; i18n; code signing; storage eviction (growth is unbounded by choice). Scheduled sends fire only while the application is running. Exactly-once send delivery is not claimed and is not achievable.
+Out of scope, decided rather than overlooked: server-side rules and filters; mail import; auto-update; i18n; code signing; storage eviction (growth is unbounded by choice). Scheduled sends fire only while the application is running. Exactly-once send delivery is not claimed and is not achievable.

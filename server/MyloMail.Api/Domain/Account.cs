@@ -33,6 +33,12 @@ public class Account
 
 	public int PollIntervalSeconds { get; set; }
 	public bool PollingEnabled { get; set; } = true;
+
+	/// <summary>
+	/// Provider contact cursor committed with the observations it advances past. Currently used
+	/// by Google People so resource-name changes and deletions are applied incrementally.
+	/// </summary>
+	public string? ContactSyncCursor { get; set; }
 	public InitialSyncMode InitialSyncMode { get; set; }
 
 	/// <summary>Null when <see cref="InitialSyncMode"/> is <see cref="InitialSyncMode.Full"/>.</summary>

@@ -295,6 +295,7 @@ public sealed partial class GmailMailProvider(
 			MessageIdHeader = Header(headers, "Message-ID"),
 			InReplyToHeader = Header(headers, "In-Reply-To"),
 			ReferencesHeader = Header(headers, "References"),
+			ThreadId = message.ThreadId,
 			// Gmail's Full format hands back every RFC 5322 header verbatim in Payload.Headers,
 			// but leaves parsing them to the caller — unlike IMAP's own ENVELOPE (already
 			// structured) and Graph's own typed from/toRecipients/etc. fields. Without this,

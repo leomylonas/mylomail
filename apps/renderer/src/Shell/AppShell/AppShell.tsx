@@ -24,6 +24,7 @@ import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount"
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
 import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBanner/ConnectivityBanner";
+import { Contacts } from "@mylomail/renderer/Components/Contacts/Contacts";
 import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
@@ -78,6 +79,7 @@ export function AppShell() {
 		| "drafts"
 		| "add-account"
 		| "calendar"
+		| "contacts"
 	>("reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
@@ -127,6 +129,15 @@ export function AppShell() {
 		if (!selectedAccountId && accounts.data?.length)
 			store.setState("selectedAccountId", accounts.data[0].id);
 	}, [accounts.data, selectedAccountId, store]);
+
+	// IMAP IDLE is deliberately limited to Inbox plus the mailbox this window is viewing.
+	// This is a non-durable wakeup hint only; the backend's normal poll loop remains the
+	// authoritative cursor-owning sync path.
+	useEffect(() => {
+		if (hub && selectedAccountId && selectedMailboxId) {
+			void hub.invoke("SetActiveMailbox", selectedAccountId, selectedMailboxId);
+		}
+	}, [hub, selectedAccountId, selectedMailboxId]);
 
 	// A MessageSyncFailed event (§15) asked this window to open ReauthenticateAccount for a
 	// specific account — not necessarily whichever one is currently selected. An external-event
@@ -289,6 +300,11 @@ export function AppShell() {
 						New window
 					</Button>
 				) : null}
+				{selectedAccountId && hub ? (
+					<Button size="sm" kind="ghost" onClick={() => setPane("contacts")}>
+						Contacts
+					</Button>
+				) : null}
 				{effectivePane !== "calendar" ? (
 					<>
 						<Button
@@ -351,7 +367,16 @@ export function AppShell() {
 				/>
 			) : null}
 
-			{effectivePane === "calendar" && hub && accounts.data?.length ? (
+			{effectivePane === "contacts" && hub && selectedAccountId ? (
+				<div className={styles.calendarPanel}>
+					<Contacts
+						key={selectedAccountId}
+						hub={hub}
+						accountId={selectedAccountId}
+						providerType={selectedAccount?.providerType ?? ProviderType.Imap}
+					/>
+				</div>
+			) : effectivePane === "calendar" && hub && accounts.data?.length ? (
 				<div className={styles.calendarPanel}>
 					<Calendar hub={hub} accounts={accounts.data} />
 				</div>

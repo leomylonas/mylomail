@@ -53,6 +53,74 @@ public sealed class TombstoneGcJobsTests
 	}
 
 	[Fact]
+	public async Task Collecting_a_duplicate_parent_rethreads_its_descendants_to_the_surviving_parent()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var survivingParentId = Guid.NewGuid();
+		var duplicateParentId = Guid.NewGuid();
+		var childId = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Messages.AddRange(
+				new Message
+				{
+					Id = survivingParentId,
+					AccountId = harness.AccountId,
+					MessageIdHeader = "<parent@example.test>",
+					ThreadId = $"local:{survivingParentId:N}",
+				},
+				new Message
+				{
+					Id = duplicateParentId,
+					AccountId = harness.AccountId,
+					MessageIdHeader = "<parent@example.test>",
+					ThreadId = $"local:{duplicateParentId:N}",
+					OrphanedAt = harness.Clock.GetUtcNow() - PastGracePeriod,
+				},
+				new Message
+				{
+					Id = childId,
+					AccountId = harness.AccountId,
+					MessageIdHeader = "<child@example.test>",
+					InReplyToHeader = "<parent@example.test>",
+					ThreadId = $"local:{childId:N}",
+				}
+			);
+			context.MessageMailboxes.AddRange(
+				new MessageMailbox
+				{
+					Id = Guid.NewGuid(),
+					MessageId = survivingParentId,
+					MailboxId = harness.ArchiveId,
+					ProviderOccurrenceId = "surviving-parent",
+				},
+				new MessageMailbox
+				{
+					Id = Guid.NewGuid(),
+					MessageId = childId,
+					MailboxId = harness.ArchiveId,
+					ProviderOccurrenceId = "child",
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await SweepAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.False(await context.Messages.AnyAsync(message => message.Id == duplicateParentId));
+			Assert.Equal(
+				$"local:{survivingParentId:N}",
+				(await context.Messages.SingleAsync(message => message.Id == childId)).ThreadId
+			);
+		});
+		Assert.Contains(harness.Events.Updated, message => message.Id == childId);
+	}
+
+	[Fact]
 	public async Task A_message_referenced_by_a_live_mutation_is_not_collected()
 	{
 		await using var harness = await MutationHarness.CreateAsync();

@@ -258,7 +258,7 @@ public sealed class GoogleCalendarProvider(GmailOAuthAuthenticator oauth) : ICal
 	{
 		try
 		{
-			var credential = await oauth.AuthorizeAsync(account, requireCalendarScope: true, ct);
+			var credential = await oauth.AuthorizeAsync(account, requireCalendarScope: true, requireContactsScope: false, ct);
 			var service = new CalendarService(new BaseClientService.Initializer
 			{
 				HttpClientInitializer = credential,

@@ -52,6 +52,8 @@ public interface IMailClient
 	Task CalendarEventUpdated(Guid eventId);
 
 	Task CalendarConflictDetected(Guid eventId);
+	Task ContactsChanged(Guid accountId);
+
 
 	/// <summary>
 	/// Emitted when network-class failures begin and when connectivity returns, so the UI can
