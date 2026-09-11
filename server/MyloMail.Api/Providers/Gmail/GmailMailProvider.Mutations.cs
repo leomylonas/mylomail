@@ -1,8 +1,10 @@
 using Google;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
+using Google.Apis.Requests;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers.Contracts;
+using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
 
 namespace MyloMail.Api.Providers.Gmail;
 
@@ -71,26 +73,85 @@ public sealed partial class GmailMailProvider
 	)
 	{
 		var service = await ServiceAsync(account, ct);
+		return await MoveToTrashBatchAsync(service, refs, ct);
+	}
+
+	internal static async Task<BatchResult> MoveToTrashBatchAsync(
+		GmailService service,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		CancellationToken ct
+	)
+	{
 		var items = new List<BatchItemResult>(refs.Count);
-		foreach (var reference in refs)
+		foreach (var group in refs.Chunk(100))
 		{
-			try
+			var batch = new BatchRequest(service);
+			var outcomes = new BatchItemResult?[group.Length];
+			TimeSpan? retryAfter = null;
+			for (var index = 0; index < group.Length; index++)
 			{
-				await service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId).ExecuteThrottleAwareAsync(ct);
-				items.Add(
-					new BatchItemResult(
-						reference.MessageId,
-						reference.MailboxId,
-						true,
-						null,
-						[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
-					)
+				var slot = index;
+				var reference = group[index];
+				batch.Queue<GmailMessage>(
+					service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId),
+					(content, error, responseIndex, response) =>
+					{
+						if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+						{
+							var header = response.Headers.RetryAfter;
+							var itemDelay =
+								header?.Delta
+								?? (header?.Date is { } date
+									? date - DateTimeOffset.UtcNow
+									: (TimeSpan?)null);
+							if (itemDelay is not { } positiveDelay || positiveDelay <= TimeSpan.Zero)
+							{
+								positiveDelay = GmailRequestExtensions.DefaultRetryAfter;
+							}
+							if (retryAfter is null || positiveDelay > retryAfter)
+							{
+								retryAfter = positiveDelay;
+							}
+							return;
+						}
+
+						outcomes[slot] =
+							response.IsSuccessStatusCode
+								? new BatchItemResult(
+									reference.MessageId,
+									reference.MailboxId,
+									true,
+									null,
+									[
+										new OccurrenceChange(
+											reference.MailboxId,
+											null,
+											Removed: true
+										),
+									]
+								)
+								: Failed(reference, response.StatusCode);
+					}
 				);
 			}
-			catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+
+			await batch.ExecuteThrottleAwareAsync(service, ct);
+			if (retryAfter is { } delay)
 			{
-				items.Add(NotFound(reference));
+				throw new ProviderThrottledException(
+					delay > TimeSpan.Zero ? delay : GmailRequestExtensions.DefaultRetryAfter,
+					"Gmail rate limit exceeded."
+				);
 			}
+
+			items.AddRange(
+				outcomes.Select(outcome =>
+					outcome
+						?? throw new InvalidOperationException(
+							"Gmail omitted an item response from its batch."
+						)
+				)
+			);
 		}
 
 		return new BatchResult(items);
@@ -229,6 +290,24 @@ public sealed partial class GmailMailProvider
 		}
 		return labels;
 	}
+
+	private static BatchItemResult Failed(
+		MessageOccurrenceRef reference,
+		System.Net.HttpStatusCode status
+	) =>
+		status == System.Net.HttpStatusCode.NotFound
+			? NotFound(reference)
+			: new BatchItemResult(
+				reference.MessageId,
+				reference.MailboxId,
+				false,
+				Problem(
+					"Gmail mutation was rejected",
+					$"Gmail returned HTTP {(int)status} for this item.",
+					((int)status).ToString()
+				),
+				[]
+			);
 
 	private static BatchItemResult NotFound(MessageOccurrenceRef reference) =>
 		new(

@@ -81,6 +81,32 @@ internal static class GmailRequestExtensions
 		}
 	}
 
+	public static async Task ExecuteThrottleAwareAsync(
+		this BatchRequest request,
+		IClientService service,
+		CancellationToken ct
+	)
+	{
+		try
+		{
+			await request.ExecuteAsync(ct);
+		}
+		catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.TooManyRequests)
+		{
+			Trackers.TryGetValue(service, out var tracker);
+			throw Translate(ex, tracker?.LastRetryAfter);
+		}
+		catch (HttpRequestException ex)
+			when (ex.InnerException is GoogleApiException
+			{
+				HttpStatusCode: HttpStatusCode.TooManyRequests,
+			} apiException)
+		{
+			Trackers.TryGetValue(service, out var tracker);
+			throw Translate(apiException, tracker?.LastRetryAfter);
+		}
+	}
+
 	/// <summary>Extracted so a test can exercise the fallback-to-default logic directly, without
 	/// needing a live 429 response to reach it.</summary>
 	internal static ProviderThrottledException Translate(GoogleApiException ex, TimeSpan? captured) =>

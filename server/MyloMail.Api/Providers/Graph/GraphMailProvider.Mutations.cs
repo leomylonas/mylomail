@@ -225,25 +225,73 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
+		return await DeletePermanentlyBatchAsync(client, refs, ct);
+	}
+
+	internal static async Task<BatchResult> DeletePermanentlyBatchAsync(
+		GraphServiceClient client,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		CancellationToken ct
+	)
+	{
 		var items = new List<BatchItemResult>(refs.Count);
-		foreach (var reference in refs)
+		foreach (var group in refs.Chunk(20))
 		{
-			try
+			var batch = new BatchRequestContentCollection(client.RequestAdapter, 20);
+			var steps = new Dictionary<string, MessageOccurrenceRef>();
+			foreach (var reference in group)
 			{
-				await ThrottleAwareAsync(() => client.Me.Messages[reference.ProviderOccurrenceId].DeleteAsync(null, ct));
+				var request = client.Me.Messages[
+					reference.ProviderOccurrenceId
+				].ToDeleteRequestInformation();
+				SetImmutableIdPreference(request);
+				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
+			}
+
+			var batchResponse = await ThrottleAwareAsync(
+				() => client.Batch.PostAsync(batch, ct)
+			);
+			TimeSpan? retryAfter = null;
+			foreach (var (id, reference) in steps)
+			{
+				using var response = await batchResponse.GetResponseByIdAsync(id);
+				if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+				{
+					var header = response.Headers.RetryAfter;
+					var itemDelay =
+						header?.Delta
+						?? (header?.Date is { } date
+							? date - DateTimeOffset.UtcNow
+							: (TimeSpan?)null);
+					if (itemDelay is not { } positiveDelay || positiveDelay <= TimeSpan.Zero)
+					{
+						positiveDelay = GraphThrottleAwareRequests.DefaultRetryAfter;
+					}
+					if (retryAfter is null || positiveDelay > retryAfter)
+					{
+						retryAfter = positiveDelay;
+					}
+					continue;
+				}
+
 				items.Add(
-					new BatchItemResult(
-						reference.MessageId,
-						reference.MailboxId,
-						true,
-						null,
-						[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
-					)
+					response.IsSuccessStatusCode
+						? new BatchItemResult(
+							reference.MessageId,
+							reference.MailboxId,
+							true,
+							null,
+							[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
+						)
+						: Failed(reference, response.StatusCode)
 				);
 			}
-			catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
+			if (retryAfter is { } delay)
 			{
-				items.Add(NotFound(reference));
+				throw new ProviderThrottledException(
+					delay,
+					"Microsoft Graph throttled this request."
+				);
 			}
 		}
 

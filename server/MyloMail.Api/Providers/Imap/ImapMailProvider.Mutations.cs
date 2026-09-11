@@ -18,54 +18,55 @@ public sealed partial class ImapMailProvider
 			refs,
 			async (client, folder, group, ct) =>
 			{
-				var results = new List<BatchItemResult>(group.Count);
+				var present = await ExistingUidsAsync(folder, group, ct);
+				var existing = group
+					.Where(item => present.Contains(item.Uid))
+					.Select(item => item.Uid)
+					.ToList();
 
 				// Absolute per field, never a toggle — which is what makes a replay safe (§6).
-				// Null means leave alone, so a mixed multi-select cannot clobber a flag the
-				// user did not touch.
-				foreach (var (reference, uid) in group)
+				// One UID-set command per changed field keeps multi-select a native batch.
+				if (existing.Count > 0 && update.IsRead is bool read)
 				{
-					var present = await folder.SearchAsync(
-						MailKit.Search.SearchQuery.Uids(new UniqueIdRange(uid, uid)),
-						ct
-					);
-
-					if (present.Count == 0)
+					if (read)
 					{
-						results.Add(NotFound(reference));
-						continue;
+						await folder.AddFlagsAsync(existing, MessageFlags.Seen, true, ct);
 					}
-
-					if (update.IsRead is bool read)
+					else
 					{
-						await ApplyAsync(folder, uid, MessageFlags.Seen, read, ct);
+						await folder.RemoveFlagsAsync(existing, MessageFlags.Seen, true, ct);
 					}
-
-					if (update.IsFlagged is bool flagged)
+				}
+				if (existing.Count > 0 && update.IsFlagged is bool flagged)
+				{
+					if (flagged)
 					{
-						await ApplyAsync(folder, uid, MessageFlags.Flagged, flagged, ct);
+						await folder.AddFlagsAsync(existing, MessageFlags.Flagged, true, ct);
 					}
-
-					results.Add(
-						new BatchItemResult(reference.MessageId, reference.MailboxId, true, null, [])
-					);
+					else
+					{
+						await folder.RemoveFlagsAsync(existing, MessageFlags.Flagged, true, ct);
+					}
 				}
 
-				return results;
+				return
+				[
+					.. group.Select(item =>
+						present.Contains(item.Uid)
+							? new BatchItemResult(
+								item.Reference.MessageId,
+								item.Reference.MailboxId,
+								true,
+								null,
+								[]
+							)
+							: NotFound(item.Reference)
+					),
+				];
 			},
 			ct
 		);
 
-	private static Task ApplyAsync(
-		IMailFolder folder,
-		UniqueId uid,
-		MessageFlags flag,
-		bool set,
-		CancellationToken ct
-	) =>
-		set
-			? folder.AddFlagsAsync([uid], flag, true, ct)
-			: folder.RemoveFlagsAsync([uid], flag, true, ct);
 
 	public Task<BatchResult> MoveMessagesAsync(
 		Account account,
@@ -84,27 +85,30 @@ public sealed partial class ImapMailProvider
 						),
 					ct
 				);
-
-				var results = new List<BatchItemResult>(group.Count);
-
-				foreach (var (reference, uid) in group)
+				var present = await ExistingUidsAsync(folder, group, ct);
+				var existing = group.Where(item => present.Contains(item.Uid)).ToList();
+				UniqueIdMap? moved = null;
+				if (existing.Count > 0)
 				{
-					var present = await folder.SearchAsync(
-						MailKit.Search.SearchQuery.Uids(new UniqueIdRange(uid, uid)),
+					moved = await folder.MoveToAsync(
+						[.. existing.Select(item => item.Uid)],
+						destination,
 						ct
 					);
-					if (present.Count == 0)
+				}
+
+				var results = new List<BatchItemResult>(group.Count);
+				foreach (var (reference, uid) in group)
+				{
+					if (!present.Contains(uid))
 					{
 						results.Add(NotFound(reference));
 						continue;
 					}
 
-					// A move mints a new UID in the destination, so the id the caller holds is
-					// dead the moment this succeeds. With UIDPLUS or MOVE the server returns
-					// the replacement; otherwise nothing does, and the absent id is what tells
-					// the caller to reconcile rather than guess (§2).
-					var moved = await folder.MoveToAsync(uid, destination, ct);
-
+					var destinationUid = UniqueId.Invalid;
+					var hasDestinationUid = moved is not null
+						&& moved.TryGetValue(uid, out destinationUid);
 					results.Add(
 						new BatchItemResult(
 							reference.MessageId,
@@ -115,7 +119,7 @@ public sealed partial class ImapMailProvider
 								new OccurrenceChange(reference.MailboxId, null, Removed: true),
 								new OccurrenceChange(
 									target.Id,
-									moved.HasValue ? moved.Value.Id.ToString() : null,
+									hasDestinationUid ? destinationUid.Id.ToString() : null,
 									Removed: false
 								),
 							]
@@ -214,39 +218,50 @@ public sealed partial class ImapMailProvider
 			refs,
 			async (client, folder, group, ct) =>
 			{
-				var results = new List<BatchItemResult>(group.Count);
-
-				foreach (var (reference, uid) in group)
+				var present = await ExistingUidsAsync(folder, group, ct);
+				var existing = group
+					.Where(item => present.Contains(item.Uid))
+					.Select(item => item.Uid)
+					.ToList();
+				if (existing.Count > 0)
 				{
-					var present = await folder.SearchAsync(
-						MailKit.Search.SearchQuery.Uids(new UniqueIdRange(uid, uid)),
-						ct
-					);
-
-					if (present.Count == 0)
-					{
-						results.Add(NotFound(reference));
-						continue;
-					}
-
-					await folder.AddFlagsAsync([uid], MessageFlags.Deleted, true, ct);
-					await folder.ExpungeAsync([uid], ct);
-
-					results.Add(
-						new BatchItemResult(
-							reference.MessageId,
-							reference.MailboxId,
-							true,
-							null,
-							[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
-						)
-					);
+					await folder.AddFlagsAsync(existing, MessageFlags.Deleted, true, ct);
+					await folder.ExpungeAsync(existing, ct);
 				}
 
-				return results;
+				return
+				[
+					.. group.Select(item =>
+						present.Contains(item.Uid)
+							? new BatchItemResult(
+								item.Reference.MessageId,
+								item.Reference.MailboxId,
+								true,
+								null,
+								[
+									new OccurrenceChange(
+										item.Reference.MailboxId,
+										null,
+										Removed: true
+									),
+								]
+							)
+							: NotFound(item.Reference)
+					),
+				];
 			},
 			ct
 		);
+
+	private static async Task<HashSet<UniqueId>> ExistingUidsAsync(
+		IMailFolder folder,
+		IReadOnlyList<(MessageOccurrenceRef Reference, UniqueId Uid)> group,
+		CancellationToken ct
+	) =>
+		(await folder.SearchAsync(
+			MailKit.Search.SearchQuery.Uids([.. group.Select(item => item.Uid)]),
+			ct
+		)).ToHashSet();
 
 	private static BatchItemResult NotFound(MessageOccurrenceRef reference) =>
 		new(

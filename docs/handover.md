@@ -10,10 +10,11 @@
 - Parity remediation 5/47: replaced IMAP's shared `UseSsl` switch with explicit IMAP/SMTP transport-security and authentication modes. Password authentication is refused on plaintext transports; mandatory STARTTLS and OAuth2 are implemented; definite pre-send SMTP capability failures no longer become ambiguous sends. OAuth tokens retain their credential format during reauthentication, cannot be reused for CalDAV Basic authentication, and certificate bypass now carries an explicit account-wide warning. A data migration upgrades legacy settings to encrypted modes while preserving SMTP password authentication.
 - Parity remediation 6/47: enabled RFC 5162 QRESYNC immediately after IMAP authentication and changed incremental mailbox sync to resume from the prior UIDVALIDITY/mod-sequence, collect and deduplicate `VANISHED` UIDs, and return them as occurrence removals. QRESYNC IDLE sessions now wake on `MessagesVanished`. Removal application and cursor advancement remain one transaction, with an apply-before-commit fault boundary and a mod-sequence-aware fake provider.
 - Parity remediation 7/47: separated IMAP Move to Trash from permanent deletion. Each dispatch resolves and durably records one stable local Trash target before the provider boundary; IMAP moves into that target, stale UIDs fail without side effects, and Basic-tier partial COPY recovery deletes only the exact original source UID. Ambiguous recovery uses the attempt-time target despite later special-use override changes and never treats heuristic Message-ID duplicates as mutation members.
+- Parity remediation 8/47: replaced per-message mutation requests with provider-native batches. IMAP now searches, changes flags, moves, and expunges UID sets per folder; Gmail trashes up to 100 messages per multipart batch; Graph permanently deletes up to 20 messages per JSON batch. Per-item outcomes remain correlated, Graph inner requests retain immutable-ID preference, and inner/outer throttling escalates the longest provider delay to the account gate.
 
 ## Next task
 
-- Replace per-item provider mutation loops with native batch requests while preserving per-item results.
+- Route Graph large-attachment upload-session requests through the central Graph pipeline.
 
 ## Required reading
 
@@ -43,6 +44,9 @@
 - `pnpm check` after distinct IMAP Trash semantics: format, TypeScript, ESLint, Stylelint, build, 513 .NET tests, and 146 Vitest tests passed.
 - Fault discrimination: replacing the persisted attempt-time Trash target with `MutationItem.TargetMailboxId` made all three Basic-tier recovery scenarios fail, including the override-change race. Earlier removals of unknown-destination waiting, partial cleanup, and exact-source scoping also failed their dedicated scenarios. Restoring each invariant returned the full check to green.
 - IMAP Trash invariant review found no remaining violations. It confirmed stale-UID handling, UID-less destination reconciliation, partial-COPY continuation, heuristic-duplicate isolation, attempt-time target persistence, role-change safety, and conservative requeue of legacy attempts whose target cannot be known.
+- `pnpm check` after native provider batching: format, TypeScript, ESLint, Stylelint, build, 518 .NET tests, and 146 Vitest tests passed.
+- Batch discrimination: reducing Gmail and Graph batch chunk sizes to one made both HTTP request-count regressions fail; restoring the provider limits returned the suite to green. The throttle tests also exercise Gmail outer 429 wrapping, longest Gmail inner delay, and longest Graph inner delay.
+- Provider invariant review found no remaining violations. It confirmed folder-scoped IMAP UID sets, Gmail/Graph batch limits and item correlation, Graph immutable-ID headers, and account-level escalation of outer and inner throttles.
 
 ## Live risks / decisions
 
@@ -51,4 +55,5 @@
 - Existing `UseSsl=false` accounts are upgraded to mandatory STARTTLS rather than allowed to continue sending passwords in plaintext. Servers without STARTTLS now fail closed with a mapped account error.
 - The real-Dovecot QRESYNC regression is committed under the existing `Deep`/`Conformance` suite but was not executed because `pnpm check:deep` was not requested; the normal fake-provider crash/replay scenario passed.
 - The live-Dovecot Move-to-Trash regression covers all three IMAP capability tiers but remains under the existing `Deep`/`Conformance` suite; it was not executed because `pnpm check:deep` was not requested.
+- Native batching against live Gmail/Graph and the three IMAP tiers remains covered by the existing `Deep`/`Conformance` suite; it was not executed because `pnpm check:deep` was not requested. Normal HTTP transport tests proved Gmail and Graph issue one outer request for two message mutations.
 - Work continues item-by-item from `docs/parity-audit.md`; each completed item updates this handover and receives its own commit.
