@@ -1,6 +1,7 @@
 using Microsoft.Graph;
 using Microsoft.Graph.Me.Messages.Item.Attachments.CreateUploadSession;
 using Microsoft.Graph.Models;
+using Microsoft.Kiota.Abstractions;
 using MyloMail.Api.Domain;
 using static MyloMail.Api.Providers.Graph.GraphThrottleAwareRequests;
 using GraphMessage = Microsoft.Graph.Models.Message;
@@ -79,37 +80,43 @@ public sealed partial class GraphMailProvider
 		);
 		var uploadUrl =
 			session?.UploadUrl ?? throw new InvalidOperationException("Graph did not return an upload session URL.");
+		await UploadLargeAttachmentContentAsync(client, uploadUrl, attachment, ct);
+	}
 
-		using var http = new HttpClient();
+	internal static async Task UploadLargeAttachmentContentAsync(
+		GraphServiceClient client,
+		string uploadUrl,
+		DraftAttachment attachment,
+		CancellationToken ct
+	)
+	{
 		var total = attachment.Content.LongLength;
 		for (long offset = 0; offset < total; offset += UploadChunkSize)
 		{
 			var length = (int)Math.Min(UploadChunkSize, total - offset);
-			using var request = new HttpRequestMessage(HttpMethod.Put, uploadUrl)
-			{
-				Content = new ByteArrayContent(attachment.Content, (int)offset, length),
-			};
-			request.Content.Headers.ContentRange = new System.Net.Http.Headers.ContentRangeHeaderValue(
-				offset,
-				offset + length - 1,
-				total
+			using var stream = new MemoryStream(
+				attachment.Content,
+				(int)offset,
+				length,
+				writable: false
 			);
-			request.Content.Headers.ContentLength = length;
-			var response = await http.SendAsync(request, ct);
-			// This one chunk-upload PUT bypasses the Graph SDK entirely (session.UploadUrl is a
-			// bare pre-authenticated URL, not a client-relative request), so it can't go through
-			// ThrottleAwareAsync - a 429 here surfaces as a raw HttpResponseMessage, not an
-			// ApiException, and has to be translated from the response directly instead.
-			if ((int)response.StatusCode == 429)
+			var request = new RequestInformation
 			{
-				var retryAfter = response.Headers.RetryAfter?.Delta
-					?? (response.Headers.RetryAfter?.Date is { } date ? date - DateTimeOffset.UtcNow : null);
-				throw new ProviderThrottledException(
-					retryAfter is { } value && value > TimeSpan.Zero ? value : DefaultRetryAfter,
-					"Microsoft Graph throttled this attachment upload."
-				);
-			}
-			response.EnsureSuccessStatusCode();
+				HttpMethod = Method.PUT,
+				URI = new Uri(uploadUrl),
+			};
+			request.Headers.Add(
+				"Content-Range",
+				$"bytes {offset}-{offset + length - 1}/{total}"
+			);
+			request.Headers.Add(
+				"Content-Length",
+				length.ToString(System.Globalization.CultureInfo.InvariantCulture)
+			);
+			request.SetStreamContent(stream, "application/octet-stream");
+			await ThrottleAwareAsync(
+				() => client.RequestAdapter.SendNoContentAsync(request, cancellationToken: ct)
+			);
 		}
 	}
 

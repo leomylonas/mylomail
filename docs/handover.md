@@ -11,10 +11,11 @@
 - Parity remediation 6/47: enabled RFC 5162 QRESYNC immediately after IMAP authentication and changed incremental mailbox sync to resume from the prior UIDVALIDITY/mod-sequence, collect and deduplicate `VANISHED` UIDs, and return them as occurrence removals. QRESYNC IDLE sessions now wake on `MessagesVanished`. Removal application and cursor advancement remain one transaction, with an apply-before-commit fault boundary and a mod-sequence-aware fake provider.
 - Parity remediation 7/47: separated IMAP Move to Trash from permanent deletion. Each dispatch resolves and durably records one stable local Trash target before the provider boundary; IMAP moves into that target, stale UIDs fail without side effects, and Basic-tier partial COPY recovery deletes only the exact original source UID. Ambiguous recovery uses the attempt-time target despite later special-use override changes and never treats heuristic Message-ID duplicates as mutation members.
 - Parity remediation 8/47: replaced per-message mutation requests with provider-native batches. IMAP now searches, changes flags, moves, and expunges UID sets per folder; Gmail trashes up to 100 messages per multipart batch; Graph permanently deletes up to 20 messages per JSON batch. Per-item outcomes remain correlated, Graph inner requests retain immutable-ID preference, and inner/outer throttling escalates the longest provider delay to the account gate.
+- Parity remediation 9/47: removed the bare `HttpClient` from Graph large-attachment uploads. Upload-session slices now use raw Kiota requests through the same Graph request adapter, preserving exact byte ranges, immutable-ID middleware, error mapping, and `Retry-After` translation. Graph authentication is explicitly allowlisted to `graph.microsoft.com`, so the pipeline omits bearer tokens from pre-authenticated Outlook upload URLs.
 
 ## Next task
 
-- Route Graph large-attachment upload-session requests through the central Graph pipeline.
+- Make the Google contact deletion limitation an explicit architecture contract.
 
 ## Required reading
 
@@ -47,6 +48,9 @@
 - `pnpm check` after native provider batching: format, TypeScript, ESLint, Stylelint, build, 518 .NET tests, and 146 Vitest tests passed.
 - Batch discrimination: reducing Gmail and Graph batch chunk sizes to one made both HTTP request-count regressions fail; restoring the provider limits returned the suite to green. The throttle tests also exercise Gmail outer 429 wrapping, longest Gmail inner delay, and longest Graph inner delay.
 - Provider invariant review found no remaining violations. It confirmed folder-scoped IMAP UID sets, Gmail/Graph batch limits and item correlation, Graph immutable-ID headers, and account-level escalation of outer and inner throttles.
+- `pnpm check` after routing Graph upload-session PUTs through the central pipeline: format, TypeScript, ESLint, Stylelint, build, 520 .NET tests, and 146 Vitest tests passed.
+- Graph upload transport tests exercised a two-slice attachment, exact `Content-Range`/length values, immutable-ID middleware, off-host bearer suppression with zero token requests, and 429 `Retry-After` translation.
+- Graph upload invariant review found no remaining violations after restricting authentication to the Graph API host. It confirmed off-host pre-authenticated uploads retain the central middleware without leaking a bearer token.
 
 ## Live risks / decisions
 

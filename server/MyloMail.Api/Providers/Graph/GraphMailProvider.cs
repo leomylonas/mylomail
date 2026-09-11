@@ -1,4 +1,5 @@
 using Microsoft.Graph;
+using Microsoft.Graph.Authentication;
 using Microsoft.Graph.Models;
 using Microsoft.Identity.Client;
 using MyloMail.Api.Credentials;
@@ -199,8 +200,12 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		{
 			await oauth.AcquireTokenAsync(account, ct);
 			var credential = new GraphAccountTokenCredential(oauth, account);
-			var http = GraphClientFactory.Create(credential, [new GraphImmutableIdHandler()]);
-			return new GraphServiceClient(http, credential, GraphOAuthAuthenticator.Scopes);
+			var authenticationProvider = CreateAuthenticationProvider(credential);
+			var http = GraphClientFactory.Create(
+				authenticationProvider,
+				[new GraphImmutableIdHandler()]
+			);
+			return new GraphServiceClient(http, authenticationProvider);
 		}
 		// Same gap pass 196/197 fixed for IMAP/SMTP, and this pass just fixed for Gmail:
 		// AcquireTokenAsync throws MsalUiRequiredException when no cached account exists or a
@@ -223,6 +228,16 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			throw new ProviderAuthenticationException(ex.Message, ex);
 		}
 	}
+
+	internal static AzureIdentityAuthenticationProvider CreateAuthenticationProvider(
+		Azure.Core.TokenCredential credential
+	) =>
+		new(
+			credential,
+			allowedHosts: ["graph.microsoft.com"],
+			isCaeEnabled: false,
+			scopes: [.. GraphOAuthAuthenticator.Scopes]
+		);
 
 	private static readonly string[] MessageSelect =
 	[

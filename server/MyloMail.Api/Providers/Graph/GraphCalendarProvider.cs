@@ -269,8 +269,13 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		{
 			await oauth.AcquireTokenAsync(account, ct);
 			var credential = new GraphAccountTokenCredential(oauth, account);
-			var http = GraphClientFactory.Create(credential, [new GraphImmutableIdHandler()]);
-			return new GraphServiceClient(http, credential, GraphOAuthAuthenticator.Scopes);
+			var authenticationProvider =
+				GraphMailProvider.CreateAuthenticationProvider(credential);
+			var http = GraphClientFactory.Create(
+				authenticationProvider,
+				[new GraphImmutableIdHandler()]
+			);
+			return new GraphServiceClient(http, authenticationProvider);
 		}
 		catch (MsalException ex) when (!GraphOAuthAuthenticator.IsAdminConsentRequired(ex))
 		{
