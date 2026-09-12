@@ -394,7 +394,12 @@ public record CalendarEventDetailDto(
 	IReadOnlyList<DateTimeOffset> Reminders,
 	DateTimeOffset Start,
 	DateTimeOffset End,
-	bool IsAllDay
+	bool IsAllDay,
+	string? StartTimeZoneId,
+	string? EndTimeZoneId,
+	IReadOnlyList<string> RecurrenceRules,
+	IReadOnlyList<DateTimeOffset> RecurrenceDates,
+	IReadOnlyList<DateTimeOffset> ExceptionDates
 );
 
 /// <summary>
@@ -471,5 +476,10 @@ public record SaveCalendarEventRequest(
 	string? Description,
 	DateTimeOffset Start,
 	DateTimeOffset End,
-	bool IsAllDay
+	bool IsAllDay,
+	string? StartTimeZoneId,
+	string? EndTimeZoneId,
+	IReadOnlyList<string> RecurrenceRules,
+	IReadOnlyList<DateTimeOffset> RecurrenceDates,
+	IReadOnlyList<DateTimeOffset> ExceptionDates
 );

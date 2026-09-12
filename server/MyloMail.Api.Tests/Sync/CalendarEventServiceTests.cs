@@ -38,6 +38,165 @@ public sealed class CalendarEventServiceTests
 	}
 
 	[Fact]
+	public async Task Creating_an_event_preserves_canonical_timezones_and_the_full_recurrence_set()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var start = new DateTimeOffset(2026, 3, 1, 14, 0, 0, TimeSpan.Zero);
+		var extra = new DateTimeOffset(2026, 3, 15, 13, 0, 0, TimeSpan.Zero);
+		var excluded = new DateTimeOffset(2026, 3, 22, 13, 0, 0, TimeSpan.Zero);
+
+		var saved = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(
+					null,
+					harness.CalendarId,
+					"Standup",
+					null,
+					null,
+					start,
+					start.AddHours(1),
+					false,
+					StartTimeZoneId: "America/Toronto",
+					EndTimeZoneId: "Eastern Standard Time",
+					RecurrenceRules: ["FREQ=WEEKLY;COUNT=4"],
+					RecurrenceDates: [extra, extra],
+					ExceptionDates: [excluded]
+				)
+			)
+		);
+
+		Assert.Equal("America/Toronto", saved.StartTimeZoneId);
+		Assert.Equal("America/New_York", saved.EndTimeZoneId);
+		Assert.Equal(["FREQ=WEEKLY;COUNT=4"], saved.RecurrenceRules);
+		Assert.Equal([extra], saved.RecurrenceDates);
+		Assert.Equal([excluded], saved.ExceptionDates);
+		Assert.Equal(saved.RecurrenceRules, provider.LastCreated!.RecurrenceRules);
+		Assert.Equal(saved.RecurrenceDates, provider.LastCreated.RecurrenceDates);
+	}
+
+	[Fact]
+	public async Task Updating_an_event_pushes_and_persists_edited_timezone_and_recurrence()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+		var created = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+
+		var updated = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(
+					created.Id,
+					harness.CalendarId,
+					"Standup",
+					null,
+					null,
+					DateTimeOffset.UnixEpoch,
+					DateTimeOffset.UnixEpoch.AddHours(1),
+					false,
+					StartTimeZoneId: "Europe/London",
+					EndTimeZoneId: "Europe/Paris",
+					RecurrenceRules: ["FREQ=MONTHLY;BYDAY=1MO"],
+					RecurrenceDates: [DateTimeOffset.UnixEpoch.AddMonths(2)],
+					ExceptionDates: [DateTimeOffset.UnixEpoch.AddMonths(1)]
+				)
+			)
+		);
+
+		Assert.Same(updated, provider.LastUpdated);
+		Assert.Equal("Europe/London", updated.StartTimeZoneId);
+		Assert.Equal("Europe/Paris", updated.EndTimeZoneId);
+		Assert.Equal(["FREQ=MONTHLY;BYDAY=1MO"], updated.RecurrenceRules);
+		Assert.Single(updated.RecurrenceDates);
+		Assert.Single(updated.ExceptionDates);
+	}
+
+	[Fact]
+	public async Task Invalid_timezone_and_recurrence_input_is_rejected_before_provider_dispatch()
+	{
+		var provider = new ScriptedCalendarProvider();
+		await using var harness = await Harness.CreateAsync(provider);
+
+		var timeZone = await Assert.ThrowsAsync<HubException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(
+						null,
+						harness.CalendarId,
+						"Standup",
+						null,
+						null,
+						DateTimeOffset.UnixEpoch,
+						DateTimeOffset.UnixEpoch.AddHours(1),
+						false,
+						StartTimeZoneId: "Mars/Olympus"
+					)
+				)
+			)
+		);
+		Assert.Contains("recognised IANA time zone", timeZone.Message);
+
+		var recurrence = await Assert.ThrowsAsync<HubException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(
+						null,
+						harness.CalendarId,
+						"Standup",
+						null,
+						null,
+						DateTimeOffset.UnixEpoch,
+						DateTimeOffset.UnixEpoch.AddHours(1),
+						false,
+						RecurrenceRules: ["NOT A RULE"]
+					)
+				)
+			)
+		);
+		Assert.Contains("not a valid RFC 5545 recurrence rule", recurrence.Message);
+		Assert.Equal(0, provider.CreateCalls);
+	}
+
+	[Fact]
+	public async Task Provider_preflight_rejection_does_not_create_a_dispatched_attempt()
+	{
+		var provider = new ScriptedCalendarProvider { RejectValidation = true };
+		await using var harness = await Harness.CreateAsync(provider);
+
+		var error = await Assert.ThrowsAsync<HubException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(
+						null,
+						harness.CalendarId,
+						"Unsupported series",
+						null,
+						null,
+						DateTimeOffset.UnixEpoch,
+						DateTimeOffset.UnixEpoch.AddHours(1),
+						false,
+						RecurrenceRules: ["FREQ=DAILY"]
+					)
+				)
+			)
+		);
+
+		Assert.Contains("cannot represent", error.Message);
+		Assert.Equal(0, provider.CreateCalls);
+		await harness.UsingAsync(async scope =>
+		{
+			Assert.Empty(
+				await scope
+					.GetRequiredService<MyloMailDbContext>()
+					.CalendarCreationAttempts.ToListAsync()
+			);
+		});
+	}
+
+	[Fact]
 	public async Task Updating_an_event_keeps_the_local_edit_and_flags_a_conflict_on_a_precondition_failure()
 	{
 		var provider = new ScriptedCalendarProvider();
@@ -596,11 +755,22 @@ public sealed class CalendarEventServiceTests
 		public bool RejectNextUpdate { get; set; }
 		public bool RejectNextDelete { get; set; }
 		public Exception? RejectNextCreateWith { get; set; }
+		public bool RejectValidation { get; set; }
+		public CalendarEventDto? LastCreated { get; private set; }
+		public CalendarEvent? LastUpdated { get; private set; }
 
 		/// <summary>The <c>expectedETag</c> the most recent <see cref="UpdateEventAsync"/> call received.</summary>
 		public string? LastUpdateETag { get; private set; }
 
 		public ProviderType Type => ProviderType.Imap;
+		public void ValidateEvent(CalendarEventDto ev)
+		{
+			if (RejectValidation)
+			{
+				throw new NotSupportedException("The provider cannot represent this recurrence.");
+			}
+		}
+
 
 		/// <summary>What <see cref="SyncCalendarAsync"/> returns on its next call — "the server's" state.</summary>
 		public void ScriptSync(CalendarSyncResult result) => scriptedSync = result;
@@ -622,6 +792,7 @@ public sealed class CalendarEventServiceTests
 				RejectNextCreateWith = null;
 				throw ex;
 			}
+			LastCreated = ev;
 			CreateCalls++;
 			return Task.FromResult(new CalendarEventCreation($"created-{CreateCalls}", "created-revision"));
 		}
@@ -637,6 +808,7 @@ public sealed class CalendarEventServiceTests
 		public Task UpdateEventAsync(Account account, CalendarEvent ev, string? expectedETag, CancellationToken ct)
 		{
 			LastUpdateETag = expectedETag;
+			LastUpdated = ev;
 			if (RejectNextUpdate)
 			{
 				RejectNextUpdate = false;

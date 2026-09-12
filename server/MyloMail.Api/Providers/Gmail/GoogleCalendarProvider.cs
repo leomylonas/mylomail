@@ -380,7 +380,7 @@ public sealed class GoogleCalendarProvider(GmailOAuthAuthenticator oauth) : ICal
 	{
 		if (ev.IsAllDay)
 		{
-			return $"{name}:{string.Join(',', values.Select(value => value.ToString("yyyyMMdd", CultureInfo.InvariantCulture)))}";
+			return $"{name};VALUE=DATE:{string.Join(',', values.Select(value => value.ToString("yyyyMMdd", CultureInfo.InvariantCulture)))}";
 		}
 		if (ev.StartTimeZoneId is null)
 		{

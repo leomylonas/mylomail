@@ -134,8 +134,14 @@ public sealed class CalendarSyncService(
 			);
 			if (existing is null)
 			{
-				var materialised = new CalendarEvent { Id = item.Attempt.Id, CalendarId = item.Attempt.CalendarId };
-				Apply(materialised, found);
+				var materialised = CalendarEventService.Materialise(
+					item.Attempt,
+					new CalendarEventCreation(
+						found.ProviderEventId,
+						found.ProviderRevision,
+						found.ICalUid
+					)
+				);
 				context.CalendarEvents.Add(materialised);
 				await context.SaveChangesAsync(ct);
 				await transaction.CommitAsync(ct);
@@ -351,6 +357,9 @@ public sealed class CalendarSyncService(
 			}
 		}
 
+		var pendingCreations = await context
+			.CalendarCreationAttempts.Where(attempt => attempt.CalendarId == calendarId)
+			.ToListAsync(ct);
 		foreach (var dto in page.Upserted)
 		{
 			if (string.IsNullOrEmpty(dto.ProviderRevision))
@@ -358,6 +367,16 @@ public sealed class CalendarSyncService(
 				throw new InvalidOperationException("Calendar observations must carry a provider revision.");
 			}
 
+			var matchingAttempt =
+				dto.RecurrenceMasterProviderEventId is null && dto.RecurrenceId is null
+					? pendingCreations.FirstOrDefault(attempt =>
+							attempt.ICalUid == dto.ICalUid
+							|| (
+								dto.ProviderCreationKey is not null
+								&& attempt.ProviderCreationKey == dto.ProviderCreationKey
+							)
+						)
+					: null;
 			var existing = await context.CalendarEvents.SingleOrDefaultAsync(
 				e => e.CalendarId == calendarId && e.ProviderEventId == dto.ProviderEventId,
 				ct
@@ -366,10 +385,9 @@ public sealed class CalendarSyncService(
 			// A mailed invite (§13 Epic 7) may already have materialised this same event, by
 			// UID, under the account's local-only pseudo-calendar before this account ever had
 			// a real calendar synced against it. Adopted here rather than left to become a
-			// duplicate: the mail-materialised row keeps its id (and so keeps working as the
-			// target of any RSVP already sent against it) but moves onto the real calendar and
-			// gains a real provider identity, same as any other upsert from here on.
-			if (existing is null)
+			// duplicate. An in-flight local creation takes precedence because its durable
+			// attempt owns both the stable local id and the exact scheduling intent.
+			if (existing is null && matchingAttempt is null)
 			{
 				var localCalendarIds = await context
 					.Calendars.Where(c => c.AccountId == account.Id && c.IsLocalOnly)
@@ -387,45 +405,42 @@ public sealed class CalendarSyncService(
 			}
 
 			// A still-unresolved conflict is left alone during ordinary sync — the local edit
-			// and the flag both survive, exactly as they did the moment the conflict was
-			// detected, until the user explicitly resolves it (§15). The one exception is the
-			// event named by `resolvingEventId`: that is this call's whole reason for
-			// running, from `ResolveConflictAsync`'s "keep theirs" path, and applying the
-			// server's version to it is the entire point.
+			// and the flag both survive until the user explicitly resolves it (§15).
 			if (existing is { SyncConflict: true } && existing.Id != resolvingEventId)
 			{
 				continue;
 			}
 
-			var ev = existing ?? new CalendarEvent { Id = Guid.NewGuid(), CalendarId = calendarId };
-			Apply(ev, dto);
-			if (existing is null)
+			CalendarEvent ev;
+			if (existing is not null)
 			{
+				ev = existing;
+				Apply(ev, dto);
+			}
+			else if (matchingAttempt is not null)
+			{
+				ev = CalendarEventService.Materialise(
+					matchingAttempt,
+					new CalendarEventCreation(
+						dto.ProviderEventId,
+						dto.ProviderRevision,
+						dto.ICalUid
+					)
+				);
 				context.CalendarEvents.Add(ev);
 			}
+			else
+			{
+				ev = new CalendarEvent { Id = Guid.NewGuid(), CalendarId = calendarId };
+				Apply(ev, dto);
+				context.CalendarEvents.Add(ev);
+			}
+			if (matchingAttempt is not null)
+			{
+				context.CalendarCreationAttempts.Remove(matchingAttempt);
+				pendingCreations.Remove(matchingAttempt);
+			}
 			changed.Add(ev.Id);
-		}
-
-		// A normal sync can observe a just-created resource before a provider-specific exact
-		// lookup sees it. In that case the same transaction materialises the event and removes
-		// its durable ambiguous-create record; either both persist or neither does (§6).
-		var observedUids = page.Upserted.Select(dto => dto.ICalUid).Distinct().ToList();
-		var observedCreationKeys = page.Upserted
-			.Select(dto => dto.ProviderCreationKey)
-			.Where(key => key is not null)
-			.Cast<string>()
-			.Distinct()
-			.ToList();
-		if (observedUids.Count > 0 || observedCreationKeys.Count > 0)
-		{
-			context.CalendarCreationAttempts.RemoveRange(
-				await context
-					.CalendarCreationAttempts.Where(a =>
-						a.CalendarId == calendarId
-						&& (observedUids.Contains(a.ICalUid) || observedCreationKeys.Contains(a.ProviderCreationKey))
-					)
-					.ToListAsync(ct)
-			);
 		}
 
 		// Flushed before the recurrence-resolution queries below: those run as ordinary
@@ -617,8 +632,8 @@ public sealed class CalendarSyncService(
 		target.Description = source.Description;
 		target.Start = source.Start;
 		target.End = source.End;
-		target.StartTimeZoneId = source.StartTimeZoneId;
-		target.EndTimeZoneId = source.EndTimeZoneId;
+		target.StartTimeZoneId = CalendarTimeZoneIds.Canonicalize(source.StartTimeZoneId);
+		target.EndTimeZoneId = CalendarTimeZoneIds.Canonicalize(source.EndTimeZoneId);
 		target.IsAllDay = source.IsAllDay;
 		target.Organizer = source.Organizer;
 		target.Attendees = source.Attendees;

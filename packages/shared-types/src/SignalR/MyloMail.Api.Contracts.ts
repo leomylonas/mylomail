@@ -548,6 +548,16 @@ export type CalendarEventDetailDto = {
     end: (Date | string);
     /** Transpiled from bool */
     isAllDay: boolean;
+    /** Transpiled from string? */
+    startTimeZoneId?: string;
+    /** Transpiled from string? */
+    endTimeZoneId?: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<string> */
+    recurrenceRules: string[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
+    recurrenceDates: (Date | string)[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
+    exceptionDates: (Date | string)[];
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageInviteDto */
@@ -636,5 +646,15 @@ export type SaveCalendarEventRequest = {
     end: (Date | string);
     /** Transpiled from bool */
     isAllDay: boolean;
+    /** Transpiled from string? */
+    startTimeZoneId?: string;
+    /** Transpiled from string? */
+    endTimeZoneId?: string;
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<string> */
+    recurrenceRules: string[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
+    recurrenceDates: (Date | string)[];
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
+    exceptionDates: (Date | string)[];
 }
 

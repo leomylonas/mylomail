@@ -47,7 +47,14 @@ public static class CalendarRecurrenceExpander
 		DateTimeOffset to
 	)
 	{
-		if (master.RecurrenceRules.Count == 0 || master.Start >= to)
+		if (
+			(
+				master.RecurrenceRules.Count == 0
+				&& master.RecurrenceDates.Count == 0
+				&& master.ExceptionDates.Count == 0
+			)
+			|| master.Start >= to
+		)
 		{
 			return [];
 		}
@@ -56,8 +63,11 @@ public static class CalendarRecurrenceExpander
 		{
 			Start = ToCalDateTime(master.Start, master.StartTimeZoneId),
 			End = ToCalDateTime(master.End, master.EndTimeZoneId ?? master.StartTimeZoneId),
-			RecurrenceRule = new RecurrencePattern(master.RecurrenceRules[0]),
 		};
+		if (master.RecurrenceRules.Count > 0)
+		{
+			ev.RecurrenceRule = new RecurrencePattern(master.RecurrenceRules[0]);
+		}
 
 		foreach (var rdate in master.RecurrenceDates)
 		{

@@ -343,6 +343,13 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<DateTimeOffset>("End")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("EndTimeZoneId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExceptionDates")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ICalUid")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -357,7 +364,18 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RecurrenceDates")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecurrenceRules")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("Start")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StartTimeZoneId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Title")

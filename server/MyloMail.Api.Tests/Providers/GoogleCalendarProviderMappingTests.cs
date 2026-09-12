@@ -118,7 +118,7 @@ public sealed class GoogleCalendarProviderMappingTests
 			IsAllDay = true,
 			RecurrenceDates = [new DateTimeOffset(2026, 4, 8, 0, 0, 0, TimeSpan.Zero)],
 		});
-		Assert.Equal(["RDATE:20260408"], allDay.Recurrence);
+		Assert.Equal(["RDATE;VALUE=DATE:20260408"], allDay.Recurrence);
 	}
 
 	[Fact]

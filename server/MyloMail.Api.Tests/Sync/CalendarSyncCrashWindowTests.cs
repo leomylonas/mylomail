@@ -4,6 +4,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -82,9 +83,20 @@ public sealed class CalendarSyncCrashWindowTests
 						"Standup",
 						null,
 						null,
-						DateTimeOffset.UnixEpoch,
-						DateTimeOffset.UnixEpoch.AddHours(1),
-						false
+						new DateTimeOffset(2026, 3, 1, 14, 0, 0, TimeSpan.Zero),
+						new DateTimeOffset(2026, 3, 1, 15, 0, 0, TimeSpan.Zero),
+						false,
+						StartTimeZoneId: "America/New_York",
+						EndTimeZoneId: "America/New_York",
+						RecurrenceRules: ["FREQ=WEEKLY;COUNT=4"],
+						RecurrenceDates:
+						[
+							new DateTimeOffset(2026, 3, 15, 13, 0, 0, TimeSpan.Zero),
+						],
+						ExceptionDates:
+						[
+							new DateTimeOffset(2026, 3, 22, 13, 0, 0, TimeSpan.Zero),
+						]
 					)
 				)
 			)
@@ -100,6 +112,96 @@ public sealed class CalendarSyncCrashWindowTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			var eventRow = await context.CalendarEvents.SingleAsync(e => e.ProviderEventId == "created-1");
 			Assert.Equal("created-revision", eventRow.ProviderRevision);
+			Assert.Equal("America/New_York", eventRow.StartTimeZoneId);
+			Assert.Equal("America/New_York", eventRow.EndTimeZoneId);
+			Assert.Equal(["FREQ=WEEKLY;COUNT=4"], eventRow.RecurrenceRules);
+			Assert.Equal(
+				[new DateTimeOffset(2026, 3, 15, 13, 0, 0, TimeSpan.Zero)],
+				eventRow.RecurrenceDates
+			);
+			Assert.Equal(
+				[new DateTimeOffset(2026, 3, 22, 13, 0, 0, TimeSpan.Zero)],
+				eventRow.ExceptionDates
+			);
+			Assert.Empty(await context.CalendarCreationAttempts.ToListAsync());
+		});
+	}
+
+	[Fact]
+	public async Task A_sync_observation_adopts_the_in_flight_creation_attempt_without_losing_intent()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		var calendarId = await SeedCalendarAsync(harness);
+		var attemptId = Guid.NewGuid();
+		const string iCalUid = "in-flight@mylomail.local";
+		const string creationKey = "m-in-flight";
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.CalendarCreationAttempts.Add(new CalendarCreationAttempt
+			{
+				Id = attemptId,
+				CalendarId = calendarId,
+				ProviderCreationKey = creationKey,
+				ICalUid = iCalUid,
+				Title = "Original title",
+				Start = new DateTimeOffset(2026, 4, 1, 13, 0, 0, TimeSpan.Zero),
+				End = new DateTimeOffset(2026, 4, 1, 14, 0, 0, TimeSpan.Zero),
+				StartTimeZoneId = "America/New_York",
+				EndTimeZoneId = "America/New_York",
+				RecurrenceRules = ["FREQ=DAILY"],
+				DispatchedAt = DateTimeOffset.UtcNow,
+			});
+			await context.SaveChangesAsync();
+		});
+		harness.CalendarProvider.ObservedOnNextSync =
+		[
+			new CalendarEventDto
+			{
+				ProviderEventId = "observed-occurrence",
+				ProviderRevision = "occurrence-revision",
+				ICalUid = iCalUid,
+				Title = "Provider occurrence",
+				Start = new DateTimeOffset(2026, 4, 2, 13, 0, 0, TimeSpan.Zero),
+				End = new DateTimeOffset(2026, 4, 2, 14, 0, 0, TimeSpan.Zero),
+				RecurrenceMasterProviderEventId = "observed-created-event",
+				RecurrenceId = new DateTimeOffset(2026, 4, 2, 13, 0, 0, TimeSpan.Zero),
+			},
+			new CalendarEventDto
+			{
+				ProviderEventId = "observed-created-event",
+				ProviderCreationKey = creationKey,
+				ProviderRevision = "observed-revision",
+				ICalUid = iCalUid,
+				Title = "Provider-normalized title",
+				Start = new DateTimeOffset(2026, 4, 1, 13, 0, 0, TimeSpan.Zero),
+				End = new DateTimeOffset(2026, 4, 1, 14, 0, 0, TimeSpan.Zero),
+				StartTimeZoneId = "US/Eastern",
+				EndTimeZoneId = "US/Eastern",
+				RecurrenceRules = ["FREQ=DAILY;INTERVAL=1"],
+			},
+		];
+
+		await SynchronizeAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var saved = await context.CalendarEvents.SingleAsync(
+				ev => ev.ProviderEventId == "observed-created-event"
+			);
+			Assert.Equal(attemptId, saved.Id);
+			Assert.Equal("Original title", saved.Title);
+			Assert.Equal(["FREQ=DAILY"], saved.RecurrenceRules);
+			Assert.Equal("America/New_York", saved.StartTimeZoneId);
+			Assert.NotEqual(
+				attemptId,
+				(await context.CalendarEvents.SingleAsync(
+					ev => ev.ProviderEventId == "observed-occurrence"
+				)).Id
+			);
 			Assert.Empty(await context.CalendarCreationAttempts.ToListAsync());
 		});
 	}

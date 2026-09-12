@@ -1,4 +1,5 @@
 using Hangfire;
+using Ical.Net.DataTypes;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
@@ -20,7 +21,12 @@ public sealed record CalendarEventInput(
 	string? Description,
 	DateTimeOffset Start,
 	DateTimeOffset End,
-	bool IsAllDay
+	bool IsAllDay,
+	string? StartTimeZoneId = null,
+	string? EndTimeZoneId = null,
+	IReadOnlyList<string>? RecurrenceRules = null,
+	IReadOnlyList<DateTimeOffset>? RecurrenceDates = null,
+	IReadOnlyList<DateTimeOffset>? ExceptionDates = null
 );
 
 /// <summary>
@@ -49,6 +55,7 @@ public sealed class CalendarEventService(
 {
 	public async Task<CalendarEvent> SaveAsync(CalendarEventInput input, CancellationToken ct = default)
 	{
+		input = Normalize(input);
 		var calendar = await context.Calendars.FirstAsync(c => c.Id == input.CalendarId, ct);
 		var account = await context.Accounts.FirstAsync(a => a.Id == calendar.AccountId, ct);
 		var provider = providers.For(account);
@@ -78,6 +85,14 @@ public sealed class CalendarEventService(
 		{
 			throw new HubException("An event cannot end before it starts.");
 		}
+		try
+		{
+			provider.ValidateEvent(ToDto(input));
+		}
+		catch (NotSupportedException ex)
+		{
+			throw new HubException(ex.Message);
+		}
 
 		return existing is null
 			? await CreateAsync(account, calendar, input, provider, ct)
@@ -105,6 +120,11 @@ public sealed class CalendarEventService(
 			Start = input.Start,
 			End = input.End,
 			IsAllDay = input.IsAllDay,
+			StartTimeZoneId = input.StartTimeZoneId,
+			EndTimeZoneId = input.EndTimeZoneId,
+			RecurrenceRules = input.RecurrenceRules ?? [],
+			RecurrenceDates = input.RecurrenceDates ?? [],
+			ExceptionDates = input.ExceptionDates ?? [],
 			// Committed before the provider call. It records ambiguity, never success (§6).
 			DispatchedAt = DateTimeOffset.UtcNow,
 		};
@@ -168,6 +188,11 @@ public sealed class CalendarEventService(
 		existing.Start = input.Start;
 		existing.End = input.End;
 		existing.IsAllDay = input.IsAllDay;
+		existing.StartTimeZoneId = input.StartTimeZoneId;
+		existing.EndTimeZoneId = input.EndTimeZoneId;
+		existing.RecurrenceRules = input.RecurrenceRules ?? [];
+		existing.RecurrenceDates = input.RecurrenceDates ?? [];
+		existing.ExceptionDates = input.ExceptionDates ?? [];
 		existing.Sequence++;
 
 		// A conflict does not lose the edit: it stays applied locally, flagged, so the user's
@@ -357,6 +382,23 @@ public sealed class CalendarEventService(
 		}
 	}
 
+	private static CalendarEventDto ToDto(CalendarEventInput input) => new()
+	{
+		ProviderEventId = string.Empty,
+		ICalUid = string.Empty,
+		Title = input.Title,
+		Location = input.Location,
+		Description = input.Description,
+		Start = input.Start,
+		End = input.End,
+		IsAllDay = input.IsAllDay,
+		StartTimeZoneId = input.StartTimeZoneId,
+		EndTimeZoneId = input.EndTimeZoneId,
+		RecurrenceRules = input.RecurrenceRules ?? [],
+		RecurrenceDates = input.RecurrenceDates ?? [],
+		ExceptionDates = input.ExceptionDates ?? [],
+	};
+
 	internal static CalendarEventDto ToDto(CalendarCreationAttempt attempt) => new()
 	{
 		ProviderEventId = string.Empty,
@@ -367,6 +409,11 @@ public sealed class CalendarEventService(
 		Start = attempt.Start,
 		End = attempt.End,
 		ProviderCreationKey = attempt.ProviderCreationKey,
+		StartTimeZoneId = attempt.StartTimeZoneId,
+		EndTimeZoneId = attempt.EndTimeZoneId,
+		RecurrenceRules = attempt.RecurrenceRules,
+		RecurrenceDates = attempt.RecurrenceDates,
+		ExceptionDates = attempt.ExceptionDates,
 		IsAllDay = attempt.IsAllDay,
 	};
 
@@ -384,7 +431,96 @@ public sealed class CalendarEventService(
 			Start = attempt.Start,
 			End = attempt.End,
 			IsAllDay = attempt.IsAllDay,
+			StartTimeZoneId = attempt.StartTimeZoneId,
+			EndTimeZoneId = attempt.EndTimeZoneId,
+			RecurrenceRules = attempt.RecurrenceRules,
+			RecurrenceDates = attempt.RecurrenceDates,
+			ExceptionDates = attempt.ExceptionDates,
 		};
+
+	private static CalendarEventInput Normalize(CalendarEventInput input)
+	{
+		var rules = (input.RecurrenceRules ?? [])
+			.Select(rule => rule.Trim())
+			.Where(rule => rule.Length > 0)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToArray();
+		if (rules.Length > 32 || rules.Any(rule => rule.Length > 2048))
+		{
+			throw new HubException("An event cannot contain more than 32 bounded recurrence rules.");
+		}
+		foreach (var rule in rules)
+		{
+			try
+			{
+				_ = new RecurrencePattern(rule);
+			}
+			catch (Exception)
+			{
+				throw new HubException($"'{rule}' is not a valid RFC 5545 recurrence rule.");
+			}
+		}
+
+		var recurrenceDates = NormalizeDates(input.RecurrenceDates, input.IsAllDay, "additional");
+		var exceptionDates = NormalizeDates(input.ExceptionDates, input.IsAllDay, "excluded");
+		var start = input.IsAllDay ? AllDayDate(input.Start) : input.Start;
+		var end = input.IsAllDay ? AllDayDate(input.End) : input.End;
+
+		return input with
+		{
+			Start = start,
+			End = end,
+			StartTimeZoneId = input.IsAllDay ? null : CanonicalTimeZoneId(input.StartTimeZoneId),
+			EndTimeZoneId = input.IsAllDay ? null : CanonicalTimeZoneId(input.EndTimeZoneId),
+			RecurrenceRules = rules,
+			RecurrenceDates = recurrenceDates,
+			ExceptionDates = exceptionDates,
+		};
+	}
+
+	private static IReadOnlyList<DateTimeOffset> NormalizeDates(
+		IReadOnlyList<DateTimeOffset>? values,
+		bool isAllDay,
+		string description
+	)
+	{
+		if (values is { Count: > 512 })
+		{
+			throw new HubException($"An event cannot contain more than 512 {description} recurrence dates.");
+		}
+		return
+		[
+			.. (values ?? [])
+				.Select(value => isAllDay ? AllDayDate(value) : value)
+				.Distinct()
+				.Order(),
+		];
+	}
+
+	private static DateTimeOffset AllDayDate(DateTimeOffset value) =>
+		new(value.Year, value.Month, value.Day, 0, 0, 0, TimeSpan.Zero);
+
+	private static string? CanonicalTimeZoneId(string? value)
+	{
+		var candidate = CalendarTimeZoneIds.Canonicalize(value);
+		if (candidate is null)
+		{
+			return null;
+		}
+		try
+		{
+			_ = TimeZoneInfo.FindSystemTimeZoneById(candidate);
+			return candidate;
+		}
+		catch (TimeZoneNotFoundException)
+		{
+			throw new HubException($"'{value}' is not a recognised IANA time zone.");
+		}
+		catch (InvalidTimeZoneException)
+		{
+			throw new HubException($"'{value}' is not a usable IANA time zone.");
+		}
+	}
 
 	/// <summary>
 	/// Surfaces a provider's rejection of a calendar call to the caller with its real message,

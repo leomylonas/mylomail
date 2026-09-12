@@ -1165,7 +1165,12 @@ public class MailHub(
 				request.Description,
 				request.Start,
 				request.End,
-				request.IsAllDay
+				request.IsAllDay,
+				request.StartTimeZoneId,
+				request.EndTimeZoneId,
+				request.RecurrenceRules,
+				request.RecurrenceDates,
+				request.ExceptionDates
 			)
 		);
 		return ToSummaryDto(saved);
@@ -1187,11 +1192,11 @@ public class MailHub(
 			ev.End,
 			ev.IsAllDay,
 			ev.Status,
-			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
+			ev.RecurrenceRules.Count > 0 || ev.RecurrenceDates.Count > 0 || ev.ExceptionDates.Count > 0 || ev.RecurrenceMasterId != null,
 			ev.SyncConflict,
 			false,
 			null,
-			ev.RecurrenceRules.Count > 0
+			ev.RecurrenceRules.Count > 0 || ev.RecurrenceDates.Count > 0 || ev.ExceptionDates.Count > 0
 		);
 
 	public async Task<CalendarEventDetailDto> GetCalendarEventDetail(Guid eventId)
@@ -1217,7 +1222,12 @@ public class MailHub(
 			ev.Reminders,
 			ev.Start,
 			ev.End,
-			ev.IsAllDay
+			ev.IsAllDay,
+			CalendarTimeZoneIds.Canonicalize(ev.StartTimeZoneId),
+			CalendarTimeZoneIds.Canonicalize(ev.EndTimeZoneId),
+			ev.RecurrenceRules,
+			ev.RecurrenceDates,
+			ev.ExceptionDates
 		);
 	}
 

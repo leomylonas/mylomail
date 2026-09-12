@@ -348,6 +348,110 @@ public sealed class CalendarEventOccurrencesTests
 		Assert.DoesNotContain(events, e => e.Title == "Broken recurring meeting");
 	}
 
+	[Fact]
+	public async Task An_RDATE_only_set_is_reported_and_expanded_as_a_recurring_master()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var calendarId = Guid.NewGuid();
+		var masterId = Guid.NewGuid();
+		var start = new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.Zero);
+		var additional = start.AddDays(2);
+		await UsingAsync(
+			database,
+			async context =>
+			{
+				context.Accounts.Add(new Account { Id = accountId, ProviderType = ProviderType.Imap });
+				context.Calendars.Add(new Calendar
+				{
+					Id = calendarId,
+					AccountId = accountId,
+					ProviderCalendarId = "calendar-1",
+					Name = "Calendar",
+				});
+				context.CalendarEvents.Add(new CalendarEvent
+				{
+					Id = masterId,
+					CalendarId = calendarId,
+					Title = "Extra date",
+					ProviderEventId = "master-rdate",
+					Start = start,
+					End = start.AddMinutes(30),
+					RecurrenceDates = [additional],
+					Status = EventStatus.Confirmed,
+				});
+				await context.SaveChangesAsync();
+				return true;
+			}
+		);
+
+		var events = await UsingAsync(
+			database,
+			context => CalendarEventOccurrences.ForCalendarAsync(
+				context,
+				calendarId,
+				additional.AddHours(-1),
+				additional.AddHours(1)
+			)
+		);
+
+		var occurrence = Assert.Single(events);
+		Assert.True(occurrence.IsRecurring);
+		Assert.True(occurrence.IsRecurrenceMaster);
+		Assert.True(occurrence.IsVirtualOccurrence);
+		Assert.Equal(additional, occurrence.Start);
+	}
+
+	[Fact]
+	public async Task An_EXDATE_only_set_can_exclude_the_master_start()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = Guid.NewGuid();
+		var calendarId = Guid.NewGuid();
+		var start = new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.Zero);
+		await UsingAsync(
+			database,
+			async context =>
+			{
+				context.Accounts.Add(new Account { Id = accountId, ProviderType = ProviderType.Imap });
+				context.Calendars.Add(new Calendar
+				{
+					Id = calendarId,
+					AccountId = accountId,
+					ProviderCalendarId = "calendar-1",
+					Name = "Calendar",
+				});
+				context.CalendarEvents.Add(new CalendarEvent
+				{
+					Id = Guid.NewGuid(),
+					CalendarId = calendarId,
+					Title = "Excluded start",
+					ProviderEventId = "master-exdate",
+					Start = start,
+					End = start.AddMinutes(30),
+					ExceptionDates = [start],
+					Status = EventStatus.Confirmed,
+				});
+				await context.SaveChangesAsync();
+				return true;
+			}
+		);
+
+		var events = await UsingAsync(
+			database,
+			context => CalendarEventOccurrences.ForCalendarAsync(
+				context,
+				calendarId,
+				start.AddHours(-1),
+				start.AddHours(1)
+			)
+		);
+
+		Assert.Empty(events);
+	}
+
 	private static async Task<(Guid CalendarId, Guid MasterId, DateTimeOffset SecondOccurrence)> SeedWeeklySeriesAsync(
 		TestDatabase database
 	)

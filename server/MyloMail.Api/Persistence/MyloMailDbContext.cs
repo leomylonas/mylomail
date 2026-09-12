@@ -481,6 +481,9 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		model.Entity<CalendarCreationAttempt>(e =>
 		{
 			e.HasKey(x => x.Id);
+			e.Property(x => x.RecurrenceRules).HasJsonConversion();
+			e.Property(x => x.RecurrenceDates).HasJsonConversion();
+			e.Property(x => x.ExceptionDates).HasJsonConversion();
 			e.HasOne<Calendar>()
 				.WithMany()
 				.HasForeignKey(x => x.CalendarId)

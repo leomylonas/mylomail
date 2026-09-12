@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
+import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { Button, ContentSwitcher, Switch } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -11,6 +12,11 @@ import {
 	EventModal,
 	type EventFormValues,
 } from "@mylomail/renderer/Components/Calendar/EventModal/EventModal";
+import {
+	defaultCalendarTimeZone,
+	parseRecurrenceDateLines,
+	recurrenceRuleLines,
+} from "@mylomail/renderer/Components/Calendar/EventModal/EventScheduling";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import styles from "@mylomail/renderer/Components/Calendar/Calendar.module.css";
 
@@ -88,7 +94,7 @@ export function Calendar({
 	accounts,
 }: {
 	hub: HubConnection;
-	accounts: { id: string; color: string }[];
+	accounts: { id: string; color: string; providerType?: ProviderType }[];
 }) {
 	const [anchor, setAnchor] = useState(() => dayjs());
 	const [view, setView] = useState<"grid" | "agenda">("grid");
@@ -109,6 +115,8 @@ export function Calendar({
 				(query.data ?? []).map((calendar) => ({
 					...calendar,
 					accountColor: accounts[index].color,
+					accountProviderType:
+						accounts[index].providerType ?? ProviderType.Imap,
 				})),
 			),
 		[calendarQueries, accounts],
@@ -166,6 +174,11 @@ export function Calendar({
 		queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
 
 	const liveModalEvent = resolveLiveModalEvent(modal, eventsById);
+	const modalCalendarId =
+		modal?.mode === "create" ? modal.calendarId : modal?.event.calendarId;
+	const modalProviderType = calendars.find(
+		(calendar) => calendar.id === modalCalendarId,
+	)?.accountProviderType;
 
 	// A virtual occurrence's own id is a derived id, not a real row — GetCalendarEventDetail,
 	// DeleteCalendarEvent and ResolveEventConflict all address a real EventId, so opening one
@@ -195,6 +208,19 @@ export function Calendar({
 				start: values.start,
 				end: values.end,
 				isAllDay: values.isAllDay,
+				startTimeZoneId: values.isAllDay ? null : values.startTimeZoneId,
+				endTimeZoneId: values.isAllDay ? null : values.endTimeZoneId,
+				recurrenceRules: recurrenceRuleLines(values.recurrenceRulesText),
+				recurrenceDates: parseRecurrenceDateLines(
+					values.recurrenceDatesText,
+					values.startTimeZoneId,
+					values.isAllDay,
+				),
+				exceptionDates: parseRecurrenceDateLines(
+					values.exceptionDatesText,
+					values.startTimeZoneId,
+					values.isAllDay,
+				),
 			}),
 		onSuccess: () => {
 			setModal(null);
@@ -325,8 +351,13 @@ export function Calendar({
 					deletesWholeSeries={
 						modal.mode === "edit" ? liveModalEvent?.isRecurrenceMaster : false
 					}
-					virtualOccurrence={
-						modal.mode === "edit" ? liveModalEvent?.isVirtualOccurrence : false
+					recurrenceEditable={
+						modal.mode !== "edit" ||
+						!liveModalEvent?.isRecurring ||
+						Boolean(liveModalEvent.isRecurrenceMaster)
+					}
+					supportsRecurrenceSets={
+						modalProviderType !== ProviderType.Microsoft365
 					}
 					onSave={(values) => save.mutate(values)}
 					onDelete={
@@ -361,6 +392,11 @@ function toFormValues(modal: NonNullable<ModalState>): EventFormValues {
 			start: modal.event.start,
 			end: modal.event.end,
 			isAllDay: modal.event.isAllDay,
+			startTimeZoneId: defaultCalendarTimeZone,
+			endTimeZoneId: defaultCalendarTimeZone,
+			recurrenceRulesText: "",
+			recurrenceDatesText: "",
+			exceptionDatesText: "",
 		};
 	}
 
@@ -373,5 +409,10 @@ function toFormValues(modal: NonNullable<ModalState>): EventFormValues {
 		start: start.toISOString(),
 		end: start.add(1, "hour").toISOString(),
 		isAllDay: false,
+		startTimeZoneId: defaultCalendarTimeZone,
+		endTimeZoneId: defaultCalendarTimeZone,
+		recurrenceRulesText: "",
+		recurrenceDatesText: "",
+		exceptionDatesText: "",
 	};
 }

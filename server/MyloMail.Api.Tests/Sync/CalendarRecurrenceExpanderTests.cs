@@ -105,6 +105,24 @@ public sealed class CalendarRecurrenceExpanderTests
 		Assert.NotEqual(first, CalendarRecurrenceExpander.VirtualOccurrenceId(Guid.NewGuid(), start));
 	}
 
+	[Fact]
+	public void An_RDATE_only_set_expands_the_added_occurrence()
+	{
+		var start = new DateTimeOffset(2026, 4, 1, 9, 0, 0, TimeSpan.Zero);
+		var additional = start.AddDays(2);
+		var master = Master(start, start.AddMinutes(30), "FREQ=DAILY");
+		master.RecurrenceRules = [];
+		master.RecurrenceDates = [additional];
+
+		var occurrences = CalendarRecurrenceExpander.Expand(
+			master,
+			start,
+			additional.AddDays(1)
+		);
+
+		Assert.Contains(occurrences, occurrence => occurrence.Start == additional);
+	}
+
 	private static CalendarEvent Master(DateTimeOffset start, DateTimeOffset end, string rrule) =>
 		new()
 		{

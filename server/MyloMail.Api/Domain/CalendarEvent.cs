@@ -119,6 +119,11 @@ public class CalendarCreationAttempt
 	public DateTimeOffset Start { get; set; }
 	public DateTimeOffset End { get; set; }
 	public bool IsAllDay { get; set; }
+	public string? StartTimeZoneId { get; set; }
+	public string? EndTimeZoneId { get; set; }
+	public IReadOnlyList<string> RecurrenceRules { get; set; } = [];
+	public IReadOnlyList<DateTimeOffset> RecurrenceDates { get; set; } = [];
+	public IReadOnlyList<DateTimeOffset> ExceptionDates { get; set; } = [];
 
 	/// <summary>
 	/// Committed immediately before the irreversible provider call. Its existence is evidence

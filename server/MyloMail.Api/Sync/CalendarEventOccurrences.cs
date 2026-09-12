@@ -27,10 +27,10 @@ public static class CalendarEventOccurrences
 			.Take(MaximumSourceEventsPerCalendarView)
 			.ToListAsync(ct);
 
-		var masters = events.Where(e => e.RecurrenceMasterId is null && e.RecurrenceRules.Count > 0).ToList();
+		var masters = events.Where(e => e.RecurrenceMasterId is null && HasRecurrenceSet(e)).ToList();
 		var overrides = events.Where(e => e.RecurrenceMasterId is not null).ToList();
 		var plain = events.Where(e =>
-			e.RecurrenceMasterId is null && e.RecurrenceRules.Count == 0 && e.Start < to && e.End > from
+			e.RecurrenceMasterId is null && !HasRecurrenceSet(e) && e.Start < to && e.End > from
 		);
 
 		// RecurrenceId is always set on a real override/cancelled row (it's what
@@ -141,10 +141,15 @@ public static class CalendarEventOccurrences
 			ev.End,
 			ev.IsAllDay,
 			ev.Status,
-			ev.RecurrenceRules.Count > 0 || ev.RecurrenceMasterId != null,
+			HasRecurrenceSet(ev) || ev.RecurrenceMasterId != null,
 			ev.SyncConflict,
 			isVirtual,
 			masterEventId,
-			IsRecurrenceMaster: ev.RecurrenceRules.Count > 0
+			IsRecurrenceMaster: HasRecurrenceSet(ev)
 		);
+
+	private static bool HasRecurrenceSet(CalendarEvent ev) =>
+		ev.RecurrenceRules.Count > 0
+		|| ev.RecurrenceDates.Count > 0
+		|| ev.ExceptionDates.Count > 0;
 }

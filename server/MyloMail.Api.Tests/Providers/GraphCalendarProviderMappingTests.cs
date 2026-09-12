@@ -1,5 +1,6 @@
 using Microsoft.Graph.Models;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Graph;
 using Xunit;
 using DomainAttendee = MyloMail.Api.Domain.Attendee;
@@ -83,6 +84,46 @@ public sealed class GraphCalendarProviderMappingTests
 	}
 
 	[Fact]
+	public void Graph_end_date_without_a_range_timezone_round_trips_in_the_event_timezone()
+	{
+		var mapped = GraphCalendarProvider.ToDto(new GraphEvent
+		{
+			Id = "tokyo-series",
+			ICalUId = "tokyo-series",
+			Start = new DateTimeTimeZone
+			{
+				DateTime = "2026-04-01T00:30:00",
+				TimeZone = "Tokyo Standard Time",
+			},
+			End = new DateTimeTimeZone
+			{
+				DateTime = "2026-04-01T01:30:00",
+				TimeZone = "Tokyo Standard Time",
+			},
+			Recurrence = new PatternedRecurrence
+			{
+				Pattern = new RecurrencePattern
+				{
+					Type = RecurrencePatternType.Weekly,
+					DaysOfWeek = [GraphDayOfWeek.Wednesday],
+				},
+				Range = new RecurrenceRange
+				{
+					Type = RecurrenceRangeType.EndDate,
+					StartDate = new DateOnly(2026, 4, 1),
+					EndDate = new DateOnly(2026, 4, 1),
+				},
+			},
+		});
+
+		Assert.Contains("UNTIL=20260401T145959Z", Assert.Single(mapped.RecurrenceRules));
+		Assert.Equal(
+			new DateOnly(2026, 4, 1),
+			GraphCalendarProvider.GraphRecurrenceOf(mapped)!.Range!.EndDate
+		);
+	}
+
+	[Fact]
 	public void Maps_override_to_series_master_and_original_occurrence_start()
 	{
 		var graphEvent = new GraphEvent
@@ -114,5 +155,60 @@ public sealed class GraphCalendarProviderMappingTests
 		Assert.Equal("America/New_York", mapped.StartTimeZoneId);
 		Assert.Equal(new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.FromHours(-4)), mapped.Start);
 	}
+	[Fact]
+	public void Fills_Graph_weekly_defaults_and_derives_range_dates_in_the_event_timezone()
+	{
+		var recurrence = GraphCalendarProvider.GraphRecurrenceOf(
+			Event("2026-03-31T15:30:00Z", "Asia/Tokyo", "FREQ=WEEKLY;UNTIL=20260331T153000Z")
+		)!;
+
+		Assert.Equal([GraphDayOfWeek.Wednesday], recurrence.Pattern!.DaysOfWeek);
+		Assert.Equal(GraphDayOfWeek.Sunday, recurrence.Pattern.FirstDayOfWeek);
+		Assert.Equal(new DateOnly(2026, 4, 1), recurrence.Range!.StartDate);
+		Assert.Equal(new DateOnly(2026, 4, 1), recurrence.Range.EndDate);
+	}
+
+	[Theory]
+	[InlineData("FREQ=MONTHLY", 1, null)]
+	[InlineData("FREQ=YEARLY", 1, 4)]
+	public void Fills_Graph_month_and_day_defaults_from_local_start(
+		string rule,
+		int expectedDay,
+		int? expectedMonth
+	)
+	{
+		var recurrence = GraphCalendarProvider.GraphRecurrenceOf(
+			Event("2026-03-31T15:30:00Z", "Asia/Tokyo", rule)
+		)!;
+
+		Assert.Equal(expectedDay, recurrence.Pattern!.DayOfMonth);
+		Assert.Equal(expectedMonth, recurrence.Pattern.Month);
+	}
+
+	[Theory]
+	[InlineData("FREQ=DAILY;BYHOUR=10")]
+	[InlineData("FREQ=MONTHLY;BYDAY=MO")]
+	[InlineData("FREQ=YEARLY;BYDAY=MO;BYSETPOS=1;BYMONTHDAY=1")]
+	public void Rejects_rules_Graph_cannot_represent_losslessly(string rule)
+	{
+		Assert.Throws<NotSupportedException>(() =>
+			GraphCalendarProvider.GraphRecurrenceOf(
+				Event("2026-04-01T09:00:00Z", "Etc/UTC", rule)
+			)
+		);
+	}
+
+	private static CalendarEventDto Event(string start, string timeZoneId, string rule) =>
+		new()
+		{
+			ProviderEventId = "event",
+			ICalUid = "event",
+			Start = DateTimeOffset.Parse(start),
+			End = DateTimeOffset.Parse(start).AddHours(1),
+			StartTimeZoneId = timeZoneId,
+			EndTimeZoneId = timeZoneId,
+			RecurrenceRules = [rule],
+		};
+
 }
 

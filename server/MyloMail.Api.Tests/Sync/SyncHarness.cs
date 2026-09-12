@@ -157,6 +157,7 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 
 	private readonly Dictionary<string, CalendarEventCreation> createdByKey = [];
 	public int CreateCalls { get; private set; }
+	public IReadOnlyList<CalendarEventDto>? ObservedOnNextSync { get; set; }
 
 	public ProviderType Type => ProviderType.Imap;
 
@@ -166,6 +167,13 @@ internal sealed class FakeCalendarProvider : ICalendarProvider
 	public Task<CalendarSyncResult> SyncCalendarAsync(Account account, Calendar calendar, string? cursor, string? continuation, CancellationToken ct)
 	{
 		Cursors.Add(cursor);
+		if (ObservedOnNextSync is { } observed)
+		{
+			ObservedOnNextSync = null;
+			return Task.FromResult(
+				new CalendarSyncResult("token-observed-create", null, observed, [])
+			);
+		}
 		if (InvalidateFirstBaselineContinuation && continuation is not null)
 		{
 			InvalidateFirstBaselineContinuation = false;

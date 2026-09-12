@@ -28,6 +28,12 @@ public interface ICalendarProvider
 		string? continuation,
 		CancellationToken ct
 	);
+	/// <summary>
+	/// Performs deterministic provider-shape validation before any durable dispatch record or
+	/// optimistic local edit is written. It must not perform network I/O.
+	/// </summary>
+	void ValidateEvent(CalendarEventDto ev) { }
+
 
 	Task<CalendarEventCreation> CreateEventAsync(
 		Account account,

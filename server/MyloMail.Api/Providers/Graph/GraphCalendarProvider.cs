@@ -31,6 +31,8 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 	private const int WindowMonths = 12;
 
 	public ProviderType Type => ProviderType.Microsoft365;
+	public void ValidateEvent(CalendarEventDto ev) => _ = GraphRecurrenceOf(ev);
+
 
 	public async Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct)
 	{
@@ -285,9 +287,10 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 
 	internal static CalendarEventDto ToDto(GraphEvent ev)
 	{
-		var start = DateTimeOf(ev.Start, CanonicalTimeZoneId(ev.Start?.TimeZone));
+		var startTimeZoneId = CanonicalTimeZoneId(ev.Start?.TimeZone);
+		var start = DateTimeOf(ev.Start, startTimeZoneId);
 		var end = DateTimeOf(ev.End, CanonicalTimeZoneId(ev.End?.TimeZone));
-		var recurrence = RecurrenceOf(ev.Recurrence);
+		var recurrence = RecurrenceOf(ev.Recurrence, startTimeZoneId);
 		return new CalendarEventDto
 		{
 			ProviderEventId = ev.Id ?? throw new InvalidOperationException("Graph event has no immutable id."),
@@ -302,7 +305,7 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			Description = ev.Body?.Content,
 			Start = start,
 			End = end,
-			StartTimeZoneId = CanonicalTimeZoneId(ev.Start?.TimeZone),
+			StartTimeZoneId = startTimeZoneId,
 			EndTimeZoneId = CanonicalTimeZoneId(ev.End?.TimeZone),
 			IsAllDay = ev.IsAllDay ?? false,
 			Organizer = AddressOf(ev.Organizer),
@@ -369,12 +372,16 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 	}
 
 	private static string? CanonicalTimeZoneId(string? value) =>
-		value is not null && TimeZoneInfo.TryConvertWindowsIdToIanaId(value, out var iana) ? iana : value;
+		CalendarTimeZoneIds.Canonicalize(value);
+
 
 	private static string GraphTimeZoneId(string? value) =>
 		value is not null && TimeZoneInfo.TryConvertIanaIdToWindowsId(value, out var windows) ? windows : value ?? "UTC";
 
-	private static IReadOnlyList<string> RecurrenceOf(PatternedRecurrence? recurrence)
+	private static IReadOnlyList<string> RecurrenceOf(
+		PatternedRecurrence? recurrence,
+		string? eventTimeZoneId
+	)
 	{
 		if (recurrence?.Pattern is not { } pattern || recurrence.Range is not { } range || pattern.Type is null)
 		{
@@ -388,13 +395,33 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		if (pattern.Index is { } index) fields.Add($"BYSETPOS={PositionOf(index)}");
 		if (pattern.Month is not null) fields.Add($"BYMONTH={pattern.Month}");
 		if (range.NumberOfOccurrences is not null) fields.Add($"COUNT={range.NumberOfOccurrences}");
-		if (range.EndDate is not null) fields.Add($"UNTIL={range.EndDate.Value:yyyyMMdd}T235959Z");
+		if (range.EndDate is not null) fields.Add($"UNTIL={GraphUntilOf(range, eventTimeZoneId)}");
 		return [string.Join(';', fields)];
 	}
 
-	private static PatternedRecurrence? GraphRecurrenceOf(CalendarEventDto ev)
+	private static string GraphUntilOf(RecurrenceRange range, string? eventTimeZoneId)
 	{
-		if (ev.RecurrenceRules.Count == 0)
+		var zoneId =
+			CalendarTimeZoneIds.Canonicalize(range.RecurrenceTimeZone)
+			?? eventTimeZoneId
+			?? "Etc/UTC";
+		var zone = TimeZoneInfo.FindSystemTimeZoneById(zoneId);
+		DateOnly endDate = range.EndDate!.Value;
+		var localEnd = DateTime.SpecifyKind(
+			endDate.ToDateTime(new TimeOnly(23, 59, 59)),
+			DateTimeKind.Unspecified
+		);
+		return new DateTimeOffset(localEnd, zone.GetUtcOffset(localEnd))
+			.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
+	}
+
+	internal static PatternedRecurrence? GraphRecurrenceOf(CalendarEventDto ev)
+	{
+		if (
+			ev.RecurrenceRules.Count == 0
+			&& ev.RecurrenceDates.Count == 0
+			&& ev.ExceptionDates.Count == 0
+		)
 		{
 			return null;
 		}
@@ -403,18 +430,38 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			throw new NotSupportedException("Microsoft Graph recurrence supports one pattern rule, not RDATE or EXDATE sets.");
 		}
 
-		var fields = ev.RecurrenceRules[0]
-			.Split(';', StringSplitOptions.RemoveEmptyEntries)
-			.Select(field => field.Split('=', 2))
-			.Where(field => field.Length == 2)
-			.ToDictionary(field => field[0], field => field[1], StringComparer.OrdinalIgnoreCase);
+		var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var segment in ev.RecurrenceRules[0].Split(';', StringSplitOptions.RemoveEmptyEntries))
+		{
+			var field = segment.Split('=', 2);
+			if (
+				field.Length != 2
+				|| string.IsNullOrWhiteSpace(field[0])
+				|| string.IsNullOrWhiteSpace(field[1])
+				|| !IsGraphRecurrenceField(field[0])
+				|| !fields.TryAdd(field[0], field[1])
+			)
+			{
+				throw new NotSupportedException($"Microsoft Graph cannot losslessly represent recurrence segment '{segment}'.");
+			}
+		}
 		if (!fields.TryGetValue("FREQ", out var frequency))
 		{
 			throw new NotSupportedException("A Graph recurrence rule must contain FREQ.");
 		}
+		if (fields.ContainsKey("COUNT") && fields.ContainsKey("UNTIL"))
+		{
+			throw new NotSupportedException("Microsoft Graph recurrence cannot contain both COUNT and UNTIL.");
+		}
 
+		var canonicalZone = CalendarTimeZoneIds.Canonicalize(ev.StartTimeZoneId) ?? "Etc/UTC";
+		var zone = TimeZoneInfo.FindSystemTimeZoneById(canonicalZone);
+		var localStart = TimeZoneInfo.ConvertTime(ev.Start, zone);
+		var normalizedFrequency = frequency.ToUpperInvariant();
 		var hasByDay = fields.ContainsKey("BYDAY");
-		var patternType = frequency.ToUpperInvariant() switch
+		ValidateGraphRecurrenceShape(normalizedFrequency, fields, hasByDay);
+
+		var patternType = normalizedFrequency switch
 		{
 			"DAILY" => RecurrencePatternType.Daily,
 			"WEEKLY" => RecurrencePatternType.Weekly,
@@ -424,28 +471,50 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			"YEARLY" => RecurrencePatternType.AbsoluteYearly,
 			_ => throw new NotSupportedException($"Microsoft Graph does not support recurrence frequency '{frequency}'."),
 		};
+		var daysOfWeek = fields.TryGetValue("BYDAY", out var byDay)
+			? byDay.Split(',').Select(GraphDayOfWeekOf).ToArray()
+			: normalizedFrequency == "WEEKLY"
+				? [GraphDayOfWeekOf(localStart.DayOfWeek)]
+				: null;
+		if (hasByDay && patternType is RecurrencePatternType.RelativeMonthly or RecurrencePatternType.RelativeYearly && daysOfWeek!.Length != 1)
+		{
+			throw new NotSupportedException("Microsoft Graph relative monthly and yearly recurrence supports exactly one BYDAY value.");
+		}
+
 		var pattern = new RecurrencePattern
 		{
-			FirstDayOfWeek = fields.TryGetValue("WKST", out var weekStart) ? GraphDayOfWeekOf(weekStart) : null,
-			Index = fields.TryGetValue("BYSETPOS", out var position) ? WeekIndexOf(position) : null,
+			FirstDayOfWeek = normalizedFrequency == "WEEKLY"
+				? fields.TryGetValue("WKST", out var weekStart)
+					? GraphDayOfWeekOf(weekStart)
+					: GraphDayOfWeek.Sunday
+				: null,
+			Index = hasByDay && patternType is RecurrencePatternType.RelativeMonthly or RecurrencePatternType.RelativeYearly
+				? WeekIndexOf(fields["BYSETPOS"])
+				: null,
 			Type = patternType,
-			Interval = fields.TryGetValue("INTERVAL", out var interval)
-				? int.Parse(interval, CultureInfo.InvariantCulture)
-				: 1,
-			DayOfMonth = fields.TryGetValue("BYMONTHDAY", out var dayOfMonth) ? int.Parse(dayOfMonth, CultureInfo.InvariantCulture) : null,
-			Month = fields.TryGetValue("BYMONTH", out var month) ? int.Parse(month, CultureInfo.InvariantCulture) : null,
-			DaysOfWeek = fields.TryGetValue("BYDAY", out var byDay) ? [.. byDay.Split(',').Select(GraphDayOfWeekOf)] : null,
+			Interval = RecurrenceInteger(fields, "INTERVAL", 1, 1, 99),
+			DayOfMonth = patternType is RecurrencePatternType.AbsoluteMonthly or RecurrencePatternType.AbsoluteYearly
+				? RecurrenceInteger(fields, "BYMONTHDAY", localStart.Day, 1, 31)
+				: null,
+			Month = patternType is RecurrencePatternType.AbsoluteYearly or RecurrencePatternType.RelativeYearly
+				? RecurrenceInteger(fields, "BYMONTH", localStart.Month, 1, 12)
+				: null,
+			DaysOfWeek = daysOfWeek?.Select(day => (GraphDayOfWeek?)day).ToList(),
 		};
-		var range = new RecurrenceRange { StartDate = DateOnly.FromDateTime(ev.Start.DateTime) };
-		if (fields.TryGetValue("COUNT", out var count))
+		var range = new RecurrenceRange
+		{
+			StartDate = DateOnly.FromDateTime(localStart.DateTime),
+			RecurrenceTimeZone = GraphTimeZoneId(canonicalZone),
+		};
+		if (fields.TryGetValue("COUNT", out _))
 		{
 			range.Type = RecurrenceRangeType.Numbered;
-			range.NumberOfOccurrences = int.Parse(count, CultureInfo.InvariantCulture);
+			range.NumberOfOccurrences = RecurrenceInteger(fields, "COUNT", null, 1, int.MaxValue);
 		}
 		else if (fields.TryGetValue("UNTIL", out var until))
 		{
 			range.Type = RecurrenceRangeType.EndDate;
-			range.EndDate = DateOnly.FromDateTime(DateTimeOffset.Parse(until, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal).UtcDateTime);
+			range.EndDate = GraphRecurrenceEndDate(until, zone);
 		}
 		else
 		{
@@ -453,6 +522,107 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		}
 		return new PatternedRecurrence { Pattern = pattern, Range = range };
 	}
+
+	private static bool IsGraphRecurrenceField(string name) =>
+		name.ToUpperInvariant() is
+			"FREQ"
+			or "INTERVAL"
+			or "BYDAY"
+			or "WKST"
+			or "BYMONTHDAY"
+			or "BYSETPOS"
+			or "BYMONTH"
+			or "COUNT"
+			or "UNTIL";
+
+	private static void ValidateGraphRecurrenceShape(
+		string frequency,
+		IReadOnlyDictionary<string, string> fields,
+		bool hasByDay
+	)
+	{
+		bool HasAny(params string[] names) => names.Any(fields.ContainsKey);
+
+		if (
+			(frequency == "DAILY" && HasAny("BYDAY", "WKST", "BYMONTHDAY", "BYSETPOS", "BYMONTH"))
+			|| (frequency == "WEEKLY" && HasAny("BYMONTHDAY", "BYSETPOS", "BYMONTH"))
+			|| (
+				frequency == "MONTHLY"
+				&& (
+					HasAny("BYMONTH", "WKST")
+					|| hasByDay != fields.ContainsKey("BYSETPOS")
+					|| (hasByDay && fields.ContainsKey("BYMONTHDAY"))
+				)
+			)
+			|| (
+				frequency == "YEARLY"
+				&& (
+					fields.ContainsKey("WKST")
+					|| hasByDay != fields.ContainsKey("BYSETPOS")
+					|| (hasByDay && fields.ContainsKey("BYMONTHDAY"))
+				)
+			)
+		)
+		{
+			throw new NotSupportedException("Microsoft Graph cannot losslessly represent this recurrence rule.");
+		}
+	}
+
+	private static int RecurrenceInteger(
+		IReadOnlyDictionary<string, string> fields,
+		string name,
+		int? fallback,
+		int minimum,
+		int maximum
+	)
+	{
+		if (!fields.TryGetValue(name, out var value))
+		{
+			return fallback ?? throw new NotSupportedException($"Microsoft Graph recurrence requires {name}.");
+		}
+		if (
+			!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+			|| parsed < minimum
+			|| parsed > maximum
+		)
+		{
+			throw new NotSupportedException($"Microsoft Graph cannot represent recurrence {name}='{value}'.");
+		}
+		return parsed;
+	}
+
+	private static DateOnly GraphRecurrenceEndDate(string value, TimeZoneInfo zone)
+	{
+		if (DateOnly.TryParseExact(value, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+		{
+			return date;
+		}
+		if (
+			DateTimeOffset.TryParseExact(
+				value,
+				["yyyyMMdd'T'HHmmss'Z'", "yyyyMMdd'T'HHmmssK"],
+				CultureInfo.InvariantCulture,
+				DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+				out var instant
+			)
+		)
+		{
+			return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, zone).DateTime);
+		}
+		throw new NotSupportedException($"Microsoft Graph cannot represent recurrence UNTIL='{value}'.");
+	}
+
+
+	private static GraphDayOfWeek GraphDayOfWeekOf(DayOfWeek value) => value switch
+	{
+		DayOfWeek.Monday => GraphDayOfWeek.Monday,
+		DayOfWeek.Tuesday => GraphDayOfWeek.Tuesday,
+		DayOfWeek.Wednesday => GraphDayOfWeek.Wednesday,
+		DayOfWeek.Thursday => GraphDayOfWeek.Thursday,
+		DayOfWeek.Friday => GraphDayOfWeek.Friday,
+		DayOfWeek.Saturday => GraphDayOfWeek.Saturday,
+		_ => GraphDayOfWeek.Sunday,
+	};
 
 	private static GraphDayOfWeek GraphDayOfWeekOf(string value) => value.ToUpperInvariant() switch
 	{
