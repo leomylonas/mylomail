@@ -47,10 +47,11 @@
 - Parity remediation 40/47: `ELECTRON_BACKEND_MODE=attach` now selects a real external-backend path. It requires an explicit `http://127.0.0.1:<port>` `BACKEND_URL` and the same `MYLOMAIL_LAUNCH_TOKEN` supplied to the independently launched API, authenticates repeated `/health` probes before opening any renderer, installs the launch cookie exactly as spawn mode does, and never starts, watches, restarts, or terminates the external process. Spawn mode retains its prior child ownership and restart behavior. `pnpm e2e:attach` starts the API independently and drives only this isolated Playwright workflow; the ordinary suite also includes it.
 - Parity remediation 41/47: host-native electron-builder packaging now publishes the bundled renderer and a self-contained .NET backend, and packaged spawn mode resolves both from Electron resources rather than requiring a system SDK or development paths. Linux builds AppImage, `.deb`, and `.rpm`; Windows builds NSIS `.exe` and `.msi`; macOS builds `.dmg` and `.zip`. A tag/manual GitHub Actions matrix builds and launches each native unpacked package before upload, creates a draft release, and adds SHA-256 checksums. `mailto:` metadata is included. The installation guide documents manual upgrades, Linux choices, SmartScreen's unsigned-publisher click-through, Gatekeeper's Control-click Open path, and never disabling platform protections globally.
 - Parity remediation 42/47: macOS data-directory validation now asks `statfs` through `DriveInfo` for the nearest existing ancestor of the configured path after resolving every symlink component. NFS, SMB, AFP, WebDAV, SSHFS, macFUSE, and legacy osxfuse volumes are rejected before directory creation or SQLite migration; local APFS remains valid. Unreadable or unclassifiable Darwin storage fails closed instead of silently disabling the WAL locality invariant. Linux retains longest nested `/proc/self/mounts` selection and Windows retains UNC/mapped-drive checks.
+- Parity remediation 43/47: fatal backend startup now opens a synchronous native Electron error dialog before the process exits, because no renderer exists while health probing or migration fails. The dialog explicitly identifies local data-directory/database-upgrade failures, includes a bounded error detail, and tells the user to preserve the data directory when reporting a persistent failure rather than silently retrying or discarding it.
 
 ## Next task
 
-- Surface backend migration/startup failures in a user-visible Electron dialog (item 43).
+- Configure explicit app-local ICU globalization for every packaged backend (item 44).
 
 ## Required reading
 
@@ -180,6 +181,7 @@
 - Local `pnpm package` produced a 64-bit AppImage and a valid amd64 `.deb`; `dpkg-deb --info` confirmed the MyloMail metadata and native dependencies. The local RPM step reached electron-builder's `rpmbuild` boundary but this workstation lacks that system executable; the release job explicitly installs `rpm`. Windows, macOS, and RPM production remain native-runner verification in the new release workflow rather than claims based on cross-compilation.
 - `pnpm check` after macOS network-storage rejection and deterministic claim ordering: format, TypeScript, ESLint, Stylelint, build, 610 .NET tests, and 216 Vitest tests passed. Regressions cover nested SMB selection, macFUSE/osxfuse names, symlinked ancestors, and Darwin's live filesystem-type query when running on macOS.
 - Independent persistence review found and closed ordinary macFUSE SSHFS naming, fail-open mount discovery, symlink/case alias bypasses, and case-sensitive APFS false positives. Final review found no remaining locality or startup-ordering violation.
+- Actual Electron startup-failure smoke: `pnpm e2e --grep "backend migration failure"` passed 1/1. A delayed child process exited before announcing a port; the real bundled `Main` catch path invoked Electron's native `showErrorBox` with the migration guidance and exit-code detail before terminating.
 
 ## Live risks / decisions
 

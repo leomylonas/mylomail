@@ -37,6 +37,7 @@ import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachm
 import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
 import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationWindowTarget";
 import { printWebContents } from "@mylomail/electron-shell/Print";
+import { surfaceStartupFailure } from "@mylomail/electron-shell/StartupFailure";
 import {
 	extractMailtoUris,
 	mailtoWindowQuery,
@@ -856,6 +857,7 @@ if (!singleInstance) {
 		.then(startShell)
 		.catch((error: unknown) => {
 			console.error("MyloMail could not start:", error);
+			surfaceStartupFailure(dialog, error);
 			app.exit(1);
 		});
 	app.on("window-all-closed", () => app.quit());
