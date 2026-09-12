@@ -18,6 +18,10 @@ import {
 	recurrenceRuleLines,
 } from "@mylomail/renderer/Components/Calendar/EventModal/EventScheduling";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import {
+	calendarFormatters,
+	calendarGridStart,
+} from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import styles from "@mylomail/renderer/Components/Calendar/Calendar.module.css";
 
 interface CalendarSummary {
@@ -129,11 +133,11 @@ export function Calendar({
 	// effect depends on this object's identity — an unmemoized value would reset keyboard focus
 	// on every Calendar re-render (a click opening EventModal, an unrelated sync refresh), not
 	// just a genuine month/anchor change.
-	const rangeStart = useMemo(
-		() => anchor.startOf("month").startOf("week"),
+	const rangeStart = useMemo(() => calendarGridStart(anchor), [anchor]);
+	const rangeEnd = useMemo(
+		() => calendarGridStart(anchor).add(41, "day").endOf("day"),
 		[anchor],
 	);
-	const rangeEnd = useMemo(() => anchor.endOf("month").endOf("week"), [anchor]);
 
 	const eventQueries = useQueries({
 		queries: calendars.map((calendar) => ({
@@ -297,7 +301,9 @@ export function Calendar({
 					>
 						›
 					</Button>
-					<h2 className={styles.month}>{anchor.format("MMMM YYYY")}</h2>
+					<h2 className={styles.month}>
+						{calendarFormatters.monthYear(anchor.toDate())}
+					</h2>
 				</div>
 				<div className={styles.switcher}>
 					<ContentSwitcher

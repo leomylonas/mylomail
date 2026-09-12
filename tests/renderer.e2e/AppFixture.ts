@@ -24,6 +24,7 @@ export interface LaunchedApp {
  */
 export async function launchApp(
 	activationArguments: readonly string[] = [],
+	environment: Readonly<NodeJS.ProcessEnv> = {},
 ): Promise<LaunchedApp> {
 	const root = mkdtempSync(join(tmpdir(), "mylomail-e2e-"));
 	const dataDirectory = join(root, "data");
@@ -45,6 +46,7 @@ export async function launchApp(
 		],
 		env: {
 			...process.env,
+			...environment,
 			XDG_CONFIG_HOME: configHome,
 			XDG_DATA_HOME: join(root, "share"),
 			MYLOMAIL_MASTER_PASSWORD: "e2e-master-password",

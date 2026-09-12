@@ -1,5 +1,9 @@
 import { useRef, useState } from "react";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import {
+	calendarFormatters,
+	calendarGridStart,
+} from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarGrid/CalendarGrid.module.css";
 
 export interface GridEvent {
@@ -12,7 +16,6 @@ export interface GridEvent {
 }
 
 const maxPerCell = 3;
-const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function calendarDayFocusTarget(
 	index: number,
@@ -56,7 +59,7 @@ export function CalendarGrid({
 	onSelectDay: (date: Dayjs) => void;
 	onSelectEvent: (eventId: string) => void;
 }) {
-	const gridStart = anchor.startOf("month").startOf("week");
+	const gridStart = calendarGridStart(anchor);
 	const days = Array.from({ length: 42 }, (_, i) => gridStart.add(i, "day"));
 	const weeks = Array.from({ length: 6 }, (_, weekIndex) =>
 		days.slice(weekIndex * 7, (weekIndex + 1) * 7),
@@ -77,12 +80,16 @@ export function CalendarGrid({
 		<div
 			className={styles.grid}
 			role="grid"
-			aria-label={`Calendar for ${anchor.format("MMMM YYYY")}`}
+			aria-label={`Calendar for ${calendarFormatters.monthYear(anchor.toDate())}`}
 		>
 			<div className={styles.row} role="row">
-				{weekdays.map((day) => (
-					<div key={day} className={styles.weekday} role="columnheader">
-						{day}
+				{days.slice(0, 7).map((day) => (
+					<div
+						key={day.toISOString()}
+						className={styles.weekday}
+						role="columnheader"
+					>
+						{calendarFormatters.weekdayShort(day.toDate())}
 					</div>
 				))}
 			</div>
@@ -99,7 +106,7 @@ export function CalendarGrid({
 								className={styles.day}
 								role="gridcell"
 								aria-colindex={dayIndex + 1}
-								aria-label={day.format("dddd, MMMM D, YYYY")}
+								aria-label={calendarFormatters.fullDate(day.toDate())}
 								data-outside-month={day.month() !== anchor.month()}
 								data-today={day.isSame(today, "day")}
 							>
@@ -110,7 +117,7 @@ export function CalendarGrid({
 									}}
 									tabIndex={index === focusedDayIndex ? 0 : -1}
 									className={styles.dayNumber}
-									aria-label={`Add an event on ${day.format("MMMM D, YYYY")}`}
+									aria-label={`Add an event on ${calendarFormatters.fullDate(day.toDate())}`}
 									onKeyDown={(event) => {
 										if (
 											![
@@ -131,7 +138,7 @@ export function CalendarGrid({
 										onSelectDay(day);
 									}}
 								>
-									{day.date()}
+									{calendarFormatters.dayNumber(day.toDate())}
 								</button>
 								<div className={styles.events}>
 									{dayEvents.slice(0, maxPerCell).map((event) => (
@@ -143,14 +150,16 @@ export function CalendarGrid({
 												["--mylomail-event-color" as string]: event.color,
 											}}
 											data-conflict={event.syncConflict}
-											aria-label={`${event.title || "(No title)"}, ${day.format("MMMM D")}`}
+											aria-label={`${event.title || "(No title)"}, ${calendarFormatters.monthDay(day.toDate())}`}
 											onClick={() => onSelectEvent(event.id)}
 										>
 											{event.title || "(No title)"}
 										</button>
 									))}
 									{overflow > 0 ? (
-										<span className={styles.overflow}>+{overflow} more</span>
+										<span className={styles.overflow}>
+											+{calendarFormatters.number(overflow)} more
+										</span>
 									) : null}
 								</div>
 							</div>

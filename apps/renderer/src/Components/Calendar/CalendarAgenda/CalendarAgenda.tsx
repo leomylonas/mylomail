@@ -5,6 +5,7 @@ import {
 	isRovingFocusKey,
 	nextFocusIndex,
 } from "@mylomail/renderer/Lib/RovingFocus";
+import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarAgenda/CalendarAgenda.module.css";
 
 export interface AgendaEvent {
@@ -170,7 +171,7 @@ export function CalendarAgenda({
 							}}
 						>
 							<div className={styles.dayLabel}>
-								{day.date.format("ddd, MMM D")}
+								{calendarFormatters.agendaDay(day.date.toDate())}
 							</div>
 							{day.events.length === 0 ? (
 								<p className={styles.empty}>No events.</p>
@@ -206,7 +207,7 @@ export function CalendarAgenda({
 													<span className={styles.time}>
 														{event.isAllDay
 															? "All day"
-															: dayjs(event.start).format("h:mm A")}
+															: calendarFormatters.time(new Date(event.start))}
 													</span>
 													<span
 														className={styles.title}

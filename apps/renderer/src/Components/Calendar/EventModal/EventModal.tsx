@@ -13,6 +13,7 @@ import {
 import type { HubConnection } from "@microsoft/signalr";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import {
@@ -635,7 +636,9 @@ export function EventModal({
 						<h4>Reminders</h4>
 						<ul>
 							{detail.data.reminders.map((trigger) => (
-								<li key={trigger}>{dayjs(trigger).format("MMM D, h:mm A")}</li>
+								<li key={trigger}>
+									{calendarFormatters.reminder(new Date(trigger))}
+								</li>
 							))}
 						</ul>
 					</div>
