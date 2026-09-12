@@ -42,10 +42,11 @@
 - Parity remediation 35/47: the Electron shell now accepts RFC 6068 `mailto:` activations from startup arguments, macOS `open-url`, and subsequent launches forwarded through a single-instance lock. Activations queued during backend startup become same-origin main-window routes; live activations open an offset main window. Compose receives deduplicated To/Cc/Bcc recipients, subject, and an HTML-escaped multiline body, while malformed, oversized, non-`mailto`, and unknown fields are ignored.
 - Parity remediation 36/47: every Electron window now enforces a 720 × 480 minimum, including windows restored from older undersized bounds. The main header wraps controls, reduces spacing below 48 rem, and lets long status text wrap without creating horizontal document overflow; the three-panel group can shrink within the viewport while retaining usable widths for each pane.
 - Parity remediation 37/47: calendar month headings, weekday columns, full-date accessibility labels, grid day numerals, overflow counts, agenda dates/times, and reminder timestamps now use reusable `Intl` formatters from the OS locale. The month grid begins on the locale's first weekday, and its query range now covers the same complete 42 days the grid renders instead of sometimes omitting a sixth-week event. English application strings remain deliberate.
+- Parity remediation 38/47: REST and SignalR now transport one serialized `MutationProblemDetails` shape. Controller helpers, an always-run result filter, status-code pages, and exception handling cover explicit and framework-generated REST failures; a global hub filter prevents raw provider or unhandled exceptions escaping, while explicit hub rejections retain their category. The renderer routes every API fetch and every hub invocation through one deserializer, preserves flattened RFC 7807 extensions, and drives transient versus persistent Network/Auth/RateLimit/Validation/ProviderRejected/Conflict presentation from `Category`. Electron's attachment-open bridge preserves the same payload instead of flattening it.
 
 ## Next task
 
-- Unify RFC 7807 error transport (item 38).
+- Pause content and mutation work while offline (item 39).
 
 ## Required reading
 
@@ -162,6 +163,8 @@
 - Actual Electron end-to-end: `pnpm e2e --grep "minimum window size"` passed 1/1. Electron rejected a programmatic 320 × 240 resize below 720 × 480; at that minimum the complete header wrapped across rows, every action remained visible, all three panes retained more than 100 pixels, and the document had no horizontal overflow.
 - `pnpm check` after locale-aware calendar formatting, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 200 Vitest tests passed. Explicit German, US English, and Arabic regressions cover month/date labels, first-weekday ordering, 12/24-hour clocks, localized numerals, and locale grid starts.
 - Actual Electron end-to-end: `pnpm e2e --grep "process locale"` passed 1/1 with a German process locale. The live calendar rendered a German month label, Monday-first localized weekday headers, and the agenda event's time in the locale's 24-hour form.
+- `pnpm check` after unified RFC 7807 transport, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 205 Vitest tests passed. Regressions deserialize REST and SignalR payloads, preserve certificate extensions, classify fetch loss as Network, make Auth/Conflict failures persistent, keep RateLimit/Network transient, and verify explicit hub rejections carry categorized JSON.
+- Actual Electron end-to-end: `pnpm e2e --grep "a new user adds"` passed 1/1 against Dovecot. The first real account attempt returned the server's Validation problem with certificate hostname/fingerprint extensions, and the renderer exposed the corresponding persistent “Accept all certificates and retry” action before the successful retry reached Inbox.
 
 ## Live risks / decisions
 

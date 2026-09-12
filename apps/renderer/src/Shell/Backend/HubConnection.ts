@@ -11,6 +11,7 @@ import {
 	settleOptimisticMutation,
 	settleOptimisticMutations,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
+import { normalizeHubErrors } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import {
 	notify,
 	type NotificationState,
@@ -148,6 +149,7 @@ export function connectHub(
 		// At Information SignalR logs negotiated URLs.
 		.configureLogging(LogLevel.Warning)
 		.build();
+	normalizeHubErrors(hub);
 
 	hub.on("SyncProgress", (progress: SyncProgressDto) => {
 		void queryClient.invalidateQueries({

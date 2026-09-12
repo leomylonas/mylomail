@@ -34,7 +34,7 @@ export function NotificationArea() {
 						kind={notification.kind}
 						title={notification.title}
 						subtitle={notification.detail}
-						timeout={6000}
+						timeout={notification.persistent ? 0 : 6000}
 						onClose={() => dismiss(store, notification.id)}
 						lowContrast
 					/>

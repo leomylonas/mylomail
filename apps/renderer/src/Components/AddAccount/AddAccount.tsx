@@ -22,28 +22,11 @@ import {
 	SmtpAuthMethod,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import type { AddAccountRequest } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
-import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import {
-	present,
-	type ErrorPresentation,
-} from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+	fetchApi,
+	MutationTransportError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import styles from "@mylomail/renderer/Components/AddAccount/AddAccount.module.css";
-
-/** The subset of RFC 7807 this endpoint's failures actually carry (§15). */
-interface ProblemResponse {
-	title?: string;
-	detail?: string;
-	category?: ErrorCategory;
-	extensions?: Record<string, unknown>;
-	[key: string]: unknown;
-}
-
-/** Thrown with the full presentation attached, so the UI can offer more than retry-and-hope. */
-class AddAccountError extends Error {
-	constructor(public presentation: ErrorPresentation) {
-		super(presentation.detail);
-	}
-}
 
 interface FormState {
 	displayName: string;
@@ -181,31 +164,11 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
 			// call the account list itself already makes.
-			const response = await fetch("/accounts", {
+			await fetchApi("/accounts", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(request),
 			});
-			if (!response.ok) {
-				const problem = (await response
-					.json()
-					.catch(() => null)) as ProblemResponse | null;
-				const presentation =
-					problem?.category !== undefined
-						? present(
-								problem.category,
-								problem.detail,
-								problem.extensions ?? problem,
-							)
-						: {
-								title: problem?.title ?? "Could not add the account",
-								detail:
-									problem?.detail ??
-									`Adding the account failed (${response.status}).`,
-								transient: false as const,
-							};
-				throw new AddAccountError(presentation);
-			}
 		},
 		onSuccess: () => {
 			setForm(initial);
@@ -611,7 +574,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				</p>
 			) : null}
 
-			{add.isError && add.error instanceof AddAccountError ? (
+			{add.isError && add.error instanceof MutationTransportError ? (
 				add.error.presentation.action === "trust-certificate" &&
 				add.error.presentation.certificate ? (
 					<ActionableNotification

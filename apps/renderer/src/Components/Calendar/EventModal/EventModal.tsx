@@ -14,6 +14,7 @@ import type { HubConnection } from "@microsoft/signalr";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import {
@@ -184,11 +185,10 @@ export function EventModal({
 			});
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The response could not be sent",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The response could not be sent"),
+			),
 	});
 
 	const selectableTimeZones = [

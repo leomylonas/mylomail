@@ -4,6 +4,7 @@ import type { HubConnection } from "@microsoft/signalr";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
@@ -46,11 +47,7 @@ export function Sidebar({
 	// next accounts refetch, indistinguishable from the app having ignored the action —
 	// the same reasoning MailboxTree's own mutations already follow.
 	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, {
-			kind: "error",
-			title,
-			detail: error instanceof Error ? error.message : String(error),
-		});
+		notify(notifications, notificationForError(error, title));
 
 	const reorder = useMutation({
 		mutationFn: (orderedAccountIds: string[]) =>

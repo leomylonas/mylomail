@@ -5,6 +5,9 @@ export interface AppNotification {
 	title: string;
 	detail: string;
 
+	/** Keep passive, user-actionable failures visible until explicitly dismissed. */
+	persistent?: boolean;
+
 	/**
 	 * Present when the user can do something about it.
 	 *

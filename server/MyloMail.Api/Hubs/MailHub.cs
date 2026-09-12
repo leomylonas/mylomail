@@ -6,6 +6,7 @@ using MyloMail.Api.Contacts;
 using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
@@ -470,7 +471,7 @@ public class MailHub(
 		// line with no indication anything is wrong.
 		if (!await context.Messages.AnyAsync(m => m.Id == messageId))
 		{
-			throw new HubException("This message no longer exists.");
+			throw new MutationHubException(ErrorCategory.Validation, "This message no longer exists.");
 		}
 
 		var body = await context.MessageBodies.FirstOrDefaultAsync(b => b.MessageId == messageId);
@@ -645,7 +646,7 @@ public class MailHub(
 		}
 		catch (InvalidOperationException ex)
 		{
-			throw new HubException(ex.Message);
+			throw new MutationHubException(ErrorCategory.Validation, ex.Message);
 		}
 	}
 
@@ -664,7 +665,7 @@ public class MailHub(
 		}
 		catch (InvalidOperationException ex)
 		{
-			throw new HubException(ex.Message);
+			throw new MutationHubException(ErrorCategory.Validation, ex.Message);
 		}
 	}
 
@@ -679,7 +680,7 @@ public class MailHub(
 		}
 		catch (InvalidOperationException ex)
 		{
-			throw new HubException(ex.Message);
+			throw new MutationHubException(ErrorCategory.Validation, ex.Message);
 		}
 	}
 
@@ -748,7 +749,7 @@ public class MailHub(
 			// unhelpful — losing exactly the "which attachment" / "unresolved conflict" detail
 			// DraftService.SendAsync's exception carries, the same reason DeleteSendIdentity
 			// above does this.
-			throw new HubException(ex.Message);
+			throw new MutationHubException(ErrorCategory.Validation, ex.Message);
 		}
 	}
 
@@ -789,7 +790,7 @@ public class MailHub(
 	{
 		if (mode is not null and not InitialSyncMode.Full && boundValue is not > 0)
 		{
-			throw new HubException("A bounded initial sync needs a positive month/message count.");
+			throw new MutationHubException(ErrorCategory.Validation, "A bounded initial sync needs a positive month/message count.");
 		}
 
 		var overrideBound = mode is null or InitialSyncMode.Full ? null : boundValue;
@@ -893,7 +894,7 @@ public class MailHub(
 			&& settings.InitialSyncBoundValue is not > 0
 		)
 		{
-			throw new HubException("A bounded initial sync needs a positive month/message count.");
+			throw new MutationHubException(ErrorCategory.Validation, "A bounded initial sync needs a positive month/message count.");
 		}
 
 		var initialSyncBoundValue =
@@ -1117,9 +1118,7 @@ public class MailHub(
 		var target = await context.Mailboxes.FirstAsync(m => m.Id == targetMailboxId);
 		if (target.ProviderMailboxId is null)
 		{
-			throw new HubException(
-				"This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead."
-			);
+			throw new MutationHubException(ErrorCategory.Validation, "This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead.");
 		}
 		return await EnqueueEachWithResultAsync(
 			messageIds,
@@ -1175,7 +1174,7 @@ public class MailHub(
 			// AggregateException's carefully built summary would never actually reach the
 			// renderer's error toast — every other hub method in this file that surfaces a
 			// message to the caller does the same for the same reason.
-			throw new HubException($"{failures.Count} of {messageIds.Count} message(s) could not be updated.");
+			throw new MutationHubException(ErrorCategory.Validation, $"{failures.Count} of {messageIds.Count} message(s) could not be updated.");
 		}
 	}
 

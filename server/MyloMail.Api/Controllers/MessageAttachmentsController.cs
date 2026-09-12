@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using MyloMail.Api.Content;
+using MyloMail.Api.Errors;
 
 namespace MyloMail.Api.Controllers;
 
@@ -18,7 +19,7 @@ public sealed class MessageAttachmentsController(AttachmentService attachments) 
 		}
 		catch (FileNotFoundException)
 		{
-			return NotFound();
+			return this.MutationProblem("This attachment no longer exists.", statusCode: StatusCodes.Status404NotFound);
 		}
 	}
 
@@ -32,7 +33,7 @@ public sealed class MessageAttachmentsController(AttachmentService attachments) 
 		}
 		catch (FileNotFoundException)
 		{
-			return NotFound();
+			return this.MutationProblem("This attachment no longer exists.", statusCode: StatusCodes.Status404NotFound);
 		}
 	}
 }

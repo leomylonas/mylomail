@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MimeKit;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
@@ -32,13 +33,13 @@ public class RemoteContentController(MyloMailDbContext context, IHubEvents event
 	{
 		if (!Enum.IsDefined(request.Scope) || !Enum.IsDefined(request.Decision))
 		{
-			return BadRequest();
+			return this.MutationProblem("The remote-content scope or decision is invalid.", statusCode: StatusCodes.Status400BadRequest);
 		}
 
 		var value = Normalize(request.Scope, request.Value);
 		if (value is null)
 		{
-			return BadRequest();
+			return this.MutationProblem("The remote-content rule value is invalid.", statusCode: StatusCodes.Status400BadRequest);
 		}
 
 		var changed = await context.Database.ExecuteSqlInterpolatedAsync(

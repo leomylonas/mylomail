@@ -1,10 +1,12 @@
 using Hangfire;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Logging;
 using MyloMail.Api.Persistence;
@@ -57,8 +59,8 @@ builder.Services.AddMutations();
 builder.Services.AddSync();
 builder.Services.AddScheduling();
 builder.Services.AddSchedulingWorkers();
-builder.Services.AddControllers();
-builder.Services.AddSignalR();
+builder.Services.AddControllers(options => options.Filters.Add<MutationProblemResultFilter>());
+builder.Services.AddSignalR(options => options.AddFilter<MutationProblemHubFilter>());
 
 // The real publisher replaces the no-op default only where a hub actually exists.
 builder.Services.AddSingleton<IHubEvents, HubEvents>();
@@ -87,6 +89,8 @@ if (telemetryEnabled && !string.IsNullOrEmpty(otelEndpoint))
 }
 
 var app = builder.Build();
+app.UseExceptionHandler(exceptionApp => exceptionApp.Run(MutationProblemTransport.WriteExceptionAsync));
+app.UseStatusCodePages(MutationProblemTransport.WriteStatusAsync);
 app.UseLaunchToken();
 
 // Method, path, status code and duration only — never headers or bodies (§10's no-PII rule,

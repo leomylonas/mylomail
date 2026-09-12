@@ -1,4 +1,5 @@
 import { prepare } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
+import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 
 export interface Address {
 	name: string | null;
@@ -282,10 +283,9 @@ export async function copyAttachments(
 	const failed: string[] = [];
 	for (const attachment of toCopy.attachments) {
 		try {
-			const response = await fetch(
+			const response = await fetchApi(
 				`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
 			);
-			if (!response.ok) throw new Error("fetch failed");
 			const form = new FormData();
 			form.append("file", await response.blob(), attachment.filename);
 			if (attachment.isInline) {
@@ -294,11 +294,10 @@ export async function copyAttachments(
 					form.append("contentId", attachment.contentId);
 				}
 			}
-			const uploadResponse = await fetch(`/drafts/${draftId}/attachments`, {
+			await fetchApi(`/drafts/${draftId}/attachments`, {
 				method: "POST",
 				body: form,
 			});
-			if (!uploadResponse.ok) throw new Error("upload failed");
 		} catch {
 			failed.push(attachment.filename);
 		}

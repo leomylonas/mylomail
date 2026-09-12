@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/AttachmentList/AttachmentList.module.css";
@@ -59,12 +60,13 @@ export function AttachmentList({
 							kind="tertiary"
 							onClick={() =>
 								void open(messageId, attachment).catch((error: unknown) =>
-									notify(notifications, {
-										kind: "error",
-										title: "This attachment could not be opened",
-										detail:
-											error instanceof Error ? error.message : String(error),
-									}),
+									notify(
+										notifications,
+										notificationForError(
+											error,
+											"This attachment could not be opened",
+										),
+									),
 								)
 							}
 						>

@@ -9,6 +9,7 @@ import {
 	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
+import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
@@ -45,9 +46,7 @@ export function MessageWindow({
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
-			const response = await fetch("/accounts");
-			if (!response.ok)
-				throw new Error(`accounts responded ${response.status}`);
+			const response = await fetchApi("/accounts");
 			return (await response.json()) as Account[];
 		},
 	});

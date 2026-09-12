@@ -39,6 +39,7 @@ import {
 	restoreOptimisticMessages,
 	type OptimisticMessageClaim,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
@@ -369,11 +370,7 @@ export function MessageList({
 	// provider-side failure, which the global MessageSyncFailed handler already surfaces —
 	// without this, a failure of the hub.invoke() call itself failed with no explanation.
 	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, {
-			kind: "error",
-			title,
-			detail: error instanceof Error ? error.message : String(error),
-		});
+		notify(notifications, notificationForError(error, title));
 
 	// Bulk by construction: every caller passes the whole target set, one message included,
 	// rather than this component looping — a single hub call per action either way, since

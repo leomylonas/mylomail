@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 
 export interface PanelLayout {
 	sidebar: number;
@@ -23,8 +24,7 @@ export function useShellLayout(onSaveError?: (error: unknown) => void): {
 	const query = useQuery({
 		queryKey: ["shell-settings"],
 		queryFn: async (): Promise<PanelLayout> => {
-			const response = await fetch("/shell-settings");
-			if (!response.ok) return defaultLayout;
+			const response = await fetchApi("/shell-settings");
 			const settings = (await response.json()) as {
 				panelLayout?: string | null;
 			};
@@ -45,14 +45,11 @@ export function useShellLayout(onSaveError?: (error: unknown) => void): {
 
 	const save = async (layout: PanelLayout) => {
 		try {
-			const response = await fetch("/shell-settings/panel-layout", {
+			await fetchApi("/shell-settings/panel-layout", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ panelLayout: JSON.stringify(layout) }),
 			});
-			if (!response.ok) {
-				throw new Error(`panel-layout responded ${response.status}`);
-			}
 		} catch (error) {
 			onSaveError?.(error);
 		}

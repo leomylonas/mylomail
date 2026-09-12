@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
@@ -67,7 +68,7 @@ public sealed class DraftService(
 			// Without this, a stale or mismatched accountId would look up the *wrong* account's
 			// default send identity below for an *existing* draft that already belongs to
 			// someone else.
-			throw new HubException($"Draft {draft.Id} does not belong to account {input.AccountId}.");
+			throw new MutationHubException(ErrorCategory.Validation, $"Draft {draft.Id} does not belong to account {input.AccountId}.");
 		}
 
 		// The caller round-trips whatever identity a previous save reported, the same way
@@ -84,14 +85,14 @@ public sealed class DraftService(
 				// Draft.SendIdentityId has a real FK to SendIdentity — a nonexistent id was
 				// already rejected before this check existed, just as a raw SqliteException
 				// from SaveChangesAsync's constraint violation instead of a clear message.
-				throw new HubException($"Send identity {sendIdentityId} does not exist.");
+				throw new MutationHubException(ErrorCategory.Validation, $"Send identity {sendIdentityId} does not exist.");
 			}
 			if (identityFound != draft.AccountId)
 			{
 				// SendExecutor resolves the From address from SendIdentityId alone (no
 				// AccountId filter) — an unchecked mismatch here would let a draft send under
 				// another account's address while authenticating and dispatching as this one.
-				throw new HubException($"Send identity {sendIdentityId} does not belong to account {draft.AccountId}.");
+				throw new MutationHubException(ErrorCategory.Validation, $"Send identity {sendIdentityId} does not belong to account {draft.AccountId}.");
 			}
 		}
 		draft.SendIdentityId = input.SendIdentityId ?? await DefaultIdentityAsync(input.AccountId, ct);

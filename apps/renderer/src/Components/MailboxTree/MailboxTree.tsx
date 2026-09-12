@@ -16,6 +16,7 @@ import {
 	restoreOptimisticMessages,
 	type OptimisticMessageClaim,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import type {
 	MutationEnqueueResultDto,
 	SyncProgressDto,
@@ -109,11 +110,7 @@ export function MailboxTree({
 	// special folder. Without this the dialog simply stayed open and said nothing, which is
 	// indistinguishable from the app having ignored the click.
 	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, {
-			kind: "error",
-			title,
-			detail: error instanceof Error ? error.message : String(error),
-		});
+		notify(notifications, notificationForError(error, title));
 
 	const create = useMutation({
 		mutationFn: ({

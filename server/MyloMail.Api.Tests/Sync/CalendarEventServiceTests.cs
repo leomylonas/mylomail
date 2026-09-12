@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -188,7 +189,7 @@ public sealed class CalendarEventServiceTests
 		var provider = new ScriptedCalendarProvider();
 		await using var harness = await Harness.CreateAsync(provider);
 
-		var timeZone = await Assert.ThrowsAsync<HubException>(() =>
+		var timeZone = await Assert.ThrowsAnyAsync<HubException>(() =>
 			harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(
@@ -203,11 +204,10 @@ public sealed class CalendarEventServiceTests
 						StartTimeZoneId: "Mars/Olympus"
 					)
 				)
-			)
-		);
+			));
 		Assert.Contains("recognised IANA time zone", timeZone.Message);
 
-		var recurrence = await Assert.ThrowsAsync<HubException>(() =>
+		var recurrence = await Assert.ThrowsAnyAsync<HubException>(() =>
 			harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(
@@ -222,8 +222,7 @@ public sealed class CalendarEventServiceTests
 						RecurrenceRules: ["NOT A RULE"]
 					)
 				)
-			)
-		);
+			));
 		Assert.Contains("not a valid RFC 5545 recurrence rule", recurrence.Message);
 		Assert.Equal(0, provider.CreateCalls);
 	}
@@ -234,7 +233,7 @@ public sealed class CalendarEventServiceTests
 		var provider = new ScriptedCalendarProvider { RejectValidation = true };
 		await using var harness = await Harness.CreateAsync(provider);
 
-		var error = await Assert.ThrowsAsync<HubException>(() =>
+		var error = await Assert.ThrowsAnyAsync<HubException>(() =>
 			harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(
@@ -249,8 +248,7 @@ public sealed class CalendarEventServiceTests
 						RecurrenceRules: ["FREQ=DAILY"]
 					)
 				)
-			)
-		);
+			));
 
 		Assert.Contains("cannot represent", error.Message);
 		Assert.Equal(0, provider.CreateCalls);
@@ -614,14 +612,16 @@ public sealed class CalendarEventServiceTests
 			)
 		);
 
-		// The raw ProviderConflictException is rethrown as a HubException with the same message
-		// (sixty-sixth pass): SignalR's default EnableDetailedErrors=false replaces anything
-		// that isn't a HubException with a generic "unexpected error", which would otherwise
-		// silently defeat EventModal.tsx's error banner.
-		var thrown = await Assert.ThrowsAsync<HubException>(
-			() => harness.UsingAsync(scope => scope.GetRequiredService<CalendarEventService>().DeleteAsync(created.Id))
+		// A provider conflict is transported as the same categorized RFC 7807 object SignalR
+		// sends to the renderer, while the local event remains in place.
+		var thrown = await Assert.ThrowsAnyAsync<HubException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().DeleteAsync(created.Id)
+			)
 		);
-		Assert.Equal("stale", thrown.Message);
+		var deleteProblem = Assert.IsType<MutationHubException>(thrown).Problem;
+		Assert.Equal(ErrorCategory.Conflict, deleteProblem.Category);
+		Assert.Equal("stale", deleteProblem.Detail);
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -642,14 +642,14 @@ public sealed class CalendarEventServiceTests
 		var provider = new ScriptedCalendarProvider { RejectNextCreateWith = new InvalidOperationException("Quota exceeded.") };
 		await using var harness = await Harness.CreateAsync(provider);
 
-		var ex = await Assert.ThrowsAsync<HubException>(
-			() => harness.UsingAsync(scope =>
+		var ex = await Assert.ThrowsAnyAsync<HubException>(() => harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
 				)
-			)
-		);
-		Assert.Equal("Quota exceeded.", ex.Message);
+			));
+		var createProblem = Assert.IsType<MutationHubException>(ex).Problem;
+		Assert.Equal(ErrorCategory.ProviderRejected, createProblem.Category);
+		Assert.Equal("Quota exceeded.", createProblem.Detail);
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -692,13 +692,11 @@ public sealed class CalendarEventServiceTests
 			return otherCalendar.Id;
 		});
 
-		var ex = await Assert.ThrowsAsync<HubException>(
-			() => harness.UsingAsync(scope =>
+		var ex = await Assert.ThrowsAnyAsync<HubException>(() => harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(created.Id, otherCalendarId, "Hijacked", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
 				)
-			)
-		);
+			));
 		Assert.Contains(created.Id.ToString(), ex.Message);
 
 		await harness.UsingAsync(async scope =>
@@ -722,14 +720,15 @@ public sealed class CalendarEventServiceTests
 		var provider = new ScriptedCalendarProvider();
 		await using var harness = await Harness.CreateAsync(provider);
 
-		var ex = await Assert.ThrowsAsync<HubException>(
-			() => harness.UsingAsync(scope =>
+		var ex = await Assert.ThrowsAnyAsync<HubException>(() => harness.UsingAsync(scope =>
 				scope.GetRequiredService<CalendarEventService>().SaveAsync(
 					new CalendarEventInput(null, harness.CalendarId, "Standup", null, null, DateTimeOffset.UnixEpoch.AddHours(1), DateTimeOffset.UnixEpoch, false)
 				)
-			)
+			));
+		Assert.Equal(
+			"An event cannot end before it starts.",
+			Assert.IsType<MutationHubException>(ex).Problem.Detail
 		);
-		Assert.Equal("An event cannot end before it starts.", ex.Message);
 
 		await harness.UsingAsync(async scope =>
 		{

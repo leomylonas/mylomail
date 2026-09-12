@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.Contracts;
@@ -120,7 +121,7 @@ public sealed class MutationQueue(
 			.FirstOrDefaultAsync(ct);
 		if (actualAccountId is Guid found && found != item.AccountId)
 		{
-			throw new HubException($"Message {item.MessageId} does not belong to account {item.AccountId}.");
+			throw new MutationHubException(ErrorCategory.Validation, $"Message {item.MessageId} does not belong to account {item.AccountId}.");
 		}
 
 		// Same gap, one level further in: MutationExecutor resolves MoveMessage's destination
@@ -135,7 +136,7 @@ public sealed class MutationQueue(
 				.FirstOrDefaultAsync(ct);
 			if (targetAccountId is Guid targetFound && targetFound != item.AccountId)
 			{
-				throw new HubException($"Mailbox {targetMailboxId} does not belong to account {item.AccountId}.");
+				throw new MutationHubException(ErrorCategory.Validation, $"Mailbox {targetMailboxId} does not belong to account {item.AccountId}.");
 			}
 		}
 
@@ -153,11 +154,11 @@ public sealed class MutationQueue(
 				.FirstOrDefaultAsync(ct);
 			if (currentAccountId is null)
 			{
-				throw new HubException($"Message {item.MessageId} no longer exists.");
+				throw new MutationHubException(ErrorCategory.Validation, $"Message {item.MessageId} no longer exists.");
 			}
 			if (currentAccountId != item.AccountId)
 			{
-				throw new HubException($"Message {item.MessageId} does not belong to account {item.AccountId}.");
+				throw new MutationHubException(ErrorCategory.Validation, $"Message {item.MessageId} does not belong to account {item.AccountId}.");
 			}
 
 			try

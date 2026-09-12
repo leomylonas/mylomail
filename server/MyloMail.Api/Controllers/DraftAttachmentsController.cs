@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using MyloMail.Api.Compose;
 using MyloMail.Api.Content;
+using MyloMail.Api.Errors;
 
 namespace MyloMail.Api.Controllers;
 
@@ -16,12 +17,12 @@ public sealed class DraftAttachmentsController(DraftService drafts) : Controller
 		var file = Request.Form.Files.GetFile("file");
 		if (file is null)
 		{
-			return BadRequest("An attachment file is required.");
+			return this.MutationProblem("An attachment file is required.", statusCode: StatusCodes.Status400BadRequest);
 		}
 
 		if (file.Length == 0)
 		{
-			return BadRequest("An empty attachment cannot be uploaded.");
+			return this.MutationProblem("An empty attachment cannot be uploaded.", statusCode: StatusCodes.Status400BadRequest);
 		}
 
 		await using var content = new MemoryStream();

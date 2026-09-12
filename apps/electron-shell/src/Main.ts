@@ -151,7 +151,7 @@ export async function startShell(): Promise<void> {
 				`${origin}/messages/${messageId}/attachments/${attachmentId}/open`,
 				{ method: "POST" },
 			);
-			if (!response.ok) throw new Error("Could not prepare this attachment.");
+			if (!response.ok) throw new Error(await response.text());
 			const { path } = (await response.json()) as { path?: unknown };
 			if (typeof path !== "string" || !isAttachmentTempPath(path)) {
 				throw new Error("The backend returned an invalid attachment path.");

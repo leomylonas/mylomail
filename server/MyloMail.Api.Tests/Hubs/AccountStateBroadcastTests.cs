@@ -146,11 +146,10 @@ public sealed class AccountStateBroadcastTests
 			InitialSyncBoundValue = 0,
 		};
 
-		await Assert.ThrowsAsync<HubException>(() =>
+		await Assert.ThrowsAnyAsync<HubException>(() =>
 			harness.UsingAsync(services =>
 				services.GetRequiredService<MailHub>().UpdateAccount(settings)
-			)
-		);
+			));
 
 		settings = settings with { InitialSyncBoundValue = 3 };
 		await harness.UsingAsync(services =>

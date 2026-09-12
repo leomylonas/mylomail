@@ -16,6 +16,10 @@ import {
 import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
 import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
 import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
+import {
+	fetchApi,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -46,19 +50,12 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const [ruleValue, setRuleValue] = useState("");
 
 	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, {
-			kind: "error",
-			title,
-			detail: error instanceof Error ? error.message : String(error),
-		});
+		notify(notifications, notificationForError(error, title));
 
 	const settings = useQuery({
 		queryKey: ["shell-settings", "app-settings"],
 		queryFn: async (): Promise<ShellSettings> => {
-			const response = await fetch("/shell-settings");
-			if (!response.ok) {
-				return { closeBehavior: closeBehavior.QuitApp, theme: theme.System };
-			}
+			const response = await fetchApi("/shell-settings");
 			return (await response.json()) as ShellSettings;
 		},
 	});
@@ -66,12 +63,10 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const credentialStore = useQuery({
 		queryKey: ["credential-store-status"],
 		queryFn: async (): Promise<{ usingNativeStore: boolean }> => {
-			const response = await fetch("/credential-store/status");
+			const response = await fetchApi("/credential-store/status");
 			// Not defaulted to "native store, all fine" on failure: this section exists
 			// specifically to warn about the fallback store, so a query failure must not
 			// assert the one claim it would otherwise exist to contradict.
-			if (!response.ok)
-				throw new Error(`credential-store/status responded ${response.status}`);
 			return (await response.json()) as { usingNativeStore: boolean };
 		},
 	});
@@ -79,7 +74,7 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const remoteContentRules = useQuery({
 		queryKey: ["remote-content-rules"],
 		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
-			const response = await fetch("/remote-content/rules");
+			const response = await fetchApi("/remote-content/rules");
 			if (!response.ok) return [];
 			return (await response.json()) as RemoteContentRuleDto[];
 		},
@@ -93,13 +88,11 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 	const setCloseBehavior = async (value: number) => {
 		try {
-			const response = await fetch("/shell-settings/close-behavior", {
+			await fetchApi("/shell-settings/close-behavior", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ closeBehavior: value }),
 			});
-			if (!response.ok)
-				throw new Error(`close-behavior responded ${response.status}`);
 			invalidateShellSettings();
 			// The shell reads CloseBehavior once at startup (§13 Epic 10) — without telling it
 			// directly, this save takes effect only after the app is next relaunched, with no
@@ -120,12 +113,11 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 	const setTheme = async (value: number) => {
 		try {
-			const response = await fetch("/shell-settings/theme", {
+			await fetchApi("/shell-settings/theme", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ theme: value }),
 			});
-			if (!response.ok) throw new Error(`theme responded ${response.status}`);
 			invalidateShellSettings();
 		} catch (error) {
 			reportFailure("The theme could not be saved")(error);
@@ -134,11 +126,9 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 	const deleteRule = async (id: string) => {
 		try {
-			const response = await fetch(`/remote-content/rules/${id}`, {
+			await fetchApi(`/remote-content/rules/${id}`, {
 				method: "DELETE",
 			});
-			if (!response.ok)
-				throw new Error(`remote-content/rules responded ${response.status}`);
 			void queryClient.invalidateQueries({
 				queryKey: ["remote-content-rules"],
 			});
@@ -149,7 +139,7 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 	const putRule = async () => {
 		try {
-			const response = await fetch("/remote-content/rules", {
+			await fetchApi("/remote-content/rules", {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -158,8 +148,6 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 					value: ruleValue,
 				}),
 			});
-			if (!response.ok)
-				throw new Error(`remote-content/rules responded ${response.status}`);
 			setRuleValue("");
 			void queryClient.invalidateQueries({
 				queryKey: ["remote-content-rules"],

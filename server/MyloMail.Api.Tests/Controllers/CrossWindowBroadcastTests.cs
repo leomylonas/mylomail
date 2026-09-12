@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Controllers;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Persistence;
@@ -161,7 +163,12 @@ public sealed class CrossWindowBroadcastTests
 			default
 		);
 
-		Assert.IsType<BadRequestResult>(result);
+		var problem = Assert.IsType<ObjectResult>(result);
+		Assert.Equal(StatusCodes.Status400BadRequest, problem.StatusCode);
+		Assert.Equal(
+			ErrorCategory.Validation,
+			Assert.IsType<MutationProblemDetails>(problem.Value).Category
+		);
 		Assert.Empty(context.RemoteContentRules);
 		Assert.Equal(0, events.RemoteContentRulesChanged);
 	}

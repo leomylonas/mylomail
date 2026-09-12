@@ -24,7 +24,7 @@ public sealed class MessageBodyTests
 		await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			await Assert.ThrowsAsync<HubException>(() => hub.GetMessageBody(Guid.NewGuid()));
+			await Assert.ThrowsAnyAsync<HubException>(() => hub.GetMessageBody(Guid.NewGuid()));
 		});
 	}
 }

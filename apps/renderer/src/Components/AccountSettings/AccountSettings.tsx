@@ -16,9 +16,15 @@ import {
 	InitialSyncMode,
 	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
 import { SendIdentityManager } from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager";
+import {
+	fetchApi,
+	MutationTransportError,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
@@ -102,39 +108,38 @@ export function AccountSettings({
 			setValues(applied);
 			setSaved(true);
 		} catch (error) {
-			notify(notifications, {
-				kind: "error",
-				title: "These settings could not be saved",
-				detail: error instanceof Error ? error.message : String(error),
-			});
+			notify(
+				notifications,
+				notificationForError(error, "These settings could not be saved"),
+			);
 		}
 	};
 
 	const remove = async (force = false) => {
 		setRemoving(true);
 		try {
-			const response = await fetch(
-				`/accounts/${values.id}${force ? "?force=true" : ""}`,
-				{ method: "DELETE" },
-			);
-			if (response.status === 409 && !force) {
-				// A bulk export is still running for this account — ask separately whether to
-				// stop it rather than either silently blocking or silently abandoning it.
-				setConfirmingRemove(false);
-				setExportConflict(true);
-				return;
-			}
-			if (!response.ok)
-				throw new Error(`accounts responded ${response.status}`);
+			await fetchApi(`/accounts/${values.id}${force ? "?force=true" : ""}`, {
+				method: "DELETE",
+			});
 			setConfirmingRemove(false);
 			setExportConflict(false);
 			onRemoved();
 		} catch (error) {
-			notify(notifications, {
-				kind: "error",
-				title: "This account could not be removed",
-				detail: error instanceof Error ? error.message : String(error),
-			});
+			if (
+				!force &&
+				error instanceof MutationTransportError &&
+				error.problem.category === ErrorCategory.Conflict
+			) {
+				// A bulk export is still running for this account — ask separately whether to
+				// stop it rather than silently blocking or abandoning it.
+				setConfirmingRemove(false);
+				setExportConflict(true);
+				return;
+			}
+			notify(
+				notifications,
+				notificationForError(error, "This account could not be removed"),
+			);
 		} finally {
 			setRemoving(false);
 		}

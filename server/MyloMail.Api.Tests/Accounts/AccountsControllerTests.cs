@@ -9,6 +9,7 @@ using MyloMail.Api.Contracts;
 using MyloMail.Api.Controllers;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -511,5 +512,6 @@ public sealed class AccountsControllerTests
 	{
 		var problem = Assert.IsType<ObjectResult>(result.Result);
 		Assert.Equal(expectedStatus, problem.StatusCode);
+		Assert.IsType<MutationProblemDetails>(problem.Value);
 	}
 }

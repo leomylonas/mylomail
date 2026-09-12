@@ -31,6 +31,10 @@ import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	fetchApi,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -134,11 +138,10 @@ export function AppShell({
 		"selectedMessageSenderAddress",
 	);
 	const layout = useShellLayout((error) =>
-		notify(notifications, {
-			kind: "error",
-			title: "The panel layout could not be saved",
-			detail: error instanceof Error ? error.message : String(error),
-		}),
+		notify(
+			notifications,
+			notificationForError(error, "The panel layout could not be saved"),
+		),
 	);
 	const sidebarRef = useRef<PanelImperativeHandle>(null);
 	const detailRef = useRef<PanelImperativeHandle>(null);
@@ -149,9 +152,7 @@ export function AppShell({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
 			// Same-origin, so the launch cookie authenticates this without a token.
-			const response = await fetch("/accounts");
-			if (!response.ok)
-				throw new Error(`accounts responded ${response.status}`);
+			const response = await fetchApi("/accounts");
 			return (await response.json()) as Account[];
 		},
 	});
@@ -295,11 +296,10 @@ export function AppShell({
 				.catch((error: unknown) => {
 					if (activeController === controller) activeController = undefined;
 					if (controller.signal.aborted) return;
-					notify(notifications, {
-						kind: "error",
-						title: "Couldn't open that message",
-						detail: error instanceof Error ? error.message : String(error),
-					});
+					notify(
+						notifications,
+						notificationForError(error, "Couldn't open that message"),
+					);
 				});
 		};
 

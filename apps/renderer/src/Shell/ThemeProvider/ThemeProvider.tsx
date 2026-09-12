@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { GlobalTheme, usePrefersDarkScheme } from "@carbon/react";
+import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 
 /** Matches server/MyloMail.Api/Domain/AppSettings.cs's ThemePreference enum ordinals — this
  * shell reads it over REST rather than through the typed SignalR hub, so System.Text.Json's
@@ -19,8 +20,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 		// queryFn happened to run first to both.
 		queryKey: ["shell-settings", "theme"],
 		queryFn: async (): Promise<{ theme: number }> => {
-			const response = await fetch("/shell-settings");
-			if (!response.ok) return { theme: themePreference.System };
+			const response = await fetchApi("/shell-settings");
 			return (await response.json()) as { theme: number };
 		},
 	});

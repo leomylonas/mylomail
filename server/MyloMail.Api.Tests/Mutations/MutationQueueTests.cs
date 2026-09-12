@@ -206,12 +206,10 @@ public sealed class MutationQueueTests
 
 		await harness.UsingAsync(async services =>
 		{
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() =>
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() =>
 					services
 						.GetRequiredService<MutationQueue>()
-						.SetFlagsAsync(otherAccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null))
-			);
+						.SetFlagsAsync(otherAccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null)));
 			Assert.Contains(harness.MessageId.ToString(), ex.Message);
 		});
 
@@ -237,11 +235,10 @@ public sealed class MutationQueueTests
 		});
 
 		var error = await harness.UsingAsync(async services =>
-			await Assert.ThrowsAsync<HubException>(() =>
+			await Assert.ThrowsAnyAsync<HubException>(() =>
 				services
 					.GetRequiredService<MutationQueue>()
-					.SetFlagsAsync(harness.AccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null))
-			)
+					.SetFlagsAsync(harness.AccountId, harness.MessageId, new FlagUpdate(IsRead: true, IsFlagged: null)))
 		);
 
 		Assert.Contains("no longer exists", error.Message);
@@ -290,9 +287,7 @@ public sealed class MutationQueueTests
 
 		await harness.UsingAsync(async services =>
 		{
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() => services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, otherMailboxId)
-			);
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() => services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, otherMailboxId));
 			Assert.Contains(otherMailboxId.ToString(), ex.Message);
 		});
 

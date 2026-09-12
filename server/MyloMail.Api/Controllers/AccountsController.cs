@@ -58,67 +58,53 @@ public class AccountsController(
 			// Gmail and Graph authenticate interactively; there is no password to supply, and
 			// accepting one silently would leave the user believing they had configured
 			// something.
-			return Problem(
-				$"{request.ProviderType} accounts authenticate interactively and take no password.",
+			return this.MutationProblem($"{request.ProviderType} accounts authenticate interactively and take no password.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Unexpected credential"
-			);
+				title: "Unexpected credential");
 		}
 		if (request.ProviderType != ProviderType.Gmail
 			&& (!string.IsNullOrWhiteSpace(request.GmailClientId)
 				|| !string.IsNullOrWhiteSpace(request.GmailClientSecret)))
 		{
-			return Problem(
-				"Google OAuth client credentials can only be used with a Gmail account.",
+			return this.MutationProblem("Google OAuth client credentials can only be used with a Gmail account.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Unexpected Google OAuth credentials"
-			);
+				title: "Unexpected Google OAuth credentials");
 		}
 		if (request.ProviderType == ProviderType.Gmail
 			&& string.IsNullOrWhiteSpace(request.GmailClientId)
 				!= string.IsNullOrWhiteSpace(request.GmailClientSecret))
 		{
-			return Problem(
-				"A custom Google OAuth registration needs both its client id and client secret.",
+			return this.MutationProblem("A custom Google OAuth registration needs both its client id and client secret.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Incomplete Google OAuth credentials"
-			);
+				title: "Incomplete Google OAuth credentials");
 		}
 
 		if (request.ProviderType == ProviderType.Imap && request.Imap is null)
 		{
-			return Problem(
-				"IMAP accounts need host, port and user name.",
+			return this.MutationProblem("IMAP accounts need host, port and user name.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing IMAP settings"
-			);
+				title: "Missing IMAP settings");
 		}
 		if (string.IsNullOrWhiteSpace(request.EmailAddress))
 		{
 			// `Account` has no address column (§1) — this becomes the default `SendIdentity`'s
 			// address, the authoritative one for the account. Nothing downstream re-checks it,
 			// so an empty string here would silently create an account with no usable address.
-			return Problem(
-				"An account needs an email address.",
+			return this.MutationProblem("An account needs an email address.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing email address"
-			);
+				title: "Missing email address");
 		}
 		if (request.ProviderType == ProviderType.Imap && request.Imap is { Host: null or "" })
 		{
-			return Problem(
-				"IMAP accounts need a host.",
+			return this.MutationProblem("IMAP accounts need a host.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing IMAP host"
-			);
+				title: "Missing IMAP host");
 		}
 		if (request.ProviderType == ProviderType.Imap && request.Imap is { SmtpHost: null or "" })
 		{
-			return Problem(
-				"IMAP accounts need an SMTP host.",
+			return this.MutationProblem("IMAP accounts need an SMTP host.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing SMTP host"
-			);
+				title: "Missing SMTP host");
 		}
 		if (request.Imap is
 			{
@@ -127,11 +113,9 @@ public class AccountsController(
 				SmtpSecret: null or "",
 			})
 		{
-			return Problem(
-				"Independent SMTP credentials need a secret.",
+			return this.MutationProblem("Independent SMTP credentials need a secret.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing SMTP credential"
-			);
+				title: "Missing SMTP credential");
 		}
 		if (request.Imap is
 			{
@@ -140,11 +124,9 @@ public class AccountsController(
 				SmtpUserName: null or "",
 			})
 		{
-			return Problem(
-				"Independent SMTP credentials need a user name.",
+			return this.MutationProblem("Independent SMTP credentials need a user name.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing SMTP user name"
-			);
+				title: "Missing SMTP user name");
 		}
 		if (request.Imap is
 			{
@@ -152,11 +134,9 @@ public class AccountsController(
 				ImapSecurity: MailTransportSecurity.None,
 			})
 		{
-			return Problem(
-				"IMAP password authentication requires TLS on connect or mandatory STARTTLS.",
+			return this.MutationProblem("IMAP password authentication requires TLS on connect or mandatory STARTTLS.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Insecure IMAP authentication"
-			);
+				title: "Insecure IMAP authentication");
 		}
 		if (request.Imap is
 			{
@@ -164,11 +144,9 @@ public class AccountsController(
 				SmtpSecurity: MailTransportSecurity.None,
 			})
 		{
-			return Problem(
-				"SMTP authentication requires TLS on connect or mandatory STARTTLS.",
+			return this.MutationProblem("SMTP authentication requires TLS on connect or mandatory STARTTLS.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Insecure SMTP authentication"
-			);
+				title: "Insecure SMTP authentication");
 		}
 		if (request.Imap is
 			{
@@ -178,46 +156,36 @@ public class AccountsController(
 			&& (imap.AuthMethod == ImapAuthMethod.OAuth2)
 				!= (imap.SmtpAuthMethod == SmtpAuthMethod.OAuth2))
 		{
-			return Problem(
-				"Reusing the IMAP credential requires matching password or OAuth 2 authentication methods.",
+			return this.MutationProblem("Reusing the IMAP credential requires matching password or OAuth 2 authentication methods.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Incompatible SMTP credential"
-			);
+				title: "Incompatible SMTP credential");
 		}
 		if (request.Imap is { AuthMethod: ImapAuthMethod.OAuth2 }
 			&& request.CalDav is { ReuseImapCredential: true })
 		{
-			return Problem(
-				"CalDAV Basic authentication cannot reuse an IMAP OAuth 2 token. Supply an independent CalDAV password.",
+			return this.MutationProblem("CalDAV Basic authentication cannot reuse an IMAP OAuth 2 token. Supply an independent CalDAV password.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Incompatible CalDAV credential"
-			);
+				title: "Incompatible CalDAV credential");
 		}
 		if (request.CalDav is { ReuseImapCredential: false, Secret: null or "" })
 		{
-			return Problem(
-				"Independent CalDAV credentials need a password.",
+			return this.MutationProblem("Independent CalDAV credentials need a password.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing CalDAV credential"
-			);
+				title: "Missing CalDAV credential");
 		}
 		if (request.CalDav is not null
 			&& (!Uri.TryCreate(request.CalDav.Endpoint, UriKind.Absolute, out var endpoint)
 				|| endpoint.Scheme != Uri.UriSchemeHttps))
 		{
-			return Problem(
-				"CalDAV Basic authentication requires an absolute HTTPS endpoint.",
+			return this.MutationProblem("CalDAV Basic authentication requires an absolute HTTPS endpoint.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Invalid CalDAV endpoint"
-			);
+				title: "Invalid CalDAV endpoint");
 		}
 		if (request.InitialSyncMode != InitialSyncMode.Full && request.InitialSyncBoundValue is not > 0)
 		{
-			return Problem(
-				"A bounded initial sync needs a positive month/message count.",
+			return this.MutationProblem("A bounded initial sync needs a positive month/message count.",
 				statusCode: StatusCodes.Status400BadRequest,
-				title: "Missing initial sync bound"
-			);
+				title: "Missing initial sync bound");
 		}
 
 		try
@@ -252,12 +220,12 @@ public class AccountsController(
 				problem.Status = StatusCodes.Status400BadRequest;
 				return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
 			}
-			return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed");
+			return this.MutationProblem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed", category: ErrorCategory.Auth);
 		}
 		catch (ProviderNotConfiguredException ex)
 		{
 			// The user cannot fix this: the deployment is missing a client registration.
-			return Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented, title: "Provider not configured");
+			return this.MutationProblem(ex.Message, statusCode: StatusCodes.Status501NotImplemented, title: "Provider not configured", category: ErrorCategory.Unknown);
 		}
 		catch (CredentialStoreUnavailableException ex)
 		{
@@ -265,7 +233,7 @@ public class AccountsController(
 			// no earlier catch to translate it — left unhandled here, it would surface as a bare
 			// 500 with no useful detail, matching neither AddAccount.tsx's genuine failures above
 			// nor the friendly "unlock your keychain" story pass 64 built everywhere else.
-			return Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable");
+			return this.MutationProblem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable", category: ErrorCategory.Unknown);
 		}
 	}
 
@@ -288,12 +256,12 @@ public class AccountsController(
 		}
 		catch (ExportInProgressException ex)
 		{
-			var problem = new ProblemDetails
-			{
-				Title = "Export in progress",
-				Detail = "This account has a bulk export still running. Remove anyway to stop it, or wait for the export to finish first.",
-				Status = StatusCodes.Status409Conflict,
-			};
+			var problem = MutationProblemTransport.Create(
+				ErrorCategory.Conflict,
+				"This account has a bulk export still running. Remove anyway to stop it, or wait for the export to finish first.",
+				StatusCodes.Status409Conflict,
+				"Export in progress"
+			);
 			problem.Extensions["exportId"] = ex.ExportId;
 			return new ObjectResult(problem) { StatusCode = StatusCodes.Status409Conflict };
 		}
@@ -320,7 +288,7 @@ public class AccountsController(
 		}
 		catch (KeyNotFoundException)
 		{
-			return NotFound();
+			return this.MutationProblem(statusCode: StatusCodes.Status404NotFound);
 		}
 		catch (AccountAuthenticationFailedException ex)
 		{
@@ -329,13 +297,13 @@ public class AccountsController(
 				problem.Status = StatusCodes.Status400BadRequest;
 				return new ObjectResult(problem) { StatusCode = StatusCodes.Status400BadRequest };
 			}
-			return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed");
+			return this.MutationProblem(ex.Message, statusCode: StatusCodes.Status400BadRequest, title: "Authentication failed", category: ErrorCategory.Auth);
 		}
 		catch (CredentialStoreUnavailableException ex)
 		{
 			// Same gap as Add above: this call retrieves and re-stores the prior secret before
 			// authenticating, and a locked keychain there would otherwise surface as a bare 500.
-			return Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable");
+			return this.MutationProblem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable, title: "Credential store unavailable", category: ErrorCategory.Unknown);
 		}
 	}
 

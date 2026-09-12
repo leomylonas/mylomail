@@ -9,6 +9,10 @@ import {
 	prepare,
 	resolveInlineImages,
 } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
+import {
+	fetchApi,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MessageHtml/MessageHtml.module.css";
@@ -19,8 +23,7 @@ function useRemoteContentDecision(senderAddress: string | undefined) {
 	const query = useQuery({
 		queryKey: remoteContentRulesKey,
 		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
-			const response = await fetch("/remote-content/rules");
-			if (!response.ok) return [];
+			const response = await fetchApi("/remote-content/rules");
 			return (await response.json()) as RemoteContentRuleDto[];
 		},
 		staleTime: 30_000,
@@ -42,15 +45,11 @@ function usePutRemoteContentRules() {
 		mutationFn: async (rules: RuleInput[]) => {
 			await Promise.all(
 				rules.map(async (rule) => {
-					const response = await fetch("/remote-content/rules", {
+					await fetchApi("/remote-content/rules", {
 						method: "PUT",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify(rule),
 					});
-					if (!response.ok)
-						throw new Error(
-							`Could not save the remote-content rule (${response.status}).`,
-						);
 				}),
 			);
 		},
@@ -58,11 +57,13 @@ function usePutRemoteContentRules() {
 			void queryClient.invalidateQueries({ queryKey: remoteContentRulesKey });
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The remote-content rule could not be saved",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(
+					error,
+					"The remote-content rule could not be saved",
+				),
+			),
 	});
 }
 
@@ -304,9 +305,7 @@ export function MessageHtml({
 /** Fetches one MIME part. Same-origin, so the launch cookie authenticates it (§9). */
 async function fetchPart(messageId: string, contentId: string): Promise<Blob> {
 	const url = `/messages/${messageId}/parts/${encodeURIComponent(contentId)}`;
-	const response = await fetch(url);
-	// The URL is in the message because "404" alone cannot distinguish a part the message
-	// does not contain from a path this code built wrongly.
-	if (!response.ok) throw new Error(`${url} responded ${response.status}`);
+	const response = await fetchApi(url);
+	// fetchApi preserves the server's not-found detail and category for the caller.
 	return response.blob();
 }

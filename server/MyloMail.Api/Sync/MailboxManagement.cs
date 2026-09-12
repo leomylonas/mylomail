@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -47,7 +48,7 @@ public sealed class MailboxManagement(
 		// every other invalid input on this path gets.
 		if (string.IsNullOrWhiteSpace(name))
 		{
-			throw new HubException("A folder name cannot be blank.");
+			throw new MutationHubException(ErrorCategory.Validation, "A folder name cannot be blank.");
 		}
 
 		var account = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
@@ -61,7 +62,7 @@ public sealed class MailboxManagement(
 	{
 		if (string.IsNullOrWhiteSpace(newName))
 		{
-			throw new HubException("A folder name cannot be blank.");
+			throw new MutationHubException(ErrorCategory.Validation, "A folder name cannot be blank.");
 		}
 
 		var (account, mailbox) = await ResolveAsync(mailboxId, ct);
@@ -86,7 +87,7 @@ public sealed class MailboxManagement(
 		// rejected here rather than trusted to have been rejected already.
 		if (newParentId is Guid candidateParentId && await IsDescendantOfAsync(candidateParentId, mailboxId, ct))
 		{
-			throw new HubException("A folder cannot be moved into itself or one of its own subfolders.");
+			throw new MutationHubException(ErrorCategory.Validation, "A folder cannot be moved into itself or one of its own subfolders.");
 		}
 
 		var parent = newParentId is Guid id ? await ResolveParentAsync(id, account.Id, ct) : null;
@@ -112,7 +113,7 @@ public sealed class MailboxManagement(
 	{
 		if (mailbox.ProviderMailboxId is null)
 		{
-			throw new HubException($"Gmail doesn't support {action}.");
+			throw new MutationHubException(ErrorCategory.Validation, $"Gmail doesn't support {action}.");
 		}
 	}
 
@@ -133,7 +134,7 @@ public sealed class MailboxManagement(
 		var parent = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == parentId, ct);
 		if (parent is not null && parent.AccountId != accountId)
 		{
-			throw new HubException("A folder cannot be created or moved under another account's folder.");
+			throw new MutationHubException(ErrorCategory.Validation, "A folder cannot be created or moved under another account's folder.");
 		}
 
 		return parent;
@@ -281,11 +282,10 @@ public sealed class MailboxManagement(
 		}
 		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
 		{
-			// Logged before the rethrow: HubException carries only ex.Message to the caller, so
-			// this is the last point the original exception (type, stack trace) is still
-			// available to distinguish a legitimate provider rejection from a genuine defect.
+			// The original exception is logged before the categorised, safe-to-show problem is
+			// serialized for the caller.
 			logger.LogWarning(ex, "A mailbox provider call was rejected.");
-			throw new HubException(ex.Message);
+			throw MutationHubException.FromProvider(ex);
 		}
 	}
 
@@ -298,7 +298,7 @@ public sealed class MailboxManagement(
 		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
 		{
 			logger.LogWarning(ex, "A mailbox provider call was rejected.");
-			throw new HubException(ex.Message);
+			throw MutationHubException.FromProvider(ex);
 		}
 	}
 

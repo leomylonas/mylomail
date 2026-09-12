@@ -4,6 +4,7 @@ import type { HubConnection } from "@microsoft/signalr";
 import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { Button, ContentSwitcher, Switch } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { CalendarGrid } from "@mylomail/renderer/Components/Calendar/CalendarGrid/CalendarGrid";
@@ -231,11 +232,10 @@ export function Calendar({
 			void invalidate();
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The event could not be saved",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The event could not be saved"),
+			),
 	});
 
 	const remove = useMutation({
@@ -245,11 +245,10 @@ export function Calendar({
 			void invalidate();
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The event could not be deleted",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The event could not be deleted"),
+			),
 	});
 
 	// "Keep mine" / "keep theirs" for a flagged conflict (§15). Either way the conflict is
@@ -268,11 +267,10 @@ export function Calendar({
 			void invalidate();
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The conflict could not be resolved",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The conflict could not be resolved"),
+			),
 	});
 
 	const defaultCalendarId =

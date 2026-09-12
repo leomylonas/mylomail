@@ -3,6 +3,7 @@ using Ical.Net.DataTypes;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -72,9 +73,7 @@ public sealed class CalendarEventService(
 		// actually belongs to, corrupting a foreign event with this account's authentication.
 		if (existing is not null && existing.CalendarId != input.CalendarId)
 		{
-			throw new HubException(
-				$"Calendar event {existing.Id} does not belong to calendar {input.CalendarId}."
-			);
+			throw new MutationHubException(ErrorCategory.Validation, $"Calendar event {existing.Id} does not belong to calendar {input.CalendarId}.");
 		}
 
 		// EventModal.tsx's Start/End fields are plain text inputs with no min/max tying one to
@@ -83,7 +82,7 @@ public sealed class CalendarEventService(
 		// CalDavIcs.RenderVEvent as a malformed resource rather than a clean rejection here.
 		if (input.End < input.Start)
 		{
-			throw new HubException("An event cannot end before it starts.");
+			throw new MutationHubException(ErrorCategory.Validation, "An event cannot end before it starts.");
 		}
 		try
 		{
@@ -91,7 +90,7 @@ public sealed class CalendarEventService(
 		}
 		catch (NotSupportedException ex)
 		{
-			throw new HubException(ex.Message);
+			throw new MutationHubException(ErrorCategory.Validation, ex.Message);
 		}
 
 		return existing is null
@@ -211,7 +210,7 @@ public sealed class CalendarEventService(
 		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
 		{
 			logger.LogWarning(ex, "A calendar provider call was rejected.");
-			throw new HubException(ex.Message);
+			throw MutationHubException.FromProvider(ex);
 		}
 		if (!existing.SyncConflict)
 		{
@@ -477,7 +476,7 @@ public sealed class CalendarEventService(
 			.ToArray();
 		if (rules.Length > 32 || rules.Any(rule => rule.Length > 2048))
 		{
-			throw new HubException("An event cannot contain more than 32 bounded recurrence rules.");
+			throw new MutationHubException(ErrorCategory.Validation, "An event cannot contain more than 32 bounded recurrence rules.");
 		}
 		foreach (var rule in rules)
 		{
@@ -487,7 +486,7 @@ public sealed class CalendarEventService(
 			}
 			catch (Exception)
 			{
-				throw new HubException($"'{rule}' is not a valid RFC 5545 recurrence rule.");
+				throw new MutationHubException(ErrorCategory.Validation, $"'{rule}' is not a valid RFC 5545 recurrence rule.");
 			}
 		}
 
@@ -516,7 +515,7 @@ public sealed class CalendarEventService(
 	{
 		if (values is { Count: > 512 })
 		{
-			throw new HubException($"An event cannot contain more than 512 {description} recurrence dates.");
+			throw new MutationHubException(ErrorCategory.Validation, $"An event cannot contain more than 512 {description} recurrence dates.");
 		}
 		return
 		[
@@ -544,11 +543,11 @@ public sealed class CalendarEventService(
 		}
 		catch (TimeZoneNotFoundException)
 		{
-			throw new HubException($"'{value}' is not a recognised IANA time zone.");
+			throw new MutationHubException(ErrorCategory.Validation, $"'{value}' is not a recognised IANA time zone.");
 		}
 		catch (InvalidTimeZoneException)
 		{
-			throw new HubException($"'{value}' is not a usable IANA time zone.");
+			throw new MutationHubException(ErrorCategory.Validation, $"'{value}' is not a usable IANA time zone.");
 		}
 	}
 
@@ -570,7 +569,7 @@ public sealed class CalendarEventService(
 		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
 		{
 			logger.LogWarning(ex, "A calendar provider call was rejected.");
-			throw new HubException(ex.Message);
+			throw MutationHubException.FromProvider(ex);
 		}
 	}
 
@@ -583,7 +582,7 @@ public sealed class CalendarEventService(
 		catch (Exception ex) when (ex is not OperationCanceledException and not HubException)
 		{
 			logger.LogWarning(ex, "A calendar provider call was rejected.");
-			throw new HubException(ex.Message);
+			throw MutationHubException.FromProvider(ex);
 		}
 	}
 }

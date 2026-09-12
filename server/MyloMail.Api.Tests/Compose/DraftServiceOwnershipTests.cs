@@ -51,8 +51,7 @@ public sealed class DraftServiceOwnershipTests
 
 		await harness.UsingAsync(async scope =>
 		{
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() =>
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() =>
 					scope
 						.GetRequiredService<DraftService>()
 						.SaveAsync(
@@ -67,8 +66,7 @@ public sealed class DraftServiceOwnershipTests
 								Subject: "Test",
 								BodyHtml: "<p>Test</p>"
 							)
-						)
-			);
+						));
 			Assert.Contains(otherIdentityId.ToString(), ex.Message);
 		});
 
@@ -85,8 +83,7 @@ public sealed class DraftServiceOwnershipTests
 
 		await harness.UsingAsync(async scope =>
 		{
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() =>
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() =>
 					scope
 						.GetRequiredService<DraftService>()
 						.SaveAsync(
@@ -101,8 +98,7 @@ public sealed class DraftServiceOwnershipTests
 								Subject: "Test",
 								BodyHtml: "<p>Test</p>"
 							)
-						)
-			);
+						));
 			Assert.Contains(nonexistentIdentityId.ToString(), ex.Message);
 		});
 
@@ -153,8 +149,7 @@ public sealed class DraftServiceOwnershipTests
 
 		await harness.UsingAsync(async scope =>
 		{
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() =>
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() =>
 					scope
 						.GetRequiredService<DraftService>()
 						.SaveAsync(
@@ -169,8 +164,7 @@ public sealed class DraftServiceOwnershipTests
 								Subject: "Hijacked subject",
 								BodyHtml: "<p>Hijacked</p>"
 							)
-						)
-			);
+						));
 			Assert.Contains(draftId.ToString(), ex.Message);
 		});
 

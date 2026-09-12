@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
 using MyloMail.Api.Content;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Controllers;
@@ -33,7 +34,7 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 		var raw = await context.MessageRaws.FirstOrDefaultAsync(r => r.MessageId == messageId, ct);
 		if (raw is null)
 		{
-			return NotFound();
+			return this.MutationProblem("This message no longer exists.", statusCode: StatusCodes.Status404NotFound);
 		}
 
 		using var stream = new MemoryStream(raw.Content);
@@ -47,7 +48,7 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 
 		if (part?.Content is null)
 		{
-			return NotFound();
+			return this.MutationProblem("This message part no longer exists.", statusCode: StatusCodes.Status404NotFound);
 		}
 
 		var decoded = new MemoryStream();

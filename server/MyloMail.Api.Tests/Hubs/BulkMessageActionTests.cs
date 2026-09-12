@@ -52,15 +52,13 @@ public sealed class BulkMessageActionTests
 		await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			await Assert.ThrowsAsync<HubException>(
-				() =>
+			await Assert.ThrowsAnyAsync<HubException>(() =>
 					hub.SetFlags(
 						accountId,
 						[goodMessageId, badMessageId, laterGoodMessageId],
 						isRead: true,
 						isFlagged: null
-					)
-			);
+					));
 		});
 
 		await harness.UsingAsync(async services =>

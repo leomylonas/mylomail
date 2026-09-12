@@ -29,6 +29,10 @@ import {
 	type ComposeSeed,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { applyIdentitySignature } from "@mylomail/renderer/Components/Compose/ComposeSignature";
+import {
+	fetchApi,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
@@ -172,11 +176,7 @@ export function Compose({
 	// their own next step, not proceed as if a draft id existed. Every top-level, fire-and-
 	// forget entry point below reports on its own catch instead.
 	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, {
-			kind: "error",
-			title,
-			detail: error instanceof Error ? error.message : String(error),
-		});
+		notify(notifications, notificationForError(error, title));
 
 	const [to, setTo] = useState(() => formatAddresses(draft?.to ?? seed?.to));
 	const [cc, setCc] = useState(() => formatAddresses(draft?.cc ?? seed?.cc));
@@ -369,11 +369,10 @@ export function Compose({
 				form.append("contentId", contentId);
 			}
 		}
-		const response = await fetch(`/drafts/${id}/attachments`, {
+		const response = await fetchApi(`/drafts/${id}/attachments`, {
 			method: "POST",
 			body: form,
 		});
-		if (!response.ok) throw new Error(`Could not attach ${filename}.`);
 		const attachment = (await response.json()) as DraftAttachment;
 		setAttachments((current) => [...current, attachment]);
 	};
@@ -402,10 +401,9 @@ export function Compose({
 				// multi-attachment reply/forward.
 				for (const attachment of toCopy.attachments) {
 					try {
-						const response = await fetch(
+						const response = await fetchApi(
 							`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
 						);
-						if (!response.ok) throw new Error("fetch failed");
 						await uploadAttachment(
 							id,
 							await response.blob(),
@@ -607,11 +605,9 @@ export function Compose({
 		if (!draftId) return;
 		setBusy(true);
 		try {
-			const response = await fetch(
-				`/drafts/${draftId}/attachments/${attachmentId}`,
-				{ method: "DELETE" },
-			);
-			if (!response.ok) throw new Error("Could not remove the attachment.");
+			await fetchApi(`/drafts/${draftId}/attachments/${attachmentId}`, {
+				method: "DELETE",
+			});
 			setAttachments((current) =>
 				current.filter((attachment) => attachment.id !== attachmentId),
 			);

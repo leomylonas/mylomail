@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
@@ -41,10 +43,14 @@ public sealed class MailHubMoveMessagesTests
 		await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() => hub.MoveMessages(harness.AccountId, [harness.MessageId], synthesizedId)
-			);
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() => hub.MoveMessages(harness.AccountId, [harness.MessageId], synthesizedId));
 			Assert.Contains("nested label group", ex.Message);
+			var problem = JsonSerializer.Deserialize<MutationProblemDetails>(
+				ex.Message,
+				new JsonSerializerOptions(JsonSerializerDefaults.Web)
+			);
+			Assert.NotNull(problem);
+			Assert.Equal(ErrorCategory.Validation, problem.Category);
 		});
 
 		// Nothing was ever enqueued for it: the message's own occurrence is untouched, and no

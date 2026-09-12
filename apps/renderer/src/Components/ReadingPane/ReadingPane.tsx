@@ -11,6 +11,7 @@ import type {
 	MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
+import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
@@ -116,11 +117,10 @@ export function ReadingPane({
 				throw new Error("Printing is unavailable outside the desktop app.");
 			await window.printing.print();
 		} catch (error) {
-			notify(notifications, {
-				kind: "error",
-				title: "The message could not be printed",
-				detail: error instanceof Error ? error.message : String(error),
-			});
+			notify(
+				notifications,
+				notificationForError(error, "The message could not be printed"),
+			);
 		}
 	}, [notifications]);
 	useEffect(() => {
@@ -345,11 +345,10 @@ function InviteBanner({
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: ["invite", messageId] }),
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The response could not be sent",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The response could not be sent"),
+			),
 	});
 
 	const acceptUnverifiedReply = useMutation({
@@ -359,11 +358,10 @@ function InviteBanner({
 			void queryClient.invalidateQueries({ queryKey: ["calendar"] });
 		},
 		onError: (error: unknown) =>
-			notify(notifications, {
-				kind: "error",
-				title: "The claimed response was not applied",
-				detail: error instanceof Error ? error.message : String(error),
-			}),
+			notify(
+				notifications,
+				notificationForError(error, "The claimed response was not applied"),
+			),
 	});
 
 	if (!invite.data) return null;

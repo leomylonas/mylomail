@@ -7,27 +7,13 @@ import {
 	PasswordInput,
 } from "@carbon/react";
 import type { HubConnection } from "@microsoft/signalr";
-import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import {
-	present,
-	type ErrorPresentation,
-} from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+	fetchApi,
+	MutationTransportError,
+	notificationForError,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
-
-/** The subset of RFC 7807 this endpoint's failures actually carry (§15). */
-interface ProblemResponse {
-	title?: string;
-	detail?: string;
-	category?: ErrorCategory;
-	extensions?: Record<string, unknown>;
-}
-
-class ReauthenticateError extends Error {
-	constructor(public presentation: ErrorPresentation) {
-		super(presentation.detail);
-	}
-}
 
 /**
  * Re-verifies an account stuck in `NeedsReauth`/`Error` (§3). A password field that is fine
@@ -51,28 +37,11 @@ export function ReauthenticateAccount({
 
 	const attempt = useMutation({
 		mutationFn: async () => {
-			const response = await fetch(`/accounts/${accountId}/reauthenticate`, {
+			await fetchApi(`/accounts/${accountId}/reauthenticate`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ secret: secret || null }),
 			});
-			if (!response.ok) {
-				const problem = (await response
-					.json()
-					.catch(() => null)) as ProblemResponse | null;
-				const presentation =
-					problem?.category !== undefined
-						? present(problem.category, problem.detail, problem.extensions)
-						: {
-								title:
-									problem?.title ?? "This account could not be reauthenticated",
-								detail:
-									problem?.detail ??
-									`Reauthenticating failed (${response.status}).`,
-								transient: false as const,
-							};
-				throw new ReauthenticateError(presentation);
-			}
 		},
 		onSuccess: () => {
 			setSecret("");
@@ -100,17 +69,16 @@ export function ReauthenticateAccount({
 		// isError/error state below — this only catches TrustCertificate itself failing,
 		// which nothing else reads.
 		onError: (error: unknown) => {
-			if (error instanceof ReauthenticateError) return;
-			notify(notifications, {
-				kind: "error",
-				title: "The certificate could not be trusted",
-				detail: error instanceof Error ? error.message : String(error),
-			});
+			if (attempt.error === error) return;
+			notify(
+				notifications,
+				notificationForError(error, "The certificate could not be trusted"),
+			);
 		},
 	});
 
 	const error =
-		attempt.isError && attempt.error instanceof ReauthenticateError
+		attempt.isError && attempt.error instanceof MutationTransportError
 			? attempt.error
 			: null;
 

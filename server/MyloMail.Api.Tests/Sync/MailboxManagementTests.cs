@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Sync;
@@ -94,9 +95,9 @@ public class MailboxManagementTests
 			var mailboxes = scope.GetRequiredService<MailboxManagement>();
 
 			// Every depth: onto itself, onto a direct child, onto a deeper descendant.
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, parent.Id));
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, child.Id));
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, grandchild.Id));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, parent.Id));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, child.Id));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.MoveAsync(parent.Id, grandchild.Id));
 
 			// Untouched by the rejected attempts.
 			var reloaded = await context.Mailboxes.FirstAsync(m => m.Id == parent.Id);
@@ -126,10 +127,10 @@ public class MailboxManagementTests
 			var mailboxes = scope.GetRequiredService<MailboxManagement>();
 
 			harness.Provider.FailMailboxOperationWith(new InvalidOperationException("Mailbox already exists."));
-			var ex = await Assert.ThrowsAsync<HubException>(
-				() => mailboxes.RenameAsync(local.Id, "AlsoExisting")
-			);
-			Assert.Equal("Mailbox already exists.", ex.Message);
+			var ex = await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.RenameAsync(local.Id, "AlsoExisting"));
+			var problem = Assert.IsType<MutationHubException>(ex).Problem;
+			Assert.Equal(ErrorCategory.ProviderRejected, problem.Category);
+			Assert.Equal("Mailbox already exists.", problem.Detail);
 		});
 	}
 
@@ -153,12 +154,12 @@ public class MailboxManagementTests
 			var account = await harness.AccountInScopeAsync(scope);
 			var mailboxes = scope.GetRequiredService<MailboxManagement>();
 
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "", null));
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "   ", null));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "", null));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "   ", null));
 
 			var inbox = await context.Mailboxes.FirstAsync(m => m.ProviderMailboxId == "INBOX");
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, ""));
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, "   "));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, ""));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.RenameAsync(inbox.Id, "   "));
 
 			// Neither rejected attempt reached the provider or changed anything locally.
 			Assert.DoesNotContain(
@@ -212,8 +213,8 @@ public class MailboxManagementTests
 
 			var mailboxes = scope.GetRequiredService<MailboxManagement>();
 
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.MoveAsync(mine.Id, foreignParent.Id));
-			await Assert.ThrowsAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "New", foreignParent.Id));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.MoveAsync(mine.Id, foreignParent.Id));
+			await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.CreateAsync(account.Id, "New", foreignParent.Id));
 
 			var reloaded = await context.Mailboxes.FirstAsync(m => m.Id == mine.Id);
 			Assert.Null(reloaded.ParentId);
@@ -257,26 +258,22 @@ public class MailboxManagementTests
 
 			var mailboxes = scope.GetRequiredService<MailboxManagement>();
 
-			var renameEx = await Assert.ThrowsAsync<HubException>(
-				() => mailboxes.RenameAsync(synthesized.Id, "Renamed")
-			);
+			var renameEx = await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.RenameAsync(synthesized.Id, "Renamed"));
 			Assert.Equal(
 				"Gmail doesn't support renaming a nested label group directly — rename the label itself in Gmail.",
-				renameEx.Message
+				Assert.IsType<MutationHubException>(renameEx).Problem.Detail
 			);
 
-			var moveEx = await Assert.ThrowsAsync<HubException>(
-				() => mailboxes.MoveAsync(synthesized.Id, otherParent.Id)
-			);
+			var moveEx = await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.MoveAsync(synthesized.Id, otherParent.Id));
 			Assert.Equal(
 				"Gmail doesn't support moving a nested label group directly — move the label itself in Gmail.",
-				moveEx.Message
+				Assert.IsType<MutationHubException>(moveEx).Problem.Detail
 			);
 
-			var deleteEx = await Assert.ThrowsAsync<HubException>(() => mailboxes.DeleteAsync(synthesized.Id));
+			var deleteEx = await Assert.ThrowsAnyAsync<HubException>(() => mailboxes.DeleteAsync(synthesized.Id));
 			Assert.Equal(
 				"Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail.",
-				deleteEx.Message
+				Assert.IsType<MutationHubException>(deleteEx).Problem.Detail
 			);
 
 			// None of the rejected calls reached the provider or changed anything locally.
