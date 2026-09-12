@@ -9,7 +9,7 @@ namespace MyloMail.Api.Tests.Persistence;
 /// rather than <c>:memory:</c> deliberately — WAL, <c>synchronous</c> and <c>VACUUM INTO</c>
 /// are the things under test, and none of them mean anything in memory.
 /// </summary>
-internal sealed class TestDatabase : IAsyncDisposable
+public sealed class TestDatabase : IAsyncDisposable
 {
 	private readonly ServiceProvider services;
 
