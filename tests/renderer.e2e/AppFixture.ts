@@ -101,6 +101,23 @@ const backendAssembly = join(
 	"server/MyloMail.Api/bin/Debug/net10.0/MyloMail.Api.dll",
 );
 
+/** Launches electron-builder's unpacked application, including its self-contained backend. */
+export async function launchPackagedApp(
+	environment: Readonly<NodeJS.ProcessEnv> = {},
+): Promise<LaunchedApp> {
+	const fixture = createFixtureEnvironment(environment);
+	const { app, window } = await launchElectron(
+		[],
+		fixture.environment,
+		packagedExecutablePath(),
+	);
+	return {
+		app,
+		window,
+		dataDirectory: fixture.dataDirectory,
+	};
+}
+
 function createFixtureEnvironment(overrides: Readonly<NodeJS.ProcessEnv>): {
 	dataDirectory: string;
 	environment: Record<string, string>;
@@ -132,15 +149,19 @@ function createFixtureEnvironment(overrides: Readonly<NodeJS.ProcessEnv>): {
 async function launchElectron(
 	activationArguments: readonly string[],
 	environment: Record<string, string>,
+	executablePath?: string,
 ): Promise<{ app: ElectronApplication; window: Page }> {
 	const app = await _electron.launch({
 		args: [
-			join(repositoryRoot, "apps/electron-shell/dist/Main.js"),
+			...(executablePath
+				? []
+				: [join(repositoryRoot, "apps/electron-shell/dist/Main.js")]),
 			"--headless",
 			"--disable-gpu",
 			"--no-sandbox",
 			...activationArguments,
 		],
+		...(executablePath ? { executablePath } : {}),
 		env: environment,
 	});
 	const window = await app.firstWindow();
@@ -152,6 +173,23 @@ async function launchElectron(
 			console.error(`[renderer] ${message.text()}`);
 	});
 	return { app, window };
+}
+
+function packagedExecutablePath(): string {
+	if (process.env.MYLOMAIL_PACKAGED_EXECUTABLE) {
+		return process.env.MYLOMAIL_PACKAGED_EXECUTABLE;
+	}
+	if (process.platform === "win32") {
+		return join(repositoryRoot, "dist/packages/win-unpacked/MyloMail.exe");
+	}
+	if (process.platform === "darwin") {
+		const directory = process.arch === "arm64" ? "mac-arm64" : "mac";
+		return join(
+			repositoryRoot,
+			`dist/packages/${directory}/MyloMail.app/Contents/MacOS/MyloMail`,
+		);
+	}
+	return join(repositoryRoot, "dist/packages/linux-unpacked/mylomail");
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {

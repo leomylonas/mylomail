@@ -1,0 +1,50 @@
+appId: com.mylomail.desktop
+productName: MyloMail
+asar: true
+npmRebuild: false
+directories:
+  output: dist/packages
+files:
+  - apps/electron-shell/dist/**/*
+extraResources:
+  - from: apps/renderer/dist
+    to: Renderer
+    filter:
+      - "**/*"
+  - from: dist/backend
+    to: Backend
+    filter:
+      - "**/*"
+protocols:
+  - name: Email link
+    schemes:
+      - mailto
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+linux:
+  maintainer: MyloMail contributors
+  syncDesktopName: true
+  executableName: mylomail
+  category: Network
+  synopsis: Private desktop mail and calendar client
+  target:
+    - AppImage
+    - deb
+    - rpm
+win:
+  target:
+    - nsis
+    - msi
+  signAndEditExecutable: false
+  verifyUpdateCodeSignature: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  category: public.app-category.productivity
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - dmg
+    - zip

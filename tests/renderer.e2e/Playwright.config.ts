@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
 	testDir: fileURLToPath(new URL(".", import.meta.url)),
 	testMatch: "**/*.e2e.ts",
+	testIgnore: "**/PackagedMode.e2e.ts",
 	workers: 1,
 	fullyParallel: false,
 	// The app spawns a backend, migrates a database and syncs a mailbox before anything is

@@ -85,6 +85,21 @@ let activeOrigin: string | undefined;
  * never has to model a backend that is not ready.
  */
 export async function startShell(): Promise<void> {
+	const packagedBackendCommand = join(
+		process.resourcesPath,
+		"Backend",
+		process.platform === "win32" ? "MyloMail.Api.exe" : "MyloMail.Api",
+	);
+	if (
+		backendMode === "spawn" &&
+		app.isPackaged &&
+		!process.env.MYLOMAIL_RENDERER_PATH
+	) {
+		process.env.MYLOMAIL_RENDERER_PATH = join(
+			process.resourcesPath,
+			"Renderer",
+		);
+	}
 	const backend =
 		backendMode === "attach"
 			? await attachBackend({
@@ -92,7 +107,9 @@ export async function startShell(): Promise<void> {
 					launchToken: process.env.MYLOMAIL_LAUNCH_TOKEN,
 				})
 			: await startBackend({
-					command: process.env.MYLOMAIL_BACKEND_COMMAND ?? "dotnet",
+					command:
+						process.env.MYLOMAIL_BACKEND_COMMAND ??
+						(app.isPackaged ? packagedBackendCommand : "dotnet"),
 					args: (process.env.MYLOMAIL_BACKEND_ARGS ?? "")
 						.split(" ")
 						.filter(Boolean),

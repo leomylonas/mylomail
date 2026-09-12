@@ -1,0 +1,78 @@
+name: Release packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x64
+          - os: windows-latest
+            label: windows-x64
+          - os: macos-latest
+            label: macos-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes rpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm package
+      - name: Smoke packaged application
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
+      - name: Smoke packaged application
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            dist/packages/*.AppImage
+            dist/packages/*.deb
+            dist/packages/*.rpm
+            dist/packages/*.exe
+            dist/packages/*.msi
+            dist/packages/*.dmg
+            dist/packages/*.zip
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: packages
+          merge-multiple: true
+      - name: Generate checksums
+        run: sha256sum packages/* > packages/SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: packages/*

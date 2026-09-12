@@ -1,5 +1,10 @@
 {
   "name": "@mylomail/root",
+  "version": "0.1.0",
+  "description": "Private cross-platform desktop mail and calendar client",
+  "author": "MyloMail contributors",
+  "main": "apps/electron-shell/dist/Main.js",
+  "desktopName": "MyloMail",
   "private": true,
   "type": "module",
   "engines": {
@@ -24,7 +29,10 @@
     "app": "pnpm build:renderer && pnpm build:shell && MYLOMAIL_RENDERER_PATH=apps/renderer/dist electron apps/electron-shell/dist/Main.js",
     "pretest:e2e": "pnpm build:renderer && pnpm build:shell && dotnet build --nologo -v q server/MyloMail.Api/MyloMail.Api.csproj",
     "e2e": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Playwright.config.ts",
-    "e2e:attach": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Attach.Playwright.config.ts"
+    "e2e:attach": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Attach.Playwright.config.ts",
+    "package": "tsx scripts/Package.ts",
+    "package:dir": "tsx scripts/Package.ts --dir",
+    "package:smoke": "pnpm package:dir && playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
@@ -34,6 +42,7 @@
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.35.0",
     "eslint-formatter-unix": "^8.40.0",
     "eslint-plugin-check-file": "^3.3.2",
