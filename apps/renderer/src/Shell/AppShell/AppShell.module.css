@@ -57,16 +57,47 @@
 	height: 100%;
 }
 
+.screenOnly {
+	display: contents;
+}
+
 /*
  * Printing a message (§13 Epic 2) prints the reading pane only. The sidebar, message list and
  * every other detail-panel view are chrome the printed page has no use for; `id`s are set on
  * the resizable panels themselves for exactly this hook, not for styling in the normal case.
  */
+@page {
+	margin: 16mm;
+}
+
 @media print {
+	.shell {
+		display: block;
+		height: auto;
+		overflow: visible;
+	}
+
+	.panels,
+	.reading {
+		min-height: 0 !important;
+		height: auto !important;
+		overflow: visible !important;
+	}
+
 	.header,
-	#sidebar,
-	#list,
-	[data-separator] {
+	.screenOnly,
+	:global(#sidebar),
+	:global(#list),
+	:global([data-separator]),
+	:global([role="dialog"]) {
 		display: none !important;
+	}
+
+	:global(#detail) {
+		flex: 1 1 100% !important;
+		width: 100% !important;
+		min-height: 0 !important;
+		height: auto !important;
+		overflow: visible !important;
 	}
 }

@@ -66,9 +66,10 @@ export const queryKeys = {
 };
 
 /**
- * A mutation confirmation carries the committed server-known summary. Publish it before
- * invalidating the independently fetched pending projection, so either cache order still shows
- * the same desired flag instead of briefly reverting to an older list page.
+ * Message events carry confirmed flags and may also carry the first body-derived IMAP
+ * snippet. Snippets only transition blank-to-populated; retaining a populated value prevents
+ * an older concurrent mutation event from erasing it while still allowing the content event
+ * itself to fill the list immediately.
  */
 function updateMessageSummaryCaches(
 	queryClient: QueryClient,
@@ -85,7 +86,7 @@ function updateMessageSummaryCaches(
 				pages: current.pages.map((page) =>
 					page.map((candidate) =>
 						candidate.id === message.id
-							? mergeServerKnownFlags(candidate, message)
+							? mergeServerKnownProjection(candidate, message)
 							: candidate,
 					),
 				),
@@ -99,7 +100,7 @@ function updateMessageSummaryCaches(
 		(current) =>
 			current?.map((candidate) =>
 				candidate.id === message.id
-					? mergeServerKnownFlags(candidate, message)
+					? mergeServerKnownProjection(candidate, message)
 					: candidate,
 			),
 	);
@@ -108,18 +109,19 @@ function updateMessageSummaryCaches(
 		(current) =>
 			current?.map((candidate) =>
 				candidate.id === message.id
-					? mergeServerKnownFlags(candidate, message)
+					? mergeServerKnownProjection(candidate, message)
 					: candidate,
 			),
 	);
 }
 
-function mergeServerKnownFlags(
+export function mergeServerKnownProjection(
 	current: MessageSummaryDto,
 	confirmed: MessageSummaryDto,
 ): MessageSummaryDto {
 	return {
 		...current,
+		snippet: confirmed.snippet || current.snippet,
 		isRead: confirmed.isRead,
 		isFlagged: confirmed.isFlagged,
 		mutationFailure: confirmed.mutationFailure,

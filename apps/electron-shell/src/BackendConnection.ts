@@ -15,6 +15,7 @@ export const notificationNavigationReadyChannel =
 	"notification:navigation-ready";
 export const openWindowChannel = "window:open";
 export const pickExportFolderChannel = "export:pick-folder";
+export const printMessageChannel = "message:print";
 export const updateCloseBehaviorChannel =
 	"shell-settings:close-behavior-changed";
 export const reportDraftStateChannel = "draft:state-changed";

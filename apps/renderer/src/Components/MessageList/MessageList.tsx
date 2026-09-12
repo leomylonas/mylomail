@@ -1363,9 +1363,9 @@ async function forward(
 }
 
 /**
- * Loads the body into the query cache before switching to the reading pane, so it renders
- * already-fetched rather than showing "Downloading this message…" under the print dialog —
- * printing has to go through that same sandboxed render, never a second ad-hoc one (§13).
+ * Loads the canonical headers and body into the shared query cache before selecting the
+ * reading pane. `ReadingPane` consumes the print request only after its isolated HTML frame
+ * reports ready, so Electron never captures a loading skeleton or a partly resolved body.
  */
 async function printMessage(
 	hub: HubConnection,
@@ -1373,13 +1373,18 @@ async function printMessage(
 	message: MessageSummary,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
 ): Promise<void> {
-	await queryClient.fetchQuery({
-		queryKey: ["body", message.id],
-		queryFn: () => hub.invoke("GetMessageBody", message.id),
-	});
+	await Promise.all([
+		queryClient.fetchQuery({
+			queryKey: ["body", message.id],
+			queryFn: () => hub.invoke("GetMessageBody", message.id),
+		}),
+		queryClient.fetchQuery({
+			queryKey: ["message-context", message.id],
+			queryFn: () =>
+				hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
+		}),
+	]);
 	onPrint({ ...message, from: senderAddress(message) });
-	// One frame so the reading pane has actually mounted the now-cached body before printing.
-	requestAnimationFrame(() => window.print());
 }
 
 /**

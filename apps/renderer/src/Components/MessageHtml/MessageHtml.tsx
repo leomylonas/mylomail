@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Checkbox } from "@carbon/react";
 import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
@@ -89,15 +89,25 @@ const framePolicy = (allowRemote: boolean) =>
 		"frame-src 'none'",
 	].join("; ");
 
+type InlineResolution = {
+	messageId: string;
+	revision: string;
+	html: string | null;
+	status: "resolving" | "resolved" | "failed";
+};
+
 export function MessageHtml({
 	html,
 	messageId,
 	senderAddress,
+	onReadyChange,
 }: {
 	html: string;
 	messageId: string;
 	/** For the persisted remote-content allow list (§13 Epic 5), passed down from ReadingPane. */
 	senderAddress?: string;
+	/** Tracks whether this exact message document is loaded and sized for printing. */
+	onReadyChange?: (ready: boolean) => void;
 }) {
 	const remoteContentDecision = useRemoteContentDecision(senderAddress);
 	const putRemoteContentRules = usePutRemoteContentRules();
@@ -107,16 +117,21 @@ export function MessageHtml({
 		(remoteContentDecision !== "block" && allowRemoteOverride);
 	const [alwaysAllowSender, setAlwaysAllowSender] = useState(false);
 	const [alwaysAllowDomain, setAlwaysAllowDomain] = useState(false);
-	const [resolved, setResolved] = useState<string | null>(null);
-	const [inlineStatus, setInlineStatus] = useState<
-		"idle" | "resolving" | "resolved" | "failed"
-	>("idle");
+	const [inlineResolution, setInlineResolution] = useState<InlineResolution>({
+		messageId: "",
+		revision: "",
+		html: null,
+		status: "resolving",
+	});
+	const [loadedDocument, setLoadedDocument] = useState<string | null>(null);
+	const frameRef = useRef<HTMLIFrameElement>(null);
 
 	const prepared = useMemo(
 		() => prepare(html, allowRemote),
 		[html, allowRemote],
 	);
 
+	const sourceRevision = `${messageId}\u0000${prepared.html}`;
 	useEffect(() => {
 		let revoke = () => undefined as void;
 		let cancelled = false;
@@ -129,11 +144,22 @@ export function MessageHtml({
 				}
 
 				revoke = result.revoke;
-				setResolved(result.html);
-				setInlineStatus("resolved");
+				setInlineResolution({
+					messageId,
+					revision: sourceRevision,
+					html: result.html,
+					status: "resolved",
+				});
 			},
 			() => {
-				if (!cancelled) setInlineStatus("failed");
+				if (!cancelled) {
+					setInlineResolution({
+						messageId,
+						revision: sourceRevision,
+						html: null,
+						status: "failed",
+					});
+				}
 			},
 		);
 
@@ -143,14 +169,60 @@ export function MessageHtml({
 			// never revoked them would grow with every message opened.
 			revoke();
 		};
-	}, [prepared.html, messageId]);
+	}, [messageId, prepared.html, sourceRevision]);
 
+	const currentResolution =
+		inlineResolution.revision === sourceRevision
+			? inlineResolution
+			: {
+					messageId,
+					revision: sourceRevision,
+					html: null,
+					status: "resolving" as const,
+				};
+	const renderedHtml =
+		currentResolution.html ??
+		(inlineResolution.messageId === messageId ? inlineResolution.html : null) ??
+		prepared.html;
 	const document = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${framePolicy(
 		allowRemote,
-	)}"></head><body>${resolved ?? prepared.html}</body></html>`;
+	)}"></head><body>${renderedHtml}<style>@media print { html, body { margin: 0 !important; background: #fff !important; color: #000 !important; } img { max-width: 100% !important; height: auto !important; } }</style></body></html>`;
+	const documentRevision = `${messageId}\u0000${document}`;
+	const ready =
+		(currentResolution.status === "resolved" ||
+			currentResolution.status === "failed") &&
+		loadedDocument === documentRevision;
+	useEffect(() => {
+		onReadyChange?.(ready);
+	}, [documentRevision, onReadyChange, ready]);
+
+	const resizeFrame = useCallback(() => {
+		const frame = frameRef.current;
+		const frameDocument = frame?.contentDocument;
+		if (!frame || !frameDocument) return;
+
+		// `beforeprint` runs after print media has been selected. Re-measuring there uses
+		// the paper-width layout rather than the wider on-screen pane, so reflowed content
+		// cannot be clipped at the iframe's old screen height.
+		frame.height = "1";
+		const height = Math.max(
+			frameDocument.documentElement.scrollHeight,
+			frameDocument.body?.scrollHeight ?? 0,
+		);
+		if (height > 0) frame.height = String(height);
+	}, []);
+
+	useEffect(() => {
+		window.addEventListener("beforeprint", resizeFrame);
+		window.addEventListener("afterprint", resizeFrame);
+		return () => {
+			window.removeEventListener("beforeprint", resizeFrame);
+			window.removeEventListener("afterprint", resizeFrame);
+		};
+	}, [resizeFrame]);
 
 	return (
-		<div data-inline-status={inlineStatus}>
+		<div data-inline-status={currentResolution.status}>
 			{prepared.blockedRemoteCount > 0 &&
 			!allowRemote &&
 			remoteContentDecision === "block" ? (
@@ -211,7 +283,8 @@ export function MessageHtml({
 				</div>
 			) : null}
 			<iframe
-				key={document}
+				ref={frameRef}
+				key={documentRevision}
 				className={styles.frame}
 				title="Message body"
 				// Same-origin is required for the authenticated renderer's blob URLs. Scripts,
@@ -219,6 +292,10 @@ export function MessageHtml({
 				// still has no executable path to the renderer's mail capabilities (§13).
 				sandbox="allow-same-origin"
 				srcDoc={document}
+				onLoad={() => {
+					resizeFrame();
+					setLoadedDocument(documentRevision);
+				}}
 			/>
 		</div>
 	);

@@ -87,6 +87,52 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 			timeout: 60_000,
 		});
 
+		// Printed output is the actual reading surface: canonical headers, the acquired body,
+		// and no renderer-owned browser print call. Replace only Electron's native print method
+		// so the IPC path can be observed without opening an OS dialog in headless CI.
+		const article = window.getByRole("article", { name: "Message" });
+		await expect(
+			article.getByText("Someone <sender@example.org>"),
+		).toBeVisible();
+		await expect(article.getByText("test@mylomail.local")).toBeVisible();
+		await expect(article.locator("dt", { hasText: "Date" })).toBeVisible();
+		await window.emulateMedia({ media: "print" });
+		await expect(window.locator("#sidebar")).toBeHidden();
+		await expect(window.locator("#list")).toBeHidden();
+		await expect(article).toBeVisible();
+		await expect(
+			article.getByText("Quarterly forecast details."),
+		).toBeVisible();
+		await expect(article.getByRole("button", { name: "Print" })).toBeHidden();
+		await window.emulateMedia({ media: "screen" });
+		await app.evaluate(({ BrowserWindow }) => {
+			const webContents = BrowserWindow.getAllWindows()[0]?.webContents;
+			if (!webContents) throw new Error("No printable window.");
+			// Playwright exposes Electron's concrete WebContents type, whose method is writable
+			// at runtime but not modeled as replaceable; this named adapter is test-local.
+			const printableWebContents = webContents as unknown as {
+				print: (
+					options: unknown,
+					callback: (success: boolean, failureReason: string) => void,
+				) => void;
+			};
+			printableWebContents.print = (options, callback) => {
+				Reflect.set(globalThis, "__mylomailPrintOptions", options);
+				callback(true, "");
+			};
+		});
+		const print = article.getByRole("button", { name: "Print" });
+		await expect(print).toBeEnabled();
+		await print.click();
+		await expect
+			.poll(() =>
+				app.evaluate((electron) => {
+					void electron;
+					return Reflect.get(globalThis, "__mylomailPrintOptions");
+				}),
+			)
+			.toMatchObject({ printBackground: true });
+
 		// The mutation is enqueued locally, executed by a job, and applied by the provider.
 		// Asking the server is the point: the local database would look correct either way.
 		await expect

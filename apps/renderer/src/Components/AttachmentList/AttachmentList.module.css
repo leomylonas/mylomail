@@ -27,3 +27,15 @@
 .error {
 	color: var(--cds-text-secondary);
 }
+
+@media print {
+	.actions {
+		display: none;
+	}
+
+	.filename {
+		overflow: visible;
+		white-space: normal;
+		text-overflow: clip;
+	}
+}

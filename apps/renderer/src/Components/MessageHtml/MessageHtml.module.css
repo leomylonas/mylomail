@@ -15,3 +15,14 @@
 	color: var(--cds-text-secondary);
 	font-size: 0.75rem;
 }
+
+@media print {
+	.notice {
+		display: none;
+	}
+
+	.frame {
+		min-height: 0;
+		background: #fff;
+	}
+}

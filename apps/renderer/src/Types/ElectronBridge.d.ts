@@ -28,6 +28,9 @@ declare global {
 		dialogs?: {
 			pickExportFolder(): Promise<string | null>;
 		};
+		printing?: {
+			print(): Promise<boolean>;
+		};
 		shellSettings?: {
 			closeBehaviorChanged(value: number): Promise<void>;
 		};

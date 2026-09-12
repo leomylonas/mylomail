@@ -19,6 +19,7 @@ import {
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	printMessageChannel,
 	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
@@ -34,6 +35,7 @@ import { windowAlreadyEditing } from "@mylomail/electron-shell/DraftWindows";
 import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachment";
 import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
 import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationWindowTarget";
+import { printWebContents } from "@mylomail/electron-shell/Print";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -177,6 +179,12 @@ export async function startShell(): Promise<void> {
 			});
 			return result.canceled ? null : (result.filePaths[0] ?? null);
 		},
+	);
+
+	// The renderer can request printing only for its own current document. It cannot choose
+	// another WebContents, native options, a filesystem path, or arbitrary HTML.
+	ipcMain.handle(printMessageChannel, (event): Promise<boolean> =>
+		printWebContents(event.sender),
 	);
 
 	const nativeNotifications = new NativeNotificationDispatcher((request) => {

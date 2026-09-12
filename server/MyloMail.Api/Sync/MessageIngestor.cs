@@ -410,7 +410,14 @@ public sealed class MessageIngestor(
 		message.Cc = dto.Cc;
 		message.Bcc = dto.Bcc;
 		message.Subject = dto.Subject;
-		message.Snippet = dto.Snippet;
+		// An IMAP envelope has no preview, so replaying or polling it after content acquisition
+		// must not erase the body-derived snippet already committed locally. Provider previews
+		// are still authoritative when present (Graph/Gmail), and a new blank message remains
+		// blank.
+		if (!string.IsNullOrWhiteSpace(dto.Snippet) || string.IsNullOrWhiteSpace(message.Snippet))
+		{
+			message.Snippet = dto.Snippet;
+		}
 		message.ReceivedAt = dto.ReceivedAt;
 		message.IsRead = dto.IsRead;
 		message.IsFlagged = dto.IsFlagged;

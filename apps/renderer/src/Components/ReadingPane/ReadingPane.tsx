@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { ActionableNotification, Button, SkeletonText } from "@carbon/react";
@@ -6,6 +6,10 @@ import type { MessageInviteDto } from "@mylomail/shared-types/SignalR/MyloMail.A
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
+import type {
+	Address,
+	MessageReplyContext,
+} from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -35,6 +39,8 @@ export function ReadingPane({
 	senderAddress,
 	onOpenInNewWindow,
 	onReply,
+	printRequestId,
+	onPrintHandled,
 }: {
 	hub: HubConnection;
 	messageId: string;
@@ -58,8 +64,17 @@ export function ReadingPane({
 	 * way to reply at all short of switching back to the main window.
 	 */
 	onReply?: (mode: "reply" | "replyAll" | "forward") => void;
+	/** A context-menu print request consumed only after headers and the final body are rendered. */
+	printRequestId?: string;
+	onPrintHandled?: (requestId: string) => void;
 }) {
 	const queryClient = useQueryClient();
+	const { store: notifications } = useWindowNotifications();
+	const [htmlReadiness, setHtmlReadiness] = useState<{
+		messageId: string;
+		ready: boolean;
+	} | null>(null);
+	const consumedPrintRequest = useRef<string | null>(null);
 	const body = useQuery({
 		queryKey: ["body", messageId],
 		queryFn: () => hub.invoke<MessageBody>("GetMessageBody", messageId),
@@ -76,40 +91,99 @@ export function ReadingPane({
 				? false
 				: 2000,
 	});
+	const context = useQuery({
+		queryKey: ["message-context", messageId],
+		queryFn: () =>
+			hub.invoke<MessageReplyContext>("GetMessageReplyContext", messageId),
+	});
 	useEffect(() => {
 		if (!body.data?.isFetched) return;
 		void queryClient.invalidateQueries({ queryKey: ["messages"] });
 		void queryClient.invalidateQueries({ queryKey: ["search"] });
 	}, [body.data?.isFetched, messageId, queryClient]);
+	const handleHtmlReadyChange = useCallback(
+		(ready: boolean) => setHtmlReadiness({ messageId, ready }),
+		[messageId],
+	);
+	const printable =
+		Boolean(context.data) &&
+		Boolean(body.data?.isFetched) &&
+		(!body.data?.html ||
+			(htmlReadiness?.messageId === messageId && htmlReadiness.ready));
+	const printCurrentMessage = useCallback(async (): Promise<void> => {
+		try {
+			if (!window.printing)
+				throw new Error("Printing is unavailable outside the desktop app.");
+			await window.printing.print();
+		} catch (error) {
+			notify(notifications, {
+				kind: "error",
+				title: "The message could not be printed",
+				detail: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [notifications]);
+	useEffect(() => {
+		if (
+			!printRequestId ||
+			!printable ||
+			consumedPrintRequest.current === printRequestId
+		)
+			return;
+		consumedPrintRequest.current = printRequestId;
+		onPrintHandled?.(printRequestId);
+		void printCurrentMessage();
+	}, [onPrintHandled, printCurrentMessage, printRequestId, printable]);
+	useEffect(
+		() => () => {
+			if (printRequestId && consumedPrintRequest.current !== printRequestId) {
+				onPrintHandled?.(printRequestId);
+			}
+		},
+		[messageId, onPrintHandled, printRequestId],
+	);
 
 	return (
 		<article className={styles.pane} aria-label="Message">
 			<div className={styles.subjectRow}>
 				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
-				{onReply ? (
-					<>
-						<Button size="sm" kind="ghost" onClick={() => onReply("reply")}>
-							Reply
-						</Button>
-						<Button size="sm" kind="ghost" onClick={() => onReply("replyAll")}>
-							Reply all
-						</Button>
-						<Button size="sm" kind="ghost" onClick={() => onReply("forward")}>
-							Forward
-						</Button>
-					</>
-				) : null}
-				<Button size="sm" kind="ghost" onClick={() => window.print()}>
-					Print
-				</Button>
-				{onOpenInNewWindow ? (
-					<Button size="sm" kind="ghost" onClick={onOpenInNewWindow}>
-						Open in new window
+				<div className={styles.actions}>
+					{onReply ? (
+						<>
+							<Button size="sm" kind="ghost" onClick={() => onReply("reply")}>
+								Reply
+							</Button>
+							<Button
+								size="sm"
+								kind="ghost"
+								onClick={() => onReply("replyAll")}
+							>
+								Reply all
+							</Button>
+							<Button size="sm" kind="ghost" onClick={() => onReply("forward")}>
+								Forward
+							</Button>
+						</>
+					) : null}
+					<Button
+						size="sm"
+						kind="ghost"
+						disabled={!printable || !window.printing}
+						onClick={() => void printCurrentMessage()}
+					>
+						Print
 					</Button>
-				) : null}
+					{onOpenInNewWindow ? (
+						<Button size="sm" kind="ghost" onClick={onOpenInNewWindow}>
+							Open in new window
+						</Button>
+					) : null}
+				</div>
 			</div>
+			{context.data ? <MessageHeaders context={context.data} /> : null}
+			{context.isPending ? <SkeletonText lineCount={3} /> : null}
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
-			{body.isError ? (
+			{body.isError || context.isError ? (
 				<p className={styles.waiting} role="alert">
 					This message is no longer available.
 				</p>
@@ -120,10 +194,58 @@ export function ReadingPane({
 					messageId={messageId}
 					hub={hub}
 					senderAddress={senderAddress}
+					onHtmlReadyChange={handleHtmlReadyChange}
 				/>
 			) : null}
 		</article>
 	);
+}
+
+function MessageHeaders({ context }: { context: MessageReplyContext }) {
+	const hasDistinctReplyTo =
+		context.replyTo.length > 0 &&
+		(context.replyTo.length !== context.from.length ||
+			context.replyTo.some(
+				(address, index) =>
+					address.email.toLowerCase() !==
+					context.from[index]?.email.toLowerCase(),
+			));
+	return (
+		<dl className={styles.headers}>
+			<Header name="From" value={formatAddresses(context.from)} />
+			<Header name="To" value={formatAddresses(context.to)} />
+			{context.cc.length > 0 ? (
+				<Header name="Cc" value={formatAddresses(context.cc)} />
+			) : null}
+			{hasDistinctReplyTo ? (
+				<Header name="Reply-To" value={formatAddresses(context.replyTo)} />
+			) : null}
+			<Header
+				name="Date"
+				value={new Intl.DateTimeFormat(undefined, {
+					dateStyle: "full",
+					timeStyle: "short",
+				}).format(new Date(context.receivedAt))}
+			/>
+		</dl>
+	);
+}
+
+function Header({ name, value }: { name: string; value: string }) {
+	return (
+		<div className={styles.header}>
+			<dt>{name}</dt>
+			<dd>{value || "(none)"}</dd>
+		</div>
+	);
+}
+
+function formatAddresses(addresses: Address[]): string {
+	return addresses
+		.map((address) =>
+			address.name ? `${address.name} <${address.email}>` : address.email,
+		)
+		.join(", ");
 }
 
 function Body({
@@ -131,11 +253,13 @@ function Body({
 	messageId,
 	hub,
 	senderAddress,
+	onHtmlReadyChange,
 }: {
 	body: MessageBody;
 	messageId: string;
 	hub: HubConnection;
 	senderAddress?: string;
+	onHtmlReadyChange: (ready: boolean) => void;
 }) {
 	if (body.isFailed)
 		return (
@@ -163,6 +287,7 @@ function Body({
 					html={body.html}
 					messageId={messageId}
 					senderAddress={senderAddress}
+					onReadyChange={onHtmlReadyChange}
 				/>
 				<AttachmentList hub={hub} messageId={messageId} />
 			</>

@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -185,6 +186,58 @@ public sealed class SyncCrashWindowTests
 			var context = scope.GetRequiredService<MyloMailDbContext>();
 			Assert.Equal(1, await context.Messages.CountAsync());
 			Assert.Equal(1, await context.MessageMailboxes.CountAsync());
+		});
+	}
+
+	/// <summary>
+	/// Kill point: after a replayed IMAP page commits. IMAP envelopes carry no snippet, so the
+	/// replay must not erase body-derived content that was durably acquired before the crash.
+	/// </summary>
+	[Fact]
+	public async Task A_replayed_imap_page_cannot_erase_a_durably_acquired_snippet()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		var occurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch
+		);
+		await SyncTests.CoverAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync();
+			message.Snippet = "Durably acquired body preview";
+			await context.SaveChangesAsync();
+
+			await harness.Provider.SetFlagsAsync(
+				await harness.AccountInScopeAsync(scope),
+				[
+					new MessageOccurrenceRef(
+						message.Id,
+						Guid.Empty,
+						occurrenceId
+					),
+				],
+				new FlagUpdate(IsRead: true, IsFlagged: null),
+				default
+			);
+		});
+
+		harness.Faults.ArmAt(FaultPoints.SyncPageAfterCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => SyncTests.SyncAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var message = await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync();
+			Assert.True(message.IsRead);
+			Assert.Equal("Durably acquired body preview", message.Snippet);
 		});
 	}
 

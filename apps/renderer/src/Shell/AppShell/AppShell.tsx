@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	Group,
 	Panel,
@@ -99,6 +99,15 @@ export function AppShell({
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
 	// "New message" — the two are mutually exclusive seeds for the same compose pane.
 	const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>();
+	const [printRequest, setPrintRequest] = useState<{
+		messageId: string;
+		requestId: string;
+	} | null>(null);
+	const handlePrintHandled = useCallback((requestId: string) => {
+		setPrintRequest((current) =>
+			current?.requestId === requestId ? null : current,
+		);
+	}, []);
 	// Which account's ReauthenticateAccount dialog is open, if any — not always
 	// selectedAccountId: a MessageSyncFailed event (§15) can request this for a different
 	// account than whichever one this window currently has selected.
@@ -398,39 +407,41 @@ export function AppShell({
 				) : null}
 			</header>
 
-			{hub ? <ConnectivityBanner hub={hub} /> : null}
+			<div className={styles.screenOnly}>
+				{hub ? <ConnectivityBanner hub={hub} /> : null}
 
-			{needsAttention ? (
-				<ActionableNotification
-					kind="warning"
-					title="This account needs attention"
-					subtitle={
-						selectedAccount!.lastAuthError ??
-						"MyloMail could not sign in to this account."
-					}
-					lowContrast
-					hideCloseButton
-					inline
-					actionButtonLabel="Reauthenticate"
-					onActionButtonClick={() =>
-						setReauthenticatingAccountId(selectedAccountId ?? null)
-					}
-				/>
-			) : null}
+				{needsAttention ? (
+					<ActionableNotification
+						kind="warning"
+						title="This account needs attention"
+						subtitle={
+							selectedAccount!.lastAuthError ??
+							"MyloMail could not sign in to this account."
+						}
+						lowContrast
+						hideCloseButton
+						inline
+						actionButtonLabel="Reauthenticate"
+						onActionButtonClick={() =>
+							setReauthenticatingAccountId(selectedAccountId ?? null)
+						}
+					/>
+				) : null}
 
-			{credentialStoreUnavailable ? (
-				<ActionableNotification
-					kind="warning"
-					title="Unlock your keychain"
-					subtitle={
-						selectedAccount!.lastAuthError ??
-						"MyloMail could not reach your OS credential store. This account's stored password may be fine — nothing to re-enter here, it just needs your keychain unlocked."
-					}
-					lowContrast
-					hideCloseButton
-					inline
-				/>
-			) : null}
+				{credentialStoreUnavailable ? (
+					<ActionableNotification
+						kind="warning"
+						title="Unlock your keychain"
+						subtitle={
+							selectedAccount!.lastAuthError ??
+							"MyloMail could not reach your OS credential store. This account's stored password may be fine — nothing to re-enter here, it just needs your keychain unlocked."
+						}
+						lowContrast
+						hideCloseButton
+						inline
+					/>
+				) : null}
+			</div>
 
 			{effectivePane === "contacts" && hub && selectedAccountId ? (
 				<div className={styles.calendarPanel}>
@@ -504,6 +515,10 @@ export function AppShell({
 											message.from,
 										);
 										setPane("reading");
+										setPrintRequest({
+											messageId: message.id,
+											requestId: crypto.randomUUID(),
+										});
 									}}
 									onCompose={(seed) => {
 										setOpenDraft(undefined);
@@ -620,6 +635,12 @@ export function AppShell({
 								messageId={selectedMessageId}
 								subject={selectedMessageSubject}
 								senderAddress={selectedMessageSenderAddress}
+								printRequestId={
+									printRequest?.messageId === selectedMessageId
+										? printRequest.requestId
+										: undefined
+								}
+								onPrintHandled={handlePrintHandled}
 								onOpenInNewWindow={
 									window.windows
 										? () =>

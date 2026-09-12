@@ -7,6 +7,7 @@ import {
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	printMessageChannel,
 	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
@@ -77,6 +78,12 @@ contextBridge.exposeInMainWorld("windows", {
 contextBridge.exposeInMainWorld("dialogs", {
 	pickExportFolder: (): Promise<string | null> =>
 		ipcRenderer.invoke(pickExportFolderChannel) as Promise<string | null>,
+});
+
+/** Printing is a privileged main-process operation; the renderer can only print itself. */
+contextBridge.exposeInMainWorld("printing", {
+	print: (): Promise<boolean> =>
+		ipcRenderer.invoke(printMessageChannel) as Promise<boolean>,
 });
 
 /**
