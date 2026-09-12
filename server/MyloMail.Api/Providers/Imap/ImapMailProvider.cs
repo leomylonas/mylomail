@@ -219,8 +219,9 @@ public sealed partial class ImapMailProvider : IMailProvider
 		}
 	}
 
-	public async Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(
+	public async Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
 		Account account,
+		string? cursor,
 		CancellationToken ct
 	)
 	{
@@ -281,7 +282,7 @@ public sealed partial class ImapMailProvider : IMailProvider
 		}
 
 		await client.DisconnectAsync(true, ct);
-		return result;
+		return new MailboxTopologyResult(result, [], null, IsFullSnapshot: true);
 	}
 
 	private static SpecialUse SpecialUseOf(IMailFolder folder) =>

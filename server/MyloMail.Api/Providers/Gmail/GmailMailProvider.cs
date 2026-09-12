@@ -76,18 +76,18 @@ public sealed partial class GmailMailProvider(
 		}
 	}
 
-	public async Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(
+	public async Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
 		Account account,
+		string? cursor,
 		CancellationToken ct
 	)
 	{
 		var service = await ServiceAsync(account, ct);
 		var response = await service.Users.Labels.List(UserId).ExecuteThrottleAwareAsync(ct);
 
-		return
-		[
-			.. (response.Labels ?? [])
-				.Where(label => label.Id is not null && label.Name is not null)
+		var mailboxes =
+			response.Labels
+				?.Where(label => label.Id is not null && label.Name is not null)
 				.Select(label => new MailboxDto
 				{
 					ProviderMailboxId = label.Id!,
@@ -98,8 +98,11 @@ public sealed partial class GmailMailProvider(
 					IsSubscribed = label.LabelListVisibility != "labelHide",
 					TotalCount = label.MessagesTotal,
 					UnreadCount = label.MessagesUnread,
-				}),
-		];
+				})
+				.ToList()
+			?? [];
+
+		return new MailboxTopologyResult(mailboxes, [], null, IsFullSnapshot: true);
 	}
 
 	public async Task<int> EstimateMailboxCountAsync(

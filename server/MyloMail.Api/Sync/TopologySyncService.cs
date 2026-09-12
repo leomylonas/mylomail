@@ -27,7 +27,25 @@ public sealed class TopologySyncService(
 {
 	public async Task<TopologyChange> ReconcileAsync(Account account, CancellationToken ct = default)
 	{
-		var reported = await providers.For(account).ListMailboxesAsync(account, ct);
+		var state = await context.MailboxTopologySyncStates.FirstOrDefaultAsync(
+			topologyState => topologyState.AccountId == account.Id,
+			ct
+		);
+		var availabilityRecovered = state?.LastError is not null;
+		var provider = providers.For(account);
+		MailboxTopologyResult topology;
+		try
+		{
+			topology = await provider.SyncMailboxTopologyAsync(account, state?.Cursor, ct);
+		}
+		catch (ProviderCursorInvalidException) when (state?.Cursor is not null)
+		{
+			// A provider-expired or locally obsolete topology cursor is recoverable by a
+			// complete baseline. Its replacement cursor is committed with that baseline.
+			topology = await provider.SyncMailboxTopologyAsync(account, null, ct);
+		}
+
+		var reported = topology.Upserted;
 		// The metadata comes with them. Without it every existing mailbox looks as though it
 		// has none, so reconciliation attaches a second row and the save fails on the unique
 		// key — which is every reconciliation after the first on an IMAP account, and so is
@@ -69,18 +87,46 @@ public sealed class TopologySyncService(
 
 		// Parents are linked in a second pass: a provider may report a child before its
 		// parent, and the local id of the parent is not known until it has been created.
-		foreach (var dto in reported.Where(d => d.ParentProviderMailboxId is not null))
+		// A null parent is authoritative too: it is how a delta moves an existing folder
+		// back to the root.
+		foreach (var dto in reported)
 		{
-			if (
-				byProviderId.TryGetValue(dto.ProviderMailboxId, out var child)
-				&& byProviderId.TryGetValue(dto.ParentProviderMailboxId!, out var parent)
-			)
+			if (!byProviderId.TryGetValue(dto.ProviderMailboxId, out var child))
 			{
-				child.ParentId = parent.Id;
+				continue;
 			}
+
+			child.ParentId = dto.ParentProviderMailboxId is { } parentProviderId
+				&& byProviderId.TryGetValue(parentProviderId, out var parent)
+				? parent.Id
+				: null;
 		}
 
-		var (removed, orphanedMessageIds) = await RemoveVanishedAsync(existing, seen, ct);
+		HashSet<string> removedProviderIds;
+		if (topology.IsFullSnapshot)
+		{
+			removedProviderIds =
+			[
+				.. existing
+					.Where(mailbox => mailbox.ProviderMailboxId is not null
+						&& !seen.Contains(mailbox.ProviderMailboxId))
+					.Select(mailbox => mailbox.ProviderMailboxId!),
+			];
+		}
+		else
+		{
+			removedProviderIds = new HashSet<string>(
+				topology.RemovedProviderMailboxIds,
+				StringComparer.Ordinal
+			);
+			removedProviderIds.ExceptWith(seen);
+		}
+
+		var (removed, orphanedMessageIds) = await RemoveMailboxesAsync(
+			existing,
+			removedProviderIds,
+			ct
+		);
 		if (account.ProviderType == ProviderType.Gmail)
 		{
 			var hierarchy = ReconcileGmailHierarchy(account.Id, reported, existing, byProviderId);
@@ -88,14 +134,13 @@ public sealed class TopologySyncService(
 			removed += hierarchy.Removed;
 		}
 
-		var state = await context.MailboxTopologySyncStates.FirstOrDefaultAsync(s => s.AccountId == account.Id, ct);
-		var availabilityRecovered = state?.LastError is not null;
 		if (state is null)
 		{
 			state = new MailboxTopologySyncState { AccountId = account.Id };
 			context.MailboxTopologySyncStates.Add(state);
 		}
 
+		state.Cursor = topology.Cursor;
 		state.LastReconciledAt = clock.GetUtcNow();
 		state.LastError = null;
 
@@ -250,20 +295,21 @@ public sealed class TopologySyncService(
 	}
 
 	/// <summary>
-	/// A mailbox the provider no longer reports is removed along with its memberships.
+	/// Removes mailboxes proven absent by a full snapshot or explicitly removed by a delta.
 	/// </summary>
 	/// <remarks>
 	/// Gmail synthetic hierarchy nodes are handled separately: the complete reported label
 	/// set proves exactly which intermediate paths still exist.
 	/// </remarks>
-	private async Task<(int Removed, IReadOnlyList<Guid> OrphanedMessageIds)> RemoveVanishedAsync(
+	private async Task<(int Removed, IReadOnlyList<Guid> OrphanedMessageIds)> RemoveMailboxesAsync(
 		List<Mailbox> existing,
-		HashSet<string> seen,
+		IReadOnlySet<string> removedProviderIds,
 		CancellationToken ct
 	)
 	{
 		var vanished = existing
-			.Where(m => m.ProviderMailboxId is not null && !seen.Contains(m.ProviderMailboxId))
+			.Where(m => m.ProviderMailboxId is not null
+				&& removedProviderIds.Contains(m.ProviderMailboxId))
 			.ToList();
 		if (vanished.Count == 0)
 		{

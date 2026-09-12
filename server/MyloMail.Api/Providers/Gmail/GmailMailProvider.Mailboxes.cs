@@ -8,7 +8,7 @@ namespace MyloMail.Api.Providers.Gmail;
 /// Label lifecycle (§2).
 /// </summary>
 /// <remarks>
-/// Gmail labels are flat on the server — <see cref="GmailMailProvider.ListMailboxesAsync"/>
+/// Gmail labels are flat on the server — <see cref="GmailMailProvider.SyncMailboxTopologyAsync"/>
 /// always reports <c>ParentProviderMailboxId = null</c> — but nested labels are a real, if
 /// purely conventional, Gmail feature: a label's server-side <c>name</c> is a
 /// <c>/</c>-delimited path, and Gmail treats "Work/Projects" as a child of "Work" for display
@@ -84,7 +84,7 @@ public sealed partial class GmailMailProvider
 			// The leaf segment only — Mailbox.Name is documented as never a path (§1).
 			Name = (label.Name ?? string.Empty).Split(PathSeparator)[^1],
 			// Reported back to the caller purely as local-parent bookkeeping; Gmail itself has
-			// no parent reference (ListMailboxesAsync always reports null for this field).
+			// no parent reference (SyncMailboxTopologyAsync always reports null for this field).
 			ParentProviderMailboxId = null,
 			IsSubscribed = label.LabelListVisibility != "labelHide",
 		};

@@ -33,9 +33,15 @@ public interface IMailProvider
 
 	/// <summary>
 	/// Topology discovery is not a by-product of message sync — Gmail's history stream is a
-	/// message stream and does not report labels created, renamed or deleted elsewhere (§1).
+	/// message stream and does not report labels created, renamed or deleted elsewhere. The
+	/// prior cursor is provider-owned; the returned cursor must be persisted in the same
+	/// transaction as the reported topology changes (§1, §3).
 	/// </summary>
-	Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct);
+	Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
+		Account account,
+		string? cursor,
+		CancellationToken ct
+	);
 
 	Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct);
 

@@ -78,9 +78,16 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	{
 		Available();
 
-		var mailboxes = await Harness.Provider.ListMailboxesAsync(Harness.Account, default);
+		var topology = await Harness.Provider.SyncMailboxTopologyAsync(
+			Harness.Account,
+			null,
+			default
+		);
 
-		Assert.Contains(mailboxes, mailbox => mailbox.SpecialUse == Api.Domain.SpecialUse.Inbox);
+		Assert.Contains(
+			topology.Upserted,
+			mailbox => mailbox.SpecialUse == Api.Domain.SpecialUse.Inbox
+		);
 	}
 
 	[SkippableFact]

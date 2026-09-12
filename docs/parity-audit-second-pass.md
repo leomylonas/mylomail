@@ -1,15 +1,15 @@
 # Architecture parity audit — second pass
 
 **Audit date:** 2026-09-12  
-**Baseline:** the 47 remediations and 13 verification items recorded in `docs/handover.md`, through commit `7eaabc1`
+**Baseline:** the 47 remediations and 13 verification items recorded in `docs/handover.md`, through the rich-text and packaged-font closures
 
 ## Verdict
 
 The first audit's 47 confirmed implementation gaps are closed. The remediation record, current source, focused runtime workflows, and the full repository check support those closures.
 
-A fresh architecture-to-code review found **two new architecture-parity defects** that the first audit missed. The rich-text defect was remediated immediately after this audit; Graph topology remains open:
+A fresh architecture-to-code review found **two new architecture-parity defects** that the first audit missed. Both were remediated:
 
-1. Microsoft Graph mailbox topology is neither recursive nor delta/cursor based. This is high severity because an incomplete response is treated as a complete snapshot.
+1. Microsoft Graph mailbox topology was neither recursive nor delta/cursor based. It now walks every root and child delta stream and commits its versioned cursor with the exact topology changes it covers.
 2. Rich-text compose formatting was blocked in the real renderer by its CSP. The strict CSP is retained, and semantic bold/italic formatting now survives the complete Electron-to-SMTP path.
 
 The review also found one lower-severity distribution defect: the built Carbon stylesheet retained unresolved IBM Plex package URLs and shipped no font files. This was remediated immediately after the audit by explicitly bundling the required local font faces.
@@ -19,7 +19,7 @@ The review also found one lower-severity distribution defect: the built Carbon s
 | Original confirmed gaps | 47 | Remediated |
 | Original verification-only items | 9 | Resolved |
 | Original verification-only items | 4 | Partially verified or externally blocked |
-| New architecture-parity defects | 2 | 1 remediated, 1 open |
+| New architecture-parity defects | 2 | Remediated |
 | New build/distribution defects | 1 | Remediated |
 | Additional portability checks | 2 | Native hosts/runners required |
 
@@ -31,30 +31,26 @@ The audit treated a source path as implementation evidence and a successful comm
 
 ## New architecture findings
 
-### 1. Graph mailbox topology is an incomplete snapshot, not recursive delta sync
+### 1. Graph mailbox topology is recursive, paged, and cursor-safe — remediated
 
 **Severity:** High  
-**Architecture:** §1 `MailboxTopologySyncState`; §3 Sync Topology; Epic 2 nested folders
+**Architecture:** §1 `MailboxTopologySyncState`; §2 provider abstraction; §3 Sync Topology; Epic 2 nested folders  
+**Status:** Closed
 
-`GraphMailProvider.ListMailboxesAsync` in `server/MyloMail.Api/Providers/Graph/GraphMailProvider.cs` performs one `client.Me.MailFolders.GetAsync` call and consumes only `folders.Value`.
+The approved provider-neutral contract is `MailboxTopologyResult`: upserts, explicit provider-id removals, an opaque versioned cursor, and a full-snapshot/delta discriminator. Gmail and IMAP return complete snapshots without topology cursors. The reconciler may delete every unseen mailbox only for a complete snapshot; a delta removes only explicit ids, so unchanged Graph folders omitted from a delta remain intact.
 
-It does not:
+`GraphMailProvider.SyncMailboxTopologyAsync` in `server/MyloMail.Api/Providers/Graph/GraphMailProvider.Topology.cs` now:
 
-- follow `OdataNextLink` for additional root pages;
-- traverse `ChildFolders` recursively;
-- call the `mailFolder` delta endpoints;
-- return a delta cursor or continuation to the topology orchestrator.
+- follows every root `OdataNextLink`;
+- establishes and resumes a child-folder delta stream for every folder, including empty folders, and recursively discovers all descendants;
+- stores root and per-folder `deltaLink`s plus parent relationships in a versioned provider cursor;
+- merges repeated occurrences in feed order within one stream, preserves an existing child stream cursor when that child is discovered beneath a new parent, and point-reads a removed immutable id before classifying it as deleted rather than moved;
+- prunes only confirmed removed subtrees, baselines streams for genuinely new folders, and treats an upsert as authoritative when independent parent streams report both sides of a move;
+- sends initial, continuation, delta-link, and removal-resolution requests through the central immutable-ID Graph pipeline.
 
-`TopologySyncService.ReconcileAsync` in `server/MyloMail.Api/Sync/TopologySyncService.cs` treats the returned ids as a complete `seen` set and passes it to `RemoveVanishedAsync`. It updates `LastReconciledAt` and `LastError`, but never reads or writes `MailboxTopologySyncState.Cursor`.
+`TopologySyncService.ReconcileAsync` now passes the durable topology cursor to the provider, distinguishes snapshots from deltas, applies root moves as authoritative null parents, and writes the replacement cursor in the same transaction as mailbox upserts, parent changes, removals, and topology health. Provider cursor invalidation immediately performs a complete recursive rebaseline; a failed baseline cannot replace the prior cursor.
 
-Consequences:
-
-- nested Graph folders are absent;
-- root folders beyond the first provider page are absent;
-- omitted folders can be treated as deleted because a partial response is reconciled as a full snapshot;
-- the required restartable, account-scoped topology cursor is unused.
-
-Required closure: add a provider-neutral paged topology result, recursively walk Graph root and child-folder deltas, persist the complete cursor set atomically with each safe reconciliation boundary, and prove pagination, nesting, deletion, parent change, and restart behavior. This changes a frozen provider contract and therefore needs an explicit design decision before implementation.
+`GraphTopologyTests.Topology_walks_every_page_and_child_delta_then_resumes_each_stream` proves root pagination, recursive nesting, incremental resume, repeated-occurrence ordering, point-read deletion proof, split parent change, existing child-cursor preservation, new child-stream creation, removed-stream suppression, and immutable-ID middleware. `SyncTests` proves snapshot/delta deletion semantics, cursor handoff, root reparenting, invalid-cursor rebaseline, restart behavior, and cursor/data rollback at the apply-before-commit fault boundary.
 
 ### 2. Rich-text composition failed under the production CSP — remediated
 
@@ -131,6 +127,7 @@ These are not evidence of missing source behavior, but a cross-platform desktop 
 ## Documentation corrections made during this audit
 
 - Updated the §2 provider-abstraction example to use the implemented typed `ProviderCursorState` plus non-durable continuation rather than its stale `string? cursor` signature.
+- Added the provider-neutral `MailboxTopologyResult` contract and documented Graph's versioned root/child topology cursor plus snapshot/delta deletion semantics.
 - Replaced the stale §16 “verification blockers” list with dated dependency/deployment watchpoints. SQLite WAL/FULL, current Hangfire compatibility, and TypeContractor Zod output are now recorded as verified; TypeScript 7 remains deferred.
 
 ## Explicitly deferred or excluded
@@ -139,4 +136,4 @@ Unchanged from the architecture: server-side rules/filters, mail import, auto-up
 
 ## Bottom line
 
-The first audit's implementation backlog is complete, but the application is not yet at architecture parity. Graph topology discovery can silently mis-model a real mailbox tree and is the remaining second-pass architecture defect. Rich-text formatting and font packaging are now closed. Cloud-provider, native-keychain, tray, and non-Linux package evidence remains blocked on credentials or native environments rather than local implementation work.
+The first audit's implementation backlog and all three second-pass defects are closed. The audited source now matches the architecture for every locally actionable item. Live cloud-provider behavior, Windows/macOS keychains and packages, complete native tray interaction, and non-Linux attachment handling remain evidence gaps that require credentials or native environments; they are not known source omissions.

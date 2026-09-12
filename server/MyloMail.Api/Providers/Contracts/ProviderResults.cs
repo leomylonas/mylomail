@@ -34,6 +34,18 @@ public record MailboxDto
 	/// <summary>Populated by IMAP only.</summary>
 	public ImapMailboxMetadataDto? ImapMetadata { get; init; }
 }
+/// <summary>
+/// One provider topology pass. Full snapshots remove every unseen mailbox; deltas remove
+/// only the explicitly reported provider ids. The opaque cursor is committed atomically
+/// with the corresponding mailbox changes (§1, §3).
+/// </summary>
+public record MailboxTopologyResult(
+	IReadOnlyList<MailboxDto> Upserted,
+	IReadOnlyList<string> RemovedProviderMailboxIds,
+	string? Cursor,
+	bool IsFullSnapshot
+);
+
 
 /// <summary>
 /// The server's full hierarchical name plus its declared delimiter. The delimiter varies by

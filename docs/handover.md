@@ -65,10 +65,11 @@
 - Second-pass architecture audit completed. All 47 original implementation gaps remain closed. The audit found a high-severity Graph topology gap plus rich-text/CSP and IBM Plex packaging defects that are now remediated. See `docs/parity-audit-second-pass.md` for evidence, status, and the remaining native/cloud verification matrix.
 - Second-pass remediation: compose no longer invokes Lexical's inline-style HTML exporter. A text-node export override emits semantic formatting, live formatting classes come from the editor's CSS Module, and the strict renderer CSP remains unchanged. The permanent Electron workflow now checks both the absence of formatting CSP violations and semantic bold/italic content in the message received by Mailpit.
 - Second-pass remediation: Carbon's invalid default `~@ibm/plex/...` font-face output is disabled. The renderer directly owns `@ibm/plex`, declares only the five Sans/Mono faces it uses, and lets `electron-vite` fingerprint and bundle their WOFF2 files. The packaged smoke now requires every face to load through the browser Font Loading API and verifies five distinct packaged font resources.
+- Second-pass remediation: mailbox topology now has one provider-neutral snapshot/delta result carrying upserts, confirmed removals, and an opaque cursor. Graph walks every root page and every recursive child delta stream, resumes a versioned cursor set, preserves existing stream cursors across folder moves, resolves removal-only observations by immutable-id point read, and never converts an omitted delta item into deletion. The reconciler preserves stable local folder identity, treats root reparenting as authoritative, rebaselines invalid cursors, and commits each replacement cursor with the exact mailbox changes it covers.
 
 ## Next task
 
-- Resolve the second-pass Graph topology contract before implementation: provider-neutral paging must represent Graph's recursive root/child delta cursor set without weakening atomic cursor persistence.
+- No locally actionable parity remediation remains. Run the documented cloud-provider, Windows/macOS keychain/package, complete native-tray, and non-Linux attachment workflows when their required accounts or hosts are available.
 
 ## Required reading
 
@@ -221,6 +222,9 @@
 - Final verification after the second audit: `pnpm check` passed format, TypeScript, ESLint, Stylelint, build, 610 .NET tests, and 218 Vitest tests. The focused native window workflow also passed 1/1 with both offset inheritance and process-restart restoration. The local three-tier IMAP matrix was stopped after verification.
 - Rich-text compose proof: `pnpm e2e --grep "composed message is sent"` passed 1/1. The actual Electron editor applied Bold and Italic without an inline-style CSP violation; the SMTP server's received HTML contained the exact authored text under semantic `<strong>` and `<em>` elements.
 - Packaged font proof: after one transient electron-builder download returned HTTP 500, retrying `pnpm package:smoke` passed 1/1. The unpacked production renderer loaded all five declared IBM Plex faces and recorded five distinct local WOFF2 resources; the previous startup 404s were absent.
+- `pnpm check` after recursive Graph topology passed format, TypeScript, ESLint, Stylelint, build, 614 .NET tests, and 218 Vitest tests. The provider regression exercises every root page and recursive child stream, incremental cursor resume, repeated feed occurrences, split move/deletion resolution, new and preserved child streams, and immutable-ID middleware. Sync regressions cover snapshot/delta removal evidence, cursor handoff, root reparenting, invalid-cursor rebaseline, and restart rollback.
+- Topology fault discrimination: temporarily persisting `MailboxTopologySyncState.Cursor` before the topology transaction made `Topology_delta_and_cursor_roll_back_together_at_commit_boundary` fail while 613 other .NET tests passed. Restoring cursor assignment to the mailbox transaction returned the full check to green.
+- Independent topology invariant review found and closed existing-child cursor replacement, within-stream last-occurrence loss, split-move identity deletion, stale parent metadata during stream advancement, and unverified removals discovered while baselining new streams or pruning descendants. Final fresh review found no violations: every removal and former descendant is point-read by immutable id, every stream retains monotonic cursor state, invalid cursors rebaseline, and the composite cursor shares the mailbox transaction.
 
 ## Live risks / decisions
 

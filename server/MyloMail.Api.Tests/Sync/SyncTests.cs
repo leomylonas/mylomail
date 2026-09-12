@@ -106,6 +106,132 @@ public sealed class SyncTests
 		});
 	}
 
+	[Fact]
+	public async Task Topology_delta_preserves_unreported_mailboxes_and_commits_its_cursor()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.ReturnNextTopologyResult(
+			new MailboxTopologyResult(
+				[
+					TopologyMailbox("INBOX"),
+					TopologyMailbox("PARENT"),
+					TopologyMailbox("CHILD", parentProviderMailboxId: "PARENT"),
+					TopologyMailbox("UNCHANGED"),
+					TopologyMailbox("GOING"),
+				],
+				[],
+				"cursor-1",
+				IsFullSnapshot: true
+			)
+		);
+		await ReconcileAsync(harness);
+
+		harness.Provider.ReturnNextTopologyResult(
+			new MailboxTopologyResult(
+				[
+					TopologyMailbox("INBOX", "Renamed inbox"),
+					TopologyMailbox("CHILD"),
+				],
+				["GOING"],
+				"cursor-2",
+				IsFullSnapshot: false
+			)
+		);
+		var change = await ReconcileAsync(harness);
+
+		Assert.Equal(new TopologyChange(0, 2, 1), change);
+		Assert.Equal([null, "cursor-1"], harness.Provider.TopologyCursors);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var mailboxes = await context.Mailboxes.OrderBy(mailbox => mailbox.Name).ToListAsync();
+			Assert.Equal(
+				["CHILD", "PARENT", "Renamed inbox", "UNCHANGED"],
+				mailboxes.Select(mailbox => mailbox.Name)
+			);
+			Assert.Null(mailboxes.Single(mailbox => mailbox.Name == "CHILD").ParentId);
+			Assert.Equal("cursor-2", (await context.MailboxTopologySyncStates.SingleAsync()).Cursor);
+		});
+	}
+
+	[Fact]
+	public async Task Invalid_topology_cursor_rebaselines_in_the_same_reconciliation()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.ReturnNextTopologyResult(
+			new MailboxTopologyResult(
+				[TopologyMailbox("INBOX")],
+				[],
+				"cursor-1",
+				IsFullSnapshot: true
+			)
+		);
+		await ReconcileAsync(harness);
+		harness.Provider.FailListMailboxesWith(
+			new ProviderCursorInvalidException("Topology cursor expired.")
+		);
+
+		await ReconcileAsync(harness);
+
+		Assert.Equal([null, "cursor-1", null], harness.Provider.TopologyCursors);
+		await harness.UsingAsync(async scope =>
+		{
+			var state = await scope.GetRequiredService<MyloMailDbContext>()
+				.MailboxTopologySyncStates
+				.SingleAsync();
+			Assert.Null(state.Cursor);
+			Assert.Null(state.LastError);
+		});
+	}
+
+	[Fact]
+	public async Task Topology_delta_and_cursor_roll_back_together_at_commit_boundary()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.ReturnNextTopologyResult(
+			new MailboxTopologyResult(
+				[TopologyMailbox("INBOX")],
+				[],
+				"cursor-1",
+				IsFullSnapshot: true
+			)
+		);
+		await ReconcileAsync(harness);
+		var delta = new MailboxTopologyResult(
+			[TopologyMailbox("NEW")],
+			[],
+			"cursor-2",
+			IsFullSnapshot: false
+		);
+		harness.Provider.ReturnNextTopologyResult(delta);
+		harness.Faults.ArmAt(FaultPoints.TopologyAfterApplyBeforeCommit);
+
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ReconcileAsync(harness));
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(["INBOX"], await context.Mailboxes.Select(mailbox => mailbox.Name).ToListAsync());
+			Assert.Equal("cursor-1", (await context.MailboxTopologySyncStates.SingleAsync()).Cursor);
+		});
+
+		harness.Provider.ReturnNextTopologyResult(delta);
+		await ReconcileAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(
+				["INBOX", "NEW"],
+				await context.Mailboxes.OrderBy(mailbox => mailbox.Name)
+					.Select(mailbox => mailbox.Name)
+					.ToListAsync()
+			);
+			Assert.Equal("cursor-2", (await context.MailboxTopologySyncStates.SingleAsync()).Cursor);
+		});
+	}
+
 	/// <summary>
 	/// Memberships cascade with a vanished mailbox, so a message that lived only there is
 	/// gone from every window — and a folder disappearing is not, on its own, enough for the
@@ -1298,6 +1424,19 @@ public sealed class SyncTests
 			Assert.NotNull(state.BaselineEstablishedAt);
 		});
 	}
+
+	private static MailboxDto TopologyMailbox(
+		string providerMailboxId,
+		string? name = null,
+		string? parentProviderMailboxId = null
+	) =>
+		new()
+		{
+			ProviderMailboxId = providerMailboxId,
+			Name = name ?? providerMailboxId,
+			ParentProviderMailboxId = parentProviderMailboxId,
+			IsSubscribed = true,
+		};
 
 	private static Task<bool> IsReadAsync(SyncHarness harness, Guid messageId) =>
 		harness.UsingAsync(async scope =>

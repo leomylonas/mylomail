@@ -37,6 +37,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	private Exception? mailboxOperationFailure;
 	private Exception? deleteDraftFailure;
 	private Exception? listMailboxesFailure;
+	private MailboxTopologyResult? nextTopologyResult;
 	private Exception? integrityFailure;
 	private Exception? changeStreamFailure;
 	private int draftPushSuccessesBeforeFailure;
@@ -60,6 +61,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 
 	public ProviderCapabilities Capabilities { get; }
 	public TimeSpan IdleCancellationDelay { get; set; }
+	public List<string?> TopologyCursors { get; } = [];
 	public Func<MessageOccurrenceRef, Task>? BeforeFetchRawMessageReturnAsync { get; set; }
 	public Func<Task>? BeforeInitialSyncReturnAsync { get; set; }
 	public Func<Task>? BeforeChangeStreamReturnAsync { get; set; }
@@ -112,8 +114,11 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	/// (a duplicate name, a namespace it won't accept) can be exercised.</summary>
 	public void FailMailboxOperationWith(Exception failure) => mailboxOperationFailure = failure;
 
-	/// <summary>One-shot: fails the next <see cref="ListMailboxesAsync"/> call, then clears.</summary>
+	/// <summary>One-shot: fails the next <see cref="SyncMailboxTopologyAsync"/> call, then clears.</summary>
 	public void FailListMailboxesWith(Exception failure) => listMailboxesFailure = failure;
+
+	/// <summary>Overrides one topology pass, then returns to the fake's full snapshot.</summary>
+	public void ReturnNextTopologyResult(MailboxTopologyResult result) => nextTopologyResult = result;
 
 	public void FailNextIntegrityWith(Exception failure) => integrityFailure = failure;
 
@@ -216,16 +221,29 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 					: new AuthResult(true, AuthState.Connected, null)
 		);
 
-	public Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct)
+	public Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
+		Account account,
+		string? cursor,
+		CancellationToken ct
+	)
 	{
+		TopologyCursors.Add(cursor);
 		if (listMailboxesFailure is { } failure)
 		{
 			listMailboxesFailure = null;
 			throw failure;
 		}
 
-		IReadOnlyList<MailboxDto> result = [.. mailboxes.Values.Select(Describe)];
-		return Task.FromResult(result);
+		if (nextTopologyResult is { } configured)
+		{
+			nextTopologyResult = null;
+			return Task.FromResult(configured);
+		}
+
+		IReadOnlyList<MailboxDto> mailboxes = [.. this.mailboxes.Values.Select(Describe)];
+		return Task.FromResult(
+			new MailboxTopologyResult(mailboxes, [], null, IsFullSnapshot: true)
+		);
 	}
 
 	private MailboxDto Describe(FakeMailbox mailbox) =>

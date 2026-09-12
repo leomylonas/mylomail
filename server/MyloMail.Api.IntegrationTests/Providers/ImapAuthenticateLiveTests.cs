@@ -74,8 +74,9 @@ public sealed class ImapAuthenticateLiveTests
 		);
 
 		await Assert.ThrowsAsync<ProviderAuthenticationException>(
-			() => provider.ListMailboxesAsync(
+			() => provider.SyncMailboxTopologyAsync(
 				new Account { Id = Guid.NewGuid(), ProviderType = ProviderType.Imap },
+				null,
 				CancellationToken.None
 			)
 		);

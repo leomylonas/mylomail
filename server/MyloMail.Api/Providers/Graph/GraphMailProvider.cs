@@ -42,46 +42,6 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
 		oauth.AuthenticateAsync(account, ct);
 
-	public async Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(
-		Account account,
-		CancellationToken ct
-	)
-	{
-		var client = await ClientAsync(account, ct);
-		var folders = await ThrottleAwareAsync(
-			() => client.Me.MailFolders.GetAsync(
-				configuration =>
-				{
-					configuration.QueryParameters.Select =
-					[
-						"id",
-						"displayName",
-						"parentFolderId",
-						"totalItemCount",
-						"unreadItemCount",
-					];
-				},
-				ct
-			)
-		);
-		var specialUses = await SpecialUsesAsync(client, ct);
-
-		return
-		[
-			.. (folders?.Value ?? [])
-				.Where(folder => folder.Id is not null && folder.DisplayName is not null)
-				.Select(folder => new MailboxDto
-				{
-					ProviderMailboxId = folder.Id!,
-					Name = folder.DisplayName!,
-					ParentProviderMailboxId = folder.ParentFolderId,
-					SpecialUse = specialUses.GetValueOrDefault(folder.Id!, SpecialUse.None),
-					IsSubscribed = true,
-					TotalCount = folder.TotalItemCount,
-					UnreadCount = folder.UnreadItemCount,
-				}),
-		];
-	}
 
 	public async Task<int> EstimateMailboxCountAsync(
 		Account account,

@@ -29,7 +29,7 @@ public sealed class GraphAuthenticationTranslationTests
 		var account = new Account { Id = Guid.NewGuid(), ProviderType = ProviderType.Microsoft365 };
 
 		await Assert.ThrowsAsync<ProviderAuthenticationException>(
-			() => provider.ListMailboxesAsync(account, CancellationToken.None)
+			() => provider.SyncMailboxTopologyAsync(account, null, CancellationToken.None)
 		);
 	}
 

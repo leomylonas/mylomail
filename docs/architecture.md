@@ -105,17 +105,19 @@ IMAP hierarchy is a server-specific string convention, not a portable path. Keep
 
 #### MailboxTopologySyncState (1:1 with Account)
 
-| Field                           | Notes                                            |
-| ------------------------------- | ------------------------------------------------ |
-| `AccountId`                     | PK/FK                                            |
-| `Cursor`                        | Provider-specific, where the provider offers one |
-| `LastReconciledAt`, `LastError` |                                                  |
+| Field                           | Notes                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| `AccountId`                     | PK/FK                                                                                   |
+| `Cursor`                        | Opaque, provider-versioned state; null where the provider offers no topology cursor     |
+| `LastReconciledAt`, `LastError` |                                                                                         |
 
 **Mailbox work carries a topology generation.** `Mailbox.TopologyGeneration` is incremented whenever a mailbox is deleted, recreated or replaced by topology reconciliation. Sync pages, coverage jobs and content fetches carry the generation they were issued under and are discarded if it no longer matches — otherwise a late page from an in-flight sync can resurrect or mutate state belonging to a mailbox that has since been deleted and recreated (an IMAP folder deleted and recreated with the same name, a Graph folder replaced). This is the topology-domain equivalent of the message-mutation staleness protection in §6.
 
-**Graph topology is recursive, not a flat list.** Graph exposes both mailbox-folder and child-folder delta forms, and the root delta does not return the entire hierarchy in one response — the implementation maintains child folders and parent relationships by traversing, not by assuming a flat result.
+**Graph topology is recursive, not a flat list.** Graph exposes both mailbox-folder and child-folder delta forms, and the root delta does not return the entire hierarchy in one response. The provider walks every root page, establishes a child delta stream for every discovered folder (including folders that currently have no children), and recurses through every descendant. Its versioned opaque topology cursor contains the root and per-folder child `deltaLink`s plus parent relationships. Occurrences are merged in feed order within one stream. Across independent parent streams, an upsert wins over the removal half of a move; if only a removal is observed, an immutable-id point read must return `404` before the provider reports deletion. A successful point read preserves the folder's stable local identity and updates its parent instead.
 
-Folder discovery is **not** a by-product of message sync. Gmail's `history.list` is a message-history stream and does not report labels created, renamed or deleted elsewhere. Each provider reconciles topology separately: Gmail `labels.list`, IMAP `LIST`/`LSUB`, Graph `mailFolder` delta. This is what produces `MailboxTreeChanged`.
+Topology reconciliation distinguishes a **complete snapshot** from a **delta**. A complete snapshot proves every unseen provider mailbox absent; a delta proves only its explicit removals. The provider's replacement cursor is committed in the same SQLite transaction as the upserts, removals, parent changes, and topology state. A failed or crashed walk advances nothing, and an invalid Graph topology cursor triggers a complete recursive rebaseline whose replacement cursor shares that same commit boundary.
+
+Folder discovery is **not** a by-product of message sync. Gmail's `history.list` is a message-history stream and does not report labels created, renamed or deleted elsewhere. Each provider reconciles topology separately: Gmail `labels.list`, IMAP `LIST`/`LSUB`, Graph root and child `mailFolder` deltas. This is what produces `MailboxTreeChanged`.
 
 #### MailboxCoverageState (1:1 with Mailbox)
 
@@ -334,11 +336,18 @@ Graph's `recurrence` object is translated into this model on ingest; CalDAV supp
 This is enforced centrally, in the Graph client's request pipeline rather than at individual call sites, and covered by a test that asserts the header on every outbound request.
 
 ```csharp
+public record MailboxTopologyResult(
+    IReadOnlyList<MailboxDto> Upserted,
+    IReadOnlyList<string> RemovedProviderMailboxIds,
+    string? Cursor,
+    bool IsFullSnapshot
+);
+
 public interface IMailProvider
 {
     ProviderType Type { get; }
     Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct);
-    Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct);
+    Task<MailboxTopologyResult> SyncMailboxTopologyAsync(Account account, string? cursor, CancellationToken ct);
     Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct);
     Task<InitialSyncPage> InitialSyncMailboxAsync(Account account, Mailbox mailbox, string? resumeToken, InitialSyncMode mode, int? bound, int pageSize, CancellationToken ct);
     Task<SyncResult> SyncMailboxAsync(Account account, Mailbox mailbox, ProviderCursorState? cursor, string? continuation, CancellationToken ct);
@@ -453,6 +462,8 @@ A parallel `IMailProviderFactory` resolves the correct implementation by `Provid
 | Coverage/backfill        | mailbox    | `messages.list` per label, soft bounds | bounded materialisation over full enumeration | UID range                    |
 | Live change              | **varies** | **account** `historyId`                | mailbox `deltaLink`                           | mailbox UID/MODSEQ           |
 | Integrity reconciliation | mailbox    | on `historyId` expiry                  | on `410 Gone`                                 | on capability gap or cadence |
+
+Topology providers return `MailboxTopologyResult`, not an undifferentiated list. Gmail and IMAP report complete snapshots and no topology cursor. Graph reports a complete recursive baseline on the first pass, then account-scoped root/child deltas with explicit removals and a versioned cursor set. The reconciler never treats an unreported mailbox in a delta as deleted, and it commits the returned cursor atomically with the exact topology changes that cursor covers.
 
 ### Gmail — baseline and backfill
 
