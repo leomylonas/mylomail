@@ -67,6 +67,8 @@ function registerMacHandler(
 	token: string,
 	extension: string,
 ): NativeAttachmentHandler {
+	const bundleIdentifier = `com.mylomail.e2e.t${token}`;
+	const typeIdentifier = `${bundleIdentifier}.attachment`;
 	const bundle = join(root, "MyloMailE2EOpener.app");
 	const contents = join(bundle, "Contents");
 	const macos = join(contents, "MacOS");
@@ -116,16 +118,28 @@ application.run()
 <dict>
 	<key>CFBundleDisplayName</key><string>MyloMail E2E Opener</string>
 	<key>CFBundleExecutable</key><string>MyloMailE2EOpener</string>
-	<key>CFBundleIdentifier</key><string>com.mylomail.e2e.${token}</string>
+	<key>CFBundleIdentifier</key><string>${bundleIdentifier}</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleVersion</key><string>1</string>
 	<key>CFBundleDocumentTypes</key>
 	<array><dict>
 		<key>CFBundleTypeExtensions</key><array><string>${extension.slice(1)}</string></array>
+		<key>LSItemContentTypes</key><array><string>${typeIdentifier}</string></array>
 		<key>CFBundleTypeName</key><string>MyloMail E2E attachment</string>
 		<key>CFBundleTypeRole</key><string>Viewer</string>
 		<key>LSHandlerRank</key><string>Owner</string>
 	</dict></array>
 	<key>LSBackgroundOnly</key><true/>
+	<key>UTExportedTypeDeclarations</key>
+	<array><dict>
+		<key>UTTypeConformsTo</key><array><string>public.data</string></array>
+		<key>UTTypeDescription</key><string>MyloMail E2E attachment</string>
+		<key>UTTypeIdentifier</key><string>${typeIdentifier}</string>
+		<key>UTTypeTagSpecification</key>
+		<dict>
+			<key>public.filename-extension</key><array><string>${extension.slice(1)}</string></array>
+		</dict>
+	</dict></array>
 </dict>
 </plist>
 `,
@@ -133,6 +147,31 @@ application.run()
 	const launchServices =
 		"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 	run(launchServices, ["-f", bundle]);
+	const registrarSource = join(root, "RegisterHandler.swift");
+	const registrar = join(root, "RegisterHandler");
+	writeFileSync(
+		registrarSource,
+		`import CoreServices
+import Foundation
+
+let status = LSSetDefaultRoleHandlerForContentType(
+	${swiftString(typeIdentifier)} as CFString,
+	.all,
+	${swiftString(bundleIdentifier)} as CFString
+)
+if status != noErr {
+	fatalError("Could not select the native attachment handler: \\(status)")
+}
+`,
+	);
+	run("swiftc", [
+		registrarSource,
+		"-framework",
+		"CoreServices",
+		"-o",
+		registrar,
+	]);
+	run(registrar, []);
 
 	return {
 		extension,

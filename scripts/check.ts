@@ -7,12 +7,13 @@
  *   pnpm check       formatting + build + unit + invariant
  *   pnpm check:fast  the same checks the watcher does, run directly (no watcher needed)
  *   pnpm check:deep  + fault injection + provider conformance (slow, explicit only)
+ *   pnpm check:native-credentials  one real host credential-store round trip
  */
 
 import { spawnSync } from "node:child_process";
 import { PATTERNS, MAX_SHOWN, isWindows, relativePath } from "./tooling.ts";
 
-type Mode = "full" | "fast" | "deep";
+type Mode = "full" | "fast" | "deep" | "native";
 
 const mode = (process.argv[2] ?? "full") as Mode;
 const ROOT = process.cwd();
@@ -53,6 +54,7 @@ const testParser =
 const dotnetTest = (
 	filter: string,
 	resultsFilePrefix: string,
+	noBuild = true,
 ): Pick<Step, "command" | "args" | "parse"> => ({
 	command: "dotnet",
 	args: [
@@ -61,7 +63,7 @@ const dotnetTest = (
 			? [process.env.MYLOMAIL_TEST_PROJECT]
 			: []),
 		"--nologo",
-		"--no-build",
+		...(noBuild ? ["--no-build"] : []),
 		"--logger",
 		"console;verbosity=quiet",
 		"--filter",
@@ -78,65 +80,68 @@ const dotnetTest = (
 	parse: testParser(PATTERNS.xunitFailure),
 });
 
-const steps: Step[] = [
-	{
-		name: "format",
-		command: "pnpm",
-		args: ["format:check"],
-		parse: () => null,
-		fatal: true,
-	},
-	{
-		name: "tsc",
-		command: "npx",
-		args: ["tsc", "--noEmit", "--pretty", "false"],
-		parse: compileParser(PATTERNS.tsc),
-		fatal: true,
-	},
-	{
-		name: "eslint",
-		command: "npx",
-		args: ["eslint", ".", "--quiet", "-f", "unix"],
-		parse: (line) => {
-			const m = PATTERNS.eslint.exec(line);
-			if (!m) return null;
-			return {
-				key: m[5],
-				text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
-			};
-		},
-	},
-	{
-		// CSS Modules only; the rule set enforces camelCase class names so they read as
-		// `styles.messageRow` from TypeScript.
-		name: "stylelint",
-		command: "npx",
-		args: [
-			"stylelint",
-			"**/*.css",
-			"--allow-empty-input",
-			"--formatter",
-			"unix",
-		],
-		parse: (line) => {
-			const m = PATTERNS.stylelint.exec(line);
-			if (!m) return null;
-			return {
-				key: m[5],
-				text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
-			};
-		},
-	},
-	{
-		name: "build",
-		command: "dotnet",
-		args: ["build", "--nologo", "-tl:off", "-clp:ErrorsOnly"],
-		parse: compileParser(PATTERNS.dotnet),
-		fatal: true,
-	},
-];
+const steps: Step[] =
+	mode === "native"
+		? []
+		: [
+				{
+					name: "format",
+					command: "pnpm",
+					args: ["format:check"],
+					parse: () => null,
+					fatal: true,
+				},
+				{
+					name: "tsc",
+					command: "npx",
+					args: ["tsc", "--noEmit", "--pretty", "false"],
+					parse: compileParser(PATTERNS.tsc),
+					fatal: true,
+				},
+				{
+					name: "eslint",
+					command: "npx",
+					args: ["eslint", ".", "--quiet", "-f", "unix"],
+					parse: (line) => {
+						const m = PATTERNS.eslint.exec(line);
+						if (!m) return null;
+						return {
+							key: m[5],
+							text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+						};
+					},
+				},
+				{
+					// CSS Modules only; the rule set enforces camelCase class names so they read as
+					// `styles.messageRow` from TypeScript.
+					name: "stylelint",
+					command: "npx",
+					args: [
+						"stylelint",
+						"**/*.css",
+						"--allow-empty-input",
+						"--formatter",
+						"unix",
+					],
+					parse: (line) => {
+						const m = PATTERNS.stylelint.exec(line);
+						if (!m) return null;
+						return {
+							key: m[5],
+							text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+						};
+					},
+				},
+				{
+					name: "build",
+					command: "dotnet",
+					args: ["build", "--nologo", "-tl:off", "-clp:ErrorsOnly"],
+					parse: compileParser(PATTERNS.dotnet),
+					fatal: true,
+				},
+			];
 
-if (mode !== "fast") {
+if (mode !== "fast" && mode !== "native") {
 	steps.push({ name: "tests", ...dotnetTest("Category!=Deep", "tests") });
 	steps.push({
 		name: "vitest",
@@ -146,18 +151,16 @@ if (mode !== "fast") {
 	});
 }
 
-if (
-	mode !== "fast" &&
-	process.env.MYLOMAIL_TEST_NATIVE_CREDENTIAL_STORE === "1"
-) {
-	// Explicitly opted-in because this writes to the host's real credential store.
-	// Keep it separate from the broad Deep suite: native tag runners do not provide
+if (mode === "native") {
+	// Explicit because this writes to the host's real credential store. Keep it
+	// separate from the broad Deep suite: native tag runners do not provide
 	// provider credentials or the local conformance containers.
 	steps.push({
 		name: "native-credentials",
 		...dotnetTest(
 			"FullyQualifiedName~NativeCredentialStoreLiveTests",
 			"native-credentials",
+			false,
 		),
 	});
 }

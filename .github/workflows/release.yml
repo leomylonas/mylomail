@@ -39,7 +39,29 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes rpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm package
+      - name: Prepare unpacked application
+        run: pnpm package:dir
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux AppImage
+      - name: Build Debian package
+        if: runner.os == 'Linux'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux deb
+      - name: Build RPM package
+        if: runner.os == 'Linux'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux rpm
+      - name: Build NSIS installer
+        if: runner.os == 'Windows'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win nsis
+      - name: Build MSI installer
+        if: runner.os == 'Windows'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win msi
+      - name: Build DMG image
+        if: runner.os == 'macOS'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac dmg
+      - name: Build macOS ZIP
+        if: runner.os == 'macOS'
+        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac zip
       - run: pnpm package:verify-artifacts
       - name: Verify native attachment opening
         if: runner.os != 'Linux'

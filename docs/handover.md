@@ -70,7 +70,7 @@
 
 ## Next task
 
-- Push the `testing` tag and inspect both native workflows. Cloud-provider consent and complete native-tray interaction remain external prerequisites.
+- Push `testing-2` and inspect the isolated native credential/package stages plus the corrected macOS default-handler registration. Cloud-provider consent and complete native-tray interaction remain external prerequisites.
 
 ## Required reading
 
@@ -227,10 +227,11 @@
 - Topology fault discrimination: temporarily persisting `MailboxTopologySyncState.Cursor` before the topology transaction made `Topology_delta_and_cursor_roll_back_together_at_commit_boundary` fail while 613 other .NET tests passed. Restoring cursor assignment to the mailbox transaction returned the full check to green.
 - Independent topology invariant review found and closed existing-child cursor replacement, within-stream last-occurrence loss, split-move identity deletion, stale parent metadata during stream advancement, and unverified removals discovered while baselining new streams or pruning descendants. Final fresh review found no violations: every removal and former descendant is point-read by immutable id, every stream retains monotonic cursor state, invalid cursors rebaseline, and the composite cursor shares the mailbox transaction.
 - Tag-only native verification implementation: local `pnpm check` passed format, TypeScript, ESLint, Stylelint, build, 614 .NET tests, and 218 Vitest tests. `pnpm package:smoke` rebuilt and launched the unpacked Linux application successfully (1/1). A synthetic package directory passed the new ELF/ar/RPM-signature verifier for all three Linux output formats. The Windows/macOS native credential, package-format, and file-association checks remain pending the `testing` tag run; no cross-platform result is claimed yet.
+- First `testing` tag result: Ubuntu cross-platform verification passed; Linux packaging produced and signature-checked AppImage, DEB, and RPM artifacts and passed its packaged-app smoke. macOS produced and signature-checked DMG and ZIP artifacts before the native attachment smoke failed. Windows/macOS full checks and Windows packaging also failed, but their original compound steps hid the failing substage from the public API. The follow-up separates native credentials from `pnpm check`, prepares the unpacked app once, names every installer target as its own step, and explicitly assigns the temporary exported UTI to the macOS test handler before `shell.openPath`.
 
 ## Live risks / decisions
 
 - Existing `UseSsl=false` accounts are upgraded to mandatory STARTTLS rather than allowed to continue sending passwords in plaintext. Servers without STARTTLS now fail closed with a mapped account error.
-- Windows DPAPI and macOS Keychain round trips, native package outputs, and packaged attachment associations are now wired into tag-only hosted-runner verification. They remain unproven until the first `testing` tag run completes; the Linux workstation cannot substitute for those hosts.
+- The first hosted run proved Linux packages/smoke and macOS DMG/ZIP production, but Windows DPAPI, macOS Keychain, Windows packages, and Windows/macOS packaged attachment associations remain unproven pending `testing-2`. The Linux workstation cannot substitute for those hosts.
 - Live Gmail and Graph mail/calendar behavior remains externally blocked by interactive account consent: client registrations exist, but no authorized external account token is available to the integration harness. The Gmail run reached the loopback OAuth request, proving configuration discovery and authorization startup only; no provider behavior is claimed.
 - Linux tray lifecycle was partially exercised in headed Electron: a persisted `MinimizeToTray` setting intercepted the last window's close, left one hidden `BrowserWindow`, and kept the process alive. This workstation's Playwright/GNOME session could not safely observe or click the native tray icon or prove the final Quit path after the hidden DevTools-controlled window, so complete tray behavior remains externally unproven and no misleading automated test was retained.
