@@ -93,6 +93,7 @@ public class MutationItem
 /// genuinely different consequences per provider. A single <c>DeleteMessages</c> hid label
 /// removal, trashing and permanent deletion behind one method (§6).
 /// </summary>
+[TranspilationSource]
 public enum MutationOperationKind
 {
 	SetFlags,

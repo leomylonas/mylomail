@@ -45,6 +45,9 @@ public interface IMailClient
 	/// <summary>A mutation item reaching terminal failure (§6).</summary>
 	Task MessageSyncFailed(MutationFailureDto failure);
 
+	/// <summary>A mutation item whose provider outcome is durably confirmed (§6).</summary>
+	Task MessageMutationSettled(MutationSettledDto settlement);
+
 	Task DraftUpdated(Guid draftId);
 
 	Task OutboxStatusChanged(OutboxItemDto item);

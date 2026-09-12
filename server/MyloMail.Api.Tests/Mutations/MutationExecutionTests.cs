@@ -45,7 +45,7 @@ public sealed class MutationExecutionTests
 	public async Task A_confirmed_flag_set_announces_the_message_as_updated()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
-		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		var item = await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
 
 		await ExecuteAsync(harness);
 
@@ -53,6 +53,10 @@ public sealed class MutationExecutionTests
 		Assert.Equal(harness.MessageId, announced.Id);
 		Assert.True(announced.IsRead);
 		Assert.Empty(harness.Events.SyncFailures);
+		var settlement = Assert.Single(harness.Events.MutationSettlements);
+		Assert.Equal(item.Id, settlement.MutationItemId);
+		Assert.Equal(harness.MessageId, settlement.MessageId);
+		Assert.Equal(MutationOperationKind.SetFlags, settlement.OperationKind);
 	}
 
 	/// <summary>
@@ -63,13 +67,17 @@ public sealed class MutationExecutionTests
 	public async Task A_rejected_flag_set_announces_no_confirmation()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
-		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		var item = await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
 		harness.Provider.RemoveMessage(await OccurrenceIdAsync(harness));
 
 		await ExecuteAsync(harness);
 
 		Assert.Empty(harness.Events.Updated);
-		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.SyncFailures).MessageId);
+		Assert.Empty(harness.Events.MutationSettlements);
+		var failure = Assert.Single(harness.Events.SyncFailures);
+		Assert.Equal(item.Id, failure.MutationItemId);
+		Assert.Equal(harness.MessageId, failure.MessageId);
+		Assert.Equal(MutationOperationKind.SetFlags, failure.OperationKind);
 	}
 
 	/// <summary>
@@ -152,7 +160,7 @@ public sealed class MutationExecutionTests
 		await using var harness = await MutationHarness.CreateAsync(
 			ProviderShapes.Imap(ImapCapabilityTier.Basic)
 		);
-		await harness.UsingAsync(services =>
+		var item = await harness.UsingAsync(services =>
 			services
 				.GetRequiredService<MutationQueue>()
 				.MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
@@ -184,6 +192,9 @@ public sealed class MutationExecutionTests
 		// Settling an ambiguous attempt is a job completing just as much as a reported batch
 		// outcome is, and it is the point the pending badge stops being true.
 		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Updated).Id);
+		var settlement = Assert.Single(harness.Events.MutationSettlements);
+		Assert.Equal(item.Id, settlement.MutationItemId);
+		Assert.Equal(MutationOperationKind.MoveMessage, settlement.OperationKind);
 	}
 
 	/// <summary>
@@ -414,6 +425,10 @@ public sealed class MutationExecutionTests
 			Assert.Equal(MutationState.Failed, items[0].State);
 			Assert.Equal(MutationState.Pending, items[1].State);
 		});
+		Assert.Equal(
+			MutationOperationKind.MoveMessage,
+			Assert.Single(harness.Events.SyncFailures).OperationKind
+		);
 	}
 
 	/// <summary>

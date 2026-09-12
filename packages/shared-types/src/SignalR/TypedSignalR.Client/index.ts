@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -100,6 +100,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getPendingSyncState = async (accountId: string): Promise<PendingChangeDto[]> => {
         return await this.connection.invoke("GetPendingSyncState", accountId);
+    }
+
+    public readonly getTerminalMutationIds = async (mutationItemIds: string[]): Promise<string[]> => {
+        return await this.connection.invoke("GetTerminalMutationIds", mutationItemIds);
     }
 
     public readonly getMessageBody = async (messageId: string): Promise<MessageBodyDto> => {
@@ -262,19 +266,19 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("SetFlags", accountId, messageIds, isRead, isFlagged);
     }
 
-    public readonly moveMessages = async (accountId: string, messageIds: string[], targetMailboxId: string): Promise<void> => {
+    public readonly moveMessages = async (accountId: string, messageIds: string[], targetMailboxId: string): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("MoveMessages", accountId, messageIds, targetMailboxId);
     }
 
-    public readonly removeFromMailbox = async (accountId: string, messageIds: string[], mailboxId: string): Promise<void> => {
+    public readonly removeFromMailbox = async (accountId: string, messageIds: string[], mailboxId: string): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("RemoveFromMailbox", accountId, messageIds, mailboxId);
     }
 
-    public readonly moveToTrash = async (accountId: string, messageIds: string[]): Promise<void> => {
+    public readonly moveToTrash = async (accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("MoveToTrash", accountId, messageIds);
     }
 
-    public readonly deletePermanently = async (accountId: string, messageIds: string[]): Promise<void> => {
+    public readonly deletePermanently = async (accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("DeletePermanently", accountId, messageIds);
     }
 
@@ -352,6 +356,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __syncProgress = (...args: [SyncProgressDto]) => receiver.syncProgress(...args);
         const __exportProgress = (...args: [string, number, number]) => receiver.exportProgress(...args);
         const __messageSyncFailed = (...args: [MutationFailureDto]) => receiver.messageSyncFailed(...args);
+        const __messageMutationSettled = (...args: [MutationSettledDto]) => receiver.messageMutationSettled(...args);
         const __draftUpdated = (...args: [string]) => receiver.draftUpdated(...args);
         const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
@@ -371,6 +376,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("SyncProgress", __syncProgress);
         connection.on("ExportProgress", __exportProgress);
         connection.on("MessageSyncFailed", __messageSyncFailed);
+        connection.on("MessageMutationSettled", __messageMutationSettled);
         connection.on("DraftUpdated", __draftUpdated);
         connection.on("OutboxStatusChanged", __outboxStatusChanged);
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
@@ -391,6 +397,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "SyncProgress", method: __syncProgress },
             { methodName: "ExportProgress", method: __exportProgress },
             { methodName: "MessageSyncFailed", method: __messageSyncFailed },
+            { methodName: "MessageMutationSettled", method: __messageMutationSettled },
             { methodName: "DraftUpdated", method: __draftUpdated },
             { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },

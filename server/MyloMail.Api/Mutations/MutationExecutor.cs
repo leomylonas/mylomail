@@ -192,9 +192,17 @@ public sealed class MutationExecutor(
 		await MessageChangeAnnouncer.AnnounceUpdatedAsync(
 			context,
 			events,
-			[.. persisted.ConfirmedMessageIds.Except(deleted)],
+			[
+				.. persisted
+					.ConfirmedMutations.Where(settlement => !deleted.Contains(settlement.MessageId))
+					.Select(settlement => settlement.MessageId),
+			],
 			ct
 		);
+		foreach (var settlement in persisted.ConfirmedMutations)
+		{
+			await events.MessageMutationSettledAsync(settlement);
+		}
 	}
 
 	private async Task AnnounceCancellationsAsync(
@@ -241,7 +249,7 @@ public sealed class MutationExecutor(
 			var unresolved = 0;
 			var removed = new List<Guid>();
 			var failures = new List<MutationFailureDto>();
-			var confirmed = new List<Guid>();
+			var confirmed = new List<MutationSettledDto>();
 
 			foreach (var (item, reference) in resolved)
 			{
@@ -267,7 +275,7 @@ public sealed class MutationExecutor(
 				if (outcome.Succeeded)
 				{
 					await ApplySuccessAsync(item, outcome, removed, ct);
-					confirmed.Add(item.MessageId);
+					confirmed.Add(new MutationSettledDto(item.Id, item.MessageId, item.OperationKind));
 				}
 				else
 				{
@@ -282,8 +290,10 @@ public sealed class MutationExecutor(
 					var extensions = outcome.Problem?.Extensions;
 					failures.Add(
 						new MutationFailureDto(
+							item.Id,
 							item.MessageId,
 							item.AccountId,
+							item.OperationKind,
 							item.FailureCategory ?? ErrorCategory.Unknown,
 							item.LastError,
 							extensions?.TryGetValue("hostname", out var hostname) == true ? hostname as string : null,
@@ -473,9 +483,8 @@ public sealed class MutationExecutor(
 	}
 }
 
-/// <summary>What one persisted batch settled, for the announcements that follow its commit.</summary>
 internal sealed record PersistedResults(
 	IReadOnlyList<MutationFailureDto> Failures,
-	IReadOnlyList<Guid> ConfirmedMessageIds,
+	IReadOnlyList<MutationSettledDto> ConfirmedMutations,
 	IReadOnlyList<Guid> RemovedMessageIds
 );

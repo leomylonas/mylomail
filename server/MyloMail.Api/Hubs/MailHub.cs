@@ -46,6 +46,13 @@ public interface IMailHub
 
 	Task<IReadOnlyList<PendingChangeDto>> GetPendingSyncState(Guid accountId);
 
+	/// <summary>
+	/// Which exact optimistic membership claims became terminal while a renderer was
+	/// disconnected. SignalR does not replay missed events, so reconnect reconciliation reads
+	/// the durable mutation state rather than guessing from whatever message page is visible.
+	/// </summary>
+	Task<IReadOnlyList<Guid>> GetTerminalMutationIds(IReadOnlyList<Guid> mutationItemIds);
+
 	Task<MessageBodyDto> GetMessageBody(Guid messageId);
 
 	/// <summary>
@@ -213,7 +220,11 @@ public interface IMailHub
 
 	Task SetFlags(Guid accountId, IReadOnlyList<Guid> messageIds, bool? isRead, bool? isFlagged);
 
-	Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId);
+	Task<MutationEnqueueResultDto> MoveMessages(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid targetMailboxId
+	);
 
 	/// <summary>
 	/// Drops one membership without deleting the message (§6) — meaningful only where a
@@ -228,12 +239,19 @@ public interface IMailHub
 	/// folder" silently irreversible on both. Wire it into the UI once that per-provider
 	/// divergence lands — Gmail's implementation is already correct.
 	/// </remarks>
-	Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId);
+	Task<MutationEnqueueResultDto> RemoveFromMailbox(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid mailboxId
+	);
 
-	Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
+	Task<MutationEnqueueResultDto> MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds);
 
 	/// <summary>Deletes the message outright — never reversible by the app (§6).</summary>
-	Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds);
+	Task<MutationEnqueueResultDto> DeletePermanently(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds
+	);
 
 	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
 
@@ -416,6 +434,21 @@ public class MailHub(
 				m => m.Id,
 				(p, _) => new PendingChangeDto(p.MessageId, p.Field, p.DesiredValue)
 			)
+			.ToListAsync();
+
+	public async Task<IReadOnlyList<Guid>> GetTerminalMutationIds(
+		IReadOnlyList<Guid> mutationItemIds
+	) =>
+		await context
+			.MutationItems.Where(i =>
+				mutationItemIds.Contains(i.Id)
+				&& (
+					i.State == MutationState.Completed
+					|| i.State == MutationState.Failed
+					|| i.State == MutationState.Cancelled
+				)
+			)
+			.Select(i => i.Id)
 			.ToListAsync();
 
 	/// <summary>
@@ -958,7 +991,11 @@ public class MailHub(
 			messageId => mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged))
 		);
 
-	public async Task MoveMessages(Guid accountId, IReadOnlyList<Guid> messageIds, Guid targetMailboxId)
+	public async Task<MutationEnqueueResultDto> MoveMessages(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid targetMailboxId
+	)
 	{
 		// A synthesized mailbox (ProviderMailboxId null — a local nested Gmail-label-group
 		// intermediate, no real label backing it) has no provider identity to receive a
@@ -976,20 +1013,30 @@ public class MailHub(
 				"This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead."
 			);
 		}
-		await EnqueueEachAsync(messageIds, messageId => mutations.MoveAsync(accountId, messageId, targetMailboxId));
+		return await EnqueueEachWithResultAsync(
+			messageIds,
+			messageId => mutations.MoveAsync(accountId, messageId, targetMailboxId)
+		);
 	}
 
-	public Task RemoveFromMailbox(Guid accountId, IReadOnlyList<Guid> messageIds, Guid mailboxId) =>
-		EnqueueEachAsync(
+	public Task<MutationEnqueueResultDto> RemoveFromMailbox(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid mailboxId
+	) =>
+		EnqueueEachWithResultAsync(
 			messageIds,
 			messageId => mutations.RemoveFromMailboxAsync(accountId, messageId, mailboxId)
 		);
 
-	public Task MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds) =>
-		EnqueueEachAsync(messageIds, messageId => mutations.MoveToTrashAsync(accountId, messageId));
+	public Task<MutationEnqueueResultDto> MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds) =>
+		EnqueueEachWithResultAsync(messageIds, messageId => mutations.MoveToTrashAsync(accountId, messageId));
 
-	public Task DeletePermanently(Guid accountId, IReadOnlyList<Guid> messageIds) =>
-		EnqueueEachAsync(messageIds, messageId => mutations.DeletePermanentlyAsync(accountId, messageId));
+	public Task<MutationEnqueueResultDto> DeletePermanently(
+		Guid accountId,
+		IReadOnlyList<Guid> messageIds
+	) =>
+		EnqueueEachWithResultAsync(messageIds, messageId => mutations.DeletePermanentlyAsync(accountId, messageId));
 
 	/// <summary>
 	/// Attempts every id in a bulk action rather than stopping at the first failure — one
@@ -1022,6 +1069,28 @@ public class MailHub(
 			// message to the caller does the same for the same reason.
 			throw new HubException($"{failures.Count} of {messageIds.Count} message(s) could not be updated.");
 		}
+	}
+
+	private static async Task<MutationEnqueueResultDto> EnqueueEachWithResultAsync(
+		IReadOnlyList<Guid> messageIds,
+		Func<Guid, Task<MutationItem>> enqueue
+	)
+	{
+		var accepted = new List<MutationEnqueueAcceptanceDto>(messageIds.Count);
+		var rejected = new List<Guid>();
+		foreach (var messageId in messageIds)
+		{
+			try
+			{
+				var item = await enqueue(messageId);
+				accepted.Add(new MutationEnqueueAcceptanceDto(messageId, item.Id));
+			}
+			catch
+			{
+				rejected.Add(messageId);
+			}
+		}
+		return new MutationEnqueueResultDto(accepted, rejected);
 	}
 
 	public async Task<IReadOnlyList<ContactDto>> GetContacts(Guid accountId)

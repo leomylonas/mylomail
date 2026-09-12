@@ -3,7 +3,9 @@ import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import {
 	appendMessage,
+	clearFolder,
 	clearInbox,
+	countWithSubject,
 	inboxFlags,
 } from "@mylomail/renderer-e2e/SeedImap";
 
@@ -25,6 +27,7 @@ const imapPort = 11143;
  */
 test("a real account syncs, lists mail, and its flag changes reach the server", async () => {
 	await clearInbox(imapPort);
+	await clearFolder(imapPort, "Trash");
 	await appendMessage(
 		imapPort,
 		"First message",
@@ -78,6 +81,9 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				.getByRole("article", { name: "Message" })
 				.getByText("Quarterly forecast details."),
 		).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(firstMessage).toContainText("Quarterly forecast details.", {
 			timeout: 60_000,
 		});
 
@@ -174,6 +180,9 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		// rather than toggling read, because the label for read depends on what earlier steps
 		// left behind and an assertion that reads differently on a re-run is not one.
 		await menu.getByRole("menuitem", { name: "Flag" }).click();
+		await expect(
+			window.getByRole("button", { name: /First message/ }),
+		).toContainText("Flagged");
 		await expect
 			.poll(
 				async () =>
@@ -211,6 +220,17 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		).toBeVisible({
 			timeout: 90_000,
 		});
+
+		const thirdMessage = window.getByRole("button", { name: /Third message/ });
+		await thirdMessage.click({ button: "right" });
+		await menu.getByRole("menuitem", { name: "Move to trash" }).click();
+		await expect(thirdMessage).toBeHidden();
+		await expect
+			.poll(() => countWithSubject(imapPort, "Trash", "Third message"), {
+				timeout: 60_000,
+				message: "the optimistically hidden message never reached Trash",
+			})
+			.toBe(1);
 	} finally {
 		await app.close();
 	}

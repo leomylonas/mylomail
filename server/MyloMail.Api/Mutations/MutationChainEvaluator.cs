@@ -70,8 +70,10 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 			// downstream item, not the originating failure's raw problem details.
 			cancellations.Add(
 				new MutationFailureDto(
+					item.Id,
 					item.MessageId,
 					item.AccountId,
+					item.OperationKind,
 					item.FailureCategory ?? ErrorCategory.Unknown,
 					item.LastError
 				)
@@ -130,8 +132,10 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 		// the user expressed is not going to happen, and the optimistic state it was holding
 		// has just been reverted in every window.
 		return new MutationFailureDto(
+			item.Id,
 			item.MessageId,
 			item.AccountId,
+			item.OperationKind,
 			ErrorCategory.Conflict,
 			reason
 		);

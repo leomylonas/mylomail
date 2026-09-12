@@ -9,7 +9,17 @@ import {
 	SkeletonText,
 } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
-import type { SyncProgressDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import {
+	acceptOptimisticMessages,
+	createOptimisticMessageClaims,
+	hideOptimisticMessages,
+	restoreOptimisticMessages,
+	type OptimisticMessageClaim,
+} from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
+import type {
+	MutationEnqueueResultDto,
+	SyncProgressDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	CoverageStatus,
 	InitialSyncMode,
@@ -26,6 +36,7 @@ import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/Notifi
 import {
 	mailboxDragType,
 	messageDragType,
+	parseMessageDrag,
 } from "@mylomail/renderer/Lib/DragTypes";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
@@ -127,20 +138,42 @@ export function MailboxTree({
 	// library pulls its own weight for two drop targets, and Carbon's buttons already forward
 	// arbitrary DOM props like `draggable`/`onDragStart`/`onDrop`.
 	const moveMessages = useMutation({
-		mutationFn: (input: { messageIds: string[]; targetMailboxId: string }) =>
-			hub.invoke(
+		mutationFn: (input: {
+			messageIds: string[];
+			sourceMailboxId: string;
+			targetMailboxId: string;
+			claims: OptimisticMessageClaim[];
+		}) =>
+			hub.invoke<MutationEnqueueResultDto>(
 				"MoveMessages",
 				accountId,
 				input.messageIds,
 				input.targetMailboxId,
 			),
-		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: ["messages"] });
-			void queryClient.invalidateQueries({
-				queryKey: queryKeys.pending(accountId),
-			});
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, input.sourceMailboxId, input.claims),
+		onSuccess: (result, input) => {
+			acceptOptimisticMessages(
+				queryClient,
+				input.sourceMailboxId,
+				input.claims,
+				result.accepted,
+			);
+			if (result.rejectedMessageIds.length > 0)
+				reportFailure("Some messages could not be moved")(
+					new Error(
+						`${result.rejectedMessageIds.length} of ${input.messageIds.length} message(s) could not be queued.`,
+					),
+				);
 		},
-		onError: reportFailure("The message could not be moved"),
+		onError: (error, input) => {
+			restoreOptimisticMessages(
+				queryClient,
+				input.sourceMailboxId,
+				input.claims,
+			);
+			reportFailure("The message could not be moved")(error);
+		},
 	});
 
 	const moveMailbox = useMutation({
@@ -248,11 +281,19 @@ export function MailboxTree({
 		event.preventDefault();
 		setDropTarget(null);
 
-		const messageIds = event.dataTransfer.getData(messageDragType);
-		if (messageIds) {
+		const messagePayload = parseMessageDrag(
+			event.dataTransfer.getData(messageDragType),
+		);
+		if (messagePayload) {
 			// A synthesized intermediate has no real label to add — the same reason
 			// Rename/Delete are unavailable on it (§13 Epic 2). Caught here, before the
 			// mutation, rather than left to fail with a raw provider error.
+			if (
+				messagePayload.accountId !== accountId ||
+				messagePayload.sourceMailboxId === target.id
+			) {
+				return;
+			}
 			if (target.isSynthesized) {
 				notify(notifications, {
 					kind: "error",
@@ -263,8 +304,10 @@ export function MailboxTree({
 				return;
 			}
 			moveMessages.mutate({
-				messageIds: messageIds.split(","),
+				messageIds: messagePayload.messageIds,
+				sourceMailboxId: messagePayload.sourceMailboxId,
 				targetMailboxId: target.id,
+				claims: createOptimisticMessageClaims(messagePayload.messageIds),
 			});
 			return;
 		}

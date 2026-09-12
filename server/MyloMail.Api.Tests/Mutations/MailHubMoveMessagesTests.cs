@@ -67,16 +67,99 @@ public sealed class MailHubMoveMessagesTests
 	{
 		await using var harness = await MutationHarness.CreateAsync();
 
-		await harness.UsingAsync(async services =>
+		var result = await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			await hub.MoveMessages(harness.AccountId, [harness.MessageId], harness.ArchiveId);
+			return await hub.MoveMessages(
+				harness.AccountId,
+				[harness.MessageId],
+				harness.ArchiveId
+			);
 		});
 
 		await harness.UsingAsync(async services =>
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
-			Assert.True(await context.MutationItems.AnyAsync(i => i.MessageId == harness.MessageId));
+			var item = await context.MutationItems.SingleAsync(i =>
+				i.MessageId == harness.MessageId
+			);
+			var accepted = Assert.Single(result.Accepted);
+			Assert.Equal(harness.MessageId, accepted.MessageId);
+			Assert.Equal(item.Id, accepted.MutationItemId);
+			Assert.Empty(result.RejectedMessageIds);
 		});
+	}
+
+	[Fact]
+	public async Task A_partial_bulk_enqueue_correlates_accepted_and_rejected_messages()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var missingMessageId = Guid.NewGuid();
+
+		var result = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MailHub>()
+				.MoveMessages(
+					harness.AccountId,
+					[harness.MessageId, missingMessageId],
+					harness.ArchiveId
+				)
+		);
+
+		Assert.Equal(harness.MessageId, Assert.Single(result.Accepted).MessageId);
+		Assert.Equal(missingMessageId, Assert.Single(result.RejectedMessageIds));
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(
+				result.Accepted[0].MutationItemId,
+				(await context.MutationItems.SingleAsync()).Id
+			);
+		});
+	}
+
+	[Fact]
+	public async Task Terminal_mutation_lookup_preserves_only_still_pending_optimistic_claims()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var completedId = Guid.NewGuid();
+		var pendingId = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.MutationItems.AddRange(
+				new MutationItem
+				{
+					Id = completedId,
+					AccountId = harness.AccountId,
+					MessageId = harness.MessageId,
+					Sequence = 1,
+					OperationKind = MutationOperationKind.MoveToTrash,
+					State = MutationState.Completed,
+					CreatedAt = DateTimeOffset.UtcNow,
+					CompletedAt = DateTimeOffset.UtcNow,
+				},
+				new MutationItem
+				{
+					Id = pendingId,
+					AccountId = harness.AccountId,
+					MessageId = harness.MessageId,
+					Sequence = 2,
+					OperationKind = MutationOperationKind.MoveMessage,
+					State = MutationState.Pending,
+					TargetMailboxId = harness.ArchiveId,
+					CreatedAt = DateTimeOffset.UtcNow,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		var terminal = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MailHub>()
+				.GetTerminalMutationIds([completedId, pendingId, Guid.NewGuid()])
+		);
+
+		Assert.Equal(completedId, Assert.Single(terminal));
 	}
 }

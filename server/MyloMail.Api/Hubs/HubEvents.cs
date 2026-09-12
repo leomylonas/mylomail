@@ -24,6 +24,8 @@ public interface IHubEvents
 
 	Task MessageSyncFailedAsync(MutationFailureDto failure);
 
+	Task MessageMutationSettledAsync(MutationSettledDto settlement);
+
 	/// <summary>
 	/// New mail. <b>Steady-state sync only.</b>
 	/// </summary>
@@ -102,6 +104,9 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) =>
 		hub.Clients.All.MessageSyncFailed(failure);
 
+	public Task MessageMutationSettledAsync(MutationSettledDto settlement) =>
+		hub.Clients.All.MessageMutationSettled(settlement);
+
 	public Task MessageReceivedAsync(MessageSummaryDto message) => hub.Clients.All.MessageReceived(message);
 
 	public Task MessageUpdatedAsync(MessageSummaryDto message) => hub.Clients.All.MessageUpdated(message);
@@ -145,6 +150,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
+
+	public Task MessageMutationSettledAsync(MutationSettledDto settlement) => Task.CompletedTask;
 
 	public Task MessageReceivedAsync(MessageSummaryDto message) => Task.CompletedTask;
 

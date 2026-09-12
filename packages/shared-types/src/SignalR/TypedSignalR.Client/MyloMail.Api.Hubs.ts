@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -40,6 +40,14 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Hubs.PendingChangeDto>>
     */
     getPendingSyncState(accountId: string): Promise<PendingChangeDto[]>;
+    /**
+    * Which exact optimistic membership claims became terminal while a renderer was
+    * disconnected. SignalR does not replay missed events, so reconnect reconciliation reads
+    * the durable mutation state rather than guessing from whatever message page is visible.
+    * @param mutationItemIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<System.Guid>>
+    */
+    getTerminalMutationIds(mutationItemIds: string[]): Promise<string[]>;
     /**
     * @param messageId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageBodyDto>
@@ -316,9 +324,9 @@ export type IMailHub = {
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
     * @param targetMailboxId Transpiled from System.Guid
-    * @returns Transpiled from System.Threading.Tasks.Task
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
     */
-    moveMessages(accountId: string, messageIds: string[], targetMailboxId: string): Promise<void>;
+    moveMessages(accountId: string, messageIds: string[], targetMailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
     * Drops one membership without deleting the message (§6) — meaningful only where a
     * message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
@@ -326,22 +334,22 @@ export type IMailHub = {
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
     * @param mailboxId Transpiled from System.Guid
-    * @returns Transpiled from System.Threading.Tasks.Task
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
     */
-    removeFromMailbox(accountId: string, messageIds: string[], mailboxId: string): Promise<void>;
+    removeFromMailbox(accountId: string, messageIds: string[], mailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
-    * @returns Transpiled from System.Threading.Tasks.Task
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
     */
-    moveToTrash(accountId: string, messageIds: string[]): Promise<void>;
+    moveToTrash(accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto>;
     /**
     * Deletes the message outright — never reversible by the app (§6).
     * @param accountId Transpiled from System.Guid
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
-    * @returns Transpiled from System.Threading.Tasks.Task
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
     */
-    deletePermanently(accountId: string, messageIds: string[]): Promise<void>;
+    deletePermanently(accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarSummaryDto>>
@@ -482,6 +490,12 @@ export type IMailClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     messageSyncFailed(failure: MutationFailureDto): Promise<void>;
+    /**
+    * A mutation item whose provider outcome is durably confirmed (§6).
+    * @param settlement Transpiled from MyloMail.Api.Contracts.MutationSettledDto
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    messageMutationSettled(settlement: MutationSettledDto): Promise<void>;
     /**
     * @param draftId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task

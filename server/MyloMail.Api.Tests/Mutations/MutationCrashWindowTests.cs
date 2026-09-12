@@ -247,11 +247,16 @@ public sealed class MutationCrashWindowTests
 	public async Task A_delete_applied_before_a_crash_is_settled_from_nonexistence()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
-		await harness.UsingAsync(services =>
-			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		var item = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
 		);
 		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
-		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			MutationExecutionTests.ExecuteAsync(harness)
+		);
+		Assert.Empty(harness.Events.MutationSettlements);
 		await harness.RestartAsync();
 
 		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
@@ -263,6 +268,9 @@ public sealed class MutationCrashWindowTests
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
 		});
 		Assert.Equal(harness.MessageId, Assert.Single(harness.Events.Deleted));
+		var settlement = Assert.Single(harness.Events.MutationSettlements);
+		Assert.Equal(item.Id, settlement.MutationItemId);
+		Assert.Equal(MutationOperationKind.DeletePermanently, settlement.OperationKind);
 	}
 
 	[Fact]

@@ -30,10 +30,22 @@ import {
 	TextInput,
 } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	acceptOptimisticMessages,
+	createOptimisticMessageClaims,
+	hideOptimisticMessages,
+	optimisticMessageIds,
+	optimisticMessageIdsKey,
+	restoreOptimisticMessages,
+	type OptimisticMessageClaim,
+} from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
-import { messageDragType } from "@mylomail/renderer/Lib/DragTypes";
+import {
+	messageDragType,
+	serialiseMessageDrag,
+} from "@mylomail/renderer/Lib/DragTypes";
 import {
 	buildForwardSeed,
 	buildReplySeed,
@@ -45,7 +57,13 @@ import {
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+import type { MutationEnqueueResultDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type { PendingChangeDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Hubs";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
+import {
+	MessageFlagField,
+	SpecialUse,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/SearchSnippet";
 import {
 	isRovingFocusKey,
@@ -85,12 +103,6 @@ export interface MessageColumnFilters {
 	flag: "all" | "flagged" | "unflagged";
 }
 
-interface PendingChange {
-	messageId: string;
-	field: number;
-	desiredValue: boolean;
-}
-
 /** Just enough of `GetMailboxes`' response to populate the "Move to" submenu. */
 interface MailboxOption {
 	id: string;
@@ -98,9 +110,17 @@ interface MailboxOption {
 	/** A Gmail nested-label intermediate with no real folder to move a message into (§1) —
 	 * excluded from "Move to" the same way it's excluded as a drag-and-drop target. */
 	isSynthesized: boolean;
+	specialUse: SpecialUse;
 }
 
-const isReadField = 0;
+interface MembershipMutationInput {
+	messages: MessageSummary[];
+	claims: OptimisticMessageClaim[];
+}
+
+interface MoveMutationInput extends MembershipMutationInput {
+	targetMailboxId: string;
+}
 
 const columnHelper = createColumnHelper<MessageSummary>();
 
@@ -329,8 +349,21 @@ export function MessageList({
 	const pending = useQuery({
 		queryKey: queryKeys.pending(accountId),
 		queryFn: () =>
-			hub.invoke<PendingChange[]>("GetPendingSyncState", accountId),
+			hub.invoke<PendingChangeDto[]>("GetPendingSyncState", accountId),
 	});
+	const optimisticMembership = useQuery({
+		queryKey: optimisticMessageIdsKey(mailboxId),
+		queryFn: async (): Promise<Record<string, string[]>> => ({}),
+		enabled: false,
+		initialData: {},
+		staleTime: Number.POSITIVE_INFINITY,
+		gcTime: Number.POSITIVE_INFINITY,
+	});
+	const optimisticIds = useMemo(
+		() => optimisticMessageIds(optimisticMembership.data),
+		[optimisticMembership.data],
+	);
+	const optimisticallyHiddenIds = new Set(optimisticIds);
 
 	// The enqueue itself failing (hub disconnected, validation) is not the same as a later
 	// provider-side failure, which the global MessageSyncFailed handler already surfaces —
@@ -368,27 +401,63 @@ export function MessageList({
 	});
 
 	const trash = useMutation({
-		mutationFn: (messages: MessageSummary[]) =>
-			hub.invoke(
+		mutationFn: (input: MembershipMutationInput) =>
+			hub.invoke<MutationEnqueueResultDto>(
 				"MoveToTrash",
 				accountId,
-				messages.map((message) => message.id),
+				input.messages.map((message) => message.id),
 			),
-		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
-		onError: reportFailure("The message could not be moved to trash"),
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, mailboxId, input.claims),
+		onSuccess: (result, input) => {
+			acceptOptimisticMessages(
+				queryClient,
+				mailboxId,
+				input.claims,
+				result.accepted,
+			);
+			if (result.rejectedMessageIds.length > 0)
+				reportFailure("Some messages could not be moved to trash")(
+					new Error(
+						`${result.rejectedMessageIds.length} of ${input.messages.length} message(s) could not be queued.`,
+					),
+				);
+		},
+		onError: (error, input) => {
+			restoreOptimisticMessages(queryClient, mailboxId, input.claims);
+			reportFailure("The message could not be moved to trash")(error);
+		},
 	});
 
 	// Message-scoped and never reversible by the app (§6) — unlike MoveToTrash, which the
 	// provider's own trash still lets the user recover from.
 	const deletePermanently = useMutation({
-		mutationFn: (messages: MessageSummary[]) =>
-			hub.invoke(
+		mutationFn: (input: MembershipMutationInput) =>
+			hub.invoke<MutationEnqueueResultDto>(
 				"DeletePermanently",
 				accountId,
-				messages.map((message) => message.id),
+				input.messages.map((message) => message.id),
 			),
-		onSettled: () => queryClient.invalidateQueries({ queryKey: ["messages"] }),
-		onError: reportFailure("The message could not be deleted"),
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, mailboxId, input.claims),
+		onSuccess: (result, input) => {
+			acceptOptimisticMessages(
+				queryClient,
+				mailboxId,
+				input.claims,
+				result.accepted,
+			);
+			if (result.rejectedMessageIds.length > 0)
+				reportFailure("Some messages could not be deleted")(
+					new Error(
+						`${result.rejectedMessageIds.length} of ${input.messages.length} message(s) could not be queued.`,
+					),
+				);
+		},
+		onError: (error, input) => {
+			restoreOptimisticMessages(queryClient, mailboxId, input.claims);
+			reportFailure("The message could not be deleted")(error);
+		},
 	});
 
 	// Shared with MailboxTree's own drag-and-drop query (same cache entry) so this menu's
@@ -397,26 +466,49 @@ export function MessageList({
 		queryKey: queryKeys.mailboxes(accountId),
 		queryFn: () => hub.invoke<MailboxOption[]>("GetMailboxes", accountId),
 	});
+	const selectedMailbox = mailboxes.data?.find(
+		(mailbox) => mailbox.id === mailboxId,
+	);
+	const trashUnavailable = !mailboxes.data
+		? "Folders are still loading."
+		: selectedMailbox?.specialUse === SpecialUse.Trash
+			? "Already in Trash."
+			: selectedMailbox
+				? undefined
+				: "This folder no longer exists.";
+	const canMoveToTrash = trashUnavailable === undefined;
 
 	// The keyboard-reachable equivalent of dragging a message onto a sidebar folder (§13's full
 	// keyboard operability requirement) — before this, moving a message anywhere other than
 	// trash had no path except drag-and-drop.
 	const moveMessages = useMutation({
-		mutationFn: (input: {
-			messages: MessageSummary[];
-			targetMailboxId: string;
-		}) =>
-			hub.invoke(
+		mutationFn: (input: MoveMutationInput) =>
+			hub.invoke<MutationEnqueueResultDto>(
 				"MoveMessages",
 				accountId,
 				input.messages.map((message) => message.id),
 				input.targetMailboxId,
 			),
-		onSettled: () => {
-			queryClient.invalidateQueries({ queryKey: ["messages"] });
-			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) });
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, mailboxId, input.claims),
+		onSuccess: (result, input) => {
+			acceptOptimisticMessages(
+				queryClient,
+				mailboxId,
+				input.claims,
+				result.accepted,
+			);
+			if (result.rejectedMessageIds.length > 0)
+				reportFailure("Some messages could not be moved")(
+					new Error(
+						`${result.rejectedMessageIds.length} of ${input.messages.length} message(s) could not be queued.`,
+					),
+				);
 		},
-		onError: reportFailure("The message could not be moved"),
+		onError: (error, input) => {
+			restoreOptimisticMessages(queryClient, mailboxId, input.claims);
+			reportFailure("The message could not be moved")(error);
+		},
 	});
 
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
@@ -424,12 +516,20 @@ export function MessageList({
 	// everything the user actually picked, not just what happens to still be visible.
 
 	const sourceById = new Map(
-		baseMessages.map((message) => [message.id, message] as const),
+		baseMessages.map((message) => {
+			const projected = projectPendingFlags(message, pending.data);
+			return [projected.id, projected] as const;
+		}),
 	);
-	for (const thread of expandedThreadQueries)
-		for (const message of thread.data ?? [])
-			sourceById.set(message.id, message);
-	const sourceMessages = [...sourceById.values()];
+	for (const thread of expandedThreadQueries) {
+		for (const message of thread.data ?? []) {
+			const projected = projectPendingFlags(message, pending.data);
+			sourceById.set(projected.id, projected);
+		}
+	}
+	const sourceMessages = [...sourceById.values()].filter(
+		(message) => !optimisticallyHiddenIds.has(message.id),
+	);
 	const selectedMessages = sourceMessages.filter((message) =>
 		selectedIds.has(message.id),
 	);
@@ -613,7 +713,15 @@ export function MessageList({
 		{
 			key: "Delete",
 			description: "Move to trash",
-			run: () => selectedMessages.length > 0 && trash.mutate(selectedMessages),
+			run: () =>
+				canMoveToTrash &&
+				selectedMessages.length > 0 &&
+				trash.mutate({
+					messages: selectedMessages,
+					claims: createOptimisticMessageClaims(
+						selectedMessages.map((message) => message.id),
+					),
+				}),
 		},
 		// Reply/reply-all/forward are single-message actions (§13's own context-menu entries
 		// disable them for a multi-selection too), so these no-op on anything but exactly one
@@ -806,7 +914,7 @@ export function MessageList({
 						{virtualizer.getVirtualItems().map((item) => {
 							const message = rows[item.index].original;
 							const index = item.index;
-							const read = isRead(message, pending.data);
+							const read = message.isRead;
 							const isSelected = selectedIds.has(message.id);
 							const threadKey = message.threadId ?? message.id;
 							const threadMessageCount = Math.max(
@@ -878,7 +986,11 @@ export function MessageList({
 													: [message.id];
 											event.dataTransfer.setData(
 												messageDragType,
-												ids.join(","),
+												serialiseMessageDrag({
+													accountId,
+													sourceMailboxId: mailboxId,
+													messageIds: ids,
+												}),
 											);
 											event.dataTransfer.effectAllowed = "move";
 										}}
@@ -1023,10 +1135,34 @@ export function MessageList({
 					actions={messageActions(
 						menu.targets,
 						setFlags.mutate,
-						trash.mutate,
-						deletePermanently.mutate,
-						moveMessages.mutate,
+						(messages) =>
+							trash.mutate({
+								messages,
+								claims: canMoveToTrash
+									? createOptimisticMessageClaims(
+											messages.map((message) => message.id),
+										)
+									: [],
+							}),
+						(messages) =>
+							deletePermanently.mutate({
+								messages,
+								claims: createOptimisticMessageClaims(
+									messages.map((message) => message.id),
+								),
+							}),
+						(input) =>
+							moveMessages.mutate({
+								...input,
+								claims:
+									input.targetMailboxId === mailboxId
+										? []
+										: createOptimisticMessageClaims(
+												input.messages.map((message) => message.id),
+											),
+							}),
 						mailboxes.data ?? [],
+						trashUnavailable,
 						hub,
 						queryClient,
 						onPrint,
@@ -1061,6 +1197,7 @@ export function messageActions(
 		targetMailboxId: string;
 	}) => void,
 	mailboxOptions: MailboxOption[],
+	trashUnavailable: string | undefined,
 	hub: HubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
@@ -1126,8 +1263,9 @@ export function messageActions(
 		},
 		{
 			label: `Move to trash${suffix}`,
-			run: () => trash(targets),
+			run: () => !trashUnavailable && trash(targets),
 			danger: true,
+			unavailable: trashUnavailable,
 		},
 		{
 			label: `Delete permanently${suffix}`,
@@ -1267,15 +1405,27 @@ async function saveAsEml(
 	}
 }
 
-/** Desired state wins over server-known state while a mutation is outstanding (§6). */
-function isRead(
+/** Desired state wins over server-known state while a flag mutation is outstanding (§6). */
+export function projectPendingFlags(
 	message: MessageSummary,
-	pending: PendingChange[] | undefined,
-): boolean {
-	const desired = pending?.find(
-		(change) => change.messageId === message.id && change.field === isReadField,
-	);
-	return desired?.desiredValue ?? message.isRead;
+	pending: PendingChangeDto[] | undefined,
+): MessageSummary {
+	const desiredRead = pending?.find(
+		(change) =>
+			change.messageId === message.id &&
+			change.field === MessageFlagField.IsRead,
+	)?.desiredValue;
+	const desiredFlag = pending?.find(
+		(change) =>
+			change.messageId === message.id &&
+			change.field === MessageFlagField.IsFlagged,
+	)?.desiredValue;
+	if (desiredRead === undefined && desiredFlag === undefined) return message;
+	return {
+		...message,
+		isRead: desiredRead ?? message.isRead,
+		isFlagged: desiredFlag ?? message.isFlagged,
+	};
 }
 
 function describeSender(message: MessageSummary): string {

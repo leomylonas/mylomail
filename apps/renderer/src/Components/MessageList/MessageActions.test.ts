@@ -11,8 +11,13 @@ import type { HubConnection } from "@microsoft/signalr";
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	messageActions,
+	projectPendingFlags,
 	type MessageSummary,
 } from "@mylomail/renderer/Components/MessageList/MessageList";
+import {
+	MessageFlagField,
+	SpecialUse,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 const message = (overrides: Partial<MessageSummary> = {}): MessageSummary => ({
 	id: "m1",
@@ -25,6 +30,28 @@ const message = (overrides: Partial<MessageSummary> = {}): MessageSummary => ({
 	hasNonInlineAttachments: false,
 	mutationFailure: null,
 	...overrides,
+});
+
+describe("projectPendingFlags", () => {
+	it("projects independent desired read and flag values without changing server-known state", () => {
+		const serverKnown = message({ isRead: true, isFlagged: false });
+
+		const projected = projectPendingFlags(serverKnown, [
+			{
+				messageId: serverKnown.id,
+				field: MessageFlagField.IsRead,
+				desiredValue: false,
+			},
+			{
+				messageId: serverKnown.id,
+				field: MessageFlagField.IsFlagged,
+				desiredValue: true,
+			},
+		]);
+
+		expect(projected).toMatchObject({ isRead: false, isFlagged: true });
+		expect(serverKnown).toMatchObject({ isRead: true, isFlagged: false });
+	});
 });
 
 function findAction(actions: ReturnType<typeof messageActions>, label: string) {
@@ -49,6 +76,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			deletePermanently,
 			vi.fn(),
 			[],
+			undefined,
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -75,6 +103,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			deletePermanently,
 			vi.fn(),
 			[],
+			undefined,
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -99,6 +128,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
+			undefined,
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -130,10 +160,26 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			moveMessages,
 			[
-				{ id: "inbox", name: "Inbox", isSynthesized: false },
-				{ id: "archive", name: "Archive", isSynthesized: false },
-				{ id: "gmail-group", name: "Nested", isSynthesized: true },
+				{
+					id: "inbox",
+					name: "Inbox",
+					isSynthesized: false,
+					specialUse: SpecialUse.Inbox,
+				},
+				{
+					id: "archive",
+					name: "Archive",
+					isSynthesized: false,
+					specialUse: SpecialUse.Archive,
+				},
+				{
+					id: "gmail-group",
+					name: "Nested",
+					isSynthesized: true,
+					specialUse: SpecialUse.None,
+				},
 			],
+			undefined,
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -161,6 +207,7 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
+			undefined,
 			{} as HubConnection,
 			{} as QueryClient,
 			vi.fn(),
@@ -170,5 +217,29 @@ describe("messageActions — Move to", () => {
 		);
 
 		expect(findAction(actions, "Move to").unavailable).toBeTruthy();
+	});
+
+	it("disables moving to trash when the source is already Trash", () => {
+		const trash = vi.fn();
+		const actions = messageActions(
+			[message()],
+			vi.fn(),
+			trash,
+			vi.fn(),
+			vi.fn(),
+			[],
+			"Already in Trash.",
+			{} as HubConnection,
+			{} as QueryClient,
+			vi.fn(),
+			vi.fn(),
+			"me@example.test",
+			() => () => undefined,
+		);
+
+		const action = findAction(actions, "Move to trash");
+		expect(action.unavailable).toBe("Already in Trash.");
+		action.run();
+		expect(trash).not.toHaveBeenCalled();
 	});
 });

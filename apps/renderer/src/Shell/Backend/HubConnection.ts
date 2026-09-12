@@ -3,16 +3,23 @@ import {
 	LogLevel,
 	type HubConnection,
 } from "@microsoft/signalr";
-import type { QueryClient } from "@tanstack/react-query";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type Store from "react-granular-store";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
+import {
+	optimisticMutationIds,
+	settleOptimisticMutation,
+	settleOptimisticMutations,
+} from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
 import {
 	notify,
 	type NotificationState,
 } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
-import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import type { WindowState } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
 import type {
+	MessageSummaryDto,
+	MutationFailureDto,
+	MutationSettledDto,
 	NotificationDto,
 	SyncProgressDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
@@ -57,6 +64,67 @@ export const queryKeys = {
 	 */
 	reauthRequestedAccountId: () => ["reauth-requested-account"] as const,
 };
+
+/**
+ * A mutation confirmation carries the committed server-known summary. Publish it before
+ * invalidating the independently fetched pending projection, so either cache order still shows
+ * the same desired flag instead of briefly reverting to an older list page.
+ */
+function updateMessageSummaryCaches(
+	queryClient: QueryClient,
+	message: MessageSummaryDto,
+): void {
+	queryClient.setQueriesData<InfiniteData<MessageSummaryDto[]>>(
+		{
+			queryKey: ["messages"],
+			predicate: (query) => query.queryKey.length === 2,
+		},
+		(current) =>
+			current && {
+				...current,
+				pages: current.pages.map((page) =>
+					page.map((candidate) =>
+						candidate.id === message.id
+							? mergeServerKnownFlags(candidate, message)
+							: candidate,
+					),
+				),
+			},
+	);
+	queryClient.setQueriesData<MessageSummaryDto[]>(
+		{
+			queryKey: ["messages"],
+			predicate: (query) => query.queryKey.length > 2,
+		},
+		(current) =>
+			current?.map((candidate) =>
+				candidate.id === message.id
+					? mergeServerKnownFlags(candidate, message)
+					: candidate,
+			),
+	);
+	queryClient.setQueriesData<MessageSummaryDto[]>(
+		{ queryKey: ["search"] },
+		(current) =>
+			current?.map((candidate) =>
+				candidate.id === message.id
+					? mergeServerKnownFlags(candidate, message)
+					: candidate,
+			),
+	);
+}
+
+function mergeServerKnownFlags(
+	current: MessageSummaryDto,
+	confirmed: MessageSummaryDto,
+): MessageSummaryDto {
+	return {
+		...current,
+		isRead: confirmed.isRead,
+		isFlagged: confirmed.isFlagged,
+		mutationFailure: confirmed.mutationFailure,
+	};
+}
 
 /**
  * Opens the hub and points its events at the query cache.
@@ -127,12 +195,26 @@ export function connectHub(
 	// and only the window that started it learns that from its own mutation call — every
 	// other window would keep rendering the optimistic badge indefinitely (§7, Epic 10).
 	for (const event of ["MessageReceived", "MessageUpdated", "MessageDeleted"]) {
-		hub.on(event, () => {
-			void queryClient.invalidateQueries({ queryKey: ["messages"] });
-			void queryClient.invalidateQueries({ queryKey: ["search"] });
-			void queryClient.invalidateQueries({ queryKey: ["pending"] });
+		hub.on(event, (payload: MessageSummaryDto | string) => {
+			if (event === "MessageUpdated" && typeof payload !== "string")
+				updateMessageSummaryCaches(queryClient, payload);
+			void Promise.all([
+				queryClient.invalidateQueries({ queryKey: ["messages"] }),
+				queryClient.invalidateQueries({ queryKey: ["search"] }),
+				queryClient.invalidateQueries({ queryKey: ["pending"] }),
+			]);
 		});
 	}
+
+	hub.on("MessageMutationSettled", (settlement: MutationSettledDto) => {
+		const releaseProjection = () =>
+			settleOptimisticMutation(queryClient, settlement);
+		void Promise.all([
+			queryClient.invalidateQueries({ queryKey: ["messages"] }),
+			queryClient.invalidateQueries({ queryKey: ["search"] }),
+			queryClient.invalidateQueries({ queryKey: ["pending"] }),
+		]).then(releaseProjection, releaseProjection);
+	});
 
 	// GetMessageBody's own existence check exists specifically so a reading pane left open on
 	// a message that's since been deleted reports "no longer exists" rather than polling a
@@ -180,58 +262,49 @@ export function connectHub(
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic
 	// state has already been reverted, so without this the flag springs back with no
 	// explanation and the user is left believing the app is simply unreliable.
-	hub.on(
-		"MessageSyncFailed",
-		(failure: {
-			messageId: string;
-			accountId: string;
-			category: ErrorCategory;
-			detail: string | null;
-			certificateHostname?: string;
-			certificateSha256Fingerprint?: string;
-		}) => {
-			const presentation = present(
-				failure.category,
-				failure.detail,
-				failure.certificateHostname && failure.certificateSha256Fingerprint
-					? {
-							hostname: failure.certificateHostname,
-							sha256Fingerprint: failure.certificateSha256Fingerprint,
-						}
-					: undefined,
-			);
-			// "reauthenticate" and "trust-certificate" both route to the same dialog:
-			// ReauthenticateAccount already has its own internal trust-certificate flow,
-			// triggered when a blank-password retry hits the same rejected certificate — so
-			// there is nothing further to build for the cert case specifically, only a way to
-			// open that dialog for the account this failure actually belongs to (§15).
-			const opensReauthenticate =
-				presentation.action === "reauthenticate" ||
-				presentation.action === "trust-certificate";
-			notify(notifications, {
-				kind: "error",
-				title: presentation.title,
-				detail: presentation.detail,
-				action: presentation.action
-					? {
-							label: opensReauthenticate ? "Reauthenticate" : "Details",
-							run: () => {
-								if (opensReauthenticate) {
-									queryClient.setQueryData(
-										queryKeys.reauthRequestedAccountId(),
-										failure.accountId,
-									);
-								}
-								void queryClient.invalidateQueries({ queryKey: ["messages"] });
-							},
-						}
-					: undefined,
-			});
+	hub.on("MessageSyncFailed", (failure: MutationFailureDto) => {
+		settleOptimisticMutation(queryClient, failure);
+		const presentation = present(
+			failure.category,
+			failure.detail,
+			failure.certificateHostname && failure.certificateSha256Fingerprint
+				? {
+						hostname: failure.certificateHostname,
+						sha256Fingerprint: failure.certificateSha256Fingerprint,
+					}
+				: undefined,
+		);
+		// "reauthenticate" and "trust-certificate" both route to the same dialog:
+		// ReauthenticateAccount already has its own internal trust-certificate flow,
+		// triggered when a blank-password retry hits the same rejected certificate — so
+		// there is nothing further to build for the cert case specifically, only a way to
+		// open that dialog for the account this failure actually belongs to (§15).
+		const opensReauthenticate =
+			presentation.action === "reauthenticate" ||
+			presentation.action === "trust-certificate";
+		notify(notifications, {
+			kind: "error",
+			title: presentation.title,
+			detail: presentation.detail,
+			action: presentation.action
+				? {
+						label: opensReauthenticate ? "Reauthenticate" : "Details",
+						run: () => {
+							if (opensReauthenticate) {
+								queryClient.setQueryData(
+									queryKeys.reauthRequestedAccountId(),
+									failure.accountId,
+								);
+							}
+							void queryClient.invalidateQueries({ queryKey: ["messages"] });
+						},
+					}
+				: undefined,
+		});
 
-			void queryClient.invalidateQueries({ queryKey: ["pending"] });
-			void queryClient.invalidateQueries({ queryKey: ["messages"] });
-		},
-	);
+		void queryClient.invalidateQueries({ queryKey: ["pending"] });
+		void queryClient.invalidateQueries({ queryKey: ["messages"] });
+	});
 
 	// Neither event names the calendar it belongs to, only the event id, so this invalidates
 	// broadly rather than trying to scope it — calendar volume is nowhere near mail volume.
@@ -271,15 +344,36 @@ export function connectHub(
 			});
 	});
 
-	// A reconnect is a full resynchronisation, not a pending-mutation check. While
-	// disconnected this window missed every event above, and pending mutations alone cannot
-	// repair a cache that is now simply wrong (§7).
-	hub.onreconnected(() => {
-		void queryClient.invalidateQueries();
+	// A reconnect is a full resynchronisation, not just a pending-mutation check. While
+	// disconnected this window missed every event above, so ordinary server-backed queries
+	// are invalidated. Membership projections are deliberately cache-only, however: ask the
+	// durable mutation table which exact claims became terminal while disconnected, preserving
+	// claims that are still pending and releasing only outcomes the server can prove.
+	hub.onreconnected(async () => {
+		const mutationIds = optimisticMutationIds(queryClient);
+		const terminalIds =
+			mutationIds.length === 0
+				? Promise.resolve<string[]>([])
+				: hub
+						.invoke<string[]>("GetTerminalMutationIds", mutationIds)
+						.catch((error: unknown) => {
+							console.error(
+								`optimistic mutation reconciliation failed: ${String(error)}`,
+							);
+							return [];
+						});
 		const accountId = windowStore.getState("selectedAccountId");
 		const mailboxId = windowStore.getState("selectedMailboxId");
 		if (accountId && mailboxId) {
 			void hub.invoke("SetActiveMailbox", accountId, mailboxId);
+		}
+		// Keep successful removals hidden until the stale source page has finished refetching.
+		// Clearing first would briefly resurrect its old row before that response replaced it.
+		try {
+			await queryClient.invalidateQueries();
+			settleOptimisticMutations(queryClient, await terminalIds);
+		} catch (error) {
+			console.error(`reconnect cache refresh failed: ${String(error)}`);
 		}
 	});
 

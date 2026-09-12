@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -85,7 +86,7 @@ public sealed class MutationReconciler(
 			}
 
 			var removedMessageIds = new List<Guid>();
-			var confirmedMessageIds = new List<Guid>();
+			var confirmedMutations = new List<MutationSettledDto>();
 			foreach (var item in unresolved)
 			{
 				var locations = observed[item.Id];
@@ -105,7 +106,9 @@ public sealed class MutationReconciler(
 						removedMessageIds.Add(item.MessageId);
 					}
 
-					confirmedMessageIds.Add(item.MessageId);
+					confirmedMutations.Add(
+						new MutationSettledDto(item.Id, item.MessageId, item.OperationKind)
+					);
 					item.State = MutationState.Completed;
 					item.CompletedAt = clock.GetUtcNow();
 					item.LeaseOwner = null;
@@ -130,9 +133,17 @@ public sealed class MutationReconciler(
 			await MessageChangeAnnouncer.AnnounceUpdatedAsync(
 				context,
 				events,
-				[.. confirmedMessageIds.Except(deleted)],
+				[
+					.. confirmedMutations
+						.Where(settlement => !deleted.Contains(settlement.MessageId))
+						.Select(settlement => settlement.MessageId),
+				],
 				ct
 			);
+			foreach (var settlement in confirmedMutations)
+			{
+				await events.MessageMutationSettledAsync(settlement);
+			}
 			settled++;
 		}
 

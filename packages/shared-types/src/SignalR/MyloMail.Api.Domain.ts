@@ -107,6 +107,16 @@ export enum ExportJobStatus {
     Failed = 4,
 }
 
+/** Transpiled from MyloMail.Api.Domain.MutationOperationKind */
+export enum MutationOperationKind {
+    SetFlags = 0,
+    MoveMessage = 1,
+    RemoveFromMailbox = 2,
+    MoveToTrash = 3,
+    DeletePermanently = 4,
+    Send = 5,
+}
+
 /** Transpiled from MyloMail.Api.Domain.MessageFlagField */
 export enum MessageFlagField {
     IsRead = 0,

@@ -74,7 +74,13 @@ internal static class MessageChangeAnnouncer
 		}
 
 		var ids = messageIds.Distinct().ToArray();
-		var messages = await context.Messages.Where(message => ids.Contains(message.Id)).ToListAsync(ct);
+		// The executor context may have tracked this message before a concurrent content fetch
+		// persisted its snippet/attachment correction. The event is post-commit canonical state,
+		// not that older identity-map snapshot.
+		var messages = await context
+			.Messages.AsNoTracking()
+			.Where(message => ids.Contains(message.Id))
+			.ToListAsync(ct);
 		foreach (var message in messages)
 		{
 			await events.MessageUpdatedAsync(MessageEventMapper.ToSummary(message));

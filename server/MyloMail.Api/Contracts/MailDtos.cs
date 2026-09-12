@@ -287,12 +287,30 @@ public record AccountSettingsDto(
 /// </param>
 [TranspilationSource]
 public record MutationFailureDto(
+	Guid MutationItemId,
 	Guid MessageId,
 	Guid AccountId,
+	MutationOperationKind OperationKind,
 	ErrorCategory Category,
 	string? Detail,
 	string? CertificateHostname = null,
 	string? CertificateSha256Fingerprint = null
+);
+
+[TranspilationSource]
+public record MutationEnqueueAcceptanceDto(Guid MessageId, Guid MutationItemId);
+
+[TranspilationSource]
+public record MutationEnqueueResultDto(
+	IReadOnlyList<MutationEnqueueAcceptanceDto> Accepted,
+	IReadOnlyList<Guid> RejectedMessageIds
+);
+
+[TranspilationSource]
+public record MutationSettledDto(
+	Guid MutationItemId,
+	Guid MessageId,
+	MutationOperationKind OperationKind
 );
 
 /// <param name="ReconcilingSince">

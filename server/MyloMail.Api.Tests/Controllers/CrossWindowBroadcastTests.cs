@@ -188,6 +188,7 @@ public sealed class CrossWindowBroadcastTests
 		public Task MailboxTreeChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 		public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
+		public Task MessageMutationSettledAsync(MutationSettledDto settlement) => Task.CompletedTask;
 		public Task MessageReceivedAsync(MessageSummaryDto message) => Task.CompletedTask;
 		public Task MessageUpdatedAsync(MessageSummaryDto message) => Task.CompletedTask;
 		public Task MessageDeletedAsync(Guid messageId) => Task.CompletedTask;

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HubConnection } from "@microsoft/signalr";
 import { ActionableNotification, Button, SkeletonText } from "@carbon/react";
@@ -58,6 +59,7 @@ export function ReadingPane({
 	 */
 	onReply?: (mode: "reply" | "replyAll" | "forward") => void;
 }) {
+	const queryClient = useQueryClient();
 	const body = useQuery({
 		queryKey: ["body", messageId],
 		queryFn: () => hub.invoke<MessageBody>("GetMessageBody", messageId),
@@ -74,6 +76,11 @@ export function ReadingPane({
 				? false
 				: 2000,
 	});
+	useEffect(() => {
+		if (!body.data?.isFetched) return;
+		void queryClient.invalidateQueries({ queryKey: ["messages"] });
+		void queryClient.invalidateQueries({ queryKey: ["search"] });
+	}, [body.data?.isFetched, messageId, queryClient]);
 
 	return (
 		<article className={styles.pane} aria-label="Message">
