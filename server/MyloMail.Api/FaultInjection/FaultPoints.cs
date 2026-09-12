@@ -74,6 +74,13 @@ public static class FaultPoints
 	public const string CalendarCreateAfterProviderCallBeforeCommit =
 		"calendar-create.after-provider-call-before-commit";
 
+	/// <summary>
+	/// A calendar update and any shared-resource revision propagation are applied locally,
+	/// after the provider accepted the write but before the atomic local commit.
+	/// </summary>
+	public const string CalendarUpdateAfterProviderCallBeforeCommit =
+		"calendar-update.after-provider-call-before-commit";
+
 	/// <summary>After a contact operation is durably dispatched, before its provider call.</summary>
 	public const string ContactAfterDispatchedBeforeProviderCall =
 		"contact.after-dispatched-before-provider-call";

@@ -11,6 +11,9 @@ import type { AddAccountRequest } from "@mylomail/shared-types/SignalR/MyloMail.
 
 /** Mailpit, shared by every tier of the matrix (`pnpm imap:up`). */
 const smtpPort = 11025;
+export interface CalDavAccountOptions {
+	endpoint: string;
+}
 
 /**
  * Adds a matrix IMAP account through the same endpoint the settings UI posts to.
@@ -27,6 +30,7 @@ const smtpPort = 11025;
 export async function createImapAccount(
 	window: Page,
 	imapPort: number,
+	calDav?: CalDavAccountOptions,
 ): Promise<number> {
 	const request: AddAccountRequest = {
 		displayName: "Matrix",
@@ -49,6 +53,13 @@ export async function createImapAccount(
 			smtpAuthMethod: SmtpAuthMethod.None,
 			reuseImapCredentialForSmtp: false,
 		},
+		calDav: calDav
+			? {
+					endpoint: calDav.endpoint,
+					userName: "test@mylomail.local",
+					reuseImapCredential: true,
+				}
+			: undefined,
 		initialSyncMode: InitialSyncMode.Full,
 	};
 

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
@@ -246,6 +247,41 @@ public sealed class CalDavCalendarProviderTests
 	}
 
 	[Fact]
+	public async Task A_successful_update_refreshes_the_revision_used_by_the_next_write()
+	{
+		var response = new HttpResponseMessage(HttpStatusCode.NoContent);
+		response.Headers.ETag = new EntityTagHeaderValue("\"new-etag\"");
+		var handler = new FakeHandler();
+		handler.Enqueue(response);
+		var provider = Provider(handler);
+		var ev = Event();
+
+		await provider.UpdateEventAsync(Account(), ev, "\"old-etag\"", default);
+
+		Assert.Equal("\"new-etag\"", ev.ProviderRevision);
+	}
+
+	[Fact]
+	public async Task An_update_fetches_a_fresh_revision_when_the_put_response_omits_it()
+	{
+		var refreshed = new HttpResponseMessage(HttpStatusCode.OK)
+		{
+			Content = new StringContent(""),
+		};
+		refreshed.Headers.ETag = new EntityTagHeaderValue("\"refreshed-etag\"");
+		var handler = new FakeHandler();
+		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.NoContent));
+		handler.Enqueue(refreshed);
+		var provider = Provider(handler);
+		var ev = Event();
+
+		await provider.UpdateEventAsync(Account(), ev, "\"old-etag\"", default);
+
+		Assert.Equal("\"refreshed-etag\"", ev.ProviderRevision);
+		Assert.Equal([HttpMethod.Put, HttpMethod.Get], handler.Requests.Select(request => request.Method));
+	}
+
+	[Fact]
 	public async Task Deleting_an_already_deleted_event_is_not_an_error()
 	{
 		var handler = new FakeHandler();
@@ -284,7 +320,9 @@ public sealed class CalDavCalendarProviderTests
 
 		var handler = new FakeHandler();
 		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(resourceIcs) });
-		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.NoContent));
+		var accepted = new HttpResponseMessage(HttpStatusCode.NoContent);
+		accepted.Headers.ETag = new EntityTagHeaderValue("\"new-resource-etag\"");
+		handler.Enqueue(accepted);
 		var provider = Provider(handler);
 
 		var overrideEvent = new CalendarEvent
@@ -316,6 +354,7 @@ public sealed class CalDavCalendarProviderTests
 		Assert.Contains("Standup (moved)", body); // the newly merged override
 		Assert.DoesNotContain("moved once already", body); // the old override content is gone
 		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(body, "BEGIN:VEVENT").Count);
+		Assert.Equal("\"new-resource-etag\"", overrideEvent.ProviderRevision);
 	}
 
 	[Fact]

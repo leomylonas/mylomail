@@ -201,6 +201,7 @@ public sealed class CalendarEventService(
 		try
 		{
 			await provider.UpdateEventAsync(account, existing, existing.ProviderRevision, ct);
+			await PropagateSharedProviderRevisionAsync(provider, existing, ct);
 			existing.SyncConflict = false;
 		}
 		catch (ProviderConflictException)
@@ -212,6 +213,10 @@ public sealed class CalendarEventService(
 			logger.LogWarning(ex, "A calendar provider call was rejected.");
 			throw new HubException(ex.Message);
 		}
+		if (!existing.SyncConflict)
+		{
+			faults.Reached(FaultPoints.CalendarUpdateAfterProviderCallBeforeCommit);
+		}
 
 		await context.SaveChangesAsync(ct);
 		await events.CalendarEventUpdatedAsync(existing.Id);
@@ -220,6 +225,29 @@ public sealed class CalendarEventService(
 			await events.CalendarConflictDetectedAsync(existing.Id);
 		}
 		return existing;
+	}
+	private async Task PropagateSharedProviderRevisionAsync(
+		ICalendarProvider provider,
+		CalendarEvent updated,
+		CancellationToken ct
+	)
+	{
+		if (!provider.SharesRevisionAcrossRecurrenceSet || string.IsNullOrEmpty(updated.ProviderRevision))
+		{
+			return;
+		}
+
+		var siblings = await context.CalendarEvents
+			.Where(e =>
+				e.Id != updated.Id
+				&& e.CalendarId == updated.CalendarId
+				&& e.ICalUid == updated.ICalUid
+			)
+			.ToListAsync(ct);
+		foreach (var sibling in siblings)
+		{
+			sibling.ProviderRevision = updated.ProviderRevision;
+		}
 	}
 
 	/// <summary>
@@ -255,7 +283,9 @@ public sealed class CalendarEventService(
 			var provider = providers.For(account);
 			using var disposable = provider as IDisposable;
 			await RunProviderCallAsync(() => provider.UpdateEventAsync(account, existing, expectedETag: null, ct));
+			await PropagateSharedProviderRevisionAsync(provider, existing, ct);
 			existing.SyncConflict = false;
+			faults.Reached(FaultPoints.CalendarUpdateAfterProviderCallBeforeCommit);
 			await context.SaveChangesAsync(ct);
 			await events.CalendarEventUpdatedAsync(existing.Id);
 			return existing;

@@ -33,6 +33,50 @@ export async function appendMessage(
 		await send("a3 LOGOUT");
 	});
 }
+/**
+ * Appends a multipart calendar message so the real content-acquisition and iTIP paths can be
+ * exercised through Dovecot rather than by seeding MyloMail's raw-content tables.
+ */
+export async function appendCalendarMessage(
+	port: number,
+	subject: string,
+	from: string,
+	method: "REQUEST" | "REPLY",
+	ics: string,
+): Promise<void> {
+	const boundary = `calendar-${Date.now()}`;
+	const message = [
+		`From: ${from}`,
+		"To: test@mylomail.local",
+		`Subject: ${subject}`,
+		`Message-ID: <${subject.replace(/\W+/g, "-")}-${Date.now()}@example.org>`,
+		`Date: ${new Date().toUTCString()}`,
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/alternative; boundary="${boundary}"`,
+		"",
+		`--${boundary}`,
+		'Content-Type: text/plain; charset="utf-8"',
+		"",
+		`Calendar ${method.toLowerCase()}.`,
+		`--${boundary}`,
+		`Content-Type: text/calendar; method=${method}; charset="utf-8"`,
+		"Content-Transfer-Encoding: 8bit",
+		"",
+		ics,
+		`--${boundary}--`,
+		"",
+	].join("\r\n");
+
+	await session(port, async (send, sendLiteral) => {
+		await send("i1 LOGIN test@mylomail.local password");
+		await sendLiteral(
+			"i2",
+			`i2 APPEND INBOX {${Buffer.byteLength(message)}}`,
+			message,
+		);
+		await send("i3 LOGOUT");
+	});
+}
 
 /**
  * Appends a multipart HTML message carrying an inline image, a tracking pixel and a script.

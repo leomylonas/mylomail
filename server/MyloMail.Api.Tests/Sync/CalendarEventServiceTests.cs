@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Sync;
+using MyloMail.Api.Tests.Mutations;
 using MyloMail.Api.Tests.Persistence;
 using Xunit;
 
@@ -112,6 +114,72 @@ public sealed class CalendarEventServiceTests
 		Assert.Equal(["FREQ=MONTHLY;BYDAY=1MO"], updated.RecurrenceRules);
 		Assert.Single(updated.RecurrenceDates);
 		Assert.Single(updated.ExceptionDates);
+	}
+
+	[Fact]
+	public async Task A_shared_series_revision_rolls_back_as_one_unit_when_the_process_crashes_before_commit()
+	{
+		var faults = new ScriptedFaultInjector();
+		var provider = new ScriptedCalendarProvider
+		{
+			SharesRevisionAcrossRecurrenceSet = true,
+			RevisionAfterUpdate = "new-resource-revision",
+		};
+		await using var harness = await Harness.CreateAsync(provider, faults);
+		var master = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(null, harness.CalendarId, "Series", null, null, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1), false)
+			)
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.CalendarEvents.Add(
+				new CalendarEvent
+				{
+					Id = Guid.NewGuid(),
+					CalendarId = harness.CalendarId,
+					ProviderEventId = $"{master.ProviderEventId}#instance",
+					ProviderRevision = master.ProviderRevision,
+					ICalUid = master.ICalUid,
+					Title = "Series override",
+					Start = master.Start.AddDays(1),
+					End = master.End.AddDays(1),
+					RecurrenceMasterId = master.Id,
+					RecurrenceId = master.Start.AddDays(1),
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		faults.ArmAt(FaultPoints.CalendarUpdateAfterProviderCallBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<CalendarEventService>().SaveAsync(
+					new CalendarEventInput(master.Id, harness.CalendarId, "Series edited", null, null, master.Start, master.End, false)
+				)
+			)
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var rows = await scope
+				.GetRequiredService<MyloMailDbContext>()
+				.CalendarEvents.OrderBy(e => e.RecurrenceMasterId)
+				.ToListAsync();
+			Assert.All(rows, row => Assert.Equal("created-revision", row.ProviderRevision));
+			Assert.Equal("Series", rows[0].Title);
+		});
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<CalendarEventService>().SaveAsync(
+				new CalendarEventInput(master.Id, harness.CalendarId, "Series edited", null, null, master.Start, master.End, false)
+			)
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var rows = await scope.GetRequiredService<MyloMailDbContext>().CalendarEvents.ToListAsync();
+			Assert.All(rows, row => Assert.Equal("new-resource-revision", row.ProviderRevision));
+		});
 	}
 
 	[Fact]
@@ -686,7 +754,10 @@ public sealed class CalendarEventServiceTests
 
 		public RecordingHubEvents Events { get; }
 
-		public static async Task<Harness> CreateAsync(ICalendarProvider provider)
+		public static async Task<Harness> CreateAsync(
+			ICalendarProvider provider,
+			IFaultInjector? faults = null
+		)
 		{
 			var database = new TestDatabase();
 			await database.MigrateAsync();
@@ -699,6 +770,7 @@ public sealed class CalendarEventServiceTests
 				.AddSingleton<IHubEvents>(events)
 				.AddMutations()
 				.AddSync()
+				.AddSingleton(faults ?? NullFaultInjector.Instance)
 				.BuildServiceProvider();
 
 			Guid calendarId;
@@ -751,6 +823,8 @@ public sealed class CalendarEventServiceTests
 		private CalendarSyncResult? scriptedSync;
 
 		public int CreateCalls { get; private set; }
+		public bool SharesRevisionAcrossRecurrenceSet { get; init; }
+		public string? RevisionAfterUpdate { get; init; }
 		public int DeleteCalls { get; private set; }
 		public bool RejectNextUpdate { get; set; }
 		public bool RejectNextDelete { get; set; }
@@ -809,6 +883,7 @@ public sealed class CalendarEventServiceTests
 		{
 			LastUpdateETag = expectedETag;
 			LastUpdated = ev;
+			ev.ProviderRevision = RevisionAfterUpdate ?? ev.ProviderRevision;
 			if (RejectNextUpdate)
 			{
 				RejectNextUpdate = false;

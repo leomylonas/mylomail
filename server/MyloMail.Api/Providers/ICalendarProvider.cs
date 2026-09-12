@@ -15,6 +15,12 @@ namespace MyloMail.Api.Providers;
 public interface ICalendarProvider
 {
 	ProviderType Type { get; }
+	/// <summary>
+	/// True when one provider revision protects every row in an iCalendar recurrence set.
+	/// CalDAV stores a master and its overrides in one resource; Graph and Google version
+	/// their event objects independently.
+	/// </summary>
+	bool SharesRevisionAcrossRecurrenceSet => false;
 
 	Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct);
 

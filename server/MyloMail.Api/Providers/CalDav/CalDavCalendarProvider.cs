@@ -56,6 +56,7 @@ public sealed class CalDavCalendarProvider(
 	public void Dispose() => http.Dispose();
 
 	public ProviderType Type => ProviderType.Imap;
+	public bool SharesRevisionAcrossRecurrenceSet => true;
 
 	private static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromSeconds(30);
 
@@ -247,6 +248,7 @@ public sealed class CalDavCalendarProvider(
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
 		}
 		response.EnsureSuccessStatusCode();
+		ev.ProviderRevision = await RevisionAfterWriteAsync(account, target, response, ct);
 	}
 
 	/// <summary>
@@ -289,6 +291,26 @@ public sealed class CalDavCalendarProvider(
 			throw new ProviderConflictException("The CalDAV event changed on the server since it was last read.");
 		}
 		putResponse.EnsureSuccessStatusCode();
+		ev.ProviderRevision = await RevisionAfterWriteAsync(account, target, putResponse, ct);
+	}
+	private async Task<string> RevisionAfterWriteAsync(
+		Account account,
+		Uri target,
+		HttpResponseMessage writeResponse,
+		CancellationToken ct
+	)
+	{
+		if (writeResponse.Headers.ETag?.Tag is { Length: > 0 } revision)
+		{
+			return revision;
+		}
+
+		var request = await requests.CreateAsync(account, HttpMethod.Get, target, ct);
+		using var response = await SendAsync(request, ct);
+		response.EnsureSuccessStatusCode();
+		return response.Headers.ETag?.Tag is { Length: > 0 } refreshedRevision
+			? refreshedRevision
+			: throw new InvalidOperationException("CalDAV did not return an ETag after accepting the event update.");
 	}
 
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
