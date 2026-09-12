@@ -83,7 +83,7 @@ environment and **is never committed**:
 
 ```bash
 Providers__Gmail__ClientId=...        # installed-app client
-Providers__Gmail__ClientSecret=...    # §5: distributing this in a desktop binary is unresolved
+Providers__Gmail__ClientSecret=...    # installed-app config; native clients cannot keep it confidential
 Providers__Graph__ClientId=...
 Providers__Graph__Authority=...       # optional; defaults to the common authority
 ```

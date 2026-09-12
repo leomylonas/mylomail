@@ -568,18 +568,19 @@ Use each provider's SDK loopback flow rather than hand-rolling a listener: `Goog
 
 **SDK token caching must be wired to `ICredentialStore` (§4).** MSAL's cache serialisation and Google's credential `DataStore` both persist tokens somewhere by default; left implicit, tokens end up outside the chosen keychain or master-password store. Cache serialisation/deserialisation is part of the credential-store implementation, not an SDK default.
 
-### Gmail — credential distribution is unresolved
+### Gmail — verified public-client deployment policy
 
-Restricted scopes require verification. Every Gmail scope usable by a real mail client is **restricted** (`gmail.modify` included; only send-only `gmail.send` avoids the tier), so verification is unavoidable for a shipped OAuth client.
+`gmail.modify` is a **restricted** scope, so a public shared OAuth client must complete Google's restricted-scope verification. The narrower `gmail.send` scope is only sensitive, but cannot support a mail client that reads, labels, moves, and drafts messages. Scope reduction cannot remove the restricted tier without removing core product behavior.
 
-The annual CASA security assessment, however, is conditioned specifically on server involvement — Google's wording is that apps accessing restricted data _from or through a third-party server_ must undergo it, and documented exceptions include personal use and internal use. **This architecture has no third-party server**: the backend is a loopback child process and mail never reaches infrastructure the project controls.
+Google's current restricted-scope rules require the annual CASA security assessment when an app can access restricted data _from or through a third-party server_, and the Gmail scope documentation states the same trigger as storing or transmitting restricted data on servers. **That trigger is absent here**: MyloMail's backend is a loopback child process, tokens remain in the user's credential store, mail remains in the user's local SQLite database, and project-operated infrastructure receives none of it. Under the published rules, the local-only desktop architecture requires restricted-scope OAuth verification for a shared public client but not CASA. Google Trust & Safety remains the final authority during verification; adding cloud sync, hosted token handling, remote processing, or telemetry containing Gmail data reopens the CASA decision.
 
-Whether CASA applies to a wholly local desktop client is therefore genuinely unclear from the published wording and **must be confirmed with Google directly, not inferred**. Two paths:
+Google also states that installed apps cannot keep client credentials secret. A Desktop OAuth client's packaged `client_secret` is therefore deployment configuration and an application identifier, not a confidential user credential.
 
-- **Shipped OAuth client** — better onboarding; requires verification, and possibly annual assessment.
-- **Bring-your-own-credentials** — the user registers their own Cloud project and Desktop OAuth client. No verification burden, materially worse onboarding.
+Deployment policy:
 
-BYOC is built as a supported mode regardless, since some users prefer it. Whether it is _mandatory_ depends on the answer above.
+- **Shared shipped OAuth client** — target public experience after restricted-scope verification. The client id and installed-app client secret may be bundled into release configuration because a native application cannot protect them; user tokens never are.
+- **Bring-your-own credentials** — permanently supported for personal-use projects under Google's fewer-than-100-user exception, development/testing, internal Workspace deployments, and users who prefer project ownership. It is also the release fallback until the shared client completes verification.
+- **No shared verified client available** — Google onboarding requires BYOC rather than shipping an unverified project as though it were production-ready.
 
 BYOC setup needs a written guide and specific error handling for the predictable failures, which will dominate support: wrong client type (Web instead of Desktop) breaks the loopback redirect; APIs not enabled produces an opaque `403`; a project left in _testing_ status expires refresh tokens after roughly seven days, causing weekly re-authentication.
 
@@ -1336,7 +1337,7 @@ Everything they depend on is now proven, so sequencing is a matter of preference
 ### Verification blockers — resolve before relying on these
 
 - **`PRAGMA synchronous=FULL` under WAL.** Confirm the exact durability semantics against SQLite's own documentation. The dispatch boundary depends on this guarantee; do not delete this note during cleanup.
-- **Gmail CASA applicability.** Restricted-scope verification is unavoidable for a shipped client, but CASA is conditioned on third-party server involvement and this architecture has none. Confirm with Google before deciding whether BYOC is mandatory or merely offered. See §5.
+- **Gmail verification policy.** The public shared client requires restricted-scope verification; the current local-only data flow does not meet Google's published third-party-server trigger for CASA. Re-evaluate before adding any hosted Gmail-data path, and follow any contrary determination Google makes during verification. See §5.
 - **`Hangfire.InMemory` version currency**, `TypeContractor`'s experimental Zod generation, and current `typescript-eslint` support for TypeScript 7 — all move faster than this document.
 
 ### Where the design deliberately stops
