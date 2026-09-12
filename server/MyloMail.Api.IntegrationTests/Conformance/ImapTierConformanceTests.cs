@@ -95,8 +95,8 @@ public abstract class ImapConformanceTests : MailProviderConformanceTests
 			int.MaxValue,
 			CancellationToken.None
 		);
-		var messageIdHeader = $"<{occurrence.MessageId:N}@mylomail.local>";
-		var staleMessageIdHeader = $"<{stale.MessageId:N}@mylomail.local>";
+		var messageIdHeader = $"{occurrence.MessageId:N}@mylomail.local";
+		var staleMessageIdHeader = $"{stale.MessageId:N}@mylomail.local";
 		Assert.DoesNotContain(source.Messages, message => message.MessageIdHeader == messageIdHeader);
 		Assert.Contains(
 			source.Messages,
