@@ -192,17 +192,12 @@ public sealed class TopologyReschedulingTests
 	}
 
 	/// <summary>
-	/// Hundred-and-forty-fifth pass: § Offline behaviour promises network-class failures
-	/// "suppress normal per-job retry noise/logging until connectivity returns, rather than
-	/// surfacing every offline poll attempt as a fresh failure" — but nothing actually
-	/// distinguished a network failure from a genuine bug here; both hit the same
-	/// <c>catch (Exception) { polls.Stop(...); throw; }</c>, ending the loop and letting
-	/// Hangfire log a job failure on every single offline poll. A network-class failure must
-	/// now reschedule quietly instead, keeping the loop's claim on <see cref="PollRegistry"/>
-	/// so it resumes on its own once connectivity returns.
+	/// A network-class failure keeps the loop's claim but does not enqueue another attempt while
+	/// offline. Connectivity recovery enqueues exactly one continuation, so a sustained outage
+	/// creates neither provider traffic nor repeated Hangfire failures.
 	/// </summary>
 	[Fact]
-	public async Task A_network_class_failure_reschedules_without_releasing_the_loops_claim()
+	public async Task A_network_class_failure_waits_for_recovery_without_releasing_the_loops_claim()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.FailListMailboxesWith(new System.Net.Sockets.SocketException());
@@ -214,14 +209,21 @@ public sealed class TopologyReschedulingTests
 		});
 
 		var created = await CreatedJobsAsync(harness);
-		Assert.Contains(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
+		Assert.DoesNotContain(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
 
 		// Still claimed: a second TryStart for the same scope must fail, proving polls.Stop
-		// was never called for this failure.
+		// was never called while the loop was paused.
 		var stillClaimed = await harness.UsingAsync(scope =>
 			Task.FromResult(!scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope))
 		);
 		Assert.True(stillClaimed);
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ConnectivityMonitor>().ReportAsync(true)
+		);
+
+		created = await CreatedJobsAsync(harness);
+		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
 	}
 
 	/// <summary>

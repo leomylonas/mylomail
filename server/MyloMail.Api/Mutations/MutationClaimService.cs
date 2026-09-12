@@ -112,6 +112,51 @@ public sealed class MutationClaimService(MyloMailDbContext context, TimeProvider
 		return await context.MutationItems.Where(m => claimedIds.Contains(m.Id)).ToListAsync(ct);
 	}
 
+	/// <summary>
+	/// Releases claims that never crossed a new execution-attempt boundary. An item belonging
+	/// to a dispatched or ambiguous attempt remains leased for reconciliation; completed or
+	/// merely prepared historical memberships do not block a safe release.
+	/// </summary>
+	public async Task ReleaseUnattemptedAsync(
+		Guid accountId,
+		string owner,
+		IEnumerable<Guid> itemIds,
+		CancellationToken ct = default
+	)
+	{
+		var ids = itemIds.Distinct().ToArray();
+		if (ids.Length == 0)
+		{
+			return;
+		}
+
+		await context.MutationItems
+			.Where(item =>
+				ids.Contains(item.Id)
+				&& item.AccountId == accountId
+				&& item.State == MutationState.Leased
+				&& item.LeaseOwner == owner
+				&& !context.MutationExecutionAttemptItems.Any(
+					membership =>
+						membership.MutationItemId == item.Id
+						&& context.MutationExecutionAttempts.Any(
+							attempt =>
+								attempt.Id == membership.AttemptId
+								&& (attempt.State == MutationAttemptState.Dispatched
+									|| attempt.State == MutationAttemptState.Ambiguous)
+						)
+				)
+			)
+			.ExecuteUpdateAsync(
+				setters => setters
+					.SetProperty(item => item.State, MutationState.Pending)
+					.SetProperty(item => item.LeaseOwner, (string?)null)
+					.SetProperty(item => item.LeaseExpiresAt, (DateTimeOffset?)null),
+				ct
+			);
+		context.ChangeTracker.Clear();
+	}
+
 	private async Task<bool> TryClaimAsync(
 		MutationItem candidate,
 		string owner,

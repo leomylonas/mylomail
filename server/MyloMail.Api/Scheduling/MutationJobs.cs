@@ -13,10 +13,13 @@ namespace MyloMail.Api.Scheduling;
 /// </summary>
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
 /// <summary>Enqueues a drain when new intent arrives.</summary>
-public sealed class MutationDispatcher(IBackgroundJobClient jobs) : IMutationDispatcher
+public sealed class MutationDispatcher(ConnectivityMonitor connectivity) : IMutationDispatcher
 {
 	public void RequestDrain(Guid accountId) =>
-		jobs.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default));
+		connectivity.DispatchOrDefer(
+			$"{nameof(MutationJobs)}:{accountId}",
+			client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
+		);
 }
 
 [AutomaticRetry(Attempts = 0)]
@@ -26,6 +29,7 @@ public sealed class MutationJobs(
 	MutationReconciler reconciler,
 	MutationExecutor executor,
 	AccountGate gate,
+	ConnectivityMonitor connectivity,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
 	ILogger<MutationJobs> logger
@@ -43,6 +47,15 @@ public sealed class MutationJobs(
 	/// </remarks>
 	public async Task DrainAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(MutationJobs)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
 		{
@@ -57,25 +70,42 @@ public sealed class MutationJobs(
 
 		// A dispatched local attempt says only that the provider may have seen it. Settle
 		// those attempts before claiming any work, so no move or deletion is blindly replayed.
-		await reconciler.ReconcileAsync(accountId, ct);
+		try
+		{
+			await reconciler.ReconcileAsync(accountId, ct);
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
+			);
+			return;
+		}
 
-		var claimed = await claims.ClaimAsync(accountId, Environment.MachineName, LeaseDuration, max: 50, ct);
+		var leaseOwner = $"{Environment.MachineName}:{Guid.NewGuid():N}";
+		var claimed = await claims.ClaimAsync(accountId, leaseOwner, LeaseDuration, max: 50, ct);
 		if (claimed.Count == 0)
 		{
 			return;
 		}
 
-		foreach (var batch in claimed.GroupBy(item => new
+		var batches = claimed
+			.GroupBy(item => new
+			{
+				item.OperationKind,
+				item.TargetMailboxId,
+				item.DesiredIsRead,
+				item.DesiredIsFlagged,
+			})
+			.Select(batch => batch.ToArray())
+			.ToArray();
+		for (var batchIndex = 0; batchIndex < batches.Length; batchIndex++)
 		{
-			item.OperationKind,
-			item.TargetMailboxId,
-			item.DesiredIsRead,
-			item.DesiredIsFlagged,
-		}))
-		{
+			var batch = batches[batchIndex];
 			try
 			{
-				await executor.ExecuteAsync(account, [.. batch], ct);
+				await executor.ExecuteAsync(account, batch, ct);
 			}
 			catch (ProviderThrottledException ex)
 			{
@@ -123,6 +153,24 @@ public sealed class MutationJobs(
 				// offline, and an Error per batch per drain would be exactly the per-job noise
 				// § Offline behaviour asks to be suppressed until connectivity returns.
 				logger.LogDebug(ex, "A mutation batch for account {AccountId} failed (offline).", accountId);
+				// ClaimAsync leases several independent batches at once. The current batch
+				// crossed the provider boundary and earlier batches have settled, so neither
+				// can be released. Later batches have provably not started and must be released
+				// before pausing or a short outage strands them until the lease expires.
+				await claims.ReleaseUnattemptedAsync(
+					accountId,
+					leaseOwner,
+					batches
+						.Skip(batchIndex + 1)
+						.SelectMany(batchToRelease => batchToRelease)
+						.Select(item => item.Id),
+					ct
+				);
+				await connectivity.PauseAsync(
+					workKey,
+					client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
+				);
+				return;
 			}
 			catch (Exception ex)
 			{
@@ -145,6 +193,9 @@ public sealed class MutationJobs(
 		}
 
 		// More chains may have become eligible now that these heads are terminal.
-		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
+		connectivity.DispatchOrDefer(
+			workKey,
+			client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
+		);
 	}
 }

@@ -7,6 +7,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Imap;
+using MyloMail.Api.Scheduling;
 
 namespace MyloMail.Api.Outbox;
 
@@ -172,14 +173,35 @@ public sealed class SendExecutor(
 		{
 			// A thrown send is not evidence that nothing was sent. The item becomes
 			// ambiguous rather than failed, and reconciliation — not a retry — decides.
+			var networkFailure = ConnectivityMonitor.IsNetworkFailure(ex);
 			attempt.State = MutationAttemptState.Ambiguous;
 			item.Status = OutboxStatus.AmbiguousOutcome;
 			item.LastError = ex.Message;
 			item.ReconcilingSince = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
-			await outbox.AnnounceStatusAsync(item.Id, ct);
+			try
+			{
+				await outbox.AnnounceStatusAsync(item.Id, ct);
+			}
+			catch (Exception announcementFailure) when (networkFailure)
+			{
+				// Preserve the provider failure as the scheduler's control signal. A broken
+				// SignalR fan-out must not make OutboxJobs continue dispatching while offline.
+				logger.LogWarning(
+					announcementFailure,
+					"Could not announce ambiguous outbox item {OutboxItemId}.",
+					item.Id
+				);
+			}
 
 			logger.LogError(ex, "Send for outbox item {OutboxItemId} may or may not have happened.", item.Id);
+			if (networkFailure)
+			{
+				// The ambiguous result is durable now. Re-throw only as a job-control signal:
+				// OutboxJobs must stop before it dispatches another due message while offline,
+				// and its resumed run reconciles this attempt before considering any send.
+				throw;
+			}
 			return;
 		}
 

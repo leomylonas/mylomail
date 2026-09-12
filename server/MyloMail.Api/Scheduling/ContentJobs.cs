@@ -29,6 +29,7 @@ public sealed class ContentJobs(
 	MyloMailDbContext context,
 	ContentAcquisition acquisition,
 	AccountGate gate,
+	ConnectivityMonitor connectivity,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
 	ILogger<ContentJobs> logger
@@ -38,6 +39,15 @@ public sealed class ContentJobs(
 
 	public async Task FetchNextAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(ContentJobs)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
 		{
@@ -90,6 +100,11 @@ public sealed class ContentJobs(
 			// uncounted against MaxAttempts, so a prolonged outage can no longer exhaust the
 			// retry budget and mislabel readable content as permanently Failed.
 			logger.LogDebug(ex, "Skipping content for message {MessageId} (offline).", pending.Value);
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default))
+			);
+			return;
 		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
@@ -108,7 +123,10 @@ public sealed class ContentJobs(
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 		}
 
-		jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));
+		connectivity.DispatchOrDefer(
+			workKey,
+			client => client.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default))
+		);
 	}
 
 	/// <summary>

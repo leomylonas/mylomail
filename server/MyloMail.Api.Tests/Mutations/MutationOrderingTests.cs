@@ -113,7 +113,24 @@ public sealed class MutationOrderingTests
 				.ClaimAsync(harness.AccountId, "worker-2", TimeSpan.FromMinutes(5), max: 10)
 		);
 
-		Assert.Single(reclaimed);
+		var item = Assert.Single(reclaimed);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationClaimService>()
+				.ReleaseUnattemptedAsync(
+					harness.AccountId,
+					"worker-1",
+					[item.Id]
+				)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var held = await services
+				.GetRequiredService<MyloMailDbContext>()
+				.MutationItems.SingleAsync(candidate => candidate.Id == item.Id);
+			Assert.Equal(MutationState.Leased, held.State);
+			Assert.Equal("worker-2", held.LeaseOwner);
+		});
 	}
 
 	/// <summary>

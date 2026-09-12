@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
@@ -40,6 +39,7 @@ public sealed class SyncJobs(
 	IntegrityReconciliationService integrity,
 	CalendarSyncService calendar,
 	AccountGate gate,
+	ConnectivityMonitor connectivity,
 	PollRegistry polls,
 	IntegrityRegistry integrityLoops,
 	ImapIdleWakeRegistry idleWakes,
@@ -49,44 +49,7 @@ public sealed class SyncJobs(
 	ILogger<SyncJobs> logger
 )
 {
-	/// <summary>
-	/// The first retry delay after a network-class failure (§ Offline behaviour), and the
-	/// base §1091's "falls back to the existing exponential backoff" doubles from — short
-	/// enough that connectivity returning is noticed promptly on the very first retry.
-	/// </summary>
-	private static readonly TimeSpan NetworkRetryBaseDelay = TimeSpan.FromSeconds(30);
-
-	/// <summary>
-	/// Doubling stops here: a genuinely offline machine settles into checking every 30 minutes
-	/// rather than hammering a dead socket, but also rather than backing off indefinitely —
-	/// this is a poll loop that must resume promptly once connectivity returns, not a one-shot
-	/// retry that can afford to wait longer the more times it has already failed.
-	/// </summary>
-	private static readonly TimeSpan NetworkRetryMaxDelay = TimeSpan.FromMinutes(30);
-
-	/// <summary>
-	/// Consecutive network-class failures per account, across every poll loop that account
-	/// runs — reset to zero the moment any of that account's provider calls succeeds again in
-	/// <see cref="GuardAsync{T}"/>. Deliberately per-account, not per-job-kind: these failures
-	/// share one underlying transport (the same provider, the same network path), so an
-	/// independent streak per loop would just mean some loops retry faster than others for the
-	/// same outage. In-memory only, like <see cref="AccountGate"/>'s own throttle state — a
-	/// restart naturally starts every account back at the fastest retry, which is correct, not
-	/// a state loss to guard against.
-	/// </summary>
-	private static readonly ConcurrentDictionary<Guid, int> networkFailureStreak = new();
-
-	/// <summary>
-	/// §1091's fallback exponential backoff for a network-class failure with no explicit
-	/// provider signal to honour (unlike <see cref="ProviderThrottledException"/>, which always
-	/// uses its own exact <c>RetryAfter</c> instead of this).
-	/// </summary>
-	internal static TimeSpan NextNetworkRetryDelay(Guid accountId)
-	{
-		var streak = networkFailureStreak.AddOrUpdate(accountId, 1, (_, previous) => previous + 1);
-		var delay = NetworkRetryBaseDelay * Math.Pow(2, streak - 1);
-		return delay < NetworkRetryMaxDelay ? delay : NetworkRetryMaxDelay;
-	}
+	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
 	/// <summary>
 	/// The calendar loop is account-scoped, not mailbox-scoped, so it borrows the mail poll
@@ -122,6 +85,15 @@ public sealed class SyncJobs(
 	/// </remarks>
 	public async Task TopologyAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(TopologyAsync)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.TopologyAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
@@ -182,10 +154,10 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			// Quietly retried rather than surfaced as a fresh job failure every offline poll
-			// (§ Offline behaviour) — the poll loop stays alive so it resumes on its own once
-			// connectivity returns, instead of needing something else to restart it.
-			jobs.Schedule<SyncJobs>(j => j.TopologyAsync(accountId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.TopologyAsync(accountId, default))
+			);
 			return;
 		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
@@ -253,6 +225,17 @@ public sealed class SyncJobs(
 	/// </summary>
 	public async Task CalendarCreationRecoveryAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(CalendarCreationRecoveryAsync)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.CalendarCreationRecoveryAsync(accountId, default)
+				)
+			))
+		{
+			return;
+		}
+
 		var account = await context.Accounts.FirstOrDefaultAsync(
 			row => row.Id == accountId && row.IsEnabled && row.AuthState != AuthState.NeedsReauth,
 			ct
@@ -278,17 +261,34 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.CalendarCreationRecoveryAsync(accountId, default)
+				)
+			);
 		}
 		catch (Credentials.CredentialStoreUnavailableException)
 		{
-			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), NextNetworkRetryDelay(accountId));
+			jobs.Schedule<SyncJobs>(
+				j => j.CalendarCreationRecoveryAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
 		}
 	}
 
 	/// <summary>One calendar sync run, rescheduling itself at the account's poll interval.</summary>
 	public async Task CalendarAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(CalendarAsync)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.CalendarAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
@@ -307,7 +307,10 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.CalendarAsync(accountId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.CalendarAsync(accountId, default))
+			);
 			return;
 		}
 		catch (Exception)
@@ -406,6 +409,17 @@ public sealed class SyncJobs(
 	/// </remarks>
 	public async Task CoveragePageAsync(Guid accountId, Guid mailboxId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(CoveragePageAsync)}:{accountId}:{mailboxId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.CoveragePageAsync(accountId, mailboxId, default)
+				)
+			))
+		{
+			return;
+		}
+
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
@@ -437,7 +451,12 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.CoveragePageAsync(accountId, mailboxId, default)
+				)
+			);
 			return;
 		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
@@ -477,6 +496,17 @@ public sealed class SyncJobs(
 	/// <summary>One change-stream run for one mailbox, rescheduling itself at the account's poll interval.</summary>
 	public async Task ChangeStreamAsync(Guid accountId, Guid mailboxId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(ChangeStreamAsync)}:{accountId}:{mailboxId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.ChangeStreamAsync(accountId, mailboxId, default)
+				)
+			))
+		{
+			return;
+		}
+
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
@@ -530,7 +560,12 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.ChangeStreamAsync(accountId, mailboxId, default)
+				)
+			);
 			return;
 		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
@@ -574,6 +609,11 @@ public sealed class SyncJobs(
 	{
 		try
 		{
+			if (!connectivity.IsOnline)
+			{
+				return;
+			}
+
 			var account = await RunnableAsync(accountId, ct);
 			var mailbox = await context.Mailboxes.FirstOrDefaultAsync(
 				candidate => candidate.Id == mailboxId,
@@ -592,7 +632,10 @@ public sealed class SyncJobs(
 			}
 			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 			{
-				// IDLE is only a latency hint. A failed hint must not create a second retry loop.
+				// A wake is only a latency hint. The owned poll loop already has exactly one
+				// scheduled successor, which will defer itself if it reaches the offline gate.
+				// Enqueuing that loop here would create a second permanent owner on recovery.
+				await connectivity.MarkOfflineAsync();
 			}
 		}
 		finally
@@ -601,8 +644,11 @@ public sealed class SyncJobs(
 			{
 				try
 				{
-					jobs.Enqueue<SyncJobs>(job =>
-						job.WakeChangeStreamAsync(accountId, mailboxId, default));
+					connectivity.DispatchOrDefer(
+						$"{nameof(WakeChangeStreamAsync)}:{accountId}:{mailboxId}",
+						client => client.Enqueue<SyncJobs>(job =>
+							job.WakeChangeStreamAsync(accountId, mailboxId, default))
+					);
 				}
 				catch
 				{
@@ -631,6 +677,17 @@ public sealed class SyncJobs(
 	/// </summary>
 	public async Task IntegrityAsync(Guid accountId, Guid mailboxId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(IntegrityAsync)}:{accountId}:{mailboxId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.IntegrityAsync(accountId, mailboxId, default)
+				)
+			))
+		{
+			return;
+		}
+
 		var account = await RunnableAsync(accountId, ct);
 		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
 		if (account is null || mailbox is null)
@@ -650,7 +707,12 @@ public sealed class SyncJobs(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), NextNetworkRetryDelay(accountId));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.IntegrityAsync(accountId, mailboxId, default)
+				)
+			);
 			return;
 		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
@@ -724,11 +786,6 @@ public sealed class SyncJobs(
 		try
 		{
 			var result = await work();
-			// The provider call just succeeded, so whatever streak of network-class failures
-			// this account had built up no longer reflects reality — the next failure (if any)
-			// should retry promptly again, not inherit a stale backoff from an outage that's
-			// already over.
-			networkFailureStreak.TryRemove(account.Id, out _);
 			if (account.AuthState == AuthState.CredentialStoreUnavailable)
 			{
 				// Unlike NeedsReauth, this state is never gated off from retrying (see the

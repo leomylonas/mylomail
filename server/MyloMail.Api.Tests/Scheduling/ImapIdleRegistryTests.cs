@@ -1,3 +1,5 @@
+using System.Net.Sockets;
+using Hangfire;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MyloMail.Api.Domain;
@@ -101,6 +103,60 @@ public sealed class ImapIdleRegistryTests
 
 		registry.Release(scope);
 		Assert.True(registry.Request(scope));
+	}
+
+	[Fact]
+	public async Task A_failed_IDLE_hint_does_not_start_a_second_owned_poll_loop_on_recovery()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var mailboxId = Guid.NewGuid();
+		await harness.UsingAsync(async provider =>
+		{
+			var context = provider.GetRequiredService<MyloMailDbContext>();
+			context.Mailboxes.Add(new Mailbox
+			{
+				Id = mailboxId,
+				AccountId = harness.Account.Id,
+				ProviderMailboxId = "INBOX",
+				Name = "Inbox",
+				SpecialUse = SpecialUse.Inbox,
+				IsSubscribed = true,
+			});
+			await context.SaveChangesAsync();
+			Assert.True(
+				provider
+					.GetRequiredService<ImapIdleWakeRegistry>()
+					.Request((harness.Account.Id, mailboxId))
+			);
+		});
+		harness.Provider.FailNextChangeStreamWith(new SocketException());
+
+		await harness.UsingAsync(provider =>
+			provider
+				.GetRequiredService<SyncJobs>()
+				.WakeChangeStreamAsync(harness.Account.Id, mailboxId)
+		);
+		Assert.False(
+			await harness.UsingAsync(provider =>
+				Task.FromResult(provider.GetRequiredService<ConnectivityMonitor>().IsOnline)
+			)
+		);
+		await harness.UsingAsync(provider =>
+			provider.GetRequiredService<ConnectivityMonitor>().ReportAsync(true)
+		);
+
+		var jobs = await harness.UsingAsync(provider =>
+			Task.FromResult(
+				((RecordingJobClient)provider.GetRequiredService<IBackgroundJobClient>()).Created
+			)
+		);
+		Assert.DoesNotContain(
+			jobs,
+			job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
+		);
 	}
 
 	[Fact]

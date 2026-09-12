@@ -1,3 +1,5 @@
+using System.Net.Sockets;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MimeKit;
@@ -154,6 +156,58 @@ public sealed class ContentAcquisitionTopologyGenerationTests
 			Assert.Equal(ContentStatus.Indexed, state.Status);
 		});
 	}
+
+	[Fact]
+	public async Task A_content_network_failure_waits_for_connectivity_before_enqueuing_another_fetch()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (_, messageId) = await SeedAsync(harness);
+		harness.Provider.FailFetchRawMessageWith(new SocketException());
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ContentJobs>().FetchNextAsync(harness.Account.Id)
+		);
+
+		var beforeRecovery = await CreatedJobsAsync(harness);
+		Assert.DoesNotContain(
+			beforeRecovery,
+			job => job.Method.Name == nameof(ContentJobs.FetchNextAsync)
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var state = await scope
+				.GetRequiredService<MyloMailDbContext>()
+				.MessageContentStates.SingleAsync(item => item.MessageId == messageId);
+			Assert.Equal(ContentStatus.Queued, state.Status);
+			Assert.Equal(0, state.Attempts);
+		});
+		await Assert.ThrowsAsync<HttpRequestException>(() =>
+			harness.UsingAsync(async scope =>
+			{
+				var account = await harness.AccountInScopeAsync(scope);
+				await scope
+					.GetRequiredService<ContentAcquisition>()
+					.AcquireAsync(account, messageId);
+			})
+		);
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ConnectivityMonitor>().ReportAsync(true)
+		);
+
+		var afterRecovery = await CreatedJobsAsync(harness);
+		Assert.Single(
+			afterRecovery,
+			job => job.Method.Name == nameof(ContentJobs.FetchNextAsync)
+		);
+	}
+
+	private static Task<List<Hangfire.Common.Job>> CreatedJobsAsync(SyncHarness harness) =>
+		harness.UsingAsync(scope =>
+			Task.FromResult(
+				((RecordingJobClient)scope.GetRequiredService<IBackgroundJobClient>()).Created
+			)
+		);
 
 	private static Task AssertDiscardedAsync(SyncHarness harness, Guid messageId) =>
 		harness.UsingAsync(async scope =>

@@ -40,6 +40,7 @@ public sealed class ContentAcquisition(
 	SearchIndexer search,
 	MailInviteMaterializer invites,
 	IHubEvents events,
+	ConnectivityMonitor connectivity,
 	IFaultInjector faults,
 	ILogger<ContentAcquisition> logger
 )
@@ -60,6 +61,10 @@ public sealed class ContentAcquisition(
 		CancellationToken ct = default
 	)
 	{
+		if (!connectivity.IsOnline)
+		{
+			throw new HttpRequestException("Content is unavailable while the app is offline.");
+		}
 		var state = await context.MessageContentStates.FirstOrDefaultAsync(c => c.MessageId == messageId, ct);
 		if (state is null)
 		{
@@ -106,6 +111,22 @@ public sealed class ContentAcquisition(
 					MaximumRawMessageBytes
 				);
 		}
+		catch (ProviderThrottledException ex)
+		{
+			// Rate limiting says nothing about this message's readability. Undo this fetch
+			// attempt while preserving the issued-occurrence fence, then let the scheduler
+			// apply the provider's exact account-wide delay.
+			await RecordFailureAsync(
+				state,
+				issued,
+				messageId,
+				ex,
+				consumeAttempt: false,
+				clearTracker: false,
+				ct
+			);
+			throw;
+		}
 		catch (Credentials.CredentialStoreUnavailableException ex)
 		{
 			// Not evidence the content is unreadable -- nothing about this message was even
@@ -131,6 +152,7 @@ public sealed class ContentAcquisition(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
+			await connectivity.MarkOfflineAsync();
 			// A sustained outage recurs on every fetch while it lasts, and the message was
 			// never actually unreadable — only unreachable. Leave it uncounted against
 			// MaxAttempts. The failure write is fenced with the issued occurrence so an old

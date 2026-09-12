@@ -258,11 +258,15 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public List<OutboxItemDto> OutboxStatuses { get; } = [];
 
+	public Exception? OutboxStatusFailure { get; set; }
+
 	public List<MutationFailureDto> SyncFailures { get; } = [];
 
 	public List<MutationSettledDto> MutationSettlements { get; } = [];
 
 	public List<SyncProgressDto> Progress { get; } = [];
+
+	public List<bool> Connectivity { get; } = [];
 
 	public void Clear()
 	{
@@ -278,9 +282,11 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Notifications.Clear();
 		AccountStatuses.Clear();
 		OutboxStatuses.Clear();
+		OutboxStatusFailure = null;
 		SyncFailures.Clear();
 		MutationSettlements.Clear();
 		Progress.Clear();
+		Connectivity.Clear();
 	}
 
 	public Task MessageReceivedAsync(MessageSummaryDto message)
@@ -345,6 +351,14 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item)
 	{
+		if (
+			item.Status == OutboxStatus.AmbiguousOutcome
+			&& OutboxStatusFailure is { } failure
+		)
+		{
+			OutboxStatusFailure = null;
+			return Task.FromException(failure);
+		}
 		OutboxStatuses.Add(item);
 		return Task.CompletedTask;
 	}
@@ -375,7 +389,11 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
 
-	public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;
+	public Task ConnectivityChangedAsync(bool online)
+	{
+		Connectivity.Add(online);
+		return Task.CompletedTask;
+	}
 
 	public Task ShellSettingsChangedAsync() => Task.CompletedTask;
 

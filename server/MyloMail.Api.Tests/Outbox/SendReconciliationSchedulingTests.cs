@@ -1,5 +1,9 @@
+using System.Net.Sockets;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyloMail.Api.Domain;
 using MyloMail.Api.Outbox;
+using MyloMail.Api.Persistence;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
@@ -35,6 +39,46 @@ public sealed class SendReconciliationSchedulingTests
 	}
 
 	[Fact]
+	public async Task A_network_send_failure_pauses_after_recording_ambiguity_until_recovery()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await OutboxTests.SetUndoDelayAsync(harness, 0);
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.Provider.FailSendWith(new SocketException());
+		harness.Events.OutboxStatusFailure = new InvalidOperationException(
+			"SignalR unavailable."
+		);
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<OutboxJobs>().RunAsync(harness.AccountId)
+		);
+
+		var beforeRecovery = await CreatedJobsAsync(harness);
+		Assert.DoesNotContain(
+			beforeRecovery,
+			job => job.Method.Name == nameof(OutboxJobs.RunAsync)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var stored = await services
+				.GetRequiredService<MyloMailDbContext>()
+				.OutboxItems.SingleAsync(candidate => candidate.Id == item.Id);
+			Assert.Equal(OutboxStatus.AmbiguousOutcome, stored.Status);
+			Assert.False(services.GetRequiredService<ConnectivityMonitor>().IsOnline);
+		});
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<ConnectivityMonitor>().ReportAsync(true)
+		);
+
+		var afterRecovery = await CreatedJobsAsync(harness);
+		Assert.Single(
+			afterRecovery,
+			job => job.Method.Name == nameof(OutboxJobs.RunAsync)
+		);
+	}
+
+	[Fact]
 	public async Task A_run_with_nothing_ambiguous_schedules_no_reconciliation_check()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
@@ -48,4 +92,12 @@ public sealed class SendReconciliationSchedulingTests
 		);
 		Assert.DoesNotContain(created, job => job.Method.Name == nameof(OutboxJobs.RunAsync));
 	}
+
+	private static Task<List<Hangfire.Common.Job>> CreatedJobsAsync(
+		MutationHarness harness
+	) => harness.UsingAsync(services =>
+		Task.FromResult(
+			((RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>()).Created
+		)
+	);
 }

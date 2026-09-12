@@ -1183,7 +1183,7 @@ public class MutationProblemDetails : ProblemDetails
 
 - Reading cached/synced data must always work with no network.
 - Sync errors use the same `MutationProblemDetails.Category` taxonomy as every other error in the system (see "Error taxonomy" below) — categorised, never flat strings — so the UI can show one calm "offline — will resume" state instead of per-mailbox error noise multiplying every poll cycle.
-- Connectivity-aware pause: network-class failures suppress normal per-job retry noise/logging until connectivity returns, rather than surfacing every offline poll attempt as a fresh failure.
+- Connectivity-aware pause: the first network-class failure marks the process offline; each affected durable work scope retains one deduplicated enqueue and makes no further provider call until an OS event or low-frequency availability poll permits a bounded provider-path trial. A failed trial pauses the process again. The enqueue registry is process-local only — SQLite state remains authoritative, and startup reconciliation reconstructs every scope after a restart.
 
 ### Undo send & delayed send
 

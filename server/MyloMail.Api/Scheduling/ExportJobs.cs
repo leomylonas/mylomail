@@ -5,6 +5,7 @@ using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 
 namespace MyloMail.Api.Scheduling;
 
@@ -29,6 +30,8 @@ namespace MyloMail.Api.Scheduling;
 public sealed class ExportJobs(
 	MyloMailDbContext context,
 	ContentAcquisition content,
+	AccountGate gate,
+	ConnectivityMonitor connectivity,
 	IHubEvents events,
 	IBackgroundJobClient jobs,
 	TimeProvider clock,
@@ -58,7 +61,7 @@ public sealed class ExportJobs(
 		context.ExportJobs.Add(job);
 		await context.SaveChangesAsync(ct);
 
-		jobs.Enqueue<ExportJobs>(j => j.RunBatchAsync(job.Id, default));
+		jobs.Enqueue<ExportJobs>(next => next.RunBatchAsync(job.Id, default));
 		return job.Id;
 	}
 
@@ -85,8 +88,15 @@ public sealed class ExportJobs(
 			.ExecuteUpdateAsync(u => u.SetProperty(j => j.Status, ExportJobStatus.CancelRequested), ct);
 	}
 
+	/// <remarks>
+	/// A batch is not gated merely because the app is offline: cached MIME must remain
+	/// exportable without a network. The first cache miss pauses at the provider boundary and
+	/// retains this exact manifest position for connectivity recovery.
+	/// </remarks>
 	public async Task RunBatchAsync(Guid exportId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(RunBatchAsync)}:{exportId}";
+
 		var job = await context.ExportJobs.FirstOrDefaultAsync(j => j.Id == exportId, ct);
 		if (job is null || job.Status is not (ExportJobStatus.Running or ExportJobStatus.CancelRequested))
 		{
@@ -125,6 +135,8 @@ public sealed class ExportJobs(
 				.ToDictionaryAsync(o => o.Id, ct);
 
 			var contentDeferred = false;
+			var connectivityPaused = false;
+			TimeSpan? providerRetryAfter = null;
 
 			foreach (var occurrenceId in pageIds)
 			{
@@ -137,16 +149,10 @@ public sealed class ExportJobs(
 					&& folders.TryGetValue(occurrence.MailboxId, out var folder)
 				)
 				{
-					Directory.CreateDirectory(folder);
+					byte[] raw;
 					try
 					{
-						var raw = await RawBytesAsync(account, occurrence.MessageId, ct);
-						await File.WriteAllBytesAsync(
-							Path.Combine(folder, $"{occurrence.MessageId:N}.eml"),
-							raw,
-							ct
-						);
-						job.WrittenCount++;
+						raw = await RawBytesAsync(account, occurrence.MessageId, ct);
 					}
 					catch (ContentAcquisitionDeferredException)
 					{
@@ -156,10 +162,38 @@ public sealed class ExportJobs(
 						contentDeferred = true;
 						break;
 					}
+					catch (ProviderThrottledException ex)
+					{
+						providerRetryAfter = ex.RetryAfter;
+						gate.Throttle(account.Id, ex.RetryAfter);
+						break;
+					}
+					catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+					{
+						connectivityPaused = true;
+						await connectivity.PauseAsync(
+							workKey,
+							client => client.Enqueue<ExportJobs>(
+								next => next.RunBatchAsync(exportId, default)
+							)
+						);
+						break;
+					}
+
+					try
+					{
+						Directory.CreateDirectory(folder);
+						await File.WriteAllBytesAsync(
+							Path.Combine(folder, $"{occurrence.MessageId:N}.eml"),
+							raw,
+							ct
+						);
+						job.WrittenCount++;
+					}
 					catch (Exception ex)
 					{
-						// One unreadable message must not abandon the rest of the export — the
-						// user gets everything else, plus the last error, rather than nothing.
+						// A local path failure must not masquerade as offline just because
+						// network transports and File APIs both use IOException.
 						job.LastError = ex.Message;
 						logger.LogWarning(
 							ex,
@@ -172,13 +206,39 @@ public sealed class ExportJobs(
 
 				job.ResumeToken++;
 			}
+			if (providerRetryAfter is { } retryAfter)
+			{
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(
+					context,
+					events,
+					account,
+					ct,
+					gate
+				);
+				jobs.Schedule<ExportJobs>(
+					next => next.RunBatchAsync(job.Id, default),
+					retryAfter
+				);
+				return;
+			}
+
+			if (connectivityPaused)
+			{
+				await context.SaveChangesAsync(ct);
+				return;
+			}
+
 
 			if (contentDeferred)
 			{
 				await context.SaveChangesAsync(ct);
-				jobs.Schedule<ExportJobs>(
-					j => j.RunBatchAsync(job.Id, default),
-					TimeSpan.FromSeconds(1)
+				connectivity.DispatchOrDefer(
+					workKey,
+					client => client.Schedule<ExportJobs>(
+						next => next.RunBatchAsync(job.Id, default),
+						TimeSpan.FromSeconds(1)
+					)
 				);
 				return;
 			}
@@ -194,8 +254,17 @@ public sealed class ExportJobs(
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
 			if (job.Status == ExportJobStatus.Running)
 			{
-				jobs.Enqueue<ExportJobs>(j => j.RunBatchAsync(job.Id, default));
+				jobs.Enqueue<ExportJobs>(next => next.RunBatchAsync(job.Id, default));
 			}
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<ExportJobs>(
+					job => job.RunBatchAsync(exportId, default)
+				)
+			);
 		}
 		catch (Exception ex)
 		{
@@ -215,6 +284,12 @@ public sealed class ExportJobs(
 		{
 			return existing.Content;
 		}
+		var delay = gate.Delay(account.Id);
+		if (delay > TimeSpan.Zero)
+		{
+			throw new ProviderThrottledException(delay, "Account is throttled.");
+		}
+
 
 		if (await content.AcquireAsync(account, messageId, ct) == ContentAcquisitionResult.Deferred)
 		{

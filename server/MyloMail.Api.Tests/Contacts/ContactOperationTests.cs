@@ -1,6 +1,7 @@
 using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using MyloMail.Api.Contacts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
@@ -196,10 +197,16 @@ public sealed class ContactOperationTests
 		await harness.UsingAsync(async provider =>
 		{
 			var refreshes = new ContactRefreshRegistry();
+			using var connectivity = new ConnectivityMonitor(
+				harness.Events,
+				harness.Jobs,
+				NullLogger<ConnectivityMonitor>.Instance
+			);
 			var jobs = new ContactJobs(
 				provider.GetRequiredService<ContactService>(),
 				refreshes,
 				provider.GetRequiredService<AccountGate>(),
+				connectivity,
 				harness.Jobs
 			);
 
@@ -339,11 +346,17 @@ public sealed class ContactOperationTests
 		await harness.UsingAsync(async provider =>
 		{
 			var refreshes = new ContactRefreshRegistry();
+			using var connectivity = new ConnectivityMonitor(
+				harness.Events,
+				harness.Jobs,
+				NullLogger<ConnectivityMonitor>.Instance
+			);
 			Assert.True(refreshes.TryStart(harness.AccountId));
 			var job = new ContactJobs(
 				provider.GetRequiredService<ContactService>(),
 				refreshes,
 				provider.GetRequiredService<AccountGate>(),
+				connectivity,
 				harness.Jobs
 			);
 			await job.RefreshAsync(harness.AccountId, default);

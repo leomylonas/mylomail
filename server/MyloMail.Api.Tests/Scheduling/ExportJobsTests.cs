@@ -1,3 +1,4 @@
+using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
@@ -38,6 +39,9 @@ public sealed class ExportJobsTests : IAsyncLifetime
 
 		var exportId = await harness.UsingAsync(scope =>
 			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ConnectivityMonitor>().ReportAsync(false)
 		);
 		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
 
@@ -170,6 +174,53 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Equal(1, completed.ResumeToken);
 		Assert.Equal(1, completed.WrittenCount);
 		Assert.True(File.Exists(Path.Combine(destination, "INBOX", $"{messageId:N}.eml")));
+	}
+
+	[Fact]
+	public async Task Provider_throttling_keeps_the_manifest_position_and_uses_the_exact_delay()
+	{
+		var (_, messageId) = await SeedUnfetchedAsync();
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		var jobs = await harness.UsingAsync(scope =>
+			Task.FromResult(
+				(RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>()
+			)
+		);
+		jobs.Created.Clear();
+		jobs.States.Clear();
+		var retryAfter = TimeSpan.FromSeconds(17);
+		var before = DateTime.UtcNow;
+		harness.Provider.FailFetchRawMessageWith(
+			new ProviderThrottledException(retryAfter, "Wait.")
+		);
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var export = await context.ExportJobs.SingleAsync(job => job.Id == exportId);
+			var content = await context.MessageContentStates.SingleAsync(
+				state => state.MessageId == messageId
+			);
+			Assert.Equal(ExportJobStatus.Running, export.Status);
+			Assert.Equal(0, export.ResumeToken);
+			Assert.Equal(0, content.Attempts);
+			Assert.Equal(
+				retryAfter,
+				scope.GetRequiredService<AccountGate>().Delay(harness.Account.Id)
+			);
+		});
+		var scheduled = Assert.IsType<ScheduledState>(Assert.Single(jobs.States));
+		Assert.InRange(
+			scheduled.EnqueueAt,
+			before.Add(retryAfter).AddSeconds(-1),
+			DateTime.UtcNow.Add(retryAfter).AddSeconds(1)
+		);
 	}
 
 	private async Task<(Guid MailboxId, Guid MessageId)> SeedUnfetchedAsync()

@@ -22,13 +22,11 @@ public sealed class ImapIdleWorker(
 	ImapIdleRegistry activeMailboxes,
 	ImapIdleWakeRegistry wakeups,
 	ConnectivityMonitor connectivity,
-	TimeProvider clock,
 	IBackgroundJobClient jobs,
 	ILogger<ImapIdleWorker> logger
 ) : BackgroundService
 {
 	private readonly ConcurrentDictionary<(Guid AccountId, Guid MailboxId), IdleSession> sessions = [];
-	private readonly ConcurrentDictionary<(Guid AccountId, Guid MailboxId), DateTimeOffset> retryAfter = [];
 
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
@@ -52,9 +50,6 @@ public sealed class ImapIdleWorker(
 					await Task.WhenAll(retired);
 					foreach (var scope in wanted)
 					{
-						if (retryAfter.TryGetValue(scope, out var retryAt)
-							&& retryAt > clock.GetUtcNow()) continue;
-						retryAfter.TryRemove(scope, out _);
 						Start(scope, stoppingToken);
 					}
 				}
@@ -130,7 +125,6 @@ public sealed class ImapIdleWorker(
 				await idle.WaitForMailboxChangeAsync(account, mailbox, session.Cancellation.Token);
 				if (!session.Cancellation.IsCancellationRequested)
 				{
-					retryAfter.TryRemove(scope, out _);
 					if (wakeups.Request(scope))
 					{
 						try
@@ -165,7 +159,7 @@ public sealed class ImapIdleWorker(
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			retryAfter[scope] = clock.GetUtcNow() + TimeSpan.FromMinutes(1);
+			await connectivity.MarkOfflineAsync();
 			logger.LogDebug(
 				ex,
 				"IMAP IDLE session is offline for account {AccountId}, mailbox {MailboxId}.",

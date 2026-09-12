@@ -15,10 +15,24 @@ namespace MyloMail.Api.Scheduling;
 /// <inheritdoc cref="SyncJobs" path="/remarks"/>
 /// <summary>Pushes an account's dirty drafts to the server.</summary>
 [AutomaticRetry(Attempts = 0)]
-public sealed class DraftJobs(DraftSyncService drafts, MyloMailDbContext context, IBackgroundJobClient jobs)
+public sealed class DraftJobs(
+	DraftSyncService drafts,
+	MyloMailDbContext context,
+	IBackgroundJobClient jobs,
+	ConnectivityMonitor connectivity
+)
 {
 	public async Task PushAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(DraftJobs)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		try
 		{
 			await drafts.PushAsync(accountId, ct);
@@ -30,7 +44,10 @@ public sealed class DraftJobs(DraftSyncService drafts, MyloMailDbContext context
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
-			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), TimeSpan.FromMinutes(1));
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default))
+			);
 			return;
 		}
 
@@ -39,26 +56,48 @@ public sealed class DraftJobs(DraftSyncService drafts, MyloMailDbContext context
 		).Any(draft => draft.PushedAt is null || draft.PushedAt < draft.SavedAt);
 		if (draftsRemain)
 		{
-			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), TimeSpan.FromMinutes(1));
+			connectivity.DispatchOrDefer(
+				workKey,
+				client => client.Schedule<DraftJobs>(
+					job => job.PushAsync(accountId, default),
+					TimeSpan.FromMinutes(1)
+				)
+			);
 		}
 	}
 }
 
 /// <summary>Requests a draft push, so a save reaches the server without waiting for a restart.</summary>
-public sealed class DraftDispatcher(IBackgroundJobClient jobs) : IDraftDispatcher
+public sealed class DraftDispatcher(ConnectivityMonitor connectivity) : IDraftDispatcher
 {
 	public void RequestPush(Guid accountId) =>
-		jobs.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default));
+		connectivity.DispatchOrDefer(
+			$"{nameof(DraftJobs)}:{accountId}",
+			client => client.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default))
+		);
 }
 
 /// <summary>Schedules an outbox run for when its next item is due.</summary>
-public sealed class OutboxDispatcher(IBackgroundJobClient jobs) : IOutboxDispatcher
+public sealed class OutboxDispatcher(
+	ConnectivityMonitor connectivity,
+	TimeProvider clock
+) : IOutboxDispatcher
 {
-	public void RequestSend(Guid accountId, TimeSpan delay) =>
-		jobs.Schedule<OutboxJobs>(
-			job => job.RunAsync(accountId, default),
-			delay > TimeSpan.Zero ? delay : TimeSpan.Zero
+	public void RequestSend(Guid accountId, TimeSpan delay)
+	{
+		var dueAt = clock.GetUtcNow() + (delay > TimeSpan.Zero ? delay : TimeSpan.Zero);
+		connectivity.DispatchOrDefer(
+			$"{nameof(OutboxJobs)}:{accountId}:{dueAt.UtcDateTime.Ticks}",
+			client =>
+			{
+				var remaining = dueAt - clock.GetUtcNow();
+				client.Schedule<OutboxJobs>(
+					job => job.RunAsync(accountId, default),
+					remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero
+				);
+			}
 		);
+	}
 }
 
 [AutomaticRetry(Attempts = 0)]
@@ -68,6 +107,7 @@ public sealed class OutboxJobs(
 	SendExecutor sender,
 	SendReconciler reconciler,
 	AccountGate gate,
+	ConnectivityMonitor connectivity,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
 	TimeProvider clock,
@@ -84,6 +124,15 @@ public sealed class OutboxJobs(
 	/// </remarks>
 	public async Task RunAsync(Guid accountId, CancellationToken ct = default)
 	{
+		var workKey = $"{nameof(OutboxJobs)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<OutboxJobs>(job => job.RunAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
 		{
@@ -96,7 +145,18 @@ public sealed class OutboxJobs(
 			return;
 		}
 
-		await reconciler.ReconcileAsync(accountId, ct);
+		try
+		{
+			await reconciler.ReconcileAsync(accountId, ct);
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<OutboxJobs>(job => job.RunAsync(accountId, default))
+			);
+			return;
+		}
 
 		foreach (var item in await outbox.DueAsync(accountId, ct))
 		{
@@ -153,6 +213,11 @@ public sealed class OutboxJobs(
 				// exactly the per-job noise § Offline behaviour asks to be suppressed until
 				// connectivity returns.
 				logger.LogDebug(ex, "Send for outbox item {OutboxItemId} failed (offline).", item.Id);
+				await connectivity.PauseAsync(
+					workKey,
+					client => client.Enqueue<OutboxJobs>(job => job.RunAsync(accountId, default))
+				);
+				return;
 			}
 			catch (Exception ex)
 			{

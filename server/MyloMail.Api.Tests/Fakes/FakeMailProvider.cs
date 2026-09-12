@@ -29,6 +29,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	private readonly Dictionary<string, FakeMailbox> mailboxes = [];
 	private readonly HashSet<string> omitted = [];
 	private readonly Dictionary<string, MutationProblemDetails> forcedBatchFailures = [];
+	private Exception? batchFailure;
+	private int batchSuccessesBeforeFailure;
 	private Exception? sendFailure;
 	private Exception? fetchRawMessageFailure;
 	private Exception? draftPushFailure;
@@ -92,6 +94,13 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 	/// </summary>
 	public void FailNextBatchItemWith(string providerOccurrenceId, MutationProblemDetails problem) =>
 		forcedBatchFailures[providerOccurrenceId] = problem;
+
+	/// <summary>Makes a later provider-native mutation batch throw at its call boundary.</summary>
+	public void FailNextBatchWith(Exception failure, int successesBeforeFailure = 0)
+	{
+		batchFailure = failure;
+		batchSuccessesBeforeFailure = successesBeforeFailure;
+	}
 
 	/// <summary>Makes the next send throw, so a rejection path can be exercised.</summary>
 	public void FailSendWith(Exception failure) => sendFailure = failure;
@@ -535,6 +544,18 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 		Func<Located, IReadOnlyList<OccurrenceChange>> apply
 	)
 	{
+		if (batchFailure is { } failure)
+		{
+			if (batchSuccessesBeforeFailure > 0)
+			{
+				batchSuccessesBeforeFailure--;
+			}
+			else
+			{
+				batchFailure = null;
+				throw failure;
+			}
+		}
 		var items = new List<BatchItemResult>(refs.Count);
 
 		foreach (var reference in refs)

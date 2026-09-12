@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using Hangfire;
 using MailKit.Security;
 using MyloMail.Api.Hubs;
 
@@ -9,17 +10,21 @@ namespace MyloMail.Api.Scheduling;
 
 /// <summary>
 /// Tracks one app-wide online/offline signal (§15) and broadcasts <c>ConnectivityChanged</c>
-/// when it flips — network-class failures suppress per-job retry noise until connectivity
-/// returns, and the UI shows one calm offline state instead of per-mailbox errors multiplying
-/// every poll.
+/// when it flips. Network-class failures retain one deduplicated continuation per work scope,
+/// then enqueue those continuations only after a probe confirms recovery. The UI therefore
+/// shows one calm offline state instead of per-mailbox errors multiplying every poll.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Discovered two ways, per §3: the OS's own network-availability event reacts immediately to
-/// an interface going up or down, and a low-frequency probe (<see cref="ProbeAsync"/>, wired to
-/// Hangfire's minute-granular recurring scheduler — this signal has no need for anything
-/// finer) catches what the OS event cannot, such as a captive portal or an interface that stays
-/// "up" while the actual path to the internet is gone.
+/// an interface going up or down, while a low-frequency poll (<see cref="ProbeAsync"/>, wired
+/// to Hangfire's minute-granular recurring scheduler) catches missed events and gives retained
+/// jobs another bounded opportunity to test their actual provider path.
+/// </para>
+/// <para>
+/// The deferred dictionary is not a job store. It contains only enqueue delegates for work
+/// whose intent/state is already durable in SQLite; <see cref="StartupScheduler"/> reconstructs
+/// that work after a process restart, just as it does for in-memory Hangfire storage.
 /// </para>
 /// <para>
 /// Deliberately not wired into individual provider call sites. Every provider is constructed
@@ -32,12 +37,19 @@ public sealed class ConnectivityMonitor : IDisposable
 {
 	private readonly IHubEvents events;
 	private readonly ILogger<ConnectivityMonitor> logger;
+	private readonly IBackgroundJobClient jobs;
 	private readonly object guard = new();
+	private readonly Dictionary<string, Action<IBackgroundJobClient>> deferred = [];
 	private volatile bool online = true;
 
-	public ConnectivityMonitor(IHubEvents events, ILogger<ConnectivityMonitor> logger)
+	public ConnectivityMonitor(
+		IHubEvents events,
+		IBackgroundJobClient jobs,
+		ILogger<ConnectivityMonitor> logger
+	)
 	{
 		this.events = events;
+		this.jobs = jobs;
 		this.logger = logger;
 		NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
 	}
@@ -45,11 +57,63 @@ public sealed class ConnectivityMonitor : IDisposable
 	public bool IsOnline => online;
 
 	/// <summary>
+	/// Returns whether a job may touch its provider now. Offline jobs register one deduplicated
+	/// continuation which is enqueued immediately after connectivity is confirmed again.
+	/// </summary>
+	public bool CanRun(string key, Action<IBackgroundJobClient> resume)
+	{
+		lock (guard)
+		{
+			if (online)
+			{
+				return true;
+			}
+			deferred[key] = resume;
+			return false;
+		}
+	}
+
+	/// <summary>Dispatches new durable work now, or records its one recovery enqueue while offline.</summary>
+	public void DispatchOrDefer(string key, Action<IBackgroundJobClient> dispatch)
+	{
+		lock (guard)
+		{
+			if (!online)
+			{
+				deferred[key] = dispatch;
+				return;
+			}
+		}
+		Dispatch(key, dispatch);
+	}
+
+	/// <summary>
+	/// Marks a newly observed network failure offline and retains the failed job for recovery.
+	/// </summary>
+	public async Task PauseAsync(string key, Action<IBackgroundJobClient> resume)
+	{
+		bool changed;
+		lock (guard)
+		{
+			changed = online;
+			online = false;
+			deferred[key] = resume;
+		}
+		if (changed)
+		{
+			await BroadcastAsync(false);
+		}
+	}
+
+	/// <summary>Marks a network failure observed by work with its own recovery loop.</summary>
+	public Task MarkOfflineAsync() => ReportAsync(false);
+
+	/// <summary>
 	/// Whether an exception represents the socket/DNS/TLS-handshake layer being unreachable,
 	/// not a provider rejecting the request — the distinction the background job classes use
-	/// to reschedule quietly instead of surfacing every offline poll attempt as a fresh failure
-	/// (§ Offline behaviour), without threading this monitor into provider construction itself
-	/// (see the class remarks above for why that stays out of scope).
+	/// to pause until connectivity recovery instead of surfacing every offline poll attempt as
+	/// a fresh failure, without threading this monitor into provider construction itself (see
+	/// the class remarks above for why that stays out of scope).
 	/// </summary>
 	/// <remarks>
 	/// Deliberately exception-shape-based, not gated on <see cref="IsOnline"/>: the probe only
@@ -72,56 +136,91 @@ public sealed class ConnectivityMonitor : IDisposable
 		if (!e.IsAvailable)
 		{
 			// The interface itself is gone — no need to wait for the next probe tick to say so.
-			void FireAndLog() => Report(false).ContinueWith(
+			_ = ReportAsync(false).ContinueWith(
 				t => logger.LogWarning(t.Exception, "Failed to broadcast connectivity loss."),
 				TaskContinuationOptions.OnlyOnFaulted
 			);
-			FireAndLog();
 			return;
 		}
 
-		// An interface reappearing is not proof of a working path to the internet (a captive
-		// portal reports "available" too), so this asks the probe rather than assuming online.
-		_ = ProbeAsync(default);
+		// Interface availability is enough to permit one bounded provider trial. It is not
+		// proof of internet reachability (a captive portal also reports available), but the
+		// provider call is the only probe that cannot be blocked independently of the user's
+		// configured mail service. A failed trial marks the process offline again.
+		_ = ReportAsync(true);
 	}
 
-	/// <summary>The low-frequency probe (§3), run every minute by Hangfire's recurring scheduler.</summary>
+	/// <summary>The low-frequency recovery probe (§3), run every minute by Hangfire.</summary>
 	public async Task ProbeAsync(CancellationToken ct = default)
 	{
-		var reachable = await CanReachInternetAsync(ct);
-		await Report(reachable);
+		ct.ThrowIfCancellationRequested();
+		await ReportAsync(NetworkInterface.GetIsNetworkAvailable());
 	}
 
-	private async Task Report(bool reachable)
+	internal async Task ReportAsync(bool reachable)
 	{
 		bool changed;
+		KeyValuePair<string, Action<IBackgroundJobClient>>[] resumes = [];
 		lock (guard)
 		{
 			changed = online != reachable;
 			online = reachable;
+			if (reachable && deferred.Count > 0)
+			{
+				resumes = [.. deferred];
+				deferred.Clear();
+			}
 		}
 
 		if (changed)
 		{
-			await events.ConnectivityChangedAsync(reachable);
+			await BroadcastAsync(reachable);
+		}
+		if (reachable)
+		{
+			foreach (var resume in resumes)
+			{
+				try
+				{
+					resume.Value(jobs);
+				}
+				catch (Exception ex)
+				{
+					logger.LogError(ex, "Could not resume {ConnectivityWorkKey}.", resume.Key);
+					lock (guard)
+					{
+						deferred[resume.Key] = resume.Value;
+					}
+				}
+			}
 		}
 	}
 
-	private static async Task<bool> CanReachInternetAsync(CancellationToken ct)
+	private void Dispatch(string key, Action<IBackgroundJobClient> dispatch)
 	{
 		try
 		{
-			using var client = new TcpClient();
-			using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-			using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-			await client.ConnectAsync("1.1.1.1", 443, linked.Token);
-			return client.Connected;
+			dispatch(jobs);
 		}
-		catch
+		catch (Exception ex)
 		{
-			return false;
+			logger.LogError(ex, "Could not enqueue {ConnectivityWorkKey}.", key);
+			throw;
 		}
 	}
+
+	private async Task BroadcastAsync(bool reachable)
+	{
+		try
+		{
+			await events.ConnectivityChangedAsync(reachable);
+		}
+		catch (Exception ex)
+		{
+			logger.LogWarning(ex, "Could not broadcast connectivity state {ConnectivityState}.", reachable);
+		}
+	}
+
 
 	public void Dispose() => NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
 }
