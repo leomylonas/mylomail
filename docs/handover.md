@@ -55,10 +55,11 @@
 - Runtime verification 1/13: all 42 real-provider conformance cases exposed for the local three-tier IMAP matrix now pass: 14 each against QRESYNC, CONDSTORE-with-dot-delimiter, and Basic-without-UIDPLUS/MOVE. The first run correctly found that the new trash-preservation assertion compared MimeKit's normalized `Message-Id` value with synthetic angle brackets; the assertion now uses the provider's observable canonical value rather than failing every tier after the move had succeeded.
 - Native credential-store verification found and fixed a real Linux startup defect: the generated Secret Service binding described `OpenSession` as one variant argument, while the freedesktop contract requires an algorithm string plus an input variant. The production adapter now sends the `plain` algorithm and empty-string variant correctly. A gated live integration contract permanently exercises store, retrieve, replace, idempotent delete, and absent retrieval against the current host's native store.
 - Runtime verification 2/13 found that attachment opening was unreachable on every platform: the backend creates its private directory with `Guid.ToString("N")`, but Electron validated that segment with a hyphenated-GUID regex and rejected the path before calling the OS. Electron now uses a dedicated exact 32-hex directory validator. A Linux end-to-end workflow installs an isolated real XDG MIME handler, opens an IMAP-delivered attachment through `shell.openPath`, verifies the handler received the private path and exact bytes at mode `0600`, then closes the app and proves the attachment tree was removed.
+- Runtime verification 3/13: a dedicated live Electron workflow establishes IMAP IDLE against the QRESYNC Dovecot tier, asks the server to kick every authenticated connection without changing mailbox state or UIDVALIDITY, waits for the worker's bounded restart loop, then appends a message. The open Inbox receives it within the IDLE window without a poll or user action, proving both notification delivery and post-disconnect session replacement.
 
 ## Next task
 
-- Verify live IMAP IDLE delivery and reconnect behavior against the running matrix.
+- Verify tray and last-window close behavior in the actual Electron process.
 
 ## Required reading
 
@@ -201,6 +202,7 @@
 - Three-tier live IMAP conformance: with all matrix containers healthy, the integration-project wrapper passed format, TypeScript, ESLint, Stylelint, build, 42 .NET conformance cases, and 218 Vitest tests. Each Dovecot tier passed the full 14-case provider contract, including trash preservation, stale UID rejection, batching, cursor expiry, and delivery.
 - Native Linux credential-store proof: `MYLOMAIL_TEST_NATIVE_CREDENTIAL_STORE=1` exposed through the integration-project wrapper passed 1/1 against the logged-in GNOME Secret Service, including replacement and idempotent deletion; the wrapper also passed format, TypeScript, ESLint, Stylelint, build, and 218 Vitest tests. Before the binding fix, the same live test failed with D-Bus `InvalidArgs` because `(v)` did not match the service's required `(sv)` request.
 - Actual Linux Electron/OS attachment lifecycle: `pnpm e2e --grep "attachment opens through the OS"` passed 1/1. Before the validator fix, the same path reached the real attachment UI and failed with “The backend returned an invalid attachment path”; after the fix, the isolated host MIME association received the file, its bytes and `0600` mode matched, and graceful backend shutdown removed the complete private attachment tree.
+- Live IMAP IDLE reconnect: `pnpm e2e --grep "server drops its live session"` passed 1/1. Dovecot confirmed it kicked the test user's authenticated sockets; after the worker restart interval, a newly appended message appeared in the already-open Inbox within 30 seconds without a polling trigger.
 
 ## Live risks / decisions
 
