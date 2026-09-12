@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { chmodSync, mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,7 +131,79 @@ function createFixtureEnvironment(overrides: Readonly<NodeJS.ProcessEnv>): {
 		join(configHome, "mylomail", "bootstrap.json"),
 		JSON.stringify({ DataDirectoryOverride: dataDirectory }),
 	);
-	const inherited = {
+	const attachmentOpenMarker =
+		overrides.MYLOMAIL_E2E_ATTACHMENT_OPEN_MARKER;
+	if (attachmentOpenMarker) {
+		const applications = join(root, "share", "applications");
+		const opener = join(root, "attachment-opener");
+		mkdirSync(applications, { recursive: true });
+		writeFileSync(
+			opener,
+			`#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(attachmentOpenMarker)}, process.argv[2]);\n`,
+		);
+		chmodSync(opener, 0o700);
+		writeFileSync(
+			join(applications, "mylomail-e2e-opener.desktop"),
+			[
+				"[Desktop Entry]",
+				"Type=Application",
+				"Name=MyloMail attachment verifier",
+				`Exec=${opener} %f`,
+				"MimeType=text/plain;",
+				"NoDisplay=true",
+				"",
+			].join("\n"),
+		);
+		writeFileSync(
+			join(configHome, "mimeapps.list"),
+			[
+				"[Default Applications]",
+				"text/plain=mylomail-e2e-opener.desktop;",
+				"",
+			].join("\n"),
+		);
+		const desktopDatabase = spawnSync(
+			"update-desktop-database",
+			[applications],
+			{
+				env: {
+					...process.env,
+					XDG_CONFIG_HOME: configHome,
+					XDG_DATA_HOME: join(root, "share"),
+				},
+				encoding: "utf8",
+			},
+		);
+		if (desktopDatabase.status !== 0) {
+			throw new Error(
+				`Could not register attachment verifier: ${desktopDatabase.stderr}`,
+			);
+		}
+		const mimeEnvironment = {
+			...process.env,
+			XDG_CONFIG_HOME: configHome,
+			XDG_DATA_HOME: join(root, "share"),
+		};
+		const association = spawnSync(
+			"xdg-mime",
+			["default", "mylomail-e2e-opener.desktop", "text/plain"],
+			{ env: mimeEnvironment, encoding: "utf8" },
+		);
+		const selected = spawnSync("xdg-mime", ["query", "default", "text/plain"], {
+			env: mimeEnvironment,
+			encoding: "utf8",
+		});
+		if (
+			association.status !== 0 ||
+			selected.status !== 0 ||
+			selected.stdout.trim() !== "mylomail-e2e-opener.desktop"
+		) {
+			throw new Error(
+				`Could not select attachment verifier: ${association.stderr}${selected.stderr}`,
+			);
+		}
+	}
+	const inherited: NodeJS.ProcessEnv = {
 		...process.env,
 		...overrides,
 		XDG_CONFIG_HOME: configHome,
@@ -139,6 +211,9 @@ function createFixtureEnvironment(overrides: Readonly<NodeJS.ProcessEnv>): {
 		MYLOMAIL_MASTER_PASSWORD: "e2e-master-password",
 		MYLOMAIL_RENDERER_PATH: join(repositoryRoot, "apps/renderer/dist"),
 	};
+	if (overrides.DBUS_SESSION_BUS_ADDRESS === "") {
+		delete inherited.DBUS_SESSION_BUS_ADDRESS;
+	}
 	const environment: Record<string, string> = {};
 	for (const [name, value] of Object.entries(inherited)) {
 		if (value !== undefined) environment[name] = value;

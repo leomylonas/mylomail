@@ -770,6 +770,7 @@ async function openExternally(url: string): Promise<void> {
 }
 
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const attachmentDirectory = /^[0-9a-f]{32}$/i;
 
 function isGuid(value: unknown): value is string {
 	return typeof value === "string" && guid.test(value);
@@ -786,10 +787,12 @@ function isNotificationRequest(value: unknown): value is NotificationRequest {
 	);
 }
 
+
 function isAttachmentTempPath(path: string): boolean {
 	const parent = dirname(path);
 	return (
-		basename(dirname(parent)) === "attachments" && guid.test(basename(parent))
+		basename(dirname(parent)) === "attachments" &&
+		attachmentDirectory.test(basename(parent))
 	);
 }
 

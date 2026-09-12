@@ -34,6 +34,48 @@ export async function appendMessage(
 		await send("a3 LOGOUT");
 	});
 }
+
+/** Appends a real MIME attachment for the desktop OS-open lifecycle. */
+export async function appendAttachmentMessage(
+	port: number,
+	subject: string,
+	filename: string,
+	content: string,
+): Promise<void> {
+	const boundary = `attachment-${Date.now()}`;
+	const message = [
+		"From: Someone <sender@example.org>",
+		"To: test@mylomail.local",
+		`Subject: ${subject}`,
+		`Message-ID: <${subject.replace(/\W+/g, "-")}-${Date.now()}@example.org>`,
+		`Date: ${new Date().toUTCString()}`,
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/mixed; boundary="${boundary}"`,
+		"",
+		`--${boundary}`,
+		'Content-Type: text/plain; charset="utf-8"',
+		"",
+		"Attachment lifecycle body.",
+		`--${boundary}`,
+		`Content-Type: text/plain; name="${filename}"`,
+		"Content-Transfer-Encoding: base64",
+		`Content-Disposition: attachment; filename="${filename}"`,
+		"",
+		Buffer.from(content).toString("base64"),
+		`--${boundary}--`,
+		"",
+	].join("\r\n");
+
+	await session(port, async (send, sendLiteral) => {
+		await send("o1 LOGIN test@mylomail.local password");
+		await sendLiteral(
+			"o2",
+			`o2 APPEND INBOX {${Buffer.byteLength(message)}}`,
+			message,
+		);
+		await send("o3 LOGOUT");
+	});
+}
 /**
  * Appends a multipart calendar message so the real content-acquisition and iTIP paths can be
  * exercised through Dovecot rather than by seeding MyloMail's raw-content tables.
