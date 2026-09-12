@@ -23,6 +23,82 @@ public sealed class DataDirectoryTests
 	}
 
 	[Fact]
+	public void Rejects_the_innermost_network_mount_on_unix()
+	{
+		var mounts = new (string Point, string Type)[]
+		{
+			("/", "apfs"),
+			("/Volumes/team", "smbfs"),
+		};
+
+		Assert.Throws<InvalidOperationException>(() =>
+			DataDirectory.EnsureLocalUnix("/Volumes/team/MyloMail", mounts)
+		);
+	}
+
+	[Theory]
+	[InlineData("macfuse")]
+	[InlineData("macfuse_sshfs")]
+	[InlineData("osxfuse")]
+	[InlineData("osxfuse_sshfs")]
+	public void Rejects_macOS_FUSE_filesystem_names(string fileSystemType)
+	{
+		Assert.Throws<InvalidOperationException>(() =>
+			DataDirectory.EnsureLocalUnix(
+				"/Volumes/team/MyloMail",
+				[("/", "apfs"), ("/Volumes/team", fileSystemType)]
+			)
+		);
+	}
+
+	[Fact]
+	public void Resolves_an_intermediate_directory_symlink_before_mount_classification()
+	{
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		{
+			return;
+		}
+
+		var root = Path.Combine(
+			Path.GetTempPath(),
+			"mylomail-tests",
+			Guid.NewGuid().ToString("n")
+		);
+		var target = Path.Combine(root, "target");
+		var link = Path.Combine(root, "link");
+		Directory.CreateDirectory(target);
+		Directory.CreateSymbolicLink(link, target);
+
+		try
+		{
+			var resolved = DataDirectory.ResolveExistingAncestorThroughLinks(
+				Path.Combine(link, "not-created", "data")
+			);
+
+			Assert.Equal(target, resolved);
+		}
+		finally
+		{
+			Directory.Delete(root, recursive: true);
+		}
+	}
+
+	[Fact]
+	public void Darwin_mount_discovery_reports_the_current_volume()
+	{
+		if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+		{
+			return;
+		}
+
+		var fileSystemType = DataDirectory.ReadDarwinFileSystemType(
+			Path.GetTempPath()
+		);
+
+		Assert.NotEmpty(fileSystemType);
+	}
+
+	[Fact]
 	public void Accepts_a_local_path()
 	{
 		var path = Path.Combine(Path.GetTempPath(), "mylomail-tests", Guid.NewGuid().ToString("n"));
