@@ -36,6 +36,11 @@ import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachm
 import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
 import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationWindowTarget";
 import { printWebContents } from "@mylomail/electron-shell/Print";
+import {
+	extractMailtoUris,
+	mailtoWindowQuery,
+	parseMailtoUri,
+} from "@mylomail/electron-shell/Mailto";
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
@@ -65,6 +70,8 @@ const draftWindows = new Map<number, string | null>();
 const mainWindowIds = new Set<number>();
 const notificationReadyWindowIds = new Set<number>();
 let nextWindowSlot = 0;
+const pendingMailtoUris: string[] = [];
+let activeOrigin: string | undefined;
 
 /**
  * Launches the backend, then the window.
@@ -300,8 +307,17 @@ export async function startShell(): Promise<void> {
 	closeBehavior = await loadCloseBehavior(origin);
 
 	const savedBounds = await loadWindowBounds(origin);
-	const first = await createWindow(origin, { bounds: savedBounds });
+	const initialMailtoUri = pendingMailtoUris.shift();
+	const first = await createWindow(origin, {
+		bounds: savedBounds,
+		query: initialMailtoUri ? mailtoWindowQuery(initialMailtoUri) : undefined,
+		isMain: true,
+	});
 	trackBoundsPersistence(first, origin);
+	activeOrigin = origin;
+	for (const uri of pendingMailtoUris.splice(0)) {
+		await openMailtoWindow(origin, uri);
+	}
 
 	// On startup, not on every launch's happy path: a user who already declined once should
 	// not be asked again every time the app opens (§13, standing convention).
@@ -748,18 +764,71 @@ function isAttachmentTempPath(path: string): boolean {
 	);
 }
 
+function acceptMailtoActivation(uri: string): boolean {
+	if (parseMailtoUri(uri) === null) return false;
+	if (!activeOrigin) {
+		pendingMailtoUris.push(uri);
+		return true;
+	}
+
+	void openMailtoWindow(activeOrigin, uri).catch((error: unknown) =>
+		console.error("Could not open mailto activation:", error),
+	);
+	return true;
+}
+
+async function openMailtoWindow(origin: string, uri: string): Promise<void> {
+	const opener =
+		BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().at(0);
+	const window = await createWindow(origin, {
+		query: mailtoWindowQuery(uri),
+		bounds: opener ? offsetBounds(opener.getBounds()) : undefined,
+		isMain: true,
+	});
+	trackBoundsPersistence(window, origin);
+}
+
+function focusExistingWindow(): void {
+	const window =
+		BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().at(0);
+	if (!window || window.isDestroyed()) return;
+	if (window.isMinimized()) window.restore();
+	window.show();
+	window.focus();
+}
+
 /**
  * The entry point.
  *
  * A failure here is fatal and says so: with no backend there is nothing for a window to show,
  * and §9 requires the failure be surfaced rather than retried into a silent loop.
  */
-app
-	.whenReady()
-	.then(startShell)
-	.catch((error: unknown) => {
-		console.error("MyloMail could not start:", error);
-		app.exit(1);
-	});
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) {
+	app.quit();
+} else {
+	for (const uri of extractMailtoUris(process.argv)) {
+		acceptMailtoActivation(uri);
+	}
 
-app.on("window-all-closed", () => app.quit());
+	app.on("second-instance", (_event, commandLine) => {
+		const mailtoUris = extractMailtoUris(commandLine);
+		if (mailtoUris.length === 0) {
+			focusExistingWindow();
+			return;
+		}
+		for (const uri of mailtoUris) acceptMailtoActivation(uri);
+	});
+	app.on("open-url", (event, uri) => {
+		if (!acceptMailtoActivation(uri)) return;
+		event.preventDefault();
+	});
+	app
+		.whenReady()
+		.then(startShell)
+		.catch((error: unknown) => {
+			console.error("MyloMail could not start:", error);
+			app.exit(1);
+		});
+	app.on("window-all-closed", () => app.quit());
+}

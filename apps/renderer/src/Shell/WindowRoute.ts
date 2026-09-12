@@ -1,3 +1,8 @@
+import {
+	parseMailtoUri,
+	type MailtoComposeRequest,
+} from "@mylomail/electron-shell/Mailto";
+
 /**
  * Which window kind a query string names, and the params it carries (§13 Epic 10).
  *
@@ -16,6 +21,7 @@ export type WindowRoute =
 	| {
 			kind: "shell";
 			initialNotification?: { notificationId: string; accountId: string };
+			initialMailto?: MailtoComposeRequest;
 	  };
 
 export function parseWindowRoute(search: string): WindowRoute {
@@ -48,6 +54,11 @@ export function parseWindowRoute(search: string): WindowRoute {
 				accountId: account,
 			},
 		};
+	}
+	const mailto = params.get("mailto");
+	if (mailto) {
+		const initialMailto = parseMailtoUri(mailto);
+		if (initialMailto) return { kind: "shell", initialMailto };
 	}
 
 	return { kind: "shell" };

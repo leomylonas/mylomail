@@ -14,6 +14,8 @@ import {
 	type OpenDraft,
 } from "@mylomail/renderer/Components/Compose/Compose";
 import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
+import { buildMailtoSeed } from "@mylomail/renderer/Components/Compose/ComposeMailto";
+import type { MailtoComposeRequest } from "@mylomail/electron-shell/Mailto";
 import { DraftList } from "@mylomail/renderer/Components/DraftList/DraftList";
 import {
 	AccountSettings,
@@ -82,8 +84,10 @@ export interface NotificationClick {
  */
 export function AppShell({
 	initialNotification,
+	initialMailto,
 }: {
 	initialNotification?: NotificationClick;
+	initialMailto?: MailtoComposeRequest;
 }) {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
@@ -96,12 +100,14 @@ export function AppShell({
 		| "add-account"
 		| "calendar"
 		| "contacts"
-	>("reading");
+	>(initialMailto ? "compose" : "reading");
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
 	// "New message" — the two are mutually exclusive seeds for the same compose pane.
-	const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>();
+	const [composeSeed, setComposeSeed] = useState<ComposeSeed | undefined>(() =>
+		initialMailto ? buildMailtoSeed(initialMailto) : undefined,
+	);
 	const [printRequest, setPrintRequest] = useState<{
 		messageId: string;
 		requestId: string;

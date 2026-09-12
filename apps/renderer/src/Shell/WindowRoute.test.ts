@@ -48,6 +48,22 @@ describe("parseWindowRoute", () => {
 			},
 		});
 	});
+	it("carries a mailto activation into a newly opened main window", () => {
+		const uri =
+			"mailto:person@example.test?subject=Hello%20there&body=First%0ASecond";
+		expect(
+			parseWindowRoute(`?${new URLSearchParams({ mailto: uri })}&windowSlot=4`),
+		).toEqual({
+			kind: "shell",
+			initialMailto: {
+				to: ["person@example.test"],
+				cc: [],
+				bcc: [],
+				subject: "Hello there",
+				body: "First\nSecond",
+			},
+		});
+	});
 
 	it("falls back to the shell route with no recognised params", () => {
 		expect(parseWindowRoute("")).toEqual({ kind: "shell" });

@@ -22,7 +22,9 @@ export interface LaunchedApp {
  * A master password is supplied through the environment because this machine has no OS
  * credential store and nothing can click the prompt — the same path CI takes (§9).
  */
-export async function launchApp(): Promise<LaunchedApp> {
+export async function launchApp(
+	activationArguments: readonly string[] = [],
+): Promise<LaunchedApp> {
 	const root = mkdtempSync(join(tmpdir(), "mylomail-e2e-"));
 	const dataDirectory = join(root, "data");
 	const configHome = join(root, "config");
@@ -39,6 +41,7 @@ export async function launchApp(): Promise<LaunchedApp> {
 			"--headless",
 			"--disable-gpu",
 			"--no-sandbox",
+			...activationArguments,
 		],
 		env: {
 			...process.env,

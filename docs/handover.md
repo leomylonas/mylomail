@@ -39,10 +39,11 @@
 - Parity remediation 32/47: existing-account settings now expose and persist the account's initial-sync mode and bound. Changing the default atomically advances and resets only provider-backed mailboxes that inherit it, retains already materialised messages, publishes every affected account/mailbox projection, and enqueues replacement coverage after commit so stale-generation jobs cannot strand the restart. Full-history mode clears its bound; bounded modes require a positive whole number in the renderer and a positive value at the hub. Microsoft 365 keeps the explicit warning that bounds reduce initial local materialisation but not delta enumeration.
 - Parity remediation 33/47: mailbox rows now show unread and total provider counts together, including the meaningful `0 unread` state, and keep those counts visible beside backfill or indexing progress. When a provider omits one count, the available provider count remains visible; when it omits the total, the local fallback is explicitly labelled `held` rather than presented as the mailbox total.
 - Parity remediation 34/47: changing a draft's From identity now replaces the prior managed signature instead of duplicating it or leaving the wrong sender's signature. The editor preserves the signature boundary through rich-text edits, identity changes persist the new body and identity in one draft snapshot, identities without a signature remove the managed block, and authored plus quoted content remains untouched above the replacement.
+- Parity remediation 35/47: the Electron shell now accepts RFC 6068 `mailto:` activations from startup arguments, macOS `open-url`, and subsequent launches forwarded through a single-instance lock. Activations queued during backend startup become same-origin main-window routes; live activations open an offset main window. Compose receives deduplicated To/Cc/Bcc recipients, subject, and an HTML-escaped multiline body, while malformed, oversized, non-`mailto`, and unknown fields are ignored.
 
 ## Next task
 
-- Handle incoming `mailto:` links (item 35).
+- Harden the small-window layout (item 36).
 
 ## Required reading
 
@@ -153,6 +154,8 @@
 - Actual Electron end-to-end: `pnpm e2e --grep "a real account syncs"` passed 1/1 against Dovecot. INBOX rendered `2 unread · 2 total` after initial sync, then updated to `1 unread · 2 total` after the real read mutation reached the server while that mailbox remained selected.
 - `pnpm check` after send-identity signature replacement, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 190 Vitest tests passed. Signature regressions prove replacement after user edits, removal for unsigned identities, preservation of authored and quoted content, and insertion at the end of the draft.
 - Actual Electron end-to-end: `pnpm e2e --grep "a composed message"` passed 1/1 against Dovecot and Mailpit. It configured two identities with distinct signatures, typed draft content, switched From in both directions, observed exactly the selected signature without losing draft text, then sent the message through the real SMTP path.
+- `pnpm check` after incoming `mailto:` support, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 196 Vitest tests passed. Regressions cover launch-argument extraction, RFC 6068 field names and decoding, recipient deduplication, header newline removal, internal route transport, and plain-text body escaping.
+- Actual Electron end-to-end: `pnpm e2e --grep "startup mailto activation"` passed 1/1 against a fresh backend and Dovecot account. A real `mailto:` process argument opened Compose with To/Cc/Bcc/Subject/body populated; literal angle brackets remained text rather than becoming an element.
 
 ## Live risks / decisions
 
