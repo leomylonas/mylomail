@@ -881,9 +881,10 @@ Serilog, async sink. Never log message bodies, subjects, or credentials — `Mes
 
 ### Process structure
 
-- **`apps/electron-shell`** — Electron main process + preload script. Owns: window creation, spawning/managing the .NET backend child process (health-check, graceful shutdown, crash-restart), OS-level integration (native notifications, system tray, `shell.openPath` for attachments), the preload bridge exposing a whitelisted API to the renderer, per-launch random auth token generation.
+- **`apps/electron-shell`** — Electron main process + preload script. Owns: window creation, the spawn-mode .NET backend child process (health-check, graceful shutdown, crash-restart), OS-level integration (native notifications, system tray, `shell.openPath` for attachments), the preload bridge exposing a whitelisted API to the renderer, and spawn-mode per-launch random auth token generation.
   - **Spawn mode** (default/production/full E2E): shell spawns the backend itself.
   - **Attach mode** (dev workflow, isolated E2E): shell connects to an already-running backend (e.g. started independently from an IDE with a debugger attached), toggled via env var (`ELECTRON_BACKEND_MODE=attach`, `BACKEND_URL=...`).
+    - Attach mode requires the independently launched backend and Electron process to share `MYLOMAIL_LAUNCH_TOKEN`, accepts only an explicit `http://127.0.0.1:<port>` origin, health-checks it before opening a renderer, and never restarts or terminates the external process.
   - Single backend process shared across all open windows, regardless of window count.
 - **`apps/renderer`** — the React SPA itself. No direct Node/OS access (Node integration disabled, standard Electron security practice); talks to the backend via SignalR/HTTP through the loopback connection using the shell-issued token.
 

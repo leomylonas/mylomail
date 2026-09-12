@@ -24,25 +24,51 @@ export async function waitForBackendHealth(
 	options: BackendHealthProbeOptions = {},
 ): Promise<number> {
 	const timeoutMs = options.timeoutMs ?? 30_000;
+	const deadline = Date.now() + timeoutMs;
+	const port = await readPort(backend.child, deadline);
+	await pollForHealth(
+		`http://127.0.0.1:${port}/health`,
+		backend.launchToken,
+		deadline,
+		options,
+	);
+	return port;
+}
+
+/**
+ * Polls a known attached backend rather than waiting for a child-process port announcement.
+ * Attach mode still proves both reachability and possession of the shared launch token before
+ * any renderer exists.
+ */
+export async function waitForBackendOriginHealth(
+	origin: string,
+	launchToken: string,
+	options: BackendHealthProbeOptions = {},
+): Promise<void> {
+	await pollForHealth(
+		`${origin}/health`,
+		launchToken,
+		Date.now() + (options.timeoutMs ?? 30_000),
+		options,
+	);
+}
+
+async function pollForHealth(
+	healthUrl: string,
+	launchToken: string,
+	deadline: number,
+	options: BackendHealthProbeOptions,
+): Promise<void> {
 	const pollIntervalMs = options.pollIntervalMs ?? 100;
 	const fetchHealth = options.fetchHealth ?? defaultFetchHealth;
 	const delay =
 		options.delay ??
 		((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-
-	const deadline = Date.now() + timeoutMs;
-	const port = await readPort(backend.child, deadline);
-
-	// Polled, not asked once. The port is announced as soon as Kestrel binds, which is not
-	// the same moment the pipeline is ready to answer.
 	let lastFailure: unknown;
 	while (Date.now() < deadline) {
 		try {
-			const response = await fetchHealth(
-				`http://127.0.0.1:${port}/health`,
-				backend.launchToken,
-			);
-			if (response.ok) return port;
+			const response = await fetchHealth(healthUrl, launchToken);
+			if (response.ok) return;
 			lastFailure = new Error(`health responded ${JSON.stringify(response)}`);
 		} catch (error) {
 			lastFailure = error;
@@ -51,7 +77,7 @@ export async function waitForBackendHealth(
 	}
 
 	throw new Error(
-		`Backend did not become healthy within ${timeoutMs}ms${
+		`Backend did not become healthy within ${options.timeoutMs ?? 30_000}ms${
 			lastFailure ? ` (last failure: ${String(lastFailure)})` : ""
 		}.`,
 	);

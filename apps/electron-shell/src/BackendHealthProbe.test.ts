@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
+import {
+	waitForBackendHealth,
+	waitForBackendOriginHealth,
+} from "@mylomail/electron-shell/BackendHealthProbe";
 
 class FakeStdout extends EventEmitter {
 	public write(text: string): void {
@@ -128,5 +131,26 @@ describe("waitForBackendHealth", () => {
 		// Left attached, every later line of backend logging would be buffered forever.
 		expect(child.stdout.listenerCount("data")).toBe(0);
 		expect(child.listenerCount("exit")).toBe(0);
+	});
+});
+
+describe("waitForBackendOriginHealth", () => {
+	it("polls the supplied origin with its shared launch token", async () => {
+		const fetchHealth = vi
+			.fn<() => Promise<{ ok: boolean }>>()
+			.mockResolvedValueOnce({ ok: false })
+			.mockResolvedValueOnce({ ok: true });
+
+		await waitForBackendOriginHealth(
+			"http://127.0.0.1:6123",
+			"attached-token",
+			{ fetchHealth, delay: immediately },
+		);
+
+		expect(fetchHealth).toHaveBeenCalledTimes(2);
+		expect(fetchHealth).toHaveBeenLastCalledWith(
+			"http://127.0.0.1:6123/health",
+			"attached-token",
+		);
 	});
 });

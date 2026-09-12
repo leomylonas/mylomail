@@ -10,6 +10,7 @@ import {
 	shell,
 } from "electron";
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
+import { attachBackend } from "@mylomail/electron-shell/BackendAttachment";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
 import {
 	backendConnectionChannel,
@@ -76,41 +77,47 @@ const pendingMailtoUris: string[] = [];
 let activeOrigin: string | undefined;
 
 /**
- * Launches the backend, then the window.
+ * Acquires the configured backend, then opens the first window.
  *
- * The order is the contract from §9: Electron spawns the backend, waits for it to report a
- * port and answer `/health`, and only then lets a renderer exist. A window that opened first
- * would have to handle a backend that is not there yet, which is a state the rest of the app
- * would then have to model forever.
+ * Spawn mode owns a child process and follows §9's port-announcement lifecycle. Attach mode
+ * authenticates and health-checks an independently owned loopback backend without starting,
+ * restarting, or terminating it. Both modes finish before a renderer exists, so the renderer
+ * never has to model a backend that is not ready.
  */
 export async function startShell(): Promise<void> {
-	const backend = await startBackend({
-		command: process.env.MYLOMAIL_BACKEND_COMMAND ?? "dotnet",
-		args: (process.env.MYLOMAIL_BACKEND_ARGS ?? "").split(" ").filter(Boolean),
-		requestMasterPassword: promptForMasterPassword,
-		waitUntilReady: (launch) => waitForBackendHealth(launch),
-	});
+	const backend =
+		backendMode === "attach"
+			? await attachBackend({
+					backendUrl: process.env.BACKEND_URL,
+					launchToken: process.env.MYLOMAIL_LAUNCH_TOKEN,
+				})
+			: await startBackend({
+					command: process.env.MYLOMAIL_BACKEND_COMMAND ?? "dotnet",
+					args: (process.env.MYLOMAIL_BACKEND_ARGS ?? "")
+						.split(" ")
+						.filter(Boolean),
+					requestMasterPassword: promptForMasterPassword,
+					waitUntilReady: (launch) => waitForBackendHealth(launch),
+				});
+	const ownedChild = "child" in backend ? backend.child : undefined;
 
 	// The backend's own output, which was piped and then never read — so anything it logged,
 	// including every unhandled error, went into a pipe nobody drained. Forwarded rather than
 	// inherited so it stays distinguishable from the shell's own logging.
-	backend.child.stderr?.on("data", (chunk: Buffer) =>
+	ownedChild?.stderr?.on("data", (chunk: Buffer) =>
 		process.stderr.write(`[backend] ${chunk.toString("utf8")}`),
 	);
 
-	// §9: "Electron detects unexpected backend process exit and offers restart." `quitting`
-	// is set before the deliberate SIGTERM this process itself sends on before-quit, so this
-	// only fires for an exit nobody here asked for — the backend crashing, or being killed by
-	// something outside the app. The whole app relaunches rather than re-plumbing a fresh
-	// backend into the windows that already exist: a stale connection token, an origin whose
-	// port just changed, and mid-flight SignalR state all become simply irrelevant on restart
-	// rather than needing to be reconciled one at a time.
-	backend.child.on("exit", (code) => {
+	// §9: "Electron detects unexpected backend process exit and offers restart." An attached
+	// backend belongs to its external launcher/debugger, so its lifecycle is intentionally not
+	// observed or controlled here.
+	ownedChild?.on("exit", (code) => {
 		if (quitting) return;
 		void offerBackendRestart(code);
 	});
 
-	const origin = `http://127.0.0.1:${backend.port}`;
+	const origin =
+		"origin" in backend ? backend.origin : `http://127.0.0.1:${backend.port}`;
 	const connection: BackendConnection = { origin };
 
 	// Set before any window exists, so the very first document request is authenticated.
@@ -247,9 +254,9 @@ export async function startShell(): Promise<void> {
 		closeBehavior = closeBehaviorFromValue(value);
 	});
 
-	// The port, never the token: this line is diagnostics, and the token is the backend's
+	// The origin, never the token: this line is diagnostics, and the token is the backend's
 	// only defence against another local process.
-	console.info(`Backend ready on 127.0.0.1:${backend.port}.`);
+	console.info(`Backend ready at ${origin}.`);
 
 	// One additional main window, one message window, one popped-out compose window — all the
 	// same shell, all sharing this one backend connection regardless of window count (§13
@@ -342,7 +349,7 @@ export async function startShell(): Promise<void> {
 		if (confirmedQuit) {
 			quitting = true;
 			destroyTray();
-			backend.child.kill("SIGTERM");
+			ownedChild?.kill("SIGTERM");
 			return;
 		}
 
