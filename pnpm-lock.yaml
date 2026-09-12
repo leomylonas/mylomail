@@ -94,6 +94,9 @@ importers:
       '@carbon/react':
         specifier: ^1.115.0
         version: 1.115.0(react-dom@19.2.8(react@19.2.8))(react-is@18.3.1)(react@19.2.8)(sass@1.103.1)
+      '@ibm/plex':
+        specifier: 6.4.1
+        version: 6.4.1
       '@leomylonas/json-fetch-client':
         specifier: ^0.0.3
         version: 0.0.3

@@ -12,7 +12,7 @@ A fresh architecture-to-code review found **two new architecture-parity defects*
 1. Microsoft Graph mailbox topology is neither recursive nor delta/cursor based. This is high severity because an incomplete response is treated as a complete snapshot.
 2. Rich-text compose formatting was blocked in the real renderer by its CSP. The strict CSP is retained, and semantic bold/italic formatting now survives the complete Electron-to-SMTP path.
 
-The review also found one lower-severity distribution defect: the built Carbon stylesheet retains unresolved IBM Plex package URLs and ships no font files. This is not a direct architecture-contract violation, but it produces startup 404s and unintended fallback typography.
+The review also found one lower-severity distribution defect: the built Carbon stylesheet retained unresolved IBM Plex package URLs and shipped no font files. This was remediated immediately after the audit by explicitly bundling the required local font faces.
 
 | Classification | Count | Status |
 | --- | ---: | --- |
@@ -20,7 +20,7 @@ The review also found one lower-severity distribution defect: the built Carbon s
 | Original verification-only items | 9 | Resolved |
 | Original verification-only items | 4 | Partially verified or externally blocked |
 | New architecture-parity defects | 2 | 1 remediated, 1 open |
-| New build/distribution defects | 1 | Open |
+| New build/distribution defects | 1 | Remediated |
 | Additional portability checks | 2 | Native hosts/runners required |
 
 ## Method
@@ -72,22 +72,19 @@ Applying inline style violates the following Content Security Policy directive '
 
 `tests/renderer.e2e/Compose.e2e.ts` now proves the consumer-visible contract through the actual Electron-to-SMTP path: the received Mailpit HTML contains semantic `<strong>` and `<em>` content for the entered text, and applying both formats emits no inline-style CSP violation.
 
-## New non-parity defect
+## New non-parity finding
 
-### Carbon font assets are not bundled
+### Carbon font assets were not bundled — remediated
 
 **Severity:** Low  
-**Classification:** Build/distribution quality, not an explicit architecture requirement
+**Classification:** Build/distribution quality, not an explicit architecture requirement  
+**Status:** Closed
 
-The generated renderer stylesheet under `apps/renderer/dist/assets/*.css` contains literal URLs such as:
+At audit time, the generated renderer stylesheet contained literal `~@ibm/plex/...` URLs while the distribution contained no font files. The renderer therefore requested nonexistent resources, logged startup 404s, and fell back to system typography.
 
-```text
-~@ibm/plex/IBM-Plex-Mono/fonts/split/woff2/IBMPlexMono-Regular-Latin1.woff2
-```
+The renderer now has a direct `@ibm/plex` asset dependency. `Styles/Carbon.scss` disables Carbon's broken default font-face emission and declares the exact local Sans and Mono faces used by the application. `electron-vite` fingerprints and emits those five WOFF2 assets, and the final CSS references only relative packaged asset URLs.
 
-The built distribution contains no `.woff`, `.woff2`, or `.ttf` files. The browser therefore cannot resolve Carbon's intended font resources and falls back to system fonts. The two renderer 404s repeatedly observed at startup are consistent with these unresolved resources, although the console message alone does not expose the requested URLs.
-
-Required closure: make `electron-vite` resolve/copy the IBM Plex assets, or import the supported packaged font entry points so final CSS references emitted files. Verify a packaged renderer has no failed font requests.
+`tests/renderer.e2e/PackagedMode.e2e.ts` loads all five faces through the browser Font Loading API and requires five distinct packaged WOFF2 resource entries. `pnpm package:smoke` passed against the unpacked production application without the prior startup 404s.
 
 ## Original audit remediation status
 
@@ -142,4 +139,4 @@ Unchanged from the architecture: server-side rules/filters, mail import, auto-up
 
 ## Bottom line
 
-The first audit's implementation backlog is complete, but the application is not yet at architecture parity. Graph topology discovery can silently mis-model a real mailbox tree and is the remaining second-pass architecture defect. Rich-text compose formatting is now closed without weakening CSP. Font packaging remains a lower-severity build defect. Cloud-provider, native-keychain, tray, and non-Linux package evidence remains blocked on credentials or native environments rather than local implementation work.
+The first audit's implementation backlog is complete, but the application is not yet at architecture parity. Graph topology discovery can silently mis-model a real mailbox tree and is the remaining second-pass architecture defect. Rich-text formatting and font packaging are now closed. Cloud-provider, native-keychain, tray, and non-Linux package evidence remains blocked on credentials or native environments rather than local implementation work.
