@@ -24,16 +24,17 @@ test("window bounds survive a complete Electron restart", async () => {
 			return window.getBounds();
 		});
 		await expect
-			.poll(() =>
-				launched.window.evaluate(async () => {
-					const response = await fetch("/shell-settings");
-					const settings = (await response.json()) as {
-						windowBoundsJson?: string;
-					};
-					return settings.windowBoundsJson
-						? (JSON.parse(settings.windowBoundsJson) as WindowBounds)
-						: undefined;
-				}),
+			.poll(
+				() =>
+					launched.window.evaluate(async () => {
+						const response = await fetch("/shell-settings");
+						const settings = (await response.json()) as {
+							windowBoundsJson?: string;
+						};
+						return settings.windowBoundsJson
+							? (JSON.parse(settings.windowBoundsJson) as WindowBounds)
+							: undefined;
+					}),
 				{ timeout: 10_000 },
 			)
 			.toEqual(saved);

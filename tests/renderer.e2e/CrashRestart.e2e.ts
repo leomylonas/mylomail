@@ -1,17 +1,10 @@
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	expect,
-	test,
-	type ElectronApplication,
-} from "@playwright/test";
+import { expect, test, type ElectronApplication } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
-import {
-	appendMessage,
-	clearInbox,
-} from "@mylomail/renderer-e2e/SeedImap";
+import { appendMessage, clearInbox } from "@mylomail/renderer-e2e/SeedImap";
 
 const imapPort = 11143;
 

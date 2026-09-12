@@ -142,8 +142,7 @@ function createFixtureEnvironment(
 		join(configHome, "mylomail", "bootstrap.json"),
 		JSON.stringify({ DataDirectoryOverride: dataDirectory }),
 	);
-	const attachmentOpenMarker =
-		overrides.MYLOMAIL_E2E_ATTACHMENT_OPEN_MARKER;
+	const attachmentOpenMarker = overrides.MYLOMAIL_E2E_ATTACHMENT_OPEN_MARKER;
 	if (attachmentOpenMarker) {
 		const applications = join(root, "share", "applications");
 		const opener = join(root, "attachment-opener");

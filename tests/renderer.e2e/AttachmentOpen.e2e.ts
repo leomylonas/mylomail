@@ -16,7 +16,10 @@ import {
 } from "@mylomail/renderer-e2e/SeedImap";
 
 const imapPort = 11143;
-test.skip(process.platform !== "linux", "The isolated XDG handler is Linux-specific.");
+test.skip(
+	process.platform !== "linux",
+	"The isolated XDG handler is Linux-specific.",
+);
 
 test("an attachment opens through the OS and its private copy is cleaned up", async () => {
 	await clearInbox(imapPort);
@@ -67,8 +70,7 @@ test("an attachment opens through the OS and its private copy is cleaned up", as
 		closed = true;
 		await expect
 			.poll(
-				() =>
-					existsSync(join(launched.dataDirectory, "tmp", "attachments")),
+				() => existsSync(join(launched.dataDirectory, "tmp", "attachments")),
 				{ timeout: 10_000 },
 			)
 			.toBe(false);

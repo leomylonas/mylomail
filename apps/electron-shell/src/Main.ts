@@ -787,7 +787,6 @@ function isNotificationRequest(value: unknown): value is NotificationRequest {
 	);
 }
 
-
 function isAttachmentTempPath(path: string): boolean {
 	const parent = dirname(path);
 	return (

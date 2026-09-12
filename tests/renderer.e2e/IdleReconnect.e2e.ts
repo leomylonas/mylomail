@@ -2,22 +2,13 @@ import { execFileSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
-import {
-	appendMessage,
-	clearInbox,
-} from "@mylomail/renderer-e2e/SeedImap";
+import { appendMessage, clearInbox } from "@mylomail/renderer-e2e/SeedImap";
 
 const imapPort = 11143;
 function disconnectImapSessions() {
 	execFileSync(
 		"docker",
-		[
-			"exec",
-			"mylomail-imap-qresync",
-			"doveadm",
-			"kick",
-			"test@mylomail.local",
-		],
+		["exec", "mylomail-imap-qresync", "doveadm", "kick", "test@mylomail.local"],
 		{ stdio: "inherit" },
 	);
 }
