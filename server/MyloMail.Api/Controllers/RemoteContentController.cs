@@ -1,66 +1,102 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MimeKit;
 using MyloMail.Api.Contracts;
+using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Controllers;
 
 /// <summary>
-/// The persisted per-sender remote-content allow list (§13 Epic 5). Remote content stays
-/// blocked by default for everyone not on this list — see
-/// <see cref="Domain.TrustedRemoteContentSender"/> for why there is no separate block list.
-/// Broadcasts on change per Epic 10's "all actions reflected live across all open windows" —
-/// a message showing a load-remote-content prompt in one window for a sender just trusted in
-/// another must not keep asking.
+/// The persisted sender/domain remote-content allow and block rules (§13 Epic 5).
+/// Exact sender rules take precedence over their domain rule in the renderer. Every
+/// unmatched sender remains blocked by default.
 /// </summary>
 [ApiController]
-[Route("remote-content/trusted-senders")]
+[Route("remote-content/rules")]
 public class RemoteContentController(MyloMailDbContext context, IHubEvents events) : ControllerBase
 {
 	[HttpGet]
-	public async Task<ActionResult<IReadOnlyList<TrustedSenderDto>>> Get(CancellationToken ct) =>
+	public async Task<ActionResult<IReadOnlyList<RemoteContentRuleDto>>> Get(CancellationToken ct) =>
 		Ok(
-			await context.TrustedRemoteContentSenders
-				.OrderBy(x => x.Address)
-				.Select(x => new TrustedSenderDto(x.Address))
+			await context.RemoteContentRules
+				.OrderBy(x => x.Scope)
+				.ThenBy(x => x.Value)
+				.Select(x => new RemoteContentRuleDto(x.Id, x.Scope, x.Decision, x.Value))
 				.ToListAsync(ct)
 		);
 
-	[HttpPost]
-	public async Task<IActionResult> Trust(TrustSenderRequest request, CancellationToken ct)
+	[HttpPut]
+	public async Task<IActionResult> Put(PutRemoteContentRuleRequest request, CancellationToken ct)
 	{
-		var address = request.Address.Trim().ToLowerInvariant();
-		if (address.Length == 0)
+		if (!Enum.IsDefined(request.Scope) || !Enum.IsDefined(request.Decision))
 		{
 			return BadRequest();
 		}
 
-		var exists = await context.TrustedRemoteContentSenders.AnyAsync(x => x.Address == address, ct);
-		if (!exists)
+		var value = Normalize(request.Scope, request.Value);
+		if (value is null)
 		{
-			context.TrustedRemoteContentSenders.Add(
-				new Domain.TrustedRemoteContentSender { Id = Guid.NewGuid(), Address = address, CreatedAt = DateTimeOffset.UtcNow }
-			);
-			await context.SaveChangesAsync(ct);
-			await events.TrustedSendersChangedAsync();
+			return BadRequest();
+		}
+
+		var changed = await context.Database.ExecuteSqlInterpolatedAsync(
+			$"""
+			INSERT INTO "RemoteContentRules" ("Id", "Scope", "Decision", "Value", "CreatedAt")
+			VALUES (
+				{Guid.NewGuid()},
+				{(int)request.Scope},
+				{(int)request.Decision},
+				{value},
+				{DateTimeOffset.UtcNow}
+			)
+			ON CONFLICT ("Scope", "Value") DO UPDATE
+			SET "Decision" = excluded."Decision"
+			WHERE "Decision" <> excluded."Decision";
+			""",
+			ct
+		);
+		if (changed != 0)
+		{
+			await events.RemoteContentRulesChangedAsync();
 		}
 
 		return NoContent();
 	}
 
-	[HttpDelete("{address}")]
-	public async Task<IActionResult> Untrust(string address, CancellationToken ct)
+	[HttpDelete("{id:guid}")]
+	public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
 	{
-		var normalized = address.Trim().ToLowerInvariant();
-		var sender = await context.TrustedRemoteContentSenders.FirstOrDefaultAsync(x => x.Address == normalized, ct);
-		if (sender is not null)
+		var changed = await context.RemoteContentRules.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+		if (changed != 0)
 		{
-			context.TrustedRemoteContentSenders.Remove(sender);
-			await context.SaveChangesAsync(ct);
-			await events.TrustedSendersChangedAsync();
+			await events.RemoteContentRulesChangedAsync();
+		}
+		return NoContent();
+	}
+
+	private static string? Normalize(RemoteContentRuleScope scope, string raw)
+	{
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return null;
 		}
 
-		return NoContent();
+		var value = raw.Trim().ToLowerInvariant();
+		if (scope == RemoteContentRuleScope.Sender)
+		{
+			return MailboxAddress.TryParse(value, out var mailbox)
+				&& mailbox.Address.Length <= 320
+				&& mailbox.Address.IndexOf('@') > 0
+				&& !mailbox.Address.EndsWith('@')
+				? mailbox.Address.ToLowerInvariant()
+				: null;
+		}
+
+		value = value.TrimStart('@').TrimEnd('.');
+		return value.Length <= 253 && Uri.CheckHostName(value) == UriHostNameType.Dns
+			? value
+			: null;
 	}
 }

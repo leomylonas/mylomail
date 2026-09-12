@@ -52,7 +52,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<EncryptedCredential> EncryptedCredentials => Set<EncryptedCredential>();
 	public DbSet<NotificationRecord> NotificationRecords => Set<NotificationRecord>();
 	public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
-	public DbSet<TrustedRemoteContentSender> TrustedRemoteContentSenders => Set<TrustedRemoteContentSender>();
+	public DbSet<RemoteContentRule> RemoteContentRules => Set<RemoteContentRule>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -565,10 +565,21 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 	private static void ConfigureRemoteContent(ModelBuilder model)
 	{
-		model.Entity<TrustedRemoteContentSender>(e =>
+		model.Entity<RemoteContentRule>(e =>
 		{
 			e.HasKey(x => x.Id);
-			e.HasIndex(x => x.Address).IsUnique();
+			e.HasIndex(x => new { x.Scope, x.Value }).IsUnique();
+			e.ToTable(table =>
+			{
+				table.HasCheckConstraint(
+					"CK_RemoteContentRules_Scope",
+					"\"Scope\" IN (0, 1)"
+				);
+				table.HasCheckConstraint(
+					"CK_RemoteContentRules_Decision",
+					"\"Decision\" IN (0, 1)"
+				);
+			});
 		});
 	}
 

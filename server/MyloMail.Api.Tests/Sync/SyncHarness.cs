@@ -370,5 +370,5 @@ internal sealed class RecordingHubEvents : IHubEvents
 
 	public Task ShellSettingsChangedAsync() => Task.CompletedTask;
 
-	public Task TrustedSendersChangedAsync() => Task.CompletedTask;
+	public Task RemoteContentRulesChangedAsync() => Task.CompletedTask;
 }

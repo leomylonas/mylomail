@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Checkbox } from "@carbon/react";
+import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
+import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
+import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
+import { decideRemoteContent } from "@mylomail/renderer/Components/MessageHtml/RemoteContentPolicy";
 import {
 	prepare,
 	resolveInlineImages,
@@ -9,53 +13,54 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MessageHtml/MessageHtml.module.css";
 
-interface TrustedSender {
-	address: string;
-}
+const remoteContentRulesKey = ["remote-content-rules"];
 
-const trustedSendersKey = ["remote-content-trusted-senders"];
-
-/**
- * Whether remote content should load without asking, because this sender is on the
- * persisted allow list (§13 Epic 5) — checked fresh per message rather than cached forever,
- * since trusting/untrusting a sender should show up the next time any of their mail opens.
- */
-function useIsTrustedSender(senderAddress: string | undefined): boolean {
+function useRemoteContentDecision(senderAddress: string | undefined) {
 	const query = useQuery({
-		queryKey: trustedSendersKey,
-		queryFn: async (): Promise<TrustedSender[]> => {
-			const response = await fetch("/remote-content/trusted-senders");
+		queryKey: remoteContentRulesKey,
+		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
+			const response = await fetch("/remote-content/rules");
 			if (!response.ok) return [];
-			return (await response.json()) as TrustedSender[];
+			return (await response.json()) as RemoteContentRuleDto[];
 		},
 		staleTime: 30_000,
 	});
 
-	if (!senderAddress) return false;
-	const lowered = senderAddress.toLowerCase();
-	return query.data?.some((sender) => sender.address === lowered) ?? false;
+	return decideRemoteContent(query.data ?? [], senderAddress);
 }
 
-function useTrustSender() {
+interface RuleInput {
+	scope: RemoteContentRuleScope;
+	decision: RemoteContentRuleDecision;
+	value: string;
+}
+
+function usePutRemoteContentRules() {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	return useMutation({
-		mutationFn: async (address: string) => {
-			const response = await fetch("/remote-content/trusted-senders", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ address }),
-			});
-			if (!response.ok)
-				throw new Error(`Could not trust ${address} (${response.status}).`);
+		mutationFn: async (rules: RuleInput[]) => {
+			await Promise.all(
+				rules.map(async (rule) => {
+					const response = await fetch("/remote-content/rules", {
+						method: "PUT",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(rule),
+					});
+					if (!response.ok)
+						throw new Error(
+							`Could not save the remote-content rule (${response.status}).`,
+						);
+				}),
+			);
 		},
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: trustedSendersKey });
+			void queryClient.invalidateQueries({ queryKey: remoteContentRulesKey });
 		},
 		onError: (error: unknown) =>
 			notify(notifications, {
 				kind: "error",
-				title: "The sender could not be trusted",
+				title: "The remote-content rule could not be saved",
 				detail: error instanceof Error ? error.message : String(error),
 			}),
 	});
@@ -94,15 +99,14 @@ export function MessageHtml({
 	/** For the persisted remote-content allow list (§13 Epic 5), passed down from ReadingPane. */
 	senderAddress?: string;
 }) {
-	const isTrustedSender = useIsTrustedSender(senderAddress);
-	const trustSender = useTrustSender();
-	// A one-shot manual override ("Load content" clicked this session) OR'd with the
-	// allow-list check, rather than seeded via an effect: the allow-list query resolving after
-	// mount just changes what this expression evaluates to on the next render, with no extra
-	// state or cascading setState needed.
+	const remoteContentDecision = useRemoteContentDecision(senderAddress);
+	const putRemoteContentRules = usePutRemoteContentRules();
 	const [allowRemoteOverride, setAllowRemoteOverride] = useState(false);
-	const allowRemote = allowRemoteOverride || isTrustedSender;
-	const [alwaysAllow, setAlwaysAllow] = useState(false);
+	const allowRemote =
+		remoteContentDecision === "allow" ||
+		(remoteContentDecision !== "block" && allowRemoteOverride);
+	const [alwaysAllowSender, setAlwaysAllowSender] = useState(false);
+	const [alwaysAllowDomain, setAlwaysAllowDomain] = useState(false);
 	const [resolved, setResolved] = useState<string | null>(null);
 	const [inlineStatus, setInlineStatus] = useState<
 		"idle" | "resolving" | "resolved" | "failed"
@@ -147,28 +151,59 @@ export function MessageHtml({
 
 	return (
 		<div data-inline-status={inlineStatus}>
-			{prepared.blockedRemoteCount > 0 && !allowRemote ? (
+			{prepared.blockedRemoteCount > 0 &&
+			!allowRemote &&
+			remoteContentDecision === "block" ? (
+				<div className={styles.notice}>
+					<span>
+						Remote content is blocked by your sender or domain policy. Change
+						the rule in Settings to load it.
+					</span>
+				</div>
+			) : prepared.blockedRemoteCount > 0 && !allowRemote ? (
 				<div className={styles.notice}>
 					<span>
 						Remote content is blocked. Loading it tells the sender you opened
 						this message.
 					</span>
 					{senderAddress ? (
-						<Checkbox
-							id="message-html-always-allow"
-							labelText={`Always allow images from ${senderAddress}`}
-							checked={alwaysAllow}
-							onChange={(_, { checked }) => setAlwaysAllow(checked)}
-						/>
+						<>
+							<Checkbox
+								id="message-html-always-allow-sender"
+								labelText={`Always allow images from ${senderAddress}`}
+								checked={alwaysAllowSender}
+								onChange={(_, { checked }) => setAlwaysAllowSender(checked)}
+							/>
+							<Checkbox
+								id="message-html-always-allow-domain"
+								labelText={`Always allow images from ${senderAddress.split("@").at(-1)}`}
+								checked={alwaysAllowDomain}
+								onChange={(_, { checked }) => setAlwaysAllowDomain(checked)}
+							/>
+						</>
 					) : null}
 					<Button
 						size="sm"
 						kind="tertiary"
 						onClick={() => {
 							setAllowRemoteOverride(true);
-							if (alwaysAllow && senderAddress) {
-								trustSender.mutate(senderAddress);
+							if (!senderAddress) return;
+							const rules: RuleInput[] = [];
+							if (alwaysAllowSender) {
+								rules.push({
+									scope: RemoteContentRuleScope.Sender,
+									decision: RemoteContentRuleDecision.Allow,
+									value: senderAddress,
+								});
 							}
+							if (alwaysAllowDomain) {
+								rules.push({
+									scope: RemoteContentRuleScope.Domain,
+									decision: RemoteContentRuleDecision.Allow,
+									value: senderAddress.split("@").at(-1) ?? "",
+								});
+							}
+							if (rules.length > 0) putRemoteContentRules.mutate(rules);
 						}}
 					>
 						Load content
@@ -179,10 +214,10 @@ export function MessageHtml({
 				key={document}
 				className={styles.frame}
 				title="Message body"
-				// An opaque origin with no scripts and no same-origin access: even if
-				// sanitisation missed something, it runs with no capability to reach the
-				// renderer that can mutate mail (§13).
-				sandbox=""
+				// Same-origin is required for the authenticated renderer's blob URLs. Scripts,
+				// forms, frames and navigation remain independently forbidden, so message HTML
+				// still has no executable path to the renderer's mail capabilities (§13).
+				sandbox="allow-same-origin"
 				srcDoc={document}
 			/>
 		</div>

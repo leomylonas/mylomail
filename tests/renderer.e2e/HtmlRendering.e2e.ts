@@ -1,4 +1,8 @@
+import { createServer } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "@playwright/test";
+import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
+import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 import {
@@ -22,8 +26,32 @@ const imapPort = 12143;
  * compose — each is individually correct in ways that could still fail together.
  */
 test("hostile HTML renders safely and blocks tracking", async () => {
+	let remoteRequests = 0;
+	let resolveFirstRemoteRequest: (() => void) | undefined;
+	const firstRemoteRequest = new Promise<void>((resolve) => {
+		resolveFirstRemoteRequest = resolve;
+	});
+	const trackingServer = createServer((_, response) => {
+		remoteRequests++;
+		resolveFirstRemoteRequest?.();
+		response.writeHead(200, { "Content-Type": "image/gif" });
+		response.end(
+			Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64"),
+		);
+	});
+	await new Promise<void>((resolve) =>
+		trackingServer.listen(0, "127.0.0.1", resolve),
+	);
+	const trackerAddress = trackingServer.address();
+	if (!trackerAddress || typeof trackerAddress === "string")
+		throw new Error("The tracking fixture did not bind a TCP port.");
+
 	await clearInbox(imapPort);
-	await appendHostileHtmlMessage(imapPort, "Hostile message");
+	await appendHostileHtmlMessage(
+		imapPort,
+		"Hostile message",
+		`http://127.0.0.1:${trackerAddress.port}/pixel.gif`,
+	);
 
 	const { app, window } = await launchApp();
 
@@ -61,6 +89,25 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 			/tracker/,
 		);
 		await expect(window.getByText(/Remote content is blocked/)).toBeVisible();
+		expect(remoteRequests).toBe(0);
+
+		// Bypass sanitisation deliberately: the frame CSP remains the request-layer backstop
+		// for references a parser misses. This image must not reach the local tracker.
+		await body.locator("body").evaluate((element, source) => {
+			const image = document.createElement("img");
+			image.id = "csp-probe";
+			image.src = source;
+			element.append(image);
+		}, `http://127.0.0.1:${trackerAddress.port}/csp-probe.gif`);
+		const cspProbeEscaped = await Promise.race([
+			firstRemoteRequest.then(() => true),
+			delay(500).then(() => false),
+		]);
+		expect(cspProbeEscaped).toBe(false);
+		expect(remoteRequests).toBe(0);
+		await expect(
+			window.locator('iframe[title="Message body"]'),
+		).toHaveAttribute("sandbox", "allow-same-origin");
 
 		// The renderer fetches the authenticated MIME part before passing the isolated frame a
 		// blob URL; an img request cannot carry the launch credential itself.
@@ -68,8 +115,53 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 			"data-inline-status",
 			"resolved",
 		);
+		await expect
+			.poll(() =>
+				body
+					.locator("#inline")
+					.evaluate((image: HTMLImageElement) => image.naturalWidth),
+			)
+			.toBe(1);
 		await expect(body.locator("#inline")).toHaveAttribute("src", /^blob:/);
+
+		await window
+			.getByText("Always allow images from example.org", { exact: true })
+			.click();
+		await window.getByRole("button", { name: "Load content" }).click();
+		await expect(window.getByText(/Remote content is blocked/)).toBeHidden();
+		await expect.poll(() => remoteRequests).toBe(1);
+
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await expect(
+			window.getByText("Allow domain", { exact: true }),
+		).toBeVisible();
+		await expect(
+			window.getByText("example.org", { exact: true }),
+		).toBeVisible();
+		await window
+			.getByLabel("Decision")
+			.selectOption(String(RemoteContentRuleDecision.Block));
+		await window
+			.getByLabel("Applies to")
+			.selectOption(String(RemoteContentRuleScope.Domain));
+		await window.getByLabel("Domain").fill("example.org");
+		await window.getByRole("button", { name: "Add rule" }).click();
+		await expect(
+			window.getByText("Block domain", { exact: true }),
+		).toBeVisible();
+		await window.getByRole("button", { name: "Close", exact: true }).click();
+
+		await expect(
+			window.getByText(/blocked by your sender or domain policy/),
+		).toBeVisible();
+		await expect(
+			window.getByRole("button", { name: "Load content" }),
+		).toHaveCount(0);
 	} finally {
 		await app.close();
+		trackingServer.closeAllConnections();
+		await new Promise<void>((resolve, reject) =>
+			trackingServer.close((error) => (error ? reject(error) : resolve())),
+		);
 	}
 });

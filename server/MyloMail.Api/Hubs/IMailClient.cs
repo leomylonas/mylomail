@@ -64,8 +64,8 @@ public interface IMailClient
 	/// <summary>App-wide theme/close-behaviour/mailto-prompt state changed (§7, §13 Epic 10).</summary>
 	Task ShellSettingsChanged();
 
-	/// <summary>The remote-content allow list changed (§7, §13 Epic 5, Epic 10).</summary>
-	Task TrustedSendersChanged();
+	/// <summary>The remote-content sender/domain rules changed (§7, §13 Epic 5, Epic 10).</summary>
+	Task RemoteContentRulesChanged();
 
 	/// <summary>
 	/// Relayed straight to the preload bridge, which asks <c>electron-shell</c> to show the

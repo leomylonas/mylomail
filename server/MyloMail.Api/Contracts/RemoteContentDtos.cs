@@ -1,5 +1,16 @@
+using MyloMail.Api.Domain;
+
 namespace MyloMail.Api.Contracts;
 
-public record TrustedSenderDto(string Address);
+public record RemoteContentRuleDto(
+	Guid Id,
+	RemoteContentRuleScope Scope,
+	RemoteContentRuleDecision Decision,
+	string Value
+);
 
-public record TrustSenderRequest(string Address);
+public record PutRemoteContentRuleRequest(
+	RemoteContentRuleScope Scope,
+	RemoteContentRuleDecision Decision,
+	string Value
+);

@@ -163,7 +163,7 @@ export function connectHub(
 		queryClient.setQueryData(queryKeys.connectivity(), online);
 	});
 
-	// Theme/close-behaviour/mailto-prompt and the remote-content allow list (§13 Epics 8, 5)
+	// Theme/close-behaviour/mailto-prompt and the remote-content rules (§13 Epics 8, 5)
 	// changed in some window — every window converges per Epic 10's "all actions reflected
 	// live across all open windows." Panel layout/window bounds are deliberately excluded
 	// upstream (a read-once-at-open default, not something every window syncs to).
@@ -171,9 +171,9 @@ export function connectHub(
 		void queryClient.invalidateQueries({ queryKey: ["shell-settings"] });
 	});
 
-	hub.on("TrustedSendersChanged", () => {
+	hub.on("RemoteContentRulesChanged", () => {
 		void queryClient.invalidateQueries({
-			queryKey: ["remote-content-trusted-senders"],
+			queryKey: ["remote-content-rules"],
 		});
 	});
 

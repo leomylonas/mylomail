@@ -359,7 +359,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __contactsChanged = (...args: [string]) => receiver.contactsChanged(...args);
         const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
         const __shellSettingsChanged = () => receiver.shellSettingsChanged();
-        const __trustedSendersChanged = () => receiver.trustedSendersChanged();
+        const __remoteContentRulesChanged = () => receiver.remoteContentRulesChanged();
         const __notificationReady = (...args: [NotificationDto]) => receiver.notificationReady(...args);
 
         connection.on("AccountStatusChanged", __accountStatusChanged);
@@ -378,7 +378,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("ContactsChanged", __contactsChanged);
         connection.on("ConnectivityChanged", __connectivityChanged);
         connection.on("ShellSettingsChanged", __shellSettingsChanged);
-        connection.on("TrustedSendersChanged", __trustedSendersChanged);
+        connection.on("RemoteContentRulesChanged", __remoteContentRulesChanged);
         connection.on("NotificationReady", __notificationReady);
 
         const methodList: ReceiverMethod[] = [
@@ -398,7 +398,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "ContactsChanged", method: __contactsChanged },
             { methodName: "ConnectivityChanged", method: __connectivityChanged },
             { methodName: "ShellSettingsChanged", method: __shellSettingsChanged },
-            { methodName: "TrustedSendersChanged", method: __trustedSendersChanged },
+            { methodName: "RemoteContentRulesChanged", method: __remoteContentRulesChanged },
             { methodName: "NotificationReady", method: __notificationReady }
         ]
 

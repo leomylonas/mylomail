@@ -1,17 +1,24 @@
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	Button,
 	InlineNotification,
 	RadioButton,
 	RadioButtonGroup,
+	Select,
+	SelectItem,
 	StructuredListBody,
 	StructuredListCell,
 	StructuredListRow,
 	StructuredListWrapper,
+	TextInput,
 } from "@carbon/react";
-import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
-import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
+import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
+import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
+import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 
 /** Mirrors server/MyloMail.Api/Domain/AppSettings.cs's CloseBehavior/ThemePreference enum
  * ordinals — read over REST, not the typed SignalR hub, so no JsonStringEnumConverter
@@ -24,19 +31,19 @@ interface ShellSettings {
 	theme: number;
 }
 
-interface TrustedSender {
-	address: string;
-}
-
 /**
  * The app-wide settings §13 Epic 8 calls for that are not per-account: theme, close
- * behaviour, credential-storage visibility, and the persisted remote-content allow list
- * (§13 Epic 5). Per-account settings (polling, notifications, undo window) live in
- * `AccountSettings` instead — those are a fact about one account, not the installation.
+ * behaviour, credential-storage visibility, and persisted sender/domain remote-content
+ * allow/block rules (§13 Epic 5). Per-account settings live in `AccountSettings`.
  */
 export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
+	const [ruleScope, setRuleScope] = useState(RemoteContentRuleScope.Sender);
+	const [ruleDecision, setRuleDecision] = useState(
+		RemoteContentRuleDecision.Allow,
+	);
+	const [ruleValue, setRuleValue] = useState("");
 
 	const reportFailure = (title: string) => (error: unknown) =>
 		notify(notifications, {
@@ -69,12 +76,12 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 		},
 	});
 
-	const trustedSenders = useQuery({
-		queryKey: ["remote-content-trusted-senders"],
-		queryFn: async (): Promise<TrustedSender[]> => {
-			const response = await fetch("/remote-content/trusted-senders");
+	const remoteContentRules = useQuery({
+		queryKey: ["remote-content-rules"],
+		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
+			const response = await fetch("/remote-content/rules");
 			if (!response.ok) return [];
-			return (await response.json()) as TrustedSender[];
+			return (await response.json()) as RemoteContentRuleDto[];
 		},
 	});
 
@@ -125,21 +132,40 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 		}
 	};
 
-	const untrustSender = async (address: string) => {
+	const deleteRule = async (id: string) => {
 		try {
-			const response = await fetch(
-				`/remote-content/trusted-senders/${encodeURIComponent(address)}`,
-				{
-					method: "DELETE",
-				},
-			);
+			const response = await fetch(`/remote-content/rules/${id}`, {
+				method: "DELETE",
+			});
 			if (!response.ok)
-				throw new Error(`trusted-senders responded ${response.status}`);
+				throw new Error(`remote-content/rules responded ${response.status}`);
 			void queryClient.invalidateQueries({
-				queryKey: ["remote-content-trusted-senders"],
+				queryKey: ["remote-content-rules"],
 			});
 		} catch (error) {
-			reportFailure("The sender could not be removed")(error);
+			reportFailure("The remote-content rule could not be removed")(error);
+		}
+	};
+
+	const putRule = async () => {
+		try {
+			const response = await fetch("/remote-content/rules", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					scope: ruleScope,
+					decision: ruleDecision,
+					value: ruleValue,
+				}),
+			});
+			if (!response.ok)
+				throw new Error(`remote-content/rules responded ${response.status}`);
+			setRuleValue("");
+			void queryClient.invalidateQueries({
+				queryKey: ["remote-content-rules"],
+			});
+		} catch (error) {
+			reportFailure("The remote-content rule could not be saved")(error);
 		}
 	};
 
@@ -231,20 +257,67 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 			<section>
 				<h4>Remote content</h4>
 				<p>
-					Senders always allowed to load remote content (images, tracking
-					pixels) without asking each time.
+					Exact sender rules override domain rules. Without a matching allow
+					rule, remote images and tracking pixels stay blocked.
 				</p>
-				{trustedSenders.data?.length ? (
+				<form
+					onSubmit={(event) => {
+						event.preventDefault();
+						void putRule();
+					}}
+				>
+					<Select
+						id="remote-content-rule-decision"
+						labelText="Decision"
+						value={ruleDecision}
+						onChange={(event) => setRuleDecision(Number(event.target.value))}
+					>
+						<SelectItem value={RemoteContentRuleDecision.Allow} text="Allow" />
+						<SelectItem value={RemoteContentRuleDecision.Block} text="Block" />
+					</Select>
+					<Select
+						id="remote-content-rule-scope"
+						labelText="Applies to"
+						value={ruleScope}
+						onChange={(event) => setRuleScope(Number(event.target.value))}
+					>
+						<SelectItem value={RemoteContentRuleScope.Sender} text="Sender" />
+						<SelectItem value={RemoteContentRuleScope.Domain} text="Domain" />
+					</Select>
+					<TextInput
+						id="remote-content-rule-value"
+						labelText={
+							ruleScope === RemoteContentRuleScope.Sender
+								? "Email address"
+								: "Domain"
+						}
+						value={ruleValue}
+						onChange={(event) => setRuleValue(event.target.value)}
+						required
+					/>
+					<Button size="sm" type="submit">
+						Add rule
+					</Button>
+				</form>
+				{remoteContentRules.data?.length ? (
 					<StructuredListWrapper>
 						<StructuredListBody>
-							{trustedSenders.data.map((sender) => (
-								<StructuredListRow key={sender.address}>
-									<StructuredListCell>{sender.address}</StructuredListCell>
+							{remoteContentRules.data.map((rule) => (
+								<StructuredListRow key={rule.id}>
+									<StructuredListCell>
+										{rule.decision === RemoteContentRuleDecision.Allow
+											? "Allow"
+											: "Block"}{" "}
+										{rule.scope === RemoteContentRuleScope.Sender
+											? "sender"
+											: "domain"}
+									</StructuredListCell>
+									<StructuredListCell>{rule.value}</StructuredListCell>
 									<StructuredListCell>
 										<Button
 											size="sm"
 											kind="ghost"
-											onClick={() => void untrustSender(sender.address)}
+											onClick={() => void deleteRule(rule.id)}
 										>
 											Remove
 										</Button>
@@ -254,10 +327,7 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 						</StructuredListBody>
 					</StructuredListWrapper>
 				) : (
-					<p className={styles.empty}>
-						No senders yet — allow one from the &ldquo;Load content&rdquo;
-						prompt on a message.
-					</p>
+					<p className={styles.empty}>No remote-content rules yet.</p>
 				)}
 			</section>
 

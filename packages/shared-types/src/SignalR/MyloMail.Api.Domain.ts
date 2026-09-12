@@ -136,6 +136,18 @@ export enum OutboxStatus {
     Cancelled = 7,
 }
 
+/** Transpiled from MyloMail.Api.Domain.RemoteContentRuleScope */
+export enum RemoteContentRuleScope {
+    Sender = 0,
+    Domain = 1,
+}
+
+/** Transpiled from MyloMail.Api.Domain.RemoteContentRuleDecision */
+export enum RemoteContentRuleDecision {
+    Allow = 0,
+    Block = 1,
+}
+
 /** Transpiled from MyloMail.Api.Domain.CoverageStatus */
 export enum CoverageStatus {
     NotStarted = 0,

@@ -77,10 +77,10 @@ public interface IHubEvents
 	Task ShellSettingsChangedAsync();
 
 	/// <summary>
-	/// The remote-content allow list (§13 Epic 5) changed. A message showing a "load remote
-	/// content" prompt in one window for a sender just trusted in another must not keep asking.
+	/// The remote-content sender/domain allow/block rules (§13 Epic 5) changed. Every open
+	/// window must immediately re-evaluate the message it is displaying.
 	/// </summary>
-	Task TrustedSendersChangedAsync();
+	Task RemoteContentRulesChangedAsync();
 }
 
 /// <summary>Broadcasts to every connected renderer.</summary>
@@ -128,7 +128,7 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task ShellSettingsChangedAsync() => hub.Clients.All.ShellSettingsChanged();
 
-	public Task TrustedSendersChangedAsync() => hub.Clients.All.TrustedSendersChanged();
+	public Task RemoteContentRulesChangedAsync() => hub.Clients.All.RemoteContentRulesChanged();
 }
 
 /// <summary>
@@ -170,5 +170,5 @@ public sealed class NoHubEvents : IHubEvents
 
 	public Task ShellSettingsChangedAsync() => Task.CompletedTask;
 
-	public Task TrustedSendersChangedAsync() => Task.CompletedTask;
+	public Task RemoteContentRulesChangedAsync() => Task.CompletedTask;
 }

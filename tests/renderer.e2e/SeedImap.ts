@@ -87,6 +87,7 @@ export async function appendCalendarMessage(
 export async function appendHostileHtmlMessage(
 	port: number,
 	subject: string,
+	remoteImageUrl = "https://tracker.invalid/pixel.gif",
 ): Promise<void> {
 	// A one-pixel PNG, so the inline part is a real image rather than something the browser
 	// silently discards.
@@ -109,7 +110,7 @@ export async function appendHostileHtmlMessage(
 		"<p id='visible-body'>Hostile body text</p>",
 		`<script>window.pwned = true;</${"script"}>`,
 		'<img id="inline" src="cid:inline-image@example.org">',
-		'<img id="tracker" src="https://tracker.invalid/pixel.gif">',
+		`<img id="tracker" src="${remoteImageUrl}">`,
 		"</body></html>",
 		"",
 		"--boundary42",

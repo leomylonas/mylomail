@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Controllers;
@@ -70,7 +71,7 @@ public sealed class CrossWindowBroadcastTests
 	}
 
 	[Fact]
-	public async Task Trusting_a_sender_broadcasts_TrustedSendersChanged()
+	public async Task Putting_a_remote_content_rule_broadcasts_RulesChanged()
 	{
 		await using var database = new TestDatabase();
 		await database.MigrateAsync();
@@ -79,30 +80,22 @@ public sealed class CrossWindowBroadcastTests
 		await using var scope = database.CreateScope();
 		var controller = new RemoteContentController(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(), events);
 
-		await controller.Trust(new TrustSenderRequest("someone@example.org"), default);
+		await controller.Put(
+			new PutRemoteContentRuleRequest(
+				RemoteContentRuleScope.Domain,
+				RemoteContentRuleDecision.Block,
+				"@Example.ORG."
+			),
+			default
+		);
 
-		Assert.Equal(1, events.TrustedSendersChanged);
-	}
-
-	/// <summary>A no-op write — already trusted — must not broadcast a change that didn't happen.</summary>
-	[Fact]
-	public async Task Trusting_an_already_trusted_sender_does_not_broadcast_again()
-	{
-		await using var database = new TestDatabase();
-		await database.MigrateAsync();
-		var events = new RecordingEvents();
-
-		await using var scope = database.CreateScope();
-		var controller = new RemoteContentController(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(), events);
-
-		await controller.Trust(new TrustSenderRequest("someone@example.org"), default);
-		await controller.Trust(new TrustSenderRequest("someone@example.org"), default);
-
-		Assert.Equal(1, events.TrustedSendersChanged);
+		Assert.Equal(1, events.RemoteContentRulesChanged);
+		var rule = Assert.Single(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>().RemoteContentRules);
+		Assert.Equal("example.org", rule.Value);
 	}
 
 	[Fact]
-	public async Task Untrusting_a_sender_broadcasts_TrustedSendersChanged()
+	public async Task Putting_an_identical_remote_content_rule_does_not_broadcast_again()
 	{
 		await using var database = new TestDatabase();
 		await database.MigrateAsync();
@@ -110,17 +103,73 @@ public sealed class CrossWindowBroadcastTests
 
 		await using var scope = database.CreateScope();
 		var controller = new RemoteContentController(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(), events);
+		var request = new PutRemoteContentRuleRequest(
+			RemoteContentRuleScope.Sender,
+			RemoteContentRuleDecision.Allow,
+			"someone@example.org"
+		);
 
-		await controller.Trust(new TrustSenderRequest("someone@example.org"), default);
-		await controller.Untrust("someone@example.org", default);
+		await controller.Put(request, default);
+		await controller.Put(request, default);
 
-		Assert.Equal(2, events.TrustedSendersChanged);
+		Assert.Equal(1, events.RemoteContentRulesChanged);
+	}
+
+	[Fact]
+	public async Task Deleting_a_remote_content_rule_broadcasts_RulesChanged()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var events = new RecordingEvents();
+
+		await using var scope = database.CreateScope();
+		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var controller = new RemoteContentController(context, events);
+		await controller.Put(
+			new PutRemoteContentRuleRequest(
+				RemoteContentRuleScope.Sender,
+				RemoteContentRuleDecision.Allow,
+				"someone@example.org"
+			),
+			default
+		);
+		var rule = Assert.Single(context.RemoteContentRules);
+
+		await controller.Delete(rule.Id, default);
+		await controller.Delete(rule.Id, default);
+
+		Assert.Equal(2, events.RemoteContentRulesChanged);
+	}
+
+	[Fact]
+	public async Task Invalid_remote_content_rule_values_are_rejected_without_a_write()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var events = new RecordingEvents();
+
+		await using var scope = database.CreateScope();
+		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var controller = new RemoteContentController(context, events);
+
+		var result = await controller.Put(
+			new PutRemoteContentRuleRequest(
+				(RemoteContentRuleScope)99,
+				RemoteContentRuleDecision.Allow,
+				"example.org"
+			),
+			default
+		);
+
+		Assert.IsType<BadRequestResult>(result);
+		Assert.Empty(context.RemoteContentRules);
+		Assert.Equal(0, events.RemoteContentRulesChanged);
 	}
 
 	private sealed class RecordingEvents : IHubEvents
 	{
 		public int ShellSettingsChanged { get; private set; }
-		public int TrustedSendersChanged { get; private set; }
+		public int RemoteContentRulesChanged { get; private set; }
 
 		public Task ShellSettingsChangedAsync()
 		{
@@ -128,9 +177,9 @@ public sealed class CrossWindowBroadcastTests
 			return Task.CompletedTask;
 		}
 
-		public Task TrustedSendersChangedAsync()
+		public Task RemoteContentRulesChangedAsync()
 		{
-			TrustedSendersChanged++;
+			RemoteContentRulesChanged++;
 			return Task.CompletedTask;
 		}
 
