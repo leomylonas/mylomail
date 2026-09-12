@@ -80,6 +80,8 @@ public sealed class AppendToSentSettingsTests
 			account.PollingEnabled,
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
+			account.InitialSyncMode,
+			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			appendToSentOnSend

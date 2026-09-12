@@ -277,6 +277,22 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				message: "the optimistically hidden message never reached Trash",
 			})
 			.toBe(1);
+
+		// Existing accounts expose the same initial-sync choice as onboarding. The returned,
+		// normalised values flow through the live account projection, so closing and reopening
+		// the pane proves the choice is persisted rather than only retained in component state.
+		await window.getByRole("button", { name: "Account settings" }).click();
+		await window.getByText("Last N messages", { exact: true }).click();
+		const syncBound = window.getByLabel("Messages", { exact: true });
+		await syncBound.fill("1");
+		await window.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(window.getByText("Saved.", { exact: true })).toBeVisible();
+		await window.getByRole("button", { name: "Close", exact: true }).click();
+		await window.getByRole("button", { name: "Account settings" }).click();
+		await expect(window.getByLabel("Last N messages")).toBeChecked();
+		await expect(window.getByLabel("Messages", { exact: true })).toHaveValue(
+			"1",
+		);
 	} finally {
 		await app.close();
 	}

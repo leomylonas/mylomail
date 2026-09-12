@@ -259,6 +259,8 @@ public sealed class TopologyReschedulingTests
 			pollingEnabled,
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
+			account.InitialSyncMode,
+			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			null

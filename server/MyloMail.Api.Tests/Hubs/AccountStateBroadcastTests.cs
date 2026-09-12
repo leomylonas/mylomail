@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Contracts;
@@ -5,6 +6,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Sync;
 using Xunit;
@@ -38,6 +40,136 @@ public sealed class AccountStateBroadcastTests
 		Assert.Equal(harness.Account.Id, announced.Id);
 		Assert.Equal("Renamed", announced.DisplayName);
 		Assert.Equal("#ff0000", announced.Color);
+	}
+
+	[Fact]
+	public async Task Changing_account_sync_bound_restarts_only_inherited_mailbox_coverage()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("Archive", SpecialUse.Archive);
+		harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			DateTimeOffset.UnixEpoch
+		);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.CoverAsync(harness, "INBOX");
+		await SyncTests.CoverAsync(harness, "Archive");
+
+		var mailboxIds = await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			return await context
+				.Mailboxes.ToDictionaryAsync(mailbox => mailbox.ProviderMailboxId!, mailbox => mailbox.Id);
+		});
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MailHub>()
+				.SetMailboxInitialSyncOverride(
+					mailboxIds["Archive"],
+					InitialSyncMode.LastNMonths,
+					6
+				)
+		);
+		harness.Events.Clear();
+		await harness.UsingAsync(services =>
+		{
+			((RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>())
+				.Created.Clear();
+			return Task.CompletedTask;
+		});
+
+		var settings = Settings(harness.Account) with
+		{
+			InitialSyncMode = InitialSyncMode.LastNMessages,
+			InitialSyncBoundValue = 25,
+		};
+		var applied = await harness.UsingAsync(services =>
+			services.GetRequiredService<MailHub>().UpdateAccount(settings)
+		);
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MailHub>().UpdateAccount(settings)
+		);
+
+		Assert.Equal(InitialSyncMode.LastNMessages, applied.InitialSyncMode);
+		Assert.Equal(25, applied.InitialSyncBoundValue);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			Assert.Equal(InitialSyncMode.LastNMessages, account.InitialSyncMode);
+			Assert.Equal(25, account.InitialSyncBoundValue);
+
+			var inherited = await context.Mailboxes.SingleAsync(
+				mailbox => mailbox.Id == mailboxIds["INBOX"]
+			);
+			var overridden = await context.Mailboxes.SingleAsync(
+				mailbox => mailbox.Id == mailboxIds["Archive"]
+			);
+			Assert.Equal(1, inherited.CoveragePolicyGeneration);
+			Assert.Equal(1, overridden.CoveragePolicyGeneration);
+			Assert.Equal(
+				CoverageStatus.NotStarted,
+				(await context.MailboxCoverageStates.SingleAsync(
+					coverage => coverage.MailboxId == inherited.Id
+				)).Status
+			);
+			Assert.Equal(
+				CoverageStatus.NotStarted,
+				(await context.MailboxCoverageStates.SingleAsync(
+					coverage => coverage.MailboxId == overridden.Id
+				)).Status
+			);
+			Assert.Single(await context.Messages.ToListAsync());
+
+			var jobs = ((RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>())
+				.Created.Where(job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync))
+				.ToList();
+			var job = Assert.Single(jobs);
+			Assert.Equal(inherited.Id, Assert.IsType<Guid>(job.Args[1]));
+		});
+
+		var mailboxAnnouncement = Assert.Single(harness.Events.Mailboxes);
+		Assert.Equal(mailboxIds["INBOX"], mailboxAnnouncement.Id);
+		Assert.Equal(CoverageStatus.NotStarted, mailboxAnnouncement.Coverage);
+		Assert.Single(harness.Events.AccountStatuses);
+	}
+
+	[Fact]
+	public async Task Account_sync_bounds_are_validated_and_full_history_clears_the_bound()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var settings = Settings(harness.Account) with
+		{
+			InitialSyncMode = InitialSyncMode.LastNMonths,
+			InitialSyncBoundValue = 0,
+		};
+
+		await Assert.ThrowsAsync<HubException>(() =>
+			harness.UsingAsync(services =>
+				services.GetRequiredService<MailHub>().UpdateAccount(settings)
+			)
+		);
+
+		settings = settings with { InitialSyncBoundValue = 3 };
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MailHub>().UpdateAccount(settings)
+		);
+		var applied = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MailHub>()
+				.UpdateAccount(
+					settings with
+					{
+						InitialSyncMode = InitialSyncMode.Full,
+						InitialSyncBoundValue = 999,
+					}
+				)
+		);
+
+		Assert.Equal(InitialSyncMode.Full, applied.InitialSyncMode);
+		Assert.Null(applied.InitialSyncBoundValue);
 	}
 
 	[Fact]
@@ -187,6 +319,8 @@ public sealed class AccountStateBroadcastTests
 			account.PollingEnabled,
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
+			account.InitialSyncMode,
+			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			AppendToSentOnSend: null

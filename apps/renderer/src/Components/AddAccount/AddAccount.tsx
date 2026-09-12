@@ -78,9 +78,9 @@ interface FormState {
 	 */
 	trustCertificateOnRetry: boolean;
 	/**
-	 * Bounded (last N months/messages) or full-history initial sync (§3, §13 Epic 3) — set
-	 * once, at account creation, since re-bounding an already-synced account is a different
-	 * operation (backfilling further, not starting over) that this form doesn't offer.
+	 * Bounded (last N months/messages) or full-history initial sync (§3, §13 Epic 3).
+	 * `AccountSettings` can change this later and atomically restart inherited mailbox
+	 * coverage without discarding messages already materialised.
 	 */
 	initialSyncMode: InitialSyncMode;
 	initialSyncBoundValue: number;

@@ -48,6 +48,13 @@ public static class FaultPoints
 		"topology.after-apply-before-commit";
 
 	/// <summary>
+	/// After an account coverage policy and every inherited mailbox reset are applied, before
+	/// that single transaction commits.
+	/// </summary>
+	public const string AccountCoveragePolicyAfterApplyBeforeCommit =
+		"account-coverage-policy.after-apply-before-commit";
+
+	/// <summary>
 	/// Gmail only: staged history has been drained durably and coverage has completed, but the
 	/// staged events have not yet been replayed into the canonical model.
 	/// </summary>

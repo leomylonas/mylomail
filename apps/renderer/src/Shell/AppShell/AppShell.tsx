@@ -42,6 +42,7 @@ import {
 import {
 	AuthState,
 	CertificateTrustMode,
+	InitialSyncMode,
 	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
@@ -55,6 +56,8 @@ interface Account {
 	pollingEnabled?: boolean;
 	undoSendDelaySeconds?: number;
 	notificationsEnabled?: boolean;
+	initialSyncMode?: InitialSyncMode;
+	initialSyncBoundValue?: number | null;
 	authState?: AuthState;
 	lastAuthError?: string | null;
 	sidebarCollapsed?: boolean;
@@ -706,6 +709,8 @@ function toSettings(
 		pollingEnabled: account?.pollingEnabled ?? true,
 		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
 		notificationsEnabled: account?.notificationsEnabled ?? true,
+		initialSyncMode: account?.initialSyncMode ?? InitialSyncMode.Full,
+		initialSyncBoundValue: account?.initialSyncBoundValue ?? null,
 		certificateTrustMode:
 			account?.certificateTrustMode ?? CertificateTrustMode.Default,
 		attachmentSizeLimitOverride: account?.attachmentSizeLimitOverride ?? null,

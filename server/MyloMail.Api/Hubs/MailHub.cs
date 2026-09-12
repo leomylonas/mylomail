@@ -6,6 +6,7 @@ using MyloMail.Api.Contacts;
 using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -318,7 +319,8 @@ public class MailHub(
 	MailInviteMaterializer invites,
 	IIncomingMailAuthentication authentication,
 	IHubEvents events,
-	Scheduling.AccountGate gate
+	Scheduling.AccountGate gate,
+	IFaultInjector faults
 ) : Hub<IMailClient>, IMailHub
 {
 	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
@@ -886,28 +888,108 @@ public class MailHub(
 	/// </remarks>
 	public async Task<AccountSettingsDto> UpdateAccount(AccountSettingsDto settings)
 	{
-		var account = await context.Accounts.FirstAsync(a => a.Id == settings.Id);
-		var resumingPolling = settings.PollingEnabled && !account.PollingEnabled;
-
-		account.DisplayName = settings.DisplayName;
-		account.Color = settings.Color;
-		account.PollIntervalSeconds = Math.Max(settings.PollIntervalSeconds, 15);
-		account.PollingEnabled = settings.PollingEnabled;
-		account.UndoSendDelaySeconds = Math.Max(settings.UndoSendDelaySeconds, 0);
-		account.NotificationsEnabled = settings.NotificationsEnabled;
-		account.CertificateTrustMode = settings.CertificateTrustMode;
-		account.AttachmentSizeLimitOverride =
-			settings.AttachmentSizeLimitOverride is > 0 ? settings.AttachmentSizeLimitOverride : null;
-
-		// IMAP only: a non-null value from any other account type is ignored rather than
-		// throwing, since the renderer only ever shows this field for IMAP accounts and a
-		// stray value here would otherwise reject an unrelated field's update too.
-		if (settings.AppendToSentOnSend is bool appendToSentOnSend && account.ProviderConfig is ImapProviderConfig imap)
+		if (
+			settings.InitialSyncMode is not InitialSyncMode.Full
+			&& settings.InitialSyncBoundValue is not > 0
+		)
 		{
-			imap.AppendToSentOnSend = appendToSentOnSend;
+			throw new HubException("A bounded initial sync needs a positive month/message count.");
 		}
 
-		var accountChanged = await context.SaveChangesAsync() > 0;
+		var initialSyncBoundValue =
+			settings.InitialSyncMode == InitialSyncMode.Full
+				? null
+				: settings.InitialSyncBoundValue;
+		Account? account = null;
+		var accountChanged = false;
+		var resumingPolling = false;
+		var coveragePolicyChanged = false;
+		var affectedMailboxIds = new HashSet<Guid>();
+		var strategy = context.Database.CreateExecutionStrategy();
+		await strategy.ExecuteAsync(async () =>
+		{
+			// An execution strategy may replay this delegate. Reload every time so a failed
+			// transaction does not leave the tracked account marked unchanged and so a commit
+			// whose acknowledgement was lost does not increment coverage generations twice.
+			context.ChangeTracker.Clear();
+			await using var transaction = await context.Database.BeginTransactionAsync();
+			var current = await context.Accounts.FirstAsync(a => a.Id == settings.Id);
+			var attemptPolicyChanged =
+				current.InitialSyncMode != settings.InitialSyncMode
+				|| current.InitialSyncBoundValue != initialSyncBoundValue;
+
+			resumingPolling |= settings.PollingEnabled && !current.PollingEnabled;
+			current.DisplayName = settings.DisplayName;
+			current.Color = settings.Color;
+			current.PollIntervalSeconds = Math.Max(settings.PollIntervalSeconds, 15);
+			current.PollingEnabled = settings.PollingEnabled;
+			current.UndoSendDelaySeconds = Math.Max(settings.UndoSendDelaySeconds, 0);
+			current.NotificationsEnabled = settings.NotificationsEnabled;
+			current.InitialSyncMode = settings.InitialSyncMode;
+			current.InitialSyncBoundValue = initialSyncBoundValue;
+			current.CertificateTrustMode = settings.CertificateTrustMode;
+			current.AttachmentSizeLimitOverride =
+				settings.AttachmentSizeLimitOverride is > 0
+					? settings.AttachmentSizeLimitOverride
+					: null;
+
+			// IMAP only: a non-null value from any other account type is ignored rather than
+			// throwing, since the renderer only ever shows this field for IMAP accounts and a
+			// stray value here would otherwise reject an unrelated field's update too.
+			if (
+				settings.AppendToSentOnSend is bool appendToSentOnSend
+				&& current.ProviderConfig is ImapProviderConfig imap
+			)
+			{
+				imap.AppendToSentOnSend = appendToSentOnSend;
+			}
+
+			accountChanged |= await context.SaveChangesAsync() > 0;
+			if (attemptPolicyChanged)
+			{
+				var mailboxIds = await context
+					.Mailboxes.Where(mailbox =>
+						mailbox.AccountId == current.Id
+						&& mailbox.ProviderMailboxId != null
+						&& mailbox.InitialSyncModeOverride == null
+					)
+					.Select(mailbox => mailbox.Id)
+					.ToListAsync();
+				affectedMailboxIds.UnionWith(mailboxIds);
+
+				await context
+					.Mailboxes.Where(mailbox => mailboxIds.Contains(mailbox.Id))
+					.ExecuteUpdateAsync(setters =>
+						setters.SetProperty(
+							mailbox => mailbox.CoveragePolicyGeneration,
+							mailbox => mailbox.CoveragePolicyGeneration + 1
+						)
+					);
+				await context
+					.MailboxCoverageStates.Where(coverage =>
+						mailboxIds.Contains(coverage.MailboxId)
+					)
+					.ExecuteUpdateAsync(setters =>
+						setters
+							.SetProperty(coverage => coverage.Status, CoverageStatus.NotStarted)
+							.SetProperty(coverage => coverage.MessagesFetched, 0)
+							.SetProperty(coverage => coverage.EstimatedTotal, (int?)null)
+							.SetProperty(coverage => coverage.ResumeToken, (string?)null)
+							.SetProperty(coverage => coverage.StartedAt, (DateTimeOffset?)null)
+							.SetProperty(coverage => coverage.LastError, (string?)null)
+					);
+				coveragePolicyChanged = true;
+				faults.Reached(FaultPoints.AccountCoveragePolicyAfterApplyBeforeCommit);
+			}
+
+			await transaction.CommitAsync();
+			account = current;
+		});
+
+		if (account is null)
+		{
+			throw new InvalidOperationException($"Account '{settings.Id}' does not exist.");
+		}
 
 		if (resumingPolling)
 		{
@@ -930,18 +1012,44 @@ public class MailHub(
 				jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(account.Id));
 		}
 
+		// An old-generation coverage page exits rather than scheduling a successor. Start one
+		// replacement per affected provider-backed mailbox only after the new policy and reset
+		// state are durable; messages already materialised remain local while the walk restarts.
+		if (coveragePolicyChanged)
+		{
+			foreach (var mailboxId in affectedMailboxIds)
+			{
+				jobs.Enqueue<Scheduling.SyncJobs>(job =>
+					job.CoveragePageAsync(account.Id, mailboxId, default)
+				);
+			}
+			await MailboxSummaryDtoFactory.AnnounceManyAsync(
+				context,
+				events,
+				affectedMailboxIds.ToList()
+			);
+		}
+
 		// Every open window shows this account's name, colour and sync settings; the window
 		// that made the change is not the only one that has to stop showing the old ones
 		// (§13 Epic 10). An idempotent write is not a transition to announce.
 		if (accountChanged)
 		{
-			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, default, gate);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(
+				context,
+				events,
+				account,
+				default,
+				gate
+			);
 		}
 		return settings with
 		{
 			PollIntervalSeconds = account.PollIntervalSeconds,
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
-			AppendToSentOnSend = (account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
+			InitialSyncBoundValue = account.InitialSyncBoundValue,
+			AppendToSentOnSend = (account.ProviderConfig as ImapProviderConfig)
+				?.AppendToSentOnSend,
 		};
 	}
 

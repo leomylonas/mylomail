@@ -329,6 +329,8 @@ public sealed class AccountsControllerTests
 			var row = await context.Accounts.SingleAsync(a => a.Id == account.Id);
 			row.PollIntervalSeconds = 120;
 			row.AttachmentSizeLimitOverride = 10 * 1024 * 1024;
+			row.InitialSyncMode = InitialSyncMode.LastNMonths;
+			row.InitialSyncBoundValue = 4;
 			await context.SaveChangesAsync();
 			return true;
 		});
@@ -342,6 +344,8 @@ public sealed class AccountsControllerTests
 		var dto = Assert.Single(listed!, a => a.Id == account.Id);
 		Assert.Equal(120, dto.PollIntervalSeconds);
 		Assert.Equal(10 * 1024 * 1024, dto.AttachmentSizeLimitOverride);
+		Assert.Equal(InitialSyncMode.LastNMonths, dto.InitialSyncMode);
+		Assert.Equal(4, dto.InitialSyncBoundValue);
 	}
 
 	/// <summary>

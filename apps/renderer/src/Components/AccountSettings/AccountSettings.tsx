@@ -3,6 +3,8 @@ import {
 	Button,
 	InlineNotification,
 	Modal,
+	RadioButton,
+	RadioButtonGroup,
 	NumberInput,
 	Tag,
 	TextInput,
@@ -11,6 +13,7 @@ import {
 import type { HubConnection } from "@microsoft/signalr";
 import {
 	CertificateTrustMode,
+	InitialSyncMode,
 	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
@@ -28,6 +31,8 @@ export interface AccountSettingsValues {
 	pollingEnabled: boolean;
 	undoSendDelaySeconds: number;
 	notificationsEnabled: boolean;
+	initialSyncMode: InitialSyncMode;
+	initialSyncBoundValue: number | null;
 	certificateTrustMode: CertificateTrustMode;
 	/** Bytes. Null leaves it unset — the provider's own limit (or "unknown") applies (§15). */
 	attachmentSizeLimitOverride: number | null;
@@ -80,6 +85,11 @@ export function AccountSettings({
 	// either blocking the removal or abandoning the export.
 	const [exportConflict, setExportConflict] = useState(false);
 	const { store: notifications } = useWindowNotifications();
+	const initialSyncBoundValid =
+		values.initialSyncMode === InitialSyncMode.Full ||
+		(values.initialSyncBoundValue !== null &&
+			Number.isInteger(values.initialSyncBoundValue) &&
+			values.initialSyncBoundValue > 0);
 
 	const save = async () => {
 		try {
@@ -195,6 +205,66 @@ export function AccountSettings({
 					setValues({ ...values, notificationsEnabled: checked })
 				}
 			/>
+			<RadioButtonGroup
+				legendText="Initial sync history"
+				name="settings-initial-sync-mode"
+				valueSelected={String(values.initialSyncMode)}
+				onChange={(selected) => {
+					const initialSyncMode = Number(selected) as InitialSyncMode;
+					setValues({
+						...values,
+						initialSyncMode,
+						initialSyncBoundValue:
+							initialSyncMode === InitialSyncMode.Full
+								? null
+								: (values.initialSyncBoundValue ?? 3),
+					});
+				}}
+			>
+				<RadioButton
+					id="settings-initial-sync-full"
+					labelText="Full history"
+					value={String(InitialSyncMode.Full)}
+				/>
+				<RadioButton
+					id="settings-initial-sync-months"
+					labelText="Last N months"
+					value={String(InitialSyncMode.LastNMonths)}
+				/>
+				<RadioButton
+					id="settings-initial-sync-messages"
+					labelText="Last N messages"
+					value={String(InitialSyncMode.LastNMessages)}
+				/>
+			</RadioButtonGroup>
+			{values.initialSyncMode === InitialSyncMode.Full ? null : (
+				<NumberInput
+					id="settings-initial-sync-bound"
+					label={
+						values.initialSyncMode === InitialSyncMode.LastNMonths
+							? "Months"
+							: "Messages"
+					}
+					min={1}
+					invalid={!initialSyncBoundValid}
+					invalidText="Enter a positive whole number."
+					value={values.initialSyncBoundValue ?? 3}
+					onChange={(_, { value }) =>
+						setValues({
+							...values,
+							initialSyncBoundValue: Number(value),
+						})
+					}
+				/>
+			)}
+			{values.providerType === ProviderType.Microsoft365 &&
+			values.initialSyncMode !== InitialSyncMode.Full ? (
+				<p className={styles.helper}>
+					For Microsoft 365, this limits what appears locally at first, not how
+					much of your mailbox is scanned — the full account is still walked in
+					the background either way.
+				</p>
+			) : null}
 			<Toggle
 				id="settings-trust-all-certificates"
 				labelText="Trust any server certificate for this account"
@@ -315,7 +385,11 @@ export function AccountSettings({
 				</Modal>
 			) : null}
 			<div>
-				<Button size="sm" onClick={() => void save()}>
+				<Button
+					size="sm"
+					disabled={!initialSyncBoundValid}
+					onClick={() => void save()}
+				>
 					Save
 				</Button>
 				<Button size="sm" kind="ghost" onClick={onClose}>

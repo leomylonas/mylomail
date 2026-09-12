@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { ProviderType } from '../Domain/ProviderType';
 import { AuthState } from '../Domain/AuthState';
+import { InitialSyncMode } from '../Domain/InitialSyncMode';
 import { CertificateTrustMode } from '../Domain/CertificateTrustMode';
 
 export interface AccountDto {
@@ -23,6 +24,8 @@ export interface AccountDto {
   pollingEnabled: boolean;
   undoSendDelaySeconds: number;
   notificationsEnabled: boolean;
+  initialSyncMode: InitialSyncMode;
+  initialSyncBoundValue?: number;
   certificateTrustMode: CertificateTrustMode;
   attachmentSizeLimitOverride?: number;
   appendToSentOnSend?: boolean;
@@ -44,6 +47,8 @@ export const AccountDtoSchema = z.object({
   pollingEnabled: z.boolean(),
   undoSendDelaySeconds: z.number(),
   notificationsEnabled: z.boolean(),
+  initialSyncMode: z.nativeEnum(InitialSyncMode),
+  initialSyncBoundValue: z.number().nullable(),
   certificateTrustMode: z.nativeEnum(CertificateTrustMode),
   attachmentSizeLimitOverride: z.number().nullable(),
   appendToSentOnSend: z.boolean().nullable(),

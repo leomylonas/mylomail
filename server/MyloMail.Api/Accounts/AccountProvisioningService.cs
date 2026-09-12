@@ -362,6 +362,8 @@ internal static class AccountDtoFactory
 			account.PollingEnabled,
 			account.UndoSendDelaySeconds,
 			account.NotificationsEnabled,
+			account.InitialSyncMode,
+			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,

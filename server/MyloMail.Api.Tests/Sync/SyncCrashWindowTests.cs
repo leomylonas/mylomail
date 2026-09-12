@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MimeKit;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -389,6 +392,64 @@ public sealed class SyncCrashWindowTests
 		});
 	}
 
+	[Fact]
+	public async Task Account_coverage_policy_and_inherited_mailbox_reset_commit_together()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.CoverAsync(harness);
+		var mailboxId = await harness.UsingAsync(async scope =>
+			(await harness.MailboxAsync(scope, "INBOX")).Id
+		);
+		var settings = AccountSettings(harness.Account) with
+		{
+			InitialSyncMode = InitialSyncMode.LastNMessages,
+			InitialSyncBoundValue = 10,
+		};
+
+		harness.Faults.ArmAt(FaultPoints.AccountCoveragePolicyAfterApplyBeforeCommit);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
+			harness.UsingAsync(scope =>
+				scope.GetRequiredService<MailHub>().UpdateAccount(settings)
+			)
+		);
+		await harness.RestartAsync();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			var mailbox = await context.Mailboxes.SingleAsync();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(InitialSyncMode.Full, account.InitialSyncMode);
+			Assert.Null(account.InitialSyncBoundValue);
+			Assert.Equal(0, mailbox.CoveragePolicyGeneration);
+			Assert.Equal(CoverageStatus.Covered, coverage.Status);
+		});
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MailHub>().UpdateAccount(settings)
+		);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			var mailbox = await context.Mailboxes.SingleAsync();
+			var coverage = await context.MailboxCoverageStates.SingleAsync();
+			Assert.Equal(InitialSyncMode.LastNMessages, account.InitialSyncMode);
+			Assert.Equal(10, account.InitialSyncBoundValue);
+			Assert.Equal(1, mailbox.CoveragePolicyGeneration);
+			Assert.Equal(CoverageStatus.NotStarted, coverage.Status);
+
+			var jobs = ((RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>())
+				.Created.Where(job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync))
+				.ToList();
+			var job = Assert.Single(jobs);
+			Assert.Equal(mailboxId, Assert.IsType<Guid>(job.Args[1]));
+		});
+	}
+
 	private static Task<GenerationSnapshot> IssuedGenerationAsync(SyncHarness harness) =>
 		harness.UsingAsync(async scope =>
 			GenerationSnapshot.Capture([await harness.MailboxAsync(scope, "INBOX")])
@@ -406,6 +467,22 @@ public sealed class SyncCrashWindowTests
 			await scope
 				.GetRequiredService<ChangeStreamService>()
 				.ReplayStagedAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+	private static AccountSettingsDto AccountSettings(Account account) =>
+		new(
+			account.Id,
+			account.DisplayName,
+			account.Color,
+			account.PollIntervalSeconds,
+			account.PollingEnabled,
+			account.UndoSendDelaySeconds,
+			account.NotificationsEnabled,
+			account.InitialSyncMode,
+			account.InitialSyncBoundValue,
+			account.CertificateTrustMode,
+			account.AttachmentSizeLimitOverride,
+			AppendToSentOnSend: null
 		);
 
 	private static byte[] DraftMimeBytes()

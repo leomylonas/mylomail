@@ -44,6 +44,8 @@ public record AccountDto(
 	bool PollingEnabled,
 	int UndoSendDelaySeconds,
 	bool NotificationsEnabled,
+	InitialSyncMode InitialSyncMode,
+	int? InitialSyncBoundValue,
 	CertificateTrustMode CertificateTrustMode,
 	int? AttachmentSizeLimitOverride,
 	bool? AppendToSentOnSend,
