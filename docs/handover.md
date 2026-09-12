@@ -48,10 +48,11 @@
 - Parity remediation 41/47: host-native electron-builder packaging now publishes the bundled renderer and a self-contained .NET backend, and packaged spawn mode resolves both from Electron resources rather than requiring a system SDK or development paths. Linux builds AppImage, `.deb`, and `.rpm`; Windows builds NSIS `.exe` and `.msi`; macOS builds `.dmg` and `.zip`. A tag/manual GitHub Actions matrix builds and launches each native unpacked package before upload, creates a draft release, and adds SHA-256 checksums. `mailto:` metadata is included. The installation guide documents manual upgrades, Linux choices, SmartScreen's unsigned-publisher click-through, Gatekeeper's Control-click Open path, and never disabling platform protections globally.
 - Parity remediation 42/47: macOS data-directory validation now asks `statfs` through `DriveInfo` for the nearest existing ancestor of the configured path after resolving every symlink component. NFS, SMB, AFP, WebDAV, SSHFS, macFUSE, and legacy osxfuse volumes are rejected before directory creation or SQLite migration; local APFS remains valid. Unreadable or unclassifiable Darwin storage fails closed instead of silently disabling the WAL locality invariant. Linux retains longest nested `/proc/self/mounts` selection and Windows retains UNC/mapped-drive checks.
 - Parity remediation 43/47: fatal backend startup now opens a synchronous native Electron error dialog before the process exits, because no renderer exists while health probing or migration fails. The dialog explicitly identifies local data-directory/database-upgrade failures, includes a bounded error detail, and tells the user to preserve the data directory when reporting a persistent failure rather than silently retrying or discarding it.
+- Parity remediation 44/47: the backend now explicitly disables invariant and Windows NLS globalization so canonical IANA time-zone handling always uses ICU. Windows builds additionally carry Microsoft ICU 72.1 app-local for stable availability instead of depending on the host Windows ICU. Linux and macOS use their native ICU, matching the architecture's “app-local where needed” boundary; Microsoft's runtime package has no macOS assets, so enabling it globally would make every packaged Mac fail before `Program` starts.
 
 ## Next task
 
-- Configure explicit app-local ICU globalization for every packaged backend (item 44).
+- Replace exception-only crash simulation with process-level fault injection and add the missing attachment-download fault point (item 45).
 
 ## Required reading
 
@@ -182,6 +183,7 @@
 - `pnpm check` after macOS network-storage rejection and deterministic claim ordering: format, TypeScript, ESLint, Stylelint, build, 610 .NET tests, and 216 Vitest tests passed. Regressions cover nested SMB selection, macFUSE/osxfuse names, symlinked ancestors, and Darwin's live filesystem-type query when running on macOS.
 - Independent persistence review found and closed ordinary macFUSE SSHFS naming, fail-open mount discovery, symlink/case alias bypasses, and case-sensitive APFS false positives. Final review found no remaining locality or startup-ordering violation.
 - Actual Electron startup-failure smoke: `pnpm e2e --grep "backend migration failure"` passed 1/1. A delayed child process exited before announcing a port; the real bundled `Main` catch path invoked Electron's native `showErrorBox` with the migration guidance and exit-code detail before terminating.
+- `pnpm package:smoke` after globalization configuration passed 1/1: the self-contained Linux backend and renderer were rebuilt, bundled, and launched from electron-builder's unpacked application. An initial global app-local attempt correctly failed at process startup because the Microsoft package's Linux filenames do not satisfy a `72.1` probe and the package supplies no macOS assets; scoping app-local ICU to Windows restored the package while retaining explicit ICU mode everywhere.
 
 ## Live risks / decisions
 
