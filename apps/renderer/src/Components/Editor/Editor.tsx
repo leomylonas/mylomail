@@ -18,6 +18,7 @@ import {
 	type EditorState,
 	type LexicalEditor,
 } from "lexical";
+import { SignatureNode } from "@mylomail/renderer/Components/Editor/SignatureNode";
 import styles from "@mylomail/renderer/Components/Editor/Editor.module.css";
 
 /**
@@ -41,7 +42,14 @@ export function Editor({
 		<LexicalComposer
 			initialConfig={{
 				namespace: "compose",
-				nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, LinkNode],
+				nodes: [
+					HeadingNode,
+					QuoteNode,
+					ListNode,
+					ListItemNode,
+					LinkNode,
+					SignatureNode,
+				],
 				// A composition failure must not take the window with it: the surrounding
 				// compose form still holds the user's recipients and subject.
 				onError: (error) => console.error(`editor: ${error.message}`),

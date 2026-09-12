@@ -38,10 +38,11 @@
 - Parity remediation 31/47: message printing now includes canonical From/To/Cc/Reply-To/Date headers and the acquired HTML or plain-text body, suppresses application chrome/notifications/actions with a dedicated paginating print layout, and routes both toolbar and context-menu requests through a narrow preload IPC bridge to the requesting Electron `webContents.print()`. Printing waits for the exact final inline-image document, remeasures HTML at paper width, discards abandoned requests, treats native-dialog cancellation as ordinary, and surfaces real failures. The workflow also closed two races it exposed: remote-content revisions no longer request an allowed tracker twice while CID resolution finishes, and replayed blank IMAP envelope snippets cannot erase a durably acquired body preview.
 - Parity remediation 32/47: existing-account settings now expose and persist the account's initial-sync mode and bound. Changing the default atomically advances and resets only provider-backed mailboxes that inherit it, retains already materialised messages, publishes every affected account/mailbox projection, and enqueues replacement coverage after commit so stale-generation jobs cannot strand the restart. Full-history mode clears its bound; bounded modes require a positive whole number in the renderer and a positive value at the hub. Microsoft 365 keeps the explicit warning that bounds reduce initial local materialisation but not delta enumeration.
 - Parity remediation 33/47: mailbox rows now show unread and total provider counts together, including the meaningful `0 unread` state, and keep those counts visible beside backfill or indexing progress. When a provider omits one count, the available provider count remains visible; when it omits the total, the local fallback is explicitly labelled `held` rather than presented as the mailbox total.
+- Parity remediation 34/47: changing a draft's From identity now replaces the prior managed signature instead of duplicating it or leaving the wrong sender's signature. The editor preserves the signature boundary through rich-text edits, identity changes persist the new body and identity in one draft snapshot, identities without a signature remove the managed block, and authored plus quoted content remains untouched above the replacement.
 
 ## Next task
 
-- Update signatures with identities (item 34).
+- Handle incoming `mailto:` links (item 35).
 
 ## Required reading
 
@@ -150,6 +151,8 @@
 - Actual Electron end-to-end: `pnpm e2e --grep "a real account syncs"` passed 1/1 against Dovecot. The live settings pane changed an existing account to Last N messages, saved it, closed, reopened, and showed the persisted mode and bound.
 - `pnpm check` after complete sidebar counts, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 187 Vitest tests passed. Count regressions cover zero unread plus provider total, a provider-unread/local-held fallback, and a provider total without unread support.
 - Actual Electron end-to-end: `pnpm e2e --grep "a real account syncs"` passed 1/1 against Dovecot. INBOX rendered `2 unread · 2 total` after initial sync, then updated to `1 unread · 2 total` after the real read mutation reached the server while that mailbox remained selected.
+- `pnpm check` after send-identity signature replacement, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 190 Vitest tests passed. Signature regressions prove replacement after user edits, removal for unsigned identities, preservation of authored and quoted content, and insertion at the end of the draft.
+- Actual Electron end-to-end: `pnpm e2e --grep "a composed message"` passed 1/1 against Dovecot and Mailpit. It configured two identities with distinct signatures, typed draft content, switched From in both directions, observed exactly the selected signature without losing draft text, then sent the message through the real SMTP path.
 
 ## Live risks / decisions
 

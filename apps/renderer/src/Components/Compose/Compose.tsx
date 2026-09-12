@@ -28,6 +28,7 @@ import {
 	mentionsAttachmentOutsideQuote,
 	type ComposeSeed,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
+import { applyIdentitySignature } from "@mylomail/renderer/Components/Compose/ComposeSignature";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
@@ -253,6 +254,7 @@ export function Compose({
 	// but never appear on screen. An existing draft needs no wait: its saved body already
 	// reflects whatever signature the user kept, edited or removed.
 	const [editorReady, setEditorReady] = useState(() => Boolean(draft));
+	const [editorRevision, setEditorRevision] = useState(0);
 	useEffect(() => {
 		void (async () => {
 			const list = await hub.invoke<SendIdentityDto[]>(
@@ -266,9 +268,10 @@ export function Compose({
 			if (chosen) {
 				setSendIdentityId(chosen.id);
 				// Appended after any reply/forward quote a seed already placed, per §15's
-				// "below quoted reply text" convention.
+				// "below quoted reply text" convention. The managed boundary survives
+				// Lexical HTML round-trips so a later identity change can replace it exactly.
 				if (!draft && chosen.signatureHtml) {
-					setBody((current) => `${current}<p><br></p>${chosen.signatureHtml}`);
+					setBody((current) => applyIdentitySignature(current, chosen));
 				}
 			}
 		})()
@@ -791,13 +794,24 @@ export function Compose({
 					value={sendIdentityId ?? ""}
 					onChange={(event) => {
 						const id = event.target.value;
+						const identity = identities.find(
+							(candidate) => candidate.id === id,
+						);
+						if (!identity) return;
+
+						const nextBody = applyIdentitySignature(body, identity);
 						setSendIdentityId(id);
+						setBody(nextBody);
+						setEditorRevision((current) => current + 1);
 						// `fieldsRef` is otherwise only kept current by a passive effect that
 						// runs after paint — too late for `save()`'s already-chained promise,
-						// which can run as a microtask before that effect flushes and would
-						// then persist the identity this selection just replaced. Updated
-						// directly here so this explicit, discrete save is never stale.
-						fieldsRef.current = { ...fieldsRef.current, sendIdentityId: id };
+						// which can run as a microtask before that effect flushes. Update the
+						// identity and its matching body as one save snapshot.
+						fieldsRef.current = {
+							...fieldsRef.current,
+							body: nextBody,
+							sendIdentityId: id,
+						};
 						void save().catch(reportFailure("This draft could not be saved"));
 					}}
 				>
@@ -852,7 +866,7 @@ export function Compose({
 				onChange={(event) => setSubject(event.target.value)}
 			/>
 			{editorReady ? (
-				<Editor onChange={setBody} initialHtml={body} />
+				<Editor key={editorRevision} onChange={setBody} initialHtml={body} />
 			) : (
 				<SkeletonText paragraph lineCount={4} />
 			)}

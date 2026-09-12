@@ -29,6 +29,23 @@ test("a composed message is sent and arrives at the server", async () => {
 	try {
 		await createImapAccount(window, imapPort);
 
+		await window.getByRole("button", { name: "Account settings" }).click();
+		await window.getByRole("button", { name: "Edit", exact: true }).click();
+		await window
+			.getByLabel("Signature (HTML)")
+			.fill("<p>Primary signature</p>");
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
+		await window.getByRole("button", { name: "Add identity" }).click();
+		await window.getByLabel("Display name").fill("Alias");
+		await window.getByLabel("Email address").fill("alias@example.org");
+		await window.getByLabel("Signature (HTML)").fill("<p>Alias signature</p>");
+		await window.getByRole("button", { name: "Add", exact: true }).click();
+		await expect(window.getByText(/Alias <alias@example\.org>/)).toBeVisible();
+		await window.getByRole("button", { name: "Close", exact: true }).click();
+
 		await expect(
 			window.getByRole("button", { name: "New message" }),
 		).toBeEnabled({
@@ -36,11 +53,30 @@ test("a composed message is sent and arrives at the server", async () => {
 		});
 		await window.getByRole("button", { name: "New message" }).click();
 
+		const message = window.getByLabel("Message", { exact: true });
+		await expect(message).toContainText("Primary signature");
+		await message.click();
+		await window.keyboard.press("Control+Home");
+		await window.keyboard.type("Draft text");
+		await window
+			.getByLabel("From")
+			.selectOption({ label: "Alias <alias@example.org>" });
+		await expect(message).toContainText("Draft text");
+		await expect(message).toContainText("Alias signature");
+		await expect(message).not.toContainText("Primary signature");
+		await window
+			.getByLabel("From")
+			.selectOption({ label: "Matrix <test@mylomail.local>" });
+		await expect(message).toContainText("Draft text");
+		await expect(message).toContainText("Primary signature");
+		await expect(message).not.toContainText("Alias signature");
+
 		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
 		await window.getByLabel("Subject").fill(subject);
 		// The rich editor is a contenteditable, not a field: typing is the only way to
 		// exercise the path that actually produces the HTML.
-		await window.getByLabel("Message", { exact: true }).click();
+		await message.click();
+		await window.keyboard.press("Control+End");
 		await window.keyboard.type("Plain words and ");
 		await window.getByRole("button", { name: "Bold" }).click();
 		await window.keyboard.type("bold ones");
