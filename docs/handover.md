@@ -40,10 +40,11 @@
 - Parity remediation 33/47: mailbox rows now show unread and total provider counts together, including the meaningful `0 unread` state, and keep those counts visible beside backfill or indexing progress. When a provider omits one count, the available provider count remains visible; when it omits the total, the local fallback is explicitly labelled `held` rather than presented as the mailbox total.
 - Parity remediation 34/47: changing a draft's From identity now replaces the prior managed signature instead of duplicating it or leaving the wrong sender's signature. The editor preserves the signature boundary through rich-text edits, identity changes persist the new body and identity in one draft snapshot, identities without a signature remove the managed block, and authored plus quoted content remains untouched above the replacement.
 - Parity remediation 35/47: the Electron shell now accepts RFC 6068 `mailto:` activations from startup arguments, macOS `open-url`, and subsequent launches forwarded through a single-instance lock. Activations queued during backend startup become same-origin main-window routes; live activations open an offset main window. Compose receives deduplicated To/Cc/Bcc recipients, subject, and an HTML-escaped multiline body, while malformed, oversized, non-`mailto`, and unknown fields are ignored.
+- Parity remediation 36/47: every Electron window now enforces a 720 × 480 minimum, including windows restored from older undersized bounds. The main header wraps controls, reduces spacing below 48 rem, and lets long status text wrap without creating horizontal document overflow; the three-panel group can shrink within the viewport while retaining usable widths for each pane.
 
 ## Next task
 
-- Harden the small-window layout (item 36).
+- Make date and time formatting locale-aware (item 37).
 
 ## Required reading
 
@@ -156,6 +157,8 @@
 - Actual Electron end-to-end: `pnpm e2e --grep "a composed message"` passed 1/1 against Dovecot and Mailpit. It configured two identities with distinct signatures, typed draft content, switched From in both directions, observed exactly the selected signature without losing draft text, then sent the message through the real SMTP path.
 - `pnpm check` after incoming `mailto:` support, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 196 Vitest tests passed. Regressions cover launch-argument extraction, RFC 6068 field names and decoding, recipient deduplication, header newline removal, internal route transport, and plain-text body escaping.
 - Actual Electron end-to-end: `pnpm e2e --grep "startup mailto activation"` passed 1/1 against a fresh backend and Dovecot account. A real `mailto:` process argument opened Compose with To/Cc/Bcc/Subject/body populated; literal angle brackets remained text rather than becoming an element.
+- `pnpm check` after small-window hardening, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 598 .NET tests, and 196 Vitest tests passed.
+- Actual Electron end-to-end: `pnpm e2e --grep "minimum window size"` passed 1/1. Electron rejected a programmatic 320 × 240 resize below 720 × 480; at that minimum the complete header wrapped across rows, every action remained visible, all three panes retained more than 100 pixels, and the document had no horizontal overflow.
 
 ## Live risks / decisions
 

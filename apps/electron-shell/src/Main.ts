@@ -44,6 +44,8 @@ import {
 
 export const backendMode =
 	process.env.ELECTRON_BACKEND_MODE === "attach" ? "attach" : "spawn";
+const minimumWindowWidth = 720;
+const minimumWindowHeight = 480;
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -588,6 +590,8 @@ async function createWindow(
 	const window = new BrowserWindow({
 		width: bounds?.width ?? 1280,
 		height: bounds?.height ?? 800,
+		minWidth: minimumWindowWidth,
+		minHeight: minimumWindowHeight,
 		x: bounds?.x,
 		y: bounds?.y,
 		show: false,
