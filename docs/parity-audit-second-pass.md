@@ -7,10 +7,10 @@
 
 The first audit's 47 confirmed implementation gaps are closed. The remediation record, current source, focused runtime workflows, and the full repository check support those closures.
 
-A fresh architecture-to-code review found **two new architecture-parity defects** that the first audit missed:
+A fresh architecture-to-code review found **two new architecture-parity defects** that the first audit missed. The rich-text defect was remediated immediately after this audit; Graph topology remains open:
 
 1. Microsoft Graph mailbox topology is neither recursive nor delta/cursor based. This is high severity because an incomplete response is treated as a complete snapshot.
-2. Rich-text compose formatting is blocked in the real renderer by its CSP. Plain-text composition and delivery still work, but the HTML-compose requirement is not met.
+2. Rich-text compose formatting was blocked in the real renderer by its CSP. The strict CSP is retained, and semantic bold/italic formatting now survives the complete Electron-to-SMTP path.
 
 The review also found one lower-severity distribution defect: the built Carbon stylesheet retains unresolved IBM Plex package URLs and ships no font files. This is not a direct architecture-contract violation, but it produces startup 404s and unintended fallback typography.
 
@@ -19,7 +19,7 @@ The review also found one lower-severity distribution defect: the built Carbon s
 | Original confirmed gaps | 47 | Remediated |
 | Original verification-only items | 9 | Resolved |
 | Original verification-only items | 4 | Partially verified or externally blocked |
-| New architecture-parity defects | 2 | Open |
+| New architecture-parity defects | 2 | 1 remediated, 1 open |
 | New build/distribution defects | 1 | Open |
 | Additional portability checks | 2 | Native hosts/runners required |
 
@@ -29,7 +29,7 @@ Four high-reasoning reviews independently covered the product epics, provider/sy
 
 The audit treated a source path as implementation evidence and a successful command or observed native workflow as runtime evidence. It does not convert unavailable cloud credentials or unavailable Windows/macOS hosts into passing claims.
 
-## New confirmed architecture gaps
+## New architecture findings
 
 ### 1. Graph mailbox topology is an incomplete snapshot, not recursive delta sync
 
@@ -56,22 +56,21 @@ Consequences:
 
 Required closure: add a provider-neutral paged topology result, recursively walk Graph root and child-folder deltas, persist the complete cursor set atomically with each safe reconciliation boundary, and prove pagination, nesting, deletion, parent change, and restart behavior. This changes a frozen provider contract and therefore needs an explicit design decision before implementation.
 
-### 2. Rich-text composition fails under the production CSP
+### 2. Rich-text composition failed under the production CSP — remediated
 
 **Severity:** Medium  
-**Architecture:** Epic 6 compose plain text or HTML; §12 strict CSP
+**Architecture:** Epic 6 compose plain text or HTML; §12 strict CSP  
+**Status:** Closed
 
-The production renderer CSP in `apps/renderer/index.html` permits `style-src 'self'` and correctly rejects inline styles. The Lexical compose path in `apps/renderer/src/Components/Editor/Editor.tsx` triggers an inline-style CSP violation when formatting is applied. In the actual Electron workflow, clicking Bold or Italic logs:
+At audit time, the production renderer CSP in `apps/renderer/index.html` permitted `style-src 'self'` and correctly rejected inline styles. Lexical's default HTML exporter assigned `white-space: pre-wrap` to every temporary text element; merely assigning that inline style violated the live renderer's CSP. Clicking Bold or Italic logged:
 
 ```text
 Applying inline style violates the following Content Security Policy directive 'style-src 'self''
 ```
 
-The formatting action is blocked and does not survive. Sending and plain text remain functional.
+`Editor.tsx` now overrides only Lexical's text-node HTML export with semantic elements and no inline style. Its live theme uses CSS Module classes; the strict CSP remains unchanged.
 
-`tests/renderer.e2e/Compose.e2e.ts` clicks Bold but only proves that a message with the expected subject reaches Mailpit; it does not assert editor semantics, generated HTML, or the received MIME body's formatting. That allowed the defect to pass.
-
-Required closure: keep the strict CSP, make Lexical formatting class-based or otherwise CSP-compliant, and verify bold and italic in the received message body through the real Electron-to-SMTP path. Weakening `style-src` with `unsafe-inline` is not an acceptable fix because the renderer also displays remote-authored mail.
+`tests/renderer.e2e/Compose.e2e.ts` now proves the consumer-visible contract through the actual Electron-to-SMTP path: the received Mailpit HTML contains semantic `<strong>` and `<em>` content for the entered text, and applying both formats emits no inline-style CSP violation.
 
 ## New non-parity defect
 
@@ -143,4 +142,4 @@ Unchanged from the architecture: server-side rules/filters, mail import, auto-up
 
 ## Bottom line
 
-The first audit's implementation backlog is complete, but the application is not yet at architecture parity. Graph topology discovery can silently mis-model a real mailbox tree and is the highest-priority code defect. Rich-text compose formatting is the next user-visible parity defect. Cloud-provider, native-keychain, tray, and non-Linux package evidence remains blocked on credentials or native environments rather than local implementation work.
+The first audit's implementation backlog is complete, but the application is not yet at architecture parity. Graph topology discovery can silently mis-model a real mailbox tree and is the remaining second-pass architecture defect. Rich-text compose formatting is now closed without weakening CSP. Font packaging remains a lower-severity build defect. Cloud-provider, native-keychain, tray, and non-Linux package evidence remains blocked on credentials or native environments rather than local implementation work.

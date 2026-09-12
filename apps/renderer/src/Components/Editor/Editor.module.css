@@ -31,10 +31,12 @@
 	pointer-events: none;
 }
 
+.bold,
 .input :global(strong) {
 	font-weight: 700;
 }
 
+.italic,
 .input :global(em) {
 	font-style: italic;
 }

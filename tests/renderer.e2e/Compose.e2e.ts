@@ -25,6 +25,14 @@ test("a composed message is sent and arrives at the server", async () => {
 
 	const { app, window } = await launchApp();
 	const subject = `Composed ${Date.now()}`;
+	const formattingCspViolations: string[] = [];
+	window.on("console", (message) => {
+		if (
+			message.text().includes("Applying inline style") &&
+			message.text().includes("style-src 'self'")
+		)
+			formattingCspViolations.push(message.text());
+	});
 
 	try {
 		await createImapAccount(window, imapPort);
@@ -80,6 +88,10 @@ test("a composed message is sent and arrives at the server", async () => {
 		await window.keyboard.type("Plain words and ");
 		await window.getByRole("button", { name: "Bold" }).click();
 		await window.keyboard.type("bold ones");
+		await window.getByRole("button", { name: "Bold" }).click();
+		await window.keyboard.type(" and ");
+		await window.getByRole("button", { name: "Italic" }).click();
+		await window.keyboard.type("italic ones");
 		await window.getByRole("button", { name: "Send", exact: true }).click();
 
 		await expect(window.getByText("Sending…")).toBeVisible();
@@ -101,6 +113,22 @@ test("a composed message is sent and arrives at the server", async () => {
 				},
 			)
 			.toBe(1);
+		const deliveredResponse = await fetch(`${mailpitApi}/messages`);
+		const deliveredBody = (await deliveredResponse.json()) as {
+			messages: { ID: string; Subject: string }[];
+		};
+		const delivered = deliveredBody.messages.find(
+			(message) => message.Subject === subject,
+		);
+		if (!delivered)
+			throw new Error("The composed message disappeared from Mailpit.");
+		const messageResponse = await fetch(
+			`${mailpitApi}/message/${delivered.ID}`,
+		);
+		const received = (await messageResponse.json()) as { HTML: string };
+		expect(received.HTML).toContain("<strong><span>bold ones</span></strong>");
+		expect(received.HTML).toContain("<em><span>italic ones</span></em>");
+		expect(formattingCspViolations).toEqual([]);
 	} finally {
 		await app.close();
 	}

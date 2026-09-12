@@ -13,13 +13,60 @@ import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { Button } from "@carbon/react";
 import {
 	FORMAT_TEXT_COMMAND,
+	TextNode,
 	$getRoot,
 	$insertNodes,
+	$isTextNode,
+	type DOMExportOutputMap,
 	type EditorState,
 	type LexicalEditor,
 } from "lexical";
 import { SignatureNode } from "@mylomail/renderer/Components/Editor/SignatureNode";
 import styles from "@mylomail/renderer/Components/Editor/Editor.module.css";
+
+const composeHtmlExport: DOMExportOutputMap = new Map([
+	[
+		TextNode,
+		(_editor, node) => {
+			if (!$isTextNode(node)) return { element: null };
+
+			let text = node.getTextContent();
+			if (node.hasFormat("lowercase")) text = text.toLowerCase();
+			else if (node.hasFormat("uppercase")) text = text.toUpperCase();
+
+			let element = document.createElement("span");
+			element.textContent = text;
+
+			if (node.hasFormat("code")) element = wrapText(element, "code");
+			else if (node.hasFormat("highlight")) element = wrapText(element, "mark");
+			else if (node.hasFormat("subscript")) element = wrapText(element, "sub");
+			else if (node.hasFormat("superscript"))
+				element = wrapText(element, "sup");
+
+			if (node.hasFormat("bold")) element = wrapText(element, "strong");
+			if (node.hasFormat("italic")) element = wrapText(element, "em");
+			if (node.hasFormat("strikethrough")) element = wrapText(element, "s");
+			if (node.hasFormat("underline")) element = wrapText(element, "u");
+
+			return { element };
+		},
+	],
+]);
+
+/**
+ * Lexical's default HTML exporter assigns `white-space: pre-wrap` to every text node. Merely
+ * assigning that style in the renderer violates the strict CSP, even though the temporary
+ * export DOM is detached. Compose supports semantic formatting, so emit semantic elements
+ * without an inline style rather than weakening `style-src`.
+ */
+function wrapText<T extends keyof HTMLElementTagNameMap>(
+	element: HTMLElement,
+	tagName: T,
+): HTMLElement {
+	const wrapper = document.createElement(tagName);
+	wrapper.append(element);
+	return wrapper;
+}
 
 /**
  * The compose editor (§12).
@@ -65,8 +112,9 @@ export function Editor({
 						}
 					: undefined,
 				theme: {
-					text: { bold: "bold", italic: "italic" },
+					text: { bold: styles.bold, italic: styles.italic },
 				},
+				html: { export: composeHtmlExport },
 			}}
 		>
 			<div className={styles.shell}>
