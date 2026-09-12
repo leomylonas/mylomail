@@ -23,7 +23,11 @@ test("window bounds restore and new windows inherit an offset", async () => {
 		});
 		await launched.window.evaluate(() => window.windows?.open());
 		await expect
-			.poll(() => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length))
+			.poll(() =>
+				launched.app.evaluate(
+					({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+				),
+			)
 			.toBe(2);
 		const bounds = await launched.app.evaluate(({ BrowserWindow }) =>
 			BrowserWindow.getAllWindows().map((window) => window.getBounds()),
@@ -36,9 +40,11 @@ test("window bounds restore and new windows inherit an offset", async () => {
 		});
 		await launched.app.evaluate(({ BrowserWindow }, expected) => {
 			const primary = BrowserWindow.getAllWindows().find(
-				(window) => JSON.stringify(window.getBounds()) === JSON.stringify(expected),
+				(window) =>
+					JSON.stringify(window.getBounds()) === JSON.stringify(expected),
 			);
-			if (!primary) throw new Error("Primary Electron window did not retain its bounds.");
+			if (!primary)
+				throw new Error("Primary Electron window did not retain its bounds.");
 			primary.emit("move");
 			primary.emit("resize");
 		}, saved);

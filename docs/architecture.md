@@ -341,7 +341,7 @@ public interface IMailProvider
     Task<IReadOnlyList<MailboxDto>> ListMailboxesAsync(Account account, CancellationToken ct);
     Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct);
     Task<InitialSyncPage> InitialSyncMailboxAsync(Account account, Mailbox mailbox, string? resumeToken, InitialSyncMode mode, int? bound, int pageSize, CancellationToken ct);
-    Task<SyncResult> SyncMailboxAsync(Account account, Mailbox mailbox, string? cursor, CancellationToken ct);
+    Task<SyncResult> SyncMailboxAsync(Account account, Mailbox mailbox, ProviderCursorState? cursor, string? continuation, CancellationToken ct);
     // Content acquisition is ONE raw fetch per message (§1). Body, headers, attachment
     // metadata and search content are all parsed from this; there is no separate body
     // or attachment fetch. Gmail format=RAW, Graph $value, IMAP BODY.PEEK[].
@@ -1334,11 +1334,11 @@ Everything they depend on is now proven, so sequencing is a matter of preference
 
 **No ordering constraint at all**, so they can be slotted opportunistically: export, print, `mailto` registration, tray behaviour, telemetry, remote-content allow/block lists, and the entire calendar branch.
 
-### Verification blockers — resolve before relying on these
+### Dependency and deployment watchpoints
 
-- **`PRAGMA synchronous=FULL` under WAL.** Confirm the exact durability semantics against SQLite's own documentation. The dispatch boundary depends on this guarantee; do not delete this note during cleanup.
+- **SQLite durability.** The production interceptor's WAL plus `synchronous=FULL` settings were checked against SQLite's official WAL documentation and a real on-disk database on 2026-09-12. Preserve both settings: under WAL, `FULL` syncs the WAL on every commit while `NORMAL` may roll back a committed transaction after power loss. The guarantee still depends on a correct VFS and storage stack.
 - **Gmail verification policy.** The public shared client requires restricted-scope verification; the current local-only data flow does not meet Google's published third-party-server trigger for CASA. Re-evaluate before adding any hosted Gmail-data path, and follow any contrary determination Google makes during verification. See §5.
-- **`Hangfire.InMemory` version currency**, `TypeContractor`'s experimental Zod generation, and current `typescript-eslint` support for TypeScript 7 — all move faster than this document.
+- **Fast-moving dependencies.** `Hangfire.InMemory` 1.0.0 was current and compatible with Hangfire 1.8.25 on 2026-09-12. TypeContractor's experimental Zod generation reproduced the checked-in output and passed a runtime schema smoke on that date. Recheck both when upgrading. TypeScript 7 adoption remains explicitly deferred rather than a current verification blocker.
 
 ### Where the design deliberately stops
 
