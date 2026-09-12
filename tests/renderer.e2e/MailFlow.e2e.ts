@@ -25,9 +25,13 @@ const imapPort = 11143;
  */
 test("a real account syncs, lists mail, and its flag changes reach the server", async () => {
 	await clearInbox(imapPort);
-	for (const subject of ["First message", "Second message"]) {
-		await appendMessage(imapPort, subject);
-	}
+	await appendMessage(
+		imapPort,
+		"First message",
+		"sender@example.org",
+		"Quarterly forecast details.",
+	);
+	await appendMessage(imapPort, "Second message");
 
 	const { app, window } = await launchApp();
 
@@ -51,6 +55,14 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 			window.getByRole("button", { name: /Second message/ }),
 		).toBeVisible();
 
+		for (const column of ["From", "Subject", "Snippet", "Date", "Read", "Flag"])
+			await expect(
+				window.getByRole("button", { name: `Sort by ${column}`, exact: true }),
+			).toBeVisible();
+		await window.getByLabel("Date", { exact: true }).selectOption("today");
+		await expect(firstMessage).toBeVisible();
+		await window.getByLabel("Date", { exact: true }).selectOption("all");
+
 		// Nothing is read on the server yet.
 		expect((await inboxFlags(imapPort)).join(" ")).not.toContain("\\Seen");
 
@@ -61,7 +73,11 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await expect(
 			window.getByRole("article", { name: "Message" }),
 		).toBeVisible();
-		await expect(window.getByText("Body of First message.")).toBeVisible({
+		await expect(
+			window
+				.getByRole("article", { name: "Message" })
+				.getByText("Quarterly forecast details."),
+		).toBeVisible({
 			timeout: 60_000,
 		});
 
@@ -78,6 +94,45 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				},
 			)
 			.toBe(1);
+
+		await window.getByLabel("Read", { exact: true }).selectOption("unread");
+		await expect(firstMessage).toBeHidden({ timeout: 60_000 });
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeVisible();
+		await window.getByLabel("Read", { exact: true }).selectOption("all");
+
+		const readSort = window.getByRole("button", {
+			name: /Sort by Read/,
+		});
+		await readSort.click();
+		await expect(readSort).toHaveAttribute("aria-pressed", "true");
+		if ((await readSort.getAttribute("aria-label"))?.includes("descending"))
+			await readSort.click();
+		await expect(readSort).toHaveAttribute("aria-label", /ascending/);
+		await expect
+			.poll(async () => {
+				const labels = await window
+					.locator("#message-list")
+					.getByRole("button")
+					.allTextContents();
+				return labels
+					.filter((label) => /First message|Second message/.test(label))
+					.map((label) =>
+						label.includes("First message") ? "First" : "Second",
+					);
+			})
+			.toEqual(["Second", "First"]);
+
+		const localFilter = window.getByPlaceholder(
+			"Filter sender, subject, snippet, or date…",
+		);
+		await localFilter.fill("Quarterly forecast");
+		await expect(firstMessage).toBeVisible();
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeHidden();
+		await localFilter.fill("");
 		// Search reads the FTS index that content acquisition populated, and scopes to the
 		// selected mailbox after the match (§8).
 		const search = window.getByRole("searchbox", { name: /Search mail/ });
@@ -130,6 +185,15 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				},
 			)
 			.toBe(1);
+
+		await window.getByLabel("Flag", { exact: true }).selectOption("flagged");
+		await expect(
+			window.getByRole("button", { name: /First message/ }),
+		).toBeVisible({ timeout: 60_000 });
+		await expect(
+			window.getByRole("button", { name: /Second message/ }),
+		).toBeHidden();
+		await window.getByLabel("Flag", { exact: true }).selectOption("all");
 
 		// A change the server refuses is shown, not swallowed. The message is deleted from the
 		// server behind the app's back, so the mutation fails on its own terms.

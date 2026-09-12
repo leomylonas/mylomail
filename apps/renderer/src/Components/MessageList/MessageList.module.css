@@ -1,11 +1,17 @@
 .toolbar {
+	display: grid;
+	grid-template-columns: minmax(10rem, 1fr) repeat(3, 7rem) auto;
+	align-items: end;
+	gap: var(--cds-spacing-03);
 	padding: var(--cds-spacing-03) var(--cds-spacing-05);
 	border-bottom: 1px solid var(--cds-border-subtle);
 }
 
 .headerRow {
 	display: grid;
-	grid-template-columns: 2rem 160px 1fr 140px 48px;
+	grid-template-columns:
+		2rem minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1.5fr)
+		minmax(6rem, 0.8fr) 3rem 3.5rem 2.5rem;
 	gap: var(--cds-spacing-03);
 	border-bottom: 1px solid var(--cds-border-subtle);
 }
@@ -32,7 +38,7 @@
 	overflow-y: auto;
 
 	/* Fills whatever height remains under the toolbar and header, which are not virtualised. */
-	height: calc(100% - 5rem);
+	height: calc(100% - 6.25rem);
 }
 
 .spacer {
@@ -70,7 +76,9 @@
 
 .row {
 	display: grid;
-	grid-template-columns: 160px 1fr 140px 48px;
+	grid-template-columns:
+		minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1.5fr)
+		minmax(6rem, 0.8fr) 3rem 3.5rem 2.5rem;
 	align-items: center;
 	gap: var(--cds-spacing-03);
 	width: 100%;
@@ -100,6 +108,18 @@
 	min-width: 0;
 }
 
+.snippet,
+.state {
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+}
+
+.state {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
 .indicators {
 	display: flex;
 	gap: var(--cds-spacing-02);
@@ -123,7 +143,7 @@
 	font-size: 0.75rem;
 }
 
-.sender mark {
+.snippet mark {
 	background: var(--cds-highlight, #fff8b8);
 	color: inherit;
 }

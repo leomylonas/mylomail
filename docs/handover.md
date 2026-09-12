@@ -33,10 +33,11 @@
 - Added permanent Electron workflows for live calendar CRUD and iTIP round trips. The CRUD scenario creates, updates, and deletes an event against the local Radicale server and verifies each remote representation; the invite scenario ingests real `REQUEST`/`REPLY` messages from Dovecot, sends an attendee acceptance through SMTP/Mailpit, explicitly confirms an unauthenticated attendee reply, and verifies the organiser sees the updated attendee state.
 - The live CRUD scenario exposed a CalDAV write-chain defect: a successful update left the entity carrying its previous ETag, so an immediate conditional delete failed with `412 Precondition Failed`. CalDAV writes now retain the accepted PUT response ETag or fetch a fresh one when the response omits it; because a CalDAV recurrence set shares one resource and revision, every local row in the set receives that revision in the same commit.
 - Parity remediation 28/47: remote-content policy now persists explicit Allow/Block rules for exact senders and domains, with exact-sender precedence and default deny. The message prompt can retain sender and/or domain consent, Settings exposes rule creation/reversal/removal, and the shared SignalR event invalidates every window. PUT and DELETE are atomic and idempotent under concurrent windows; API enum validation and SQLite checks reject invalid persisted states. The transactional migration normalises and deduplicates legacy trusted senders without losing their allow intent.
+- Parity remediation 29/47: the virtualised message list now exposes separate From, Subject, Snippet, Date, Read, and Flag columns. Every column sorts; the text filter covers sender, subject, snippet, and the locale-rendered date; combinable date-range, read-state, and flag-state selectors cover the non-text dimensions. Conversation collapse still happens after filtering and sorting, so expanded members remain contiguous without merging per-message state.
 
 ## Next task
 
-- Complete sortable/filterable message-list columns (item 29).
+- Complete optimistic mutation projections (item 30).
 
 ## Required reading
 
@@ -130,6 +131,8 @@
 - `pnpm check` after complete remote-content policies, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 594 .NET tests, and 167 Vitest tests passed. Migration regressions prove case-normalised legacy allowlists deduplicate safely, survive downgrade/upgrade, and reject invalid enum states at the database boundary.
 - Actual Electron end-to-end: `pnpm e2e --grep "hostile HTML"` passed 1/1. A local tracker received no request before consent — including an image injected after sanitisation to exercise the iframe CSP directly — then exactly one after domain consent. The same workflow proved authenticated inline-image blob loading and that a subsequent domain Block rule suppresses the load action.
 - Independent security review found and closed atomic PUT/DELETE races, invalid enum persistence, case-collision migration failure, explicit-block precedence, and a non-discriminating CSP check. Final re-review found no actionable findings. Cross-window SignalR propagation is contract-tested rather than exercised with two live Electron windows; the E2E fixture's `--no-sandbox` means the production OS process sandbox remains source-reviewed rather than runtime-proved.
+- `pnpm check` after complete message-list columns, scoped to `MyloMail.Api.Tests.csproj`: format, TypeScript, ESLint, Stylelint, build, 594 .NET tests, and 170 Vitest tests passed. Pure regressions cover snippet/read/flag ordering, inclusive local-calendar date ranges, combinable state filters, and snippet text matching.
+- Actual Electron end-to-end: `pnpm e2e --grep "real account syncs"` passed 1/1 against Dovecot. It exercised all six visible sort controls, date/read/flag selectors, ascending read-state ordering after a real `\\Seen` mutation, and snippet-only filtering on content acquired from IMAP before continuing through the existing search and mutation workflow.
 
 ## Live risks / decisions
 

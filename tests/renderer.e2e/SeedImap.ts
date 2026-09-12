@@ -11,6 +11,7 @@ export async function appendMessage(
 	port: number,
 	subject: string,
 	from = "sender@example.org",
+	body = `Body of ${subject}.`,
 ): Promise<void> {
 	const message = [
 		`From: Someone <${from}>`,
@@ -19,7 +20,7 @@ export async function appendMessage(
 		`Message-ID: <${subject.replace(/\W+/g, "-")}@example.org>`,
 		`Date: ${new Date().toUTCString()}`,
 		"",
-		`Body of ${subject}.`,
+		body,
 		"",
 	].join("\r\n");
 

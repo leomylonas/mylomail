@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	collapseThreads,
 	expandedThreadKeysForAccount,
+	messageMatchesColumnFilters,
 	messageMatchesFilter,
 	sortMessages,
 	type MessageSummary,
@@ -94,5 +95,83 @@ describe("collapseThreads", () => {
 		expect([...expandedThreadKeysForAccount(expanded, "account-b")]).toEqual([
 			"other",
 		]);
+	});
+});
+
+describe("message columns", () => {
+	it("sorts snippet, read state, and flag state", () => {
+		const first = message("first", null, {
+			snippet: "Zulu",
+			isRead: true,
+			isFlagged: false,
+		});
+		const second = message("second", null, {
+			snippet: "Alpha",
+			isRead: false,
+			isFlagged: true,
+		});
+
+		expect(
+			sortMessages([first, second], [{ id: "snippet", desc: false }]).map(
+				(item) => item.id,
+			),
+		).toEqual(["second", "first"]);
+		expect(
+			sortMessages([first, second], [{ id: "isRead", desc: false }]).map(
+				(item) => item.id,
+			),
+		).toEqual(["second", "first"]);
+		expect(
+			sortMessages([first, second], [{ id: "isFlagged", desc: true }]).map(
+				(item) => item.id,
+			),
+		).toEqual(["second", "first"]);
+	});
+
+	it("combines date, read, and flag filters", () => {
+		const now = new Date(2026, 8, 12, 12);
+		const matching = message("matching", null, {
+			receivedAt: new Date(2026, 8, 7, 9).toISOString(),
+			isRead: false,
+			isFlagged: true,
+		});
+
+		expect(
+			messageMatchesColumnFilters(
+				matching,
+				{ date: "sevenDays", read: "unread", flag: "flagged" },
+				now,
+			),
+		).toBe(true);
+		expect(
+			messageMatchesColumnFilters(
+				matching,
+				{ date: "today", read: "unread", flag: "flagged" },
+				now,
+			),
+		).toBe(false);
+		expect(
+			messageMatchesColumnFilters(
+				matching,
+				{ date: "sevenDays", read: "read", flag: "flagged" },
+				now,
+			),
+		).toBe(false);
+		expect(
+			messageMatchesColumnFilters(
+				matching,
+				{ date: "sevenDays", read: "unread", flag: "unflagged" },
+				now,
+			),
+		).toBe(false);
+	});
+
+	it("matches the displayed snippet in the text filter", () => {
+		expect(
+			messageMatchesFilter(
+				message("snippet", null, { snippet: "Quarterly forecast" }),
+				"forecast",
+			),
+		).toBe(true);
 	});
 });

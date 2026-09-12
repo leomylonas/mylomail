@@ -24,6 +24,8 @@ import type { HubConnection } from "@microsoft/signalr";
 import {
 	ActionableNotification,
 	Button,
+	Select,
+	SelectItem,
 	SkeletonText,
 	TextInput,
 } from "@carbon/react";
@@ -77,6 +79,12 @@ export interface MessageSummary {
 	threadMessageCount?: number;
 }
 
+export interface MessageColumnFilters {
+	date: "all" | "today" | "sevenDays" | "thirtyDays";
+	read: "all" | "read" | "unread";
+	flag: "all" | "flagged" | "unflagged";
+}
+
 interface PendingChange {
 	messageId: string;
 	field: number;
@@ -117,13 +125,45 @@ export function messageMatchesFilter(
 	message: MessageSummary,
 	filterValue: string,
 ): boolean {
-	const needle = filterValue.trim().toLowerCase();
+	const needle = filterValue.trim().toLocaleLowerCase();
 	if (!needle) return true;
 	return (
-		message.subject.toLowerCase().includes(needle) ||
-		message.snippet.toLowerCase().includes(needle) ||
-		describeSender(message).toLowerCase().includes(needle)
+		message.subject.toLocaleLowerCase().includes(needle) ||
+		message.snippet.toLocaleLowerCase().includes(needle) ||
+		describeSender(message).toLocaleLowerCase().includes(needle) ||
+		new Date(message.receivedAt)
+			.toLocaleString()
+			.toLocaleLowerCase()
+			.includes(needle)
 	);
+}
+
+export function messageMatchesColumnFilters(
+	message: MessageSummary,
+	filters: MessageColumnFilters,
+	now = new Date(),
+): boolean {
+	if (
+		(filters.read === "read" && !message.isRead) ||
+		(filters.read === "unread" && message.isRead) ||
+		(filters.flag === "flagged" && !message.isFlagged) ||
+		(filters.flag === "unflagged" && message.isFlagged)
+	) {
+		return false;
+	}
+	if (filters.date === "all") return true;
+
+	const receivedAt = new Date(message.receivedAt);
+	if (Number.isNaN(receivedAt.getTime())) return false;
+	const days =
+		filters.date === "today" ? 1 : filters.date === "sevenDays" ? 7 : 30;
+	const start = new Date(
+		now.getFullYear(),
+		now.getMonth(),
+		now.getDate() - (days - 1),
+	);
+	const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+	return receivedAt >= start && receivedAt < end;
 }
 
 // TanStack Table's `ColumnDef` is invariant enough in its value type parameter that an array
@@ -140,15 +180,21 @@ const columns = [
 		id: "subject",
 		header: "Subject",
 	}),
+	columnHelper.accessor("snippet", {
+		id: "snippet",
+		header: "Snippet",
+	}),
 	columnHelper.accessor("receivedAt", {
 		id: "receivedAt",
 		header: "Date",
-		// ISO timestamps sort correctly as strings only when every value shares the same
-		// offset convention; comparing parsed instants is correct regardless of how the
-		// server serialised the offset.
-		sortFn: (a, b) =>
-			new Date(a.original.receivedAt).getTime() -
-			new Date(b.original.receivedAt).getTime(),
+	}),
+	columnHelper.accessor("isRead", {
+		id: "isRead",
+		header: "Read",
+	}),
+	columnHelper.accessor("isFlagged", {
+		id: "isFlagged",
+		header: "Flag",
 	}),
 ];
 
@@ -209,6 +255,11 @@ export function MessageList({
 		[accountId, expandedThreads],
 	);
 	const [filterText, setFilterText] = useState("");
+	const [columnFilters, setColumnFilters] = useState<MessageColumnFilters>({
+		date: "all",
+		read: "all",
+		flag: "all",
+	});
 
 	// Search never paginates: it is a bounded, already-ranked result set from FTS5, not a
 	// mailbox listing a user might scroll through thousands of. Searching scopes to the
@@ -384,10 +435,12 @@ export function MessageList({
 	);
 	const filteredMessages = useMemo(
 		() =>
-			sourceMessages.filter((message) =>
-				messageMatchesFilter(message, filterText),
+			sourceMessages.filter(
+				(message) =>
+					messageMatchesFilter(message, filterText) &&
+					messageMatchesColumnFilters(message, columnFilters),
 			),
-		[sourceMessages, filterText],
+		[sourceMessages, filterText, columnFilters],
 	);
 	const threadMembers = useMemo(() => {
 		const result = new Map<string, MessageSummary[]>();
@@ -611,11 +664,60 @@ export function MessageList({
 					id="message-list-filter"
 					labelText="Filter messages"
 					hideLabel
-					placeholder="Filter messages…"
+					placeholder="Filter sender, subject, snippet, or date…"
 					size="sm"
 					value={filterText}
 					onChange={(event) => setFilterText(event.target.value)}
 				/>
+				<Select
+					id="message-list-date-filter"
+					labelText="Date"
+					size="sm"
+					value={columnFilters.date}
+					onChange={(event) =>
+						setColumnFilters((current) => ({
+							...current,
+							date: event.target.value as MessageColumnFilters["date"],
+						}))
+					}
+				>
+					<SelectItem value="all" text="Any date" />
+					<SelectItem value="today" text="Today" />
+					<SelectItem value="sevenDays" text="Last 7 days" />
+					<SelectItem value="thirtyDays" text="Last 30 days" />
+				</Select>
+				<Select
+					id="message-list-read-filter"
+					labelText="Read"
+					size="sm"
+					value={columnFilters.read}
+					onChange={(event) =>
+						setColumnFilters((current) => ({
+							...current,
+							read: event.target.value as MessageColumnFilters["read"],
+						}))
+					}
+				>
+					<SelectItem value="all" text="All" />
+					<SelectItem value="unread" text="Unread" />
+					<SelectItem value="read" text="Read" />
+				</Select>
+				<Select
+					id="message-list-flag-filter"
+					labelText="Flag"
+					size="sm"
+					value={columnFilters.flag}
+					onChange={(event) =>
+						setColumnFilters((current) => ({
+							...current,
+							flag: event.target.value as MessageColumnFilters["flag"],
+						}))
+					}
+				>
+					<SelectItem value="all" text="All" />
+					<SelectItem value="flagged" text="Flagged" />
+					<SelectItem value="unflagged" text="Unflagged" />
+				</Select>
 				<Button
 					kind="ghost"
 					size="sm"
@@ -850,27 +952,29 @@ export function MessageList({
 													({threadMessageCount})
 												</span>
 											) : null}
-											<br />
-											<span className={styles.sender}>
-												{message.searchSnippet
-													? parseSearchSnippet(message.searchSnippet).map(
-															(segment, index) =>
-																segment.highlighted ? (
-																	<mark key={index}>{segment.text}</mark>
-																) : (
-																	<span key={index}>{segment.text}</span>
-																),
-														)
-													: message.snippet}
-											</span>
+										</span>
+										<span className={`${styles.cell} ${styles.snippet}`}>
+											{message.searchSnippet
+												? parseSearchSnippet(message.searchSnippet).map(
+														(segment, index) =>
+															segment.highlighted ? (
+																<mark key={index}>{segment.text}</mark>
+															) : (
+																<span key={index}>{segment.text}</span>
+															),
+													)
+												: message.snippet}
 										</span>
 										<span className={styles.cell}>
 											{new Date(message.receivedAt).toLocaleString()}
 										</span>
+										<span className={styles.state}>
+											{read ? "Read" : "Unread"}
+										</span>
+										<span className={styles.state}>
+											{message.isFlagged ? "Flagged" : "Unflagged"}
+										</span>
 										<span className={styles.indicators}>
-											{message.isFlagged ? (
-												<span aria-hidden="true">🚩</span>
-											) : null}
 											{message.hasNonInlineAttachments ? (
 												<span aria-hidden="true">📎</span>
 											) : null}
@@ -1198,10 +1302,16 @@ export function sortMessages(
 					? describeSender(left).localeCompare(describeSender(right))
 					: sort.id === "subject"
 						? left.subject.localeCompare(right.subject)
-						: sort.id === "receivedAt"
-							? new Date(left.receivedAt).getTime() -
-								new Date(right.receivedAt).getTime()
-							: 0;
+						: sort.id === "snippet"
+							? left.snippet.localeCompare(right.snippet)
+							: sort.id === "receivedAt"
+								? new Date(left.receivedAt).getTime() -
+									new Date(right.receivedAt).getTime()
+								: sort.id === "isRead"
+									? Number(left.isRead) - Number(right.isRead)
+									: sort.id === "isFlagged"
+										? Number(left.isFlagged) - Number(right.isFlagged)
+										: 0;
 			return sort.desc ? -comparison : comparison;
 		});
 	}
