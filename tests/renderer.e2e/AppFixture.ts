@@ -22,6 +22,7 @@ export interface LaunchedApp {
 export interface AttachedLaunchedApp extends LaunchedApp {
 	backend: ChildProcess;
 	stopBackend(): Promise<void>;
+	restartElectron(): Promise<Pick<LaunchedApp, "app" | "window">>;
 }
 
 /**
@@ -75,20 +76,22 @@ export async function launchAttachedApp(
 
 	try {
 		const port = await waitForBackendHealth({ child: backend, launchToken });
-		const { app, window } = await launchElectron([], {
+		const electronEnvironment = {
 			...fixture.environment,
 			ELECTRON_BACKEND_MODE: "attach",
 			BACKEND_URL: `http://127.0.0.1:${port}`,
 			MYLOMAIL_LAUNCH_TOKEN: launchToken,
 			// A successful test therefore proves Main never attempted the spawn path.
 			MYLOMAIL_BACKEND_COMMAND: "mylomail-attach-must-not-spawn",
-		});
+		};
+		const { app, window } = await launchElectron([], electronEnvironment);
 		return {
 			app,
 			window,
 			dataDirectory: fixture.dataDirectory,
 			backend,
 			stopBackend,
+			restartElectron: () => launchElectron([], electronEnvironment),
 		};
 	} catch (error) {
 		await stopBackend();
