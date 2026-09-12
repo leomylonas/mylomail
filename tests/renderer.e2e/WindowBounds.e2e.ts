@@ -8,7 +8,7 @@ interface WindowBounds {
 	height: number;
 }
 
-test("window bounds survive a complete Electron restart", async () => {
+test("window bounds restore and new windows inherit an offset", async () => {
 	const launched = await launchAttachedApp();
 	let firstClosed = false;
 	let second: Awaited<ReturnType<typeof launched.restartElectron>> | undefined;
@@ -19,10 +19,29 @@ test("window bounds survive a complete Electron restart", async () => {
 			const [window] = BrowserWindow.getAllWindows();
 			if (!window) throw new Error("No Electron window exists.");
 			window.setBounds({ x: 80, y: 90, width: 880, height: 620 });
-			window.emit("move");
-			window.emit("resize");
 			return window.getBounds();
 		});
+		await launched.window.evaluate(() => window.windows?.open());
+		await expect
+			.poll(() => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length))
+			.toBe(2);
+		const bounds = await launched.app.evaluate(({ BrowserWindow }) =>
+			BrowserWindow.getAllWindows().map((window) => window.getBounds()),
+		);
+		expect(bounds).toContainEqual({
+			x: saved.x + 24,
+			y: saved.y + 24,
+			width: saved.width,
+			height: saved.height,
+		});
+		await launched.app.evaluate(({ BrowserWindow }, expected) => {
+			const primary = BrowserWindow.getAllWindows().find(
+				(window) => JSON.stringify(window.getBounds()) === JSON.stringify(expected),
+			);
+			if (!primary) throw new Error("Primary Electron window did not retain its bounds.");
+			primary.emit("move");
+			primary.emit("resize");
+		}, saved);
 		await expect
 			.poll(
 				() =>
