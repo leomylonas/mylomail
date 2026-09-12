@@ -57,10 +57,11 @@
 - Runtime verification 2/13 found that attachment opening was unreachable on every platform: the backend creates its private directory with `Guid.ToString("N")`, but Electron validated that segment with a hyphenated-GUID regex and rejected the path before calling the OS. Electron now uses a dedicated exact 32-hex directory validator. A Linux end-to-end workflow installs an isolated real XDG MIME handler, opens an IMAP-delivered attachment through `shell.openPath`, verifies the handler received the private path and exact bytes at mode `0600`, then closes the app and proves the attachment tree was removed.
 - Runtime verification 3/13: a dedicated live Electron workflow establishes IMAP IDLE against the QRESYNC Dovecot tier, asks the server to kick every authenticated connection without changing mailbox state or UIDVALIDITY, waits for the worker's bounded restart loop, then appends a message. The open Inbox receives it within the IDLE window without a poll or user action, proving both notification delivery and post-disconnect session replacement.
 - Runtime verification 4/13: a live attached-backend Electron workflow now changes the actual `BrowserWindow` bounds, waits for the debounced setting write to reach SQLite, terminates the first Electron process, starts a second Electron process against the same backend and data directory, and observes the exact saved bounds on the replacement native window. The attached-backend fixture exposes a bounded restart operation so lifecycle checks can restart only the shell without conflating backend ownership.
+- Runtime verification 5/13: a live spawn-mode Electron workflow now kills the owned .NET backend process with `SIGKILL`, observes the real unexpected-exit handler offer the documented restart and invoke both Electron's relaunch and exit branches, and confirms the already-rendered mailbox remains usable while HTTP and SignalR are down. It then starts a fresh backend and Electron process over the same SQLite directory and renders the previously synced message from the durable cache within ten seconds.
 
 ## Next task
 
-- Verify full-application backend crash/restart and immediate cached rendering.
+- Verify SQLite `synchronous=FULL` under WAL and its documented power-loss guarantee.
 
 ## Required reading
 
@@ -205,6 +206,7 @@
 - Actual Linux Electron/OS attachment lifecycle: `pnpm e2e --grep "attachment opens through the OS"` passed 1/1. Before the validator fix, the same path reached the real attachment UI and failed with “The backend returned an invalid attachment path”; after the fix, the isolated host MIME association received the file, its bytes and `0600` mode matched, and graceful backend shutdown removed the complete private attachment tree.
 - Live IMAP IDLE reconnect: `pnpm e2e --grep "server drops its live session"` passed 1/1. Dovecot confirmed it kicked the test user's authenticated sockets; after the worker restart interval, a newly appended message appeared in the already-open Inbox within 30 seconds without a polling trigger.
 - Actual Electron window restart: `pnpm e2e --grep "bounds survive"` passed 1/1. The first native window persisted `{ x: 80, y: 90, width: 880, height: 620 }`; a second Electron process connected to the same live backend and restored that exact rectangle.
+- Full crash/restart and cached-render proof: `pnpm e2e --grep "backend crash offers restart"` passed 1/1. The shell detected a hard-killed backend, selected its Restart path, retained the visible cached message during the outage, and a fresh backend/Electron pair reopened the same local message from SQLite.
 
 ## Live risks / decisions
 

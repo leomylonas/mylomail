@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	_electron,
@@ -34,16 +34,19 @@ export interface AttachedLaunchedApp extends LaunchedApp {
 export async function launchApp(
 	activationArguments: readonly string[] = [],
 	environment: Readonly<NodeJS.ProcessEnv> = {},
+	existingDataDirectory?: string,
 ): Promise<LaunchedApp> {
-	const fixture = createFixtureEnvironment(environment);
+	const fixture = createFixtureEnvironment(environment, existingDataDirectory);
 	const { app, window } = await launchElectron(activationArguments, {
 		...fixture.environment,
-		MYLOMAIL_BACKEND_COMMAND: "dotnet",
+		MYLOMAIL_BACKEND_COMMAND:
+			fixture.environment.MYLOMAIL_BACKEND_COMMAND ?? "dotnet",
 		// The already-built assembly, not `dotnet run --project`: MSBuild in the launch
 		// path made startup nondeterministic — every spec launches its own app, and a
 		// project-lock or restore check that stalls shows up as the window never
 		// appearing, which reads as an app hang rather than as a build one.
-		MYLOMAIL_BACKEND_ARGS: backendAssembly,
+		MYLOMAIL_BACKEND_ARGS:
+			fixture.environment.MYLOMAIL_BACKEND_ARGS ?? backendAssembly,
 	});
 	return {
 		app,
@@ -121,12 +124,17 @@ export async function launchPackagedApp(
 	};
 }
 
-function createFixtureEnvironment(overrides: Readonly<NodeJS.ProcessEnv>): {
+function createFixtureEnvironment(
+	overrides: Readonly<NodeJS.ProcessEnv>,
+	existingDataDirectory?: string,
+): {
 	dataDirectory: string;
 	environment: Record<string, string>;
 } {
-	const root = mkdtempSync(join(tmpdir(), "mylomail-e2e-"));
-	const dataDirectory = join(root, "data");
+	const root = existingDataDirectory
+		? dirname(existingDataDirectory)
+		: mkdtempSync(join(tmpdir(), "mylomail-e2e-"));
+	const dataDirectory = existingDataDirectory ?? join(root, "data");
 	const configHome = join(root, "config");
 	mkdirSync(join(configHome, "mylomail"), { recursive: true });
 	mkdirSync(dataDirectory, { recursive: true });
