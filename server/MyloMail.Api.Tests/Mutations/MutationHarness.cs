@@ -90,6 +90,18 @@ internal sealed class MutationHarness : IAsyncDisposable
 			// Registered last so it wins: see RecordingJobClient for why a real Hangfire
 			// client must not be constructed in tests.
 			.AddSingleton<Hangfire.IBackgroundJobClient>(new Fakes.RecordingJobClient())
+			// NetworkChange is process-global and other parallel tests may legitimately toggle
+			// host interfaces. Mutation scheduling tests drive recovery explicitly instead.
+			.AddSingleton(provider => new MyloMail.Api.Scheduling.ConnectivityMonitor(
+				provider.GetRequiredService<IHubEvents>(),
+				provider.GetRequiredService<Hangfire.IBackgroundJobClient>(),
+				provider.GetRequiredService<
+					Microsoft.Extensions.Logging.ILogger<
+						MyloMail.Api.Scheduling.ConnectivityMonitor
+					>
+				>(),
+				observesNetworkChanges: false
+			))
 			// Also after AddScheduling, which registers the real dispatcher unconditionally.
 			.AddSingleton<IMutationDispatcher>(Dispatcher)
 			.AddSingleton<MyloMail.Api.Outbox.IOutboxDispatcher>(OutboxDispatcher)

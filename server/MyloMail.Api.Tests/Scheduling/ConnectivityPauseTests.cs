@@ -29,7 +29,8 @@ public sealed class ConnectivityPauseTests
 		using var monitor = new ConnectivityMonitor(
 			events,
 			jobs,
-			NullLogger<ConnectivityMonitor>.Instance
+			NullLogger<ConnectivityMonitor>.Instance,
+			observesNetworkChanges: false
 		);
 		var accountId = Guid.NewGuid();
 		var key = $"{nameof(ContentJobs)}:{accountId}";
@@ -65,7 +66,8 @@ public sealed class ConnectivityPauseTests
 		using var monitor = new ConnectivityMonitor(
 			new RecordingHubEvents(),
 			jobs,
-			NullLogger<ConnectivityMonitor>.Instance
+			NullLogger<ConnectivityMonitor>.Instance,
+			observesNetworkChanges: false
 		);
 		var accountId = Guid.NewGuid();
 		await monitor.PauseAsync(
@@ -124,6 +126,14 @@ public sealed class ConnectivityPauseTests
 		await harness.UsingAsync(async scope =>
 		{
 			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var ordered = await context
+				.MutationItems.Where(item =>
+					item.MessageId == failedMessageId
+					|| item.MessageId == unattemptedMessageId
+				)
+				.ToDictionaryAsync(item => item.MessageId);
+			ordered[failedMessageId].CreatedAt = DateTimeOffset.UnixEpoch;
+			ordered[unattemptedMessageId].CreatedAt = DateTimeOffset.UnixEpoch.AddMinutes(1);
 			context.MutationExecutionAttempts.AddRange(
 				HistoricalAttempt(
 					harness.Account.ProviderType,

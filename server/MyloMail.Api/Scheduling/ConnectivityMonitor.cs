@@ -41,17 +41,29 @@ public sealed class ConnectivityMonitor : IDisposable
 	private readonly object guard = new();
 	private readonly Dictionary<string, Action<IBackgroundJobClient>> deferred = [];
 	private volatile bool online = true;
+	private readonly bool observesNetworkChanges;
 
 	public ConnectivityMonitor(
 		IHubEvents events,
 		IBackgroundJobClient jobs,
 		ILogger<ConnectivityMonitor> logger
+	) : this(events, jobs, logger, observesNetworkChanges: true) { }
+
+	internal ConnectivityMonitor(
+		IHubEvents events,
+		IBackgroundJobClient jobs,
+		ILogger<ConnectivityMonitor> logger,
+		bool observesNetworkChanges
 	)
 	{
 		this.events = events;
 		this.jobs = jobs;
 		this.logger = logger;
-		NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+		this.observesNetworkChanges = observesNetworkChanges;
+		if (observesNetworkChanges)
+		{
+			NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+		}
 	}
 
 	public bool IsOnline => online;
@@ -222,5 +234,11 @@ public sealed class ConnectivityMonitor : IDisposable
 	}
 
 
-	public void Dispose() => NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+	public void Dispose()
+	{
+		if (observesNetworkChanges)
+		{
+			NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+		}
+	}
 }
