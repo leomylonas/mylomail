@@ -20,8 +20,7 @@ const backendOutput = join("dist", "backend");
 rmSync(backendOutput, { recursive: true, force: true });
 mkdirSync(backendOutput, { recursive: true });
 
-run("pnpm", ["build:renderer"]);
-run("pnpm", ["build:shell"]);
+run("pnpm", ["build:electron"]);
 run("dotnet", [
 	"publish",
 	"server/MyloMail.Api/MyloMail.Api.csproj",

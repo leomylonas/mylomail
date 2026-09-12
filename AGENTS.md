@@ -127,8 +127,8 @@ lines where the wrapper produces one.
 | `pnpm check:deep` | only when explicitly asked — fault injection, provider conformance across all IMAP tiers | expensive, slow    |
 
 `pnpm e2e` drives the built app against the IMAP matrix and needs `pnpm imap:up`, plus
-`pnpm build:renderer && pnpm build:shell` for the bundles it launches. It is the only test
-that asks the mail server what happened rather than the app what it believes.
+`pnpm build:electron` for the main, preload, and renderer bundles it launches. It is the
+only test that asks the mail server what happened rather than the app what it believes.
 
 Start the watcher once per session with `pnpm watch` in a separate terminal. `pnpm status`
 reports `STALE` if the watcher hasn't caught up, and `DEAD` if it isn't running — treat

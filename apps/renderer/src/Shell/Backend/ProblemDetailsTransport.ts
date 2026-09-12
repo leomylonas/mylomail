@@ -1,3 +1,5 @@
+import FetchClient, { FetchClientError } from "@leomylonas/json-fetch-client";
+import type { infer as ZodInfer, ZodType } from "zod";
 import type { HubConnection } from "@microsoft/signalr";
 import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import {
@@ -35,23 +37,30 @@ export class MutationTransportError extends Error {
 	}
 }
 
+const apiClient = new FetchClient();
+
 /** Fetches a same-origin API resource and turns every transport/status failure into one shape. */
 export async function fetchApi(
-	input: RequestInfo | URL,
+	input: string | URL,
 	init?: RequestInit,
 ): Promise<Response> {
-	let response: Response;
 	try {
-		response =
-			init === undefined ? await fetch(input) : await fetch(input, init);
+		return await apiClient.executeRequest(String(input), init);
 	} catch (error) {
-		throw new MutationTransportError(problem(ErrorCategory.Network), {
-			cause: error,
-		});
+		throw transportError(error);
 	}
+}
 
-	if (response.ok) return response;
-	throw await errorFromResponse(response);
+/** Fetches and validates a JSON response at the transport boundary. */
+export async function fetchApiJson<TSchema extends ZodType>(
+	input: string | URL,
+	schema: TSchema,
+): Promise<ZodInfer<TSchema>> {
+	try {
+		return await apiClient.getJson(String(input), schema);
+	} catch (error) {
+		throw transportError(error);
+	}
 }
 
 /** Installs the same deserialisation boundary around every SignalR invocation. */
@@ -132,51 +141,58 @@ export function decodeProblem(error: unknown): MutationProblem | null {
 	return null;
 }
 
-async function errorFromResponse(
-	response: Response,
-): Promise<MutationTransportError> {
-	const text = await response.text().catch(() => "");
-	const decoded = parseProblem(text);
-	return new MutationTransportError(
-		decoded ??
-			problem(
-				categoryForStatus(response.status),
-				`The server rejected the request (${response.status}).`,
-				response.status,
-			),
-	);
+function transportError(error: unknown): MutationTransportError {
+	if (error instanceof MutationTransportError) return error;
+	if (error instanceof FetchClientError) {
+		const decoded = parseProblemValue(error.responseBody);
+		return new MutationTransportError(
+			decoded ??
+				problem(
+					categoryForStatus(error.status),
+					`The server rejected the request (${error.status}).`,
+					error.status,
+				),
+			{ cause: error },
+		);
+	}
+	return new MutationTransportError(problem(ErrorCategory.Network), {
+		cause: error,
+	});
 }
 
 function parseProblem(text: string): MutationProblem | null {
 	if (!text.trim()) return null;
 	try {
-		const value = JSON.parse(text) as unknown;
-		if (!value || typeof value !== "object") return null;
-		const record = value as Record<string, unknown>;
-		const category = parseCategory(record.category);
-		if (category === null) return null;
-
-		const nestedExtensions =
-			record.extensions && typeof record.extensions === "object"
-				? (record.extensions as Record<string, unknown>)
-				: {};
-		const extensions = { ...nestedExtensions };
-		for (const [key, item] of Object.entries(record)) {
-			if (!standardKeys.has(key)) extensions[key] = item;
-		}
-		return {
-			type: stringValue(record.type),
-			title: stringValue(record.title),
-			status: numberValue(record.status),
-			detail: stringValue(record.detail),
-			instance: stringValue(record.instance),
-			category,
-			providerCode: stringValue(record.providerCode),
-			extensions,
-		};
+		return parseProblemValue(JSON.parse(text) as unknown);
 	} catch {
 		return null;
 	}
+}
+
+function parseProblemValue(value: unknown): MutationProblem | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	const category = parseCategory(record.category);
+	if (category === null) return null;
+
+	const nestedExtensions =
+		record.extensions && typeof record.extensions === "object"
+			? (record.extensions as Record<string, unknown>)
+			: {};
+	const extensions = { ...nestedExtensions };
+	for (const [key, item] of Object.entries(record)) {
+		if (!standardKeys.has(key)) extensions[key] = item;
+	}
+	return {
+		type: stringValue(record.type),
+		title: stringValue(record.title),
+		status: numberValue(record.status),
+		detail: stringValue(record.detail),
+		instance: stringValue(record.instance),
+		category,
+		providerCode: stringValue(record.providerCode),
+		extensions,
+	};
 }
 
 function parseCategory(value: unknown): ErrorCategory | null {

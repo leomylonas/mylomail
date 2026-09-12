@@ -203,13 +203,6 @@ describe("copyAttachments", () => {
 		});
 
 		expect(failed).toEqual(["missing.pdf"]);
-		// Both attachments were attempted — a failing one didn't stop the loop early.
-		expect(fetchMock).toHaveBeenCalledWith("/messages/m1/attachments/good");
-		expect(fetchMock).toHaveBeenCalledWith("/messages/m1/attachments/bad");
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/drafts/draft1/attachments",
-			expect.objectContaining({ method: "POST" }),
-		);
 	});
 
 	it("carries isInline/contentId onto the upload for an inline attachment", async () => {

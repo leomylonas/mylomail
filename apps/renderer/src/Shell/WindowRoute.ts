@@ -24,40 +24,61 @@ export type WindowRoute =
 			initialMailto?: MailtoComposeRequest;
 	  };
 
+export interface WindowSearch {
+	message?: string;
+	subject?: string;
+	sender?: string;
+	compose?: string;
+	account?: string;
+	notification?: string;
+	mailto?: string;
+}
+
 export function parseWindowRoute(search: string): WindowRoute {
 	const params = new URLSearchParams(search);
-	const message = params.get("message");
-	if (message) {
+	return windowRouteFromSearch({
+		message: params.get("message") ?? undefined,
+		subject: params.get("subject") ?? undefined,
+		sender: params.get("sender") ?? undefined,
+		compose: params.get("compose") ?? undefined,
+		account: params.get("account") ?? undefined,
+		notification: params.get("notification") ?? undefined,
+		mailto: params.get("mailto") ?? undefined,
+	});
+}
+
+export function windowRouteFromSearch(search: WindowSearch): WindowRoute {
+	if (search.message) {
 		return {
 			kind: "message",
-			messageId: message,
-			subject: params.get("subject") ?? "",
+			messageId: search.message,
+			subject: search.subject ?? "",
 			// Carried over from the window that popped this one out — see `AppShell`'s
 			// `onOpenInNewWindow` and `MessageWindow`'s own doc comment. Without it, a sender
 			// already on the persisted remote-content allow list would still be blocked and
 			// re-prompted in this window, contradicting that allow list's whole point.
-			senderAddress: params.get("sender") ?? undefined,
+			senderAddress: search.sender,
 		};
 	}
 
-	const compose = params.get("compose");
-	const account = params.get("account");
-	if (compose && account) {
-		return { kind: "compose", draftId: compose, accountId: account };
+	if (search.compose && search.account) {
+		return {
+			kind: "compose",
+			draftId: search.compose,
+			accountId: search.account,
+		};
 	}
-	const notification = params.get("notification");
-	if (notification && account) {
+	if (search.notification && search.account) {
 		return {
 			kind: "shell",
 			initialNotification: {
-				notificationId: notification,
-				accountId: account,
+				notificationId: search.notification,
+				accountId: search.account,
 			},
 		};
 	}
-	const mailto = params.get("mailto");
-	if (mailto) {
-		const initialMailto = parseMailtoUri(mailto);
+	if (search.mailto) {
+		const initialMailto = parseMailtoUri(search.mailto);
 		if (initialMailto) return { kind: "shell", initialMailto };
 	}
 

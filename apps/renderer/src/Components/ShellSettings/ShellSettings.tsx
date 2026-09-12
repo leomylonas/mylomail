@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import {
 	Button,
 	InlineNotification,
@@ -13,11 +14,18 @@ import {
 	StructuredListWrapper,
 	TextInput,
 } from "@carbon/react";
-import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
+import { RemoteContentRuleDtoSchema } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
+import { CredentialStoreStatusDtoSchema } from "@mylomail/shared-types/Api/Contracts/CredentialStoreStatusDto";
+import {
+	PutRemoteContentRuleRequestSchema,
+	type PutRemoteContentRuleRequest,
+} from "@mylomail/shared-types/Api/Contracts/PutRemoteContentRuleRequest";
+import { ShellSettingsDtoSchema } from "@mylomail/shared-types/Api/Contracts/ShellSettingsDto";
 import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
 import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
 import {
 	fetchApi,
+	fetchApiJson,
 	notificationForError,
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
@@ -29,11 +37,11 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
  * applies and these arrive as numbers. */
 const closeBehavior = { QuitApp: 0, MinimizeToTray: 1 } as const;
 const theme = { System: 0, Light: 1, Dark: 2 } as const;
-
-interface ShellSettings {
-	closeBehavior: number;
-	theme: number;
-}
+const defaultRule: PutRemoteContentRuleRequest = {
+	scope: RemoteContentRuleScope.Sender,
+	decision: RemoteContentRuleDecision.Allow,
+	value: "",
+};
 
 /**
  * The app-wide settings §13 Epic 8 calls for that are not per-account: theme, close
@@ -43,41 +51,28 @@ interface ShellSettings {
 export function ShellSettings({ onClose }: { onClose: () => void }) {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
-	const [ruleScope, setRuleScope] = useState(RemoteContentRuleScope.Sender);
-	const [ruleDecision, setRuleDecision] = useState(
-		RemoteContentRuleDecision.Allow,
-	);
-	const [ruleValue, setRuleValue] = useState("");
 
 	const reportFailure = (title: string) => (error: unknown) =>
 		notify(notifications, notificationForError(error, title));
 
 	const settings = useQuery({
 		queryKey: ["shell-settings", "app-settings"],
-		queryFn: async (): Promise<ShellSettings> => {
-			const response = await fetchApi("/shell-settings");
-			return (await response.json()) as ShellSettings;
-		},
+		queryFn: () => fetchApiJson("/shell-settings", ShellSettingsDtoSchema),
 	});
 
 	const credentialStore = useQuery({
 		queryKey: ["credential-store-status"],
-		queryFn: async (): Promise<{ usingNativeStore: boolean }> => {
-			const response = await fetchApi("/credential-store/status");
-			// Not defaulted to "native store, all fine" on failure: this section exists
-			// specifically to warn about the fallback store, so a query failure must not
-			// assert the one claim it would otherwise exist to contradict.
-			return (await response.json()) as { usingNativeStore: boolean };
-		},
+		queryFn: () =>
+			fetchApiJson("/credential-store/status", CredentialStoreStatusDtoSchema),
 	});
 
 	const remoteContentRules = useQuery({
 		queryKey: ["remote-content-rules"],
-		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
-			const response = await fetchApi("/remote-content/rules");
-			if (!response.ok) return [];
-			return (await response.json()) as RemoteContentRuleDto[];
-		},
+		queryFn: () =>
+			fetchApiJson(
+				"/remote-content/rules",
+				z.array(RemoteContentRuleDtoSchema),
+			),
 	});
 
 	// Every shell-settings-derived query gets invalidated together: the three settings above
@@ -137,25 +132,29 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 		}
 	};
 
-	const putRule = async () => {
-		try {
-			await fetchApi("/remote-content/rules", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					scope: ruleScope,
-					decision: ruleDecision,
-					value: ruleValue,
-				}),
-			});
-			setRuleValue("");
-			void queryClient.invalidateQueries({
-				queryKey: ["remote-content-rules"],
-			});
-		} catch (error) {
-			reportFailure("The remote-content rule could not be saved")(error);
-		}
-	};
+	const ruleForm = useForm({
+		defaultValues: defaultRule,
+		validators: {
+			onSubmit: PutRemoteContentRuleRequestSchema.extend({
+				value: z.string().trim().min(1, "Enter an email address or domain."),
+			}),
+		},
+		onSubmit: async ({ value }) => {
+			try {
+				await fetchApi("/remote-content/rules", {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ ...value, value: value.value.trim() }),
+				});
+				ruleForm.reset();
+				void queryClient.invalidateQueries({
+					queryKey: ["remote-content-rules"],
+				});
+			} catch (error) {
+				reportFailure("The remote-content rule could not be saved")(error);
+			}
+		},
+	});
 
 	return (
 		<div className={styles.settings}>
@@ -251,41 +250,91 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
-						void putRule();
+						void ruleForm.handleSubmit();
 					}}
 				>
-					<Select
-						id="remote-content-rule-decision"
-						labelText="Decision"
-						value={ruleDecision}
-						onChange={(event) => setRuleDecision(Number(event.target.value))}
+					<ruleForm.Field name="decision">
+						{(field) => (
+							<Select
+								id="remote-content-rule-decision"
+								labelText="Decision"
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(event) =>
+									field.handleChange(Number(event.target.value))
+								}
+							>
+								<SelectItem
+									value={RemoteContentRuleDecision.Allow}
+									text="Allow"
+								/>
+								<SelectItem
+									value={RemoteContentRuleDecision.Block}
+									text="Block"
+								/>
+							</Select>
+						)}
+					</ruleForm.Field>
+					<ruleForm.Field name="scope">
+						{(field) => (
+							<Select
+								id="remote-content-rule-scope"
+								labelText="Applies to"
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(event) =>
+									field.handleChange(Number(event.target.value))
+								}
+							>
+								<SelectItem
+									value={RemoteContentRuleScope.Sender}
+									text="Sender"
+								/>
+								<SelectItem
+									value={RemoteContentRuleScope.Domain}
+									text="Domain"
+								/>
+							</Select>
+						)}
+					</ruleForm.Field>
+					<ruleForm.Field name="value">
+						{(field) => (
+							<ruleForm.Subscribe selector={(state) => state.values.scope}>
+								{(scope) => (
+									<TextInput
+										id="remote-content-rule-value"
+										name={field.name}
+										labelText={
+											scope === RemoteContentRuleScope.Sender
+												? "Email address"
+												: "Domain"
+										}
+										value={field.state.value}
+										onBlur={field.handleBlur}
+										onChange={(event) => field.handleChange(event.target.value)}
+										required
+									/>
+								)}
+							</ruleForm.Subscribe>
+						)}
+					</ruleForm.Field>
+					<ruleForm.Subscribe
+						selector={(state) => ({
+							canSubmit: state.canSubmit,
+							isSubmitting: state.isSubmitting,
+							value: state.values.value,
+						})}
 					>
-						<SelectItem value={RemoteContentRuleDecision.Allow} text="Allow" />
-						<SelectItem value={RemoteContentRuleDecision.Block} text="Block" />
-					</Select>
-					<Select
-						id="remote-content-rule-scope"
-						labelText="Applies to"
-						value={ruleScope}
-						onChange={(event) => setRuleScope(Number(event.target.value))}
-					>
-						<SelectItem value={RemoteContentRuleScope.Sender} text="Sender" />
-						<SelectItem value={RemoteContentRuleScope.Domain} text="Domain" />
-					</Select>
-					<TextInput
-						id="remote-content-rule-value"
-						labelText={
-							ruleScope === RemoteContentRuleScope.Sender
-								? "Email address"
-								: "Domain"
-						}
-						value={ruleValue}
-						onChange={(event) => setRuleValue(event.target.value)}
-						required
-					/>
-					<Button size="sm" type="submit">
-						Add rule
-					</Button>
+						{({ canSubmit, isSubmitting, value }) => (
+							<Button
+								size="sm"
+								type="submit"
+								disabled={!canSubmit || isSubmitting || !String(value).trim()}
+							>
+								Add rule
+							</Button>
+						)}
+					</ruleForm.Subscribe>
 				</form>
 				{remoteContentRules.data?.length ? (
 					<StructuredListWrapper>
