@@ -63,6 +63,13 @@
 	flex-shrink: 0;
 }
 
+.metrics {
+	display: flex;
+	gap: var(--cds-spacing-03);
+	align-items: baseline;
+	flex-shrink: 0;
+}
+
 .name {
 	overflow: hidden;
 	white-space: nowrap;

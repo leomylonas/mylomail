@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	describeMailboxCount,
 	mailboxMoveActions,
 	type Mailbox,
 } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
@@ -23,6 +24,46 @@ function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 		...overrides,
 	};
 }
+
+describe("mailbox sidebar counts", () => {
+	it("shows zero unread and the provider total together", () => {
+		expect(
+			describeMailboxCount(
+				mailbox({
+					id: "inbox",
+					providerUnreadCount: 0,
+					providerTotalCount: 42,
+					localCount: 5,
+				}),
+			),
+		).toBe("0 unread · 42 total");
+	});
+
+	it("labels the local fallback as held when the provider total is unavailable", () => {
+		expect(
+			describeMailboxCount(
+				mailbox({
+					id: "archive",
+					providerUnreadCount: 3,
+					providerTotalCount: null,
+					localCount: 8,
+				}),
+			),
+		).toBe("3 unread · 8 held");
+	});
+
+	it("still reports the provider total when unread count is unavailable", () => {
+		expect(
+			describeMailboxCount(
+				mailbox({
+					id: "sent",
+					providerUnreadCount: null,
+					providerTotalCount: 9,
+				}),
+			),
+		).toBe("9 total");
+	});
+});
 
 function findAction(
 	actions: ReturnType<typeof mailboxMoveActions>,

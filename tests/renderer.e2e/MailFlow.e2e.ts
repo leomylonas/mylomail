@@ -47,16 +47,16 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await createImapAccount(window, imapPort);
 
 		// Topology discovery, then coverage: the sidebar fills in as they land.
-		await expect(window.getByRole("button", { name: /INBOX/ })).toBeVisible({
-			timeout: 60_000,
-		});
-		await window.getByRole("button", { name: /INBOX/ }).click();
+		const inboxMailbox = window.getByRole("button", { name: /INBOX/ });
+		await expect(inboxMailbox).toBeVisible({ timeout: 60_000 });
+		await inboxMailbox.click();
 
 		const firstMessage = window.getByRole("button", { name: /First message/ });
 		await expect(firstMessage).toBeVisible({ timeout: 60_000 });
 		await expect(
 			window.getByRole("button", { name: /Second message/ }),
 		).toBeVisible();
+		await expect(inboxMailbox).toContainText("2 unread · 2 total");
 
 		for (const column of ["From", "Subject", "Snippet", "Date", "Read", "Flag"])
 			await expect(
@@ -146,6 +146,9 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				},
 			)
 			.toBe(1);
+		await expect(inboxMailbox).toContainText("1 unread · 2 total", {
+			timeout: 90_000,
+		});
 
 		await window.getByLabel("Read", { exact: true }).selectOption("unread");
 		await expect(firstMessage).toBeHidden({ timeout: 60_000 });

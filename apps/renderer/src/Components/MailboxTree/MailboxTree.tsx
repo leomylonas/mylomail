@@ -420,16 +420,16 @@ export function MailboxTree({
 								<span className={styles.name} title={mailbox.name}>
 									{mailbox.name}
 								</span>
-								{mailbox.coverage === CoverageStatus.Backfilling ? (
-									<BackfillProgress mailboxId={mailbox.id} />
-								) : (
-									<>
+								<span className={styles.metrics}>
+									{mailbox.coverage === CoverageStatus.Backfilling ? (
+										<BackfillProgress mailboxId={mailbox.id} />
+									) : (
 										<IndexingProgress mailboxId={mailbox.id} />
-										<span className={styles.count}>
-											{describeCount(mailbox)}
-										</span>
-									</>
-								)}
+									)}
+									<span className={styles.count}>
+										{describeMailboxCount(mailbox)}
+									</span>
+								</span>
 							</button>
 						</div>
 						{hasChildren && !mailbox.isCollapsed
@@ -948,12 +948,12 @@ function IndexingProgress({ mailboxId }: { mailboxId: string }) {
 	);
 }
 
-function describeCount(mailbox: Mailbox): string {
-	if (mailbox.providerUnreadCount !== null && mailbox.providerUnreadCount > 0) {
-		return `${mailbox.providerUnreadCount}`;
-	}
-
-	return mailbox.providerTotalCount === null
-		? `${mailbox.localCount} held`
-		: "";
+export function describeMailboxCount(mailbox: Mailbox): string {
+	const total =
+		mailbox.providerTotalCount === null
+			? `${mailbox.localCount} held`
+			: `${mailbox.providerTotalCount} total`;
+	return mailbox.providerUnreadCount === null
+		? total
+		: `${mailbox.providerUnreadCount} unread · ${total}`;
 }
