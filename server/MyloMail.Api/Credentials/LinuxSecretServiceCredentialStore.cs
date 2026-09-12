@@ -16,7 +16,7 @@ internal static class LinuxSecretServiceCredentialStore
 		using var connection = Connect(ct);
 		await connection.ConnectAsync();
 		var service = new DBusService(connection, ServiceName);
-		var session = await service.CreateService(RootPath).OpenSessionAsync(VariantValue.String("plain"));
+		var session = await service.CreateService(RootPath).OpenSessionAsync("plain", VariantValue.String(string.Empty));
 		var collection = await service.CreateService(RootPath).ReadAliasAsync("default");
 		if (collection == NoPromptPath) throw new InvalidOperationException("The Secret Service has no default collection.");
 
@@ -37,7 +37,7 @@ internal static class LinuxSecretServiceCredentialStore
 		using var connection = Connect(ct);
 		await connection.ConnectAsync();
 		var service = new DBusService(connection, ServiceName);
-		var session = await service.CreateService(RootPath).OpenSessionAsync(VariantValue.String("plain"));
+		var session = await service.CreateService(RootPath).OpenSessionAsync("plain", VariantValue.String(string.Empty));
 		var item = await FindItemAsync(service, serviceName, accountId, ct);
 		if (item is null) return null;
 
