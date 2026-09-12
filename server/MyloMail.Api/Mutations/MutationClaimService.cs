@@ -109,7 +109,10 @@ public sealed class MutationClaimService(MyloMailDbContext context, TimeProvider
 		}
 
 		context.ChangeTracker.Clear();
-		return await context.MutationItems.Where(m => claimedIds.Contains(m.Id)).ToListAsync(ct);
+		var claimed = await context
+			.MutationItems.Where(m => claimedIds.Contains(m.Id))
+			.ToDictionaryAsync(m => m.Id, ct);
+		return [.. claimedIds.Select(id => claimed[id])];
 	}
 
 	/// <summary>
