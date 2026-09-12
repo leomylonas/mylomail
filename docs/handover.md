@@ -59,10 +59,11 @@
 - Runtime verification 4/13: a live attached-backend Electron workflow now changes the actual `BrowserWindow` bounds, waits for the debounced setting write to reach SQLite, terminates the first Electron process, starts a second Electron process against the same backend and data directory, and observes the exact saved bounds on the replacement native window. The attached-backend fixture exposes a bounded restart operation so lifecycle checks can restart only the shell without conflating backend ownership.
 - Runtime verification 5/13: a live spawn-mode Electron workflow now kills the owned .NET backend process with `SIGKILL`, observes the real unexpected-exit handler offer the documented restart and invoke both Electron's relaunch and exit branches, and confirms the already-rendered mailbox remains usable while HTTP and SignalR are down. It then starts a fresh backend and Electron process over the same SQLite directory and renders the previously synced message from the durable cache within ten seconds.
 - Runtime verification 6/13: the production connection interceptor's exact `journal_mode=wal` and `synchronous=2` values pass against a real on-disk SQLite database, and the full suite retains the hard-process crash scenarios that reopen the same directory. SQLite's current WAL documentation explicitly states that `FULL` syncs the WAL at every transaction commit, while `NORMAL` omits that sync and can roll transactions back after power loss; this is the guarantee the architecture requires. As SQLite documents, it still depends on a correct VFS, `fsync`/`FlushFileBuffers`, and storage hardware—software cannot truthfully simulate a physical power cut.
+- Runtime verification 7/13: `Hangfire.InMemory` is already pinned to the official HangfireIO package's latest `1.0.0` release, whose NuGet dependency contract accepts Hangfire Core `1.8.0+`; the app is on current `Hangfire.AspNetCore 1.8.25`. Its volatility is intentional here, not overlooked: Hangfire is only a process-local executor over durable SQLite intent/cursors/outbox/export state, and startup reconciliation reconstructs work after every restart. The official README recommends swapping storage for ordinary production durability, but that warning does not apply as a hidden second source of truth is explicitly forbidden in this architecture. Suitability ends if any future job becomes the sole durable record.
 
 ## Next task
 
-- Review the pinned `Hangfire.InMemory` release and its suitability for current .NET/Hangfire.
+- Verify generated and consumed TypeContractor Zod output.
 
 ## Required reading
 
@@ -209,6 +210,7 @@
 - Actual Electron window restart: `pnpm e2e --grep "bounds survive"` passed 1/1. The first native window persisted `{ x: 80, y: 90, width: 880, height: 620 }`; a second Electron process connected to the same live backend and restored that exact rectangle.
 - Full crash/restart and cached-render proof: `pnpm e2e --grep "backend crash offers restart"` passed 1/1. The shell detected a hard-killed backend, selected its Restart path, retained the visible cached message during the outage, and a fresh backend/Electron pair reopened the same local message from SQLite.
 - SQLite durability verification: `pnpm check` passed 610 .NET tests and 218 Vitest tests, including the on-disk `SqlitePragmaTests` assertion that every intercepted application connection reports WAL and numeric synchronous level `2` (`FULL`). SQLite's official WAL documentation confirms that this mode syncs the WAL on each commit and contrasts it with `NORMAL`, where committed transactions may roll back after a power failure.
+- Hangfire currency review: official [`Hangfire.InMemory` 1.0.0](https://www.nuget.org/packages/Hangfire.InMemory/1.0.0) is the latest published release and depends on Hangfire Core `>=1.8.0`; the app's [`Hangfire.AspNetCore` 1.8.25](https://www.nuget.org/packages/Hangfire.AspNetCore/1.8.25) satisfies that contract. The package's [official README](https://github.com/HangfireIO/Hangfire.InMemory) confirms synchronized queues/locks, monotonic expiration, and the expected in-memory lifecycle.
 
 ## Live risks / decisions
 
