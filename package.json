@@ -31,7 +31,8 @@
     "e2e:attach": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Attach.Playwright.config.ts",
     "package": "tsx scripts/Package.ts",
     "package:dir": "tsx scripts/Package.ts --dir",
-    "package:smoke": "pnpm package:dir && playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts"
+    "package:smoke": "pnpm package:dir && playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts",
+    "package:verify-artifacts": "tsx scripts/VerifyPackageArtifacts.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

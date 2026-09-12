@@ -124,6 +124,35 @@ export async function launchPackagedApp(
 	};
 }
 
+/**
+ * Launches electron-builder's unpacked application against a purpose-built loopback
+ * backend. Native-shell smoke tests can exercise the packaged preload and IPC boundary
+ * without requiring the Linux-only provider containers.
+ */
+export async function launchPackagedAttachedApp(
+	backendUrl: string,
+	launchToken: string,
+	environment: Readonly<NodeJS.ProcessEnv> = {},
+): Promise<LaunchedApp> {
+	const fixture = createFixtureEnvironment(environment);
+	const { app, window } = await launchElectron(
+		[],
+		{
+			...fixture.environment,
+			ELECTRON_BACKEND_MODE: "attach",
+			BACKEND_URL: backendUrl,
+			MYLOMAIL_LAUNCH_TOKEN: launchToken,
+			MYLOMAIL_BACKEND_COMMAND: "mylomail-native-smoke-must-not-spawn",
+		},
+		packagedExecutablePath(),
+	);
+	return {
+		app,
+		window,
+		dataDirectory: fixture.dataDirectory,
+	};
+}
+
 function createFixtureEnvironment(
 	overrides: Readonly<NodeJS.ProcessEnv>,
 	existingDataDirectory?: string,

@@ -56,6 +56,17 @@ public sealed class AttachmentServiceTests
 			var materialised = await service.MaterialiseForOpeningAsync(messageId, attachmentId);
 			Assert.Equal(payload, await File.ReadAllBytesAsync(materialised));
 			Assert.StartsWith(Path.Combine(database.Directory, "tmp", "attachments"), materialised, StringComparison.Ordinal);
+			if (!OperatingSystem.IsWindows())
+			{
+				Assert.Equal(
+					UnixFileMode.UserRead | UnixFileMode.UserWrite,
+					File.GetUnixFileMode(materialised)
+				);
+				Assert.Equal(
+					UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+					File.GetUnixFileMode(Path.GetDirectoryName(materialised)!)
+				);
+			}
 		}
 	}
 

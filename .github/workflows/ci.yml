@@ -45,3 +45,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm generate:types
       - run: pnpm check
+        env:
+          MYLOMAIL_TEST_NATIVE_CREDENTIAL_STORE: ${{ runner.os != 'Linux' && '1' || '0' }}

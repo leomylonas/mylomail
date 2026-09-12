@@ -146,6 +146,22 @@ if (mode !== "fast") {
 	});
 }
 
+if (
+	mode !== "fast" &&
+	process.env.MYLOMAIL_TEST_NATIVE_CREDENTIAL_STORE === "1"
+) {
+	// Explicitly opted-in because this writes to the host's real credential store.
+	// Keep it separate from the broad Deep suite: native tag runners do not provide
+	// provider credentials or the local conformance containers.
+	steps.push({
+		name: "native-credentials",
+		...dotnetTest(
+			"FullyQualifiedName~NativeCredentialStoreLiveTests",
+			"native-credentials",
+		),
+	});
+}
+
 if (mode === "deep") {
 	// Slow by design: spawns and kills processes, exercises all three providers across
 	// all three IMAP capability tiers. Never run this in the inner loop.

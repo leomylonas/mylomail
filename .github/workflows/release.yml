@@ -5,6 +5,8 @@ on:
   push:
     tags:
       - "v*"
+      - "testing"
+      - "testing-*"
 
 permissions:
   contents: read
@@ -38,6 +40,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes rpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm package
+      - run: pnpm package:verify-artifacts
+      - name: Verify native attachment opening
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright test --config tests/renderer.e2e/Native.Playwright.config.ts
       - name: Smoke packaged application
         if: runner.os != 'Linux'
         run: pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
@@ -58,8 +64,7 @@ jobs:
             dist/packages/*.zip
 
   release:
-    if: github.ref_type == 'tag'
-    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
