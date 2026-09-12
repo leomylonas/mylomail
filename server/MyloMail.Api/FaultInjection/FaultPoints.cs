@@ -63,6 +63,10 @@ public static class FaultPoints
 	/// <summary>After fetched content is applied locally, before its transaction commits.</summary>
 	public const string ContentAfterApplyBeforeCommit = "content.after-apply-before-commit";
 
+	/// <summary>After response headers and part of an attachment body reach the client.</summary>
+	public const string AttachmentDownloadMidTransfer =
+		"attachment-download.mid-transfer";
+
 	/// <summary>After cursor invalidation state is changed, before its atomic save.</summary>
 	public const string CursorInvalidationAfterApplyBeforeCommit =
 		"cursor-invalidation.after-apply-before-commit";

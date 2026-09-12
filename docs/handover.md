@@ -49,10 +49,11 @@
 - Parity remediation 42/47: macOS data-directory validation now asks `statfs` through `DriveInfo` for the nearest existing ancestor of the configured path after resolving every symlink component. NFS, SMB, AFP, WebDAV, SSHFS, macFUSE, and legacy osxfuse volumes are rejected before directory creation or SQLite migration; local APFS remains valid. Unreadable or unclassifiable Darwin storage fails closed instead of silently disabling the WAL locality invariant. Linux retains longest nested `/proc/self/mounts` selection and Windows retains UNC/mapped-drive checks.
 - Parity remediation 43/47: fatal backend startup now opens a synchronous native Electron error dialog before the process exits, because no renderer exists while health probing or migration fails. The dialog explicitly identifies local data-directory/database-upgrade failures, includes a bounded error detail, and tells the user to preserve the data directory when reporting a persistent failure rather than silently retrying or discarding it.
 - Parity remediation 44/47: the backend now explicitly disables invariant and Windows NLS globalization so canonical IANA time-zone handling always uses ICU. Windows builds additionally carry Microsoft ICU 72.1 app-local for stable availability instead of depending on the host Windows ICU. Linux and macOS use their native ICU, matching the architecture's “app-local where needed” boundary; Microsoft's runtime package has no macOS assets, so enabling it globally would make every packaged Mac fail before `Program` starts.
+- Parity remediation 45/47: fault injection now has a real process implementation selected only in the explicit `FaultInjection` host environment. It writes and fsyncs a unique marker, then hard-kills the backend without running graceful shutdown; the harness restarts a new API PID against the same explicitly supplied data directory on Windows, macOS, and Linux. The missing attachment boundary now wraps the actual HTTP response body, flushes a prefix that the client acknowledges, kills before the remainder, and proves a restarted request returns the complete canonical MIME attachment. Existing exception-based scenarios remain as deterministic complements, while every named production boundary can select the process injector.
 
 ## Next task
 
-- Replace exception-only crash simulation with process-level fault injection and add the missing attachment-download fault point (item 45).
+- Separate real-provider tests from the normal unit-test project (item 46).
 
 ## Required reading
 
@@ -184,6 +185,9 @@
 - Independent persistence review found and closed ordinary macFUSE SSHFS naming, fail-open mount discovery, symlink/case alias bypasses, and case-sensitive APFS false positives. Final review found no remaining locality or startup-ordering violation.
 - Actual Electron startup-failure smoke: `pnpm e2e --grep "backend migration failure"` passed 1/1. A delayed child process exited before announcing a port; the real bundled `Main` catch path invoked Electron's native `showErrorBox` with the migration guidance and exit-code detail before terminating.
 - `pnpm package:smoke` after globalization configuration passed 1/1: the self-contained Linux backend and renderer were rebuilt, bundled, and launched from electron-builder's unpacked application. An initial global app-local attempt correctly failed at process startup because the Microsoft package's Linux filenames do not satisfy a `72.1` probe and the package supplies no macOS assets; scoping app-local ICU to Windows restored the package while retaining explicit ICU mode everywhere.
+- Process-level attachment crash proof: temporarily exposing `ProcessCrashHarnessTests` to the normal wrapper passed all 611 tests. The first API PID served and flushed a strict partial body, then exited nonzero after a disk-flushed marker; a second PID opened the same isolated SQLite data directory and returned the exact 32 KiB payload. Arming an unrelated point made that scenario fail, proving the boundary is discriminating.
+- `pnpm check` after restoring the process scenario's `Deep` classification: format, TypeScript, ESLint, Stylelint, build, 610 .NET tests, and 218 Vitest tests passed.
+- Independent invariant review found and closed the initial pre-response decode point and Windows profile-directory leakage. Final review found the environment gating, absolute data-directory isolation, registration order, marker/ack ordering, one-shot hard kill, partial transfer, and restart recovery clean.
 
 ## Live risks / decisions
 

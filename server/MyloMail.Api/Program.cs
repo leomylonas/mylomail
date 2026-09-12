@@ -7,6 +7,7 @@ using Microsoft.Extensions.FileProviders;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Errors;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Logging;
 using MyloMail.Api.Persistence;
@@ -21,7 +22,10 @@ builder.WebHost.UseUrls("http://127.0.0.1:0");
 
 // Resolved before the database path is known, and therefore before anything in AppSettings
 // can be read (§15).
-var dataDirectory = DataDirectory.Resolve(BootstrapConfig.Load().DataDirectoryOverride);
+var dataDirectory = DataDirectory.Resolve(
+	ProcessFaultInjector.DataDirectoryOverrideFromEnvironment()
+		?? BootstrapConfig.Load().DataDirectoryOverride
+);
 
 // Async sink, and never message bodies/subjects/credentials — MessageId/AccountId/operation/
 // exception only (§10). That discipline is enforced by what call sites choose to log, not by
@@ -49,6 +53,11 @@ builder.Host.UseSerilog(
 				)
 			)
 );
+
+if (ProcessFaultInjector.FromEnvironment() is { } processFaults)
+{
+	builder.Services.AddSingleton<IFaultInjector>(processFaults);
+}
 
 builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddSingleton<CredentialStoreSelector>(_ => new CredentialStoreSelector(dataDirectory));
