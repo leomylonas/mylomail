@@ -132,12 +132,12 @@ public static class DataDirectory
 		IEnumerable<(string Point, string Type)> mounts
 	)
 	{
-		var full = Path.GetFullPath(path);
+		var full = NormalizeUnixPath(path);
 		(string Point, string Type)? best = null;
 
 		foreach (var mount in mounts)
 		{
-			var point = Path.GetFullPath(mount.Point);
+			var point = NormalizeUnixPath(mount.Point);
 			if (!IsUnder(full, point))
 			{
 				continue;
@@ -258,6 +258,34 @@ public static class DataDirectory
 		{
 			return [];
 		}
+	}
+
+	private static string NormalizeUnixPath(string path)
+	{
+		if (!path.StartsWith('/'))
+		{
+			throw new ArgumentException("A Unix path must be absolute.", nameof(path));
+		}
+
+		var segments = new List<string>();
+		foreach (var segment in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+		{
+			if (segment == ".")
+			{
+				continue;
+			}
+			if (segment == "..")
+			{
+				if (segments.Count > 0)
+				{
+					segments.RemoveAt(segments.Count - 1);
+				}
+				continue;
+			}
+			segments.Add(segment);
+		}
+
+		return "/" + string.Join('/', segments);
 	}
 
 	private static bool IsUnder(string path, string mountPoint) =>

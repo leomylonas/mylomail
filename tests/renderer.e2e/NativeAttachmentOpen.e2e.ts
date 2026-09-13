@@ -112,7 +112,10 @@ async function startAttachmentBackend(launchToken: string): Promise<{
 			response.end();
 			return;
 		}
-		if (request.url === "/" && request.method === "GET") {
+		if (
+			request.method === "GET" &&
+			new URL(request.url ?? "/", "http://127.0.0.1").pathname === "/"
+		) {
 			response.setHeader("Content-Type", "text/html; charset=utf-8");
 			response.end(
 				"<!doctype html><title>Native attachment smoke</title><p>Native attachment smoke</p>",

@@ -1,6 +1,7 @@
 appId: com.mylomail.desktop
 productName: MyloMail
 asar: true
+icon: Build/Icon.svg
 npmRebuild: false
 directories:
   output: dist/packages

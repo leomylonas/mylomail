@@ -1,6 +1,4 @@
-using System.Runtime.InteropServices;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Win32.SafeHandles;
 using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
@@ -99,11 +97,37 @@ public sealed class AttachmentTempDirectory
 			throw new InvalidOperationException("The attachment filename escaped its private directory.");
 		}
 
-		await using var stream = OperatingSystem.IsWindows()
-			? new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true)
-			: new FileStream(OpenPrivateFile(path), FileAccess.Write, bufferSize: 4096, isAsync: false);
+		await using var stream = CreatePrivateFile(path);
 		await stream.WriteAsync(content, ct);
 		return path;
+	}
+
+	private static FileStream CreatePrivateFile(string path)
+	{
+		if (OperatingSystem.IsWindows())
+		{
+			return new FileStream(
+				path,
+				FileMode.CreateNew,
+				FileAccess.Write,
+				FileShare.None,
+				bufferSize: 4096,
+				useAsync: true
+			);
+		}
+
+		return new FileStream(
+			path,
+			new FileStreamOptions
+			{
+				Access = FileAccess.Write,
+				Mode = FileMode.CreateNew,
+				Share = FileShare.None,
+				BufferSize = 4096,
+				Options = FileOptions.Asynchronous,
+				UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+			}
+		);
 	}
 
 	internal static string SanitiseFilename(string filename)
@@ -125,23 +149,4 @@ public sealed class AttachmentTempDirectory
 			|| (stem.StartsWith("LPT", StringComparison.Ordinal) && stem.Length == 4 && stem[3] is >= '1' and <= '9');
 	}
 
-	// The managed API in the pinned .NET 8 runtime has no create-with-mode overload for an
-	// asynchronous FileStream. libc's open creates the inode at 0600, avoiding the brief
-	// world-readable window that a subsequent chmod would introduce (§9).
-	private static SafeFileHandle OpenPrivateFile(string path)
-	{
-		const int writeOnly = 1;
-		var flags = OperatingSystem.IsMacOS()
-			? writeOnly | 0x200 | 0x800 | 0x1000000
-			: writeOnly | 0x40 | 0x80 | 0x80000;
-		var descriptor = open(path, flags, 0x180);
-		if (descriptor < 0)
-		{
-			throw new IOException($"Could not create private attachment file: {Marshal.GetLastPInvokeError()}");
-		}
-		return new SafeFileHandle((IntPtr)descriptor, ownsHandle: true);
-	}
-
-	[DllImport("libc", SetLastError = true, EntryPoint = "open")]
-	private static extern int open(string path, int flags, uint mode);
 }
