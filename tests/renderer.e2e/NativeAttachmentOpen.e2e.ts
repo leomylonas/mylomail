@@ -20,7 +20,7 @@ interface AttachmentProof {
 	content: string;
 }
 
-test("packaged Electron opens an attachment through the native file association", async () => {
+test("packaged Electron opens an attachment through the native desktop", async () => {
 	test.skip(
 		process.platform === "linux",
 		"The full Linux attachment lifecycle test already exercises xdg-open.",
@@ -71,25 +71,23 @@ test("packaged Electron opens an attachment through the native file association"
 			[randomUUID(), randomUUID()] as const,
 		);
 		expect(error).toBe("");
-		await expect
-			.poll(
-				() =>
-					existsSync(marker)
-						? (JSON.parse(readFileSync(marker, "utf8")) as AttachmentProof)
-						: null,
-				{ timeout: 15_000 },
-			)
-			.not.toBeNull();
+		if (handler.observesRead) {
+			await expect
+				.poll(
+					() =>
+						existsSync(marker)
+							? (JSON.parse(readFileSync(marker, "utf8")) as AttachmentProof)
+							: null,
+					{ timeout: 15_000 },
+				)
+				.not.toBeNull();
 
-		const proof = JSON.parse(readFileSync(marker, "utf8")) as AttachmentProof;
-		const expectedPath = resolve(attachmentPath);
-		const actualPath = resolve(proof.path);
-		expect(
-			process.platform === "win32" ? actualPath.toLowerCase() : actualPath,
-		).toBe(
-			process.platform === "win32" ? expectedPath.toLowerCase() : expectedPath,
-		);
-		expect(proof.content).toBe(payload.toString("base64"));
+			const proof = JSON.parse(readFileSync(marker, "utf8")) as AttachmentProof;
+			const expectedPath = resolve(attachmentPath);
+			const actualPath = resolve(proof.path);
+			expect(actualPath.toLowerCase()).toBe(expectedPath.toLowerCase());
+			expect(proof.content).toBe(payload.toString("base64"));
+		}
 	} finally {
 		if (launched) {
 			await launched.app.close();

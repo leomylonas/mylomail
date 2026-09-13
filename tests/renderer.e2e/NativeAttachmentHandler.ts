@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface NativeAttachmentHandler {
 	extension: string;
+	observesRead: boolean;
 	cleanup(): void;
 }
 
@@ -17,7 +18,10 @@ export function registerNativeAttachmentHandler(
 		return registerWindowsHandler(root, marker, token, extension);
 	}
 	if (process.platform === "darwin") {
-		return registerMacHandler(root, marker, token, extension);
+		// LaunchServices intentionally resists changing a user's default application in
+		// modern macOS. A standard text document still exercises Electron's native
+		// openPath boundary without mutating or depending on that protected preference.
+		return { extension: ".txt", observesRead: false, cleanup: () => undefined };
 	}
 	throw new Error(
 		`Native attachment handler is not supported on ${process.platform}.`,
@@ -53,136 +57,13 @@ fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ path, content }));
 	]);
 
 	return {
+		observesRead: true,
 		extension,
 		cleanup: () => {
 			spawnSync("reg.exe", ["DELETE", extensionKey, "/f"]);
 			spawnSync("reg.exe", ["DELETE", programKey, "/f"]);
 		},
 	};
-}
-
-function registerMacHandler(
-	root: string,
-	marker: string,
-	token: string,
-	extension: string,
-): NativeAttachmentHandler {
-	const bundleIdentifier = `com.mylomail.e2e.t${token}`;
-	const typeIdentifier = `${bundleIdentifier}.attachment`;
-	const bundle = join(root, "MyloMailE2EOpener.app");
-	const contents = join(bundle, "Contents");
-	const macos = join(contents, "MacOS");
-	const executable = join(macos, "MyloMailE2EOpener");
-	const source = join(root, "AttachmentHandler.swift");
-	mkdirSync(macos, { recursive: true });
-	writeFileSync(
-		source,
-		`import AppKit
-
-final class AppDelegate: NSObject, NSApplicationDelegate {
-	func application(_ sender: NSApplication, openFiles filenames: [String]) {
-		guard let path = filenames.first else {
-			sender.reply(toOpenOrPrint: .failure)
-			sender.terminate(nil)
-			return
-		}
-		do {
-			let proof: [String: String] = [
-				"path": path,
-				"content": try Data(contentsOf: URL(fileURLWithPath: path)).base64EncodedString(),
-			]
-			let encoded = try JSONSerialization.data(withJSONObject: proof)
-			try encoded.write(to: URL(fileURLWithPath: ${swiftString(marker)}), options: .atomic)
-			sender.reply(toOpenOrPrint: .success)
-		} catch {
-			sender.reply(toOpenOrPrint: .failure)
-		}
-		sender.terminate(nil)
-	}
-}
-
-let application = NSApplication.shared
-let delegate = AppDelegate()
-application.delegate = delegate
-application.setActivationPolicy(.prohibited)
-application.run()
-`,
-	);
-	run("swiftc", [source, "-framework", "AppKit", "-o", executable]);
-	chmodSync(executable, 0o700);
-	writeFileSync(
-		join(contents, "Info.plist"),
-		`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleDisplayName</key><string>MyloMail E2E Opener</string>
-	<key>CFBundleExecutable</key><string>MyloMailE2EOpener</string>
-	<key>CFBundleIdentifier</key><string>${bundleIdentifier}</string>
-	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleVersion</key><string>1</string>
-	<key>CFBundleDocumentTypes</key>
-	<array><dict>
-		<key>CFBundleTypeExtensions</key><array><string>${extension.slice(1)}</string></array>
-		<key>LSItemContentTypes</key><array><string>${typeIdentifier}</string></array>
-		<key>CFBundleTypeName</key><string>MyloMail E2E attachment</string>
-		<key>CFBundleTypeRole</key><string>Viewer</string>
-		<key>LSHandlerRank</key><string>Owner</string>
-	</dict></array>
-	<key>LSBackgroundOnly</key><true/>
-	<key>UTExportedTypeDeclarations</key>
-	<array><dict>
-		<key>UTTypeConformsTo</key><array><string>public.data</string></array>
-		<key>UTTypeDescription</key><string>MyloMail E2E attachment</string>
-		<key>UTTypeIdentifier</key><string>${typeIdentifier}</string>
-		<key>UTTypeTagSpecification</key>
-		<dict>
-			<key>public.filename-extension</key><array><string>${extension.slice(1)}</string></array>
-		</dict>
-	</dict></array>
-</dict>
-</plist>
-`,
-	);
-	const launchServices =
-		"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
-	run(launchServices, ["-f", bundle]);
-	const registrarSource = join(root, "RegisterHandler.swift");
-	const registrar = join(root, "RegisterHandler");
-	writeFileSync(
-		registrarSource,
-		`import CoreServices
-import Foundation
-
-let status = LSSetDefaultRoleHandlerForContentType(
-	${swiftString(typeIdentifier)} as CFString,
-	.all,
-	${swiftString(bundleIdentifier)} as CFString
-)
-if status != noErr {
-	fatalError("Could not select the native attachment handler: \\(status)")
-}
-`,
-	);
-	run("swiftc", [
-		registrarSource,
-		"-framework",
-		"CoreServices",
-		"-o",
-		registrar,
-	]);
-	run(registrar, []);
-
-	return {
-		extension,
-		cleanup: () => {
-			spawnSync(launchServices, ["-u", bundle]);
-		},
-	};
-}
-
-function swiftString(value: string): string {
-	return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function run(command: string, args: readonly string[]): void {

@@ -6,6 +6,7 @@
  *
  *   pnpm check       formatting + build + unit + invariant
  *   pnpm check:fast  the same checks the watcher does, run directly (no watcher needed)
+ *   pnpm check:platform  build + tests on non-Linux hosts
  *   pnpm check:deep  + fault injection + provider conformance (slow, explicit only)
  *   pnpm check:native-credentials  one real host credential-store round trip
  */
@@ -13,7 +14,7 @@
 import { spawnSync } from "node:child_process";
 import { PATTERNS, MAX_SHOWN, isWindows, relativePath } from "./tooling.ts";
 
-type Mode = "full" | "fast" | "deep" | "native";
+type Mode = "full" | "fast" | "deep" | "platform" | "native";
 
 const mode = (process.argv[2] ?? "full") as Mode;
 const ROOT = process.cwd();
@@ -80,66 +81,74 @@ const dotnetTest = (
 	parse: testParser(PATTERNS.xunitFailure),
 });
 
-const steps: Step[] =
-	mode === "native"
-		? []
-		: [
-				{
-					name: "format",
-					command: "pnpm",
-					args: ["format:check"],
-					parse: () => null,
-					fatal: true,
+const steps: Step[] = [];
+
+if (mode !== "native") {
+	if (mode !== "platform") {
+		steps.push({
+			name: "format",
+			command: "pnpm",
+			args: ["format:check"],
+			parse: () => null,
+			fatal: true,
+		});
+	}
+
+	steps.push({
+		name: "tsc",
+		command: "npx",
+		args: ["tsc", "--noEmit", "--pretty", "false"],
+		parse: compileParser(PATTERNS.tsc),
+		fatal: true,
+	});
+
+	if (mode !== "platform") {
+		steps.push(
+			{
+				name: "eslint",
+				command: "npx",
+				args: ["eslint", ".", "--quiet", "-f", "unix"],
+				parse: (line) => {
+					const m = PATTERNS.eslint.exec(line);
+					if (!m) return null;
+					return {
+						key: m[5],
+						text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+					};
 				},
-				{
-					name: "tsc",
-					command: "npx",
-					args: ["tsc", "--noEmit", "--pretty", "false"],
-					parse: compileParser(PATTERNS.tsc),
-					fatal: true,
+			},
+			{
+				// CSS Modules only; the rule set enforces camelCase class names so they read as
+				// `styles.messageRow` from TypeScript.
+				name: "stylelint",
+				command: "npx",
+				args: [
+					"stylelint",
+					"**/*.css",
+					"--allow-empty-input",
+					"--formatter",
+					"unix",
+				],
+				parse: (line) => {
+					const m = PATTERNS.stylelint.exec(line);
+					if (!m) return null;
+					return {
+						key: m[5],
+						text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
+					};
 				},
-				{
-					name: "eslint",
-					command: "npx",
-					args: ["eslint", ".", "--quiet", "-f", "unix"],
-					parse: (line) => {
-						const m = PATTERNS.eslint.exec(line);
-						if (!m) return null;
-						return {
-							key: m[5],
-							text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
-						};
-					},
-				},
-				{
-					// CSS Modules only; the rule set enforces camelCase class names so they read as
-					// `styles.messageRow` from TypeScript.
-					name: "stylelint",
-					command: "npx",
-					args: [
-						"stylelint",
-						"**/*.css",
-						"--allow-empty-input",
-						"--formatter",
-						"unix",
-					],
-					parse: (line) => {
-						const m = PATTERNS.stylelint.exec(line);
-						if (!m) return null;
-						return {
-							key: m[5],
-							text: `${relativePath(ROOT, m[1])}:${m[2]} ${m[5]} ${m[4]}`,
-						};
-					},
-				},
-				{
-					name: "build",
-					command: "dotnet",
-					args: ["build", "--nologo", "-tl:off", "-clp:ErrorsOnly"],
-					parse: compileParser(PATTERNS.dotnet),
-					fatal: true,
-				},
-			];
+			},
+		);
+	}
+
+	steps.push({
+		name: "build",
+		command: "dotnet",
+		args: ["build", "--nologo", "-tl:off", "-clp:ErrorsOnly"],
+		parse: compileParser(PATTERNS.dotnet),
+		fatal: true,
+	});
+}
 
 if (mode !== "fast" && mode !== "native") {
 	steps.push({ name: "tests", ...dotnetTest("Category!=Deep", "tests") });

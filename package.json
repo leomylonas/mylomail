@@ -20,6 +20,7 @@
     "check:fast": "tsx scripts/check.ts fast",
     "check:deep": "tsx scripts/check.ts deep",
     "check:native-credentials": "tsx scripts/check.ts native",
+    "check:platform": "tsx scripts/check.ts platform",
     "imap:up": "bash tests/imap-matrix/generate-cert.sh && docker compose -f tests/imap-matrix/compose.yaml up -d --wait",
     "imap:down": "docker compose -f tests/imap-matrix/compose.yaml down -v",
     "caldav:up": "bash tests/caldav-matrix/generate-cert.sh && docker compose -f tests/caldav-matrix/compose.yaml up -d --wait",

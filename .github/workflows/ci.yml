@@ -44,9 +44,14 @@ jobs:
       - run: dotnet tool restore
       - run: pnpm install --frozen-lockfile
       - run: pnpm generate:types
-      - run: pnpm check
+      - name: Verify complete suite
+        if: runner.os == 'Linux'
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm check
+      - name: Verify portable build and tests
+        if: runner.os != 'Linux'
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm check:platform
       - name: Verify native credential store
         if: runner.os != 'Linux'
-        run: pnpm check:native-credentials
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm check:native-credentials
         env:
           MYLOMAIL_TEST_NATIVE_CREDENTIAL_STORE: "1"

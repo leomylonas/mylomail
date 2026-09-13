@@ -40,38 +40,38 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes rpm
       - run: pnpm install --frozen-lockfile
       - name: Prepare unpacked application
-        run: pnpm package:dir
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm package:dir
       - name: Build AppImage
         if: runner.os == 'Linux'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux AppImage
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux AppImage --x64
       - name: Build Debian package
         if: runner.os == 'Linux'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux deb
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux deb --x64
       - name: Build RPM package
         if: runner.os == 'Linux'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux rpm
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --linux rpm --x64
       - name: Build NSIS installer
         if: runner.os == 'Windows'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win nsis
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win nsis --x64
       - name: Build MSI installer
         if: runner.os == 'Windows'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win msi
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --win msi --x64
       - name: Build DMG image
         if: runner.os == 'macOS'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac dmg
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac dmg --arm64
       - name: Build macOS ZIP
         if: runner.os == 'macOS'
-        run: pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac zip
-      - run: pnpm package:verify-artifacts
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec electron-builder --config ElectronBuilder.yml --publish never --mac zip --arm64
+      - run: pnpm exec tsx scripts/RunCICommand.ts pnpm package:verify-artifacts
       - name: Verify native attachment opening
         if: runner.os != 'Linux'
-        run: pnpm exec playwright test --config tests/renderer.e2e/Native.Playwright.config.ts
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec playwright test --config tests/renderer.e2e/Native.Playwright.config.ts
       - name: Smoke packaged application
         if: runner.os != 'Linux'
-        run: pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
+        run: pnpm exec tsx scripts/RunCICommand.ts pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
       - name: Smoke packaged application
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
+        run: pnpm exec tsx scripts/RunCICommand.ts xvfb-run --auto-servernum pnpm exec playwright test --config tests/renderer.e2e/Packaged.Playwright.config.ts
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.label }}
