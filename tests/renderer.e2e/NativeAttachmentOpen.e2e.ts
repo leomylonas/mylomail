@@ -5,12 +5,13 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { launchPackagedAttachedApp } from "@mylomail/renderer-e2e/AppFixture";
 import { registerNativeAttachmentHandler } from "@mylomail/renderer-e2e/NativeAttachmentHandler";
@@ -83,8 +84,8 @@ test("packaged Electron opens an attachment through the native desktop", async (
 				.not.toBeNull();
 
 			const proof = JSON.parse(readFileSync(marker, "utf8")) as AttachmentProof;
-			const expectedPath = resolve(attachmentPath);
-			const actualPath = resolve(proof.path);
+			const expectedPath = realpathSync.native(attachmentPath);
+			const actualPath = realpathSync.native(proof.path);
 			expect(actualPath.toLowerCase()).toBe(expectedPath.toLowerCase());
 			expect(proof.content).toBe(payload.toString("base64"));
 		}
