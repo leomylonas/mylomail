@@ -9,15 +9,42 @@
  *   pnpm check:platform  build + tests on non-Linux hosts
  *   pnpm check:deep  + fault injection + provider conformance (slow, explicit only)
  *   pnpm check:native-credentials  one real host credential-store round trip
+ *   pnpm check:live-providers  real Gmail and Graph conformance using local cached tokens
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { loadEnvFile } from "node:process";
 import { spawnSync } from "node:child_process";
 import { PATTERNS, MAX_SHOWN, isWindows, relativePath } from "./tooling.ts";
 
-type Mode = "full" | "fast" | "deep" | "platform" | "native";
+type Mode = "full" | "fast" | "deep" | "platform" | "native" | "live";
 
 const mode = (process.argv[2] ?? "full") as Mode;
 const ROOT = process.cwd();
+
+if (mode === "live") {
+	const environmentPath = join(ROOT, ".dev", "provider-test.env");
+	if (!existsSync(environmentPath)) {
+		console.error(".dev/provider-test.env does not exist.");
+		process.exit(2);
+	}
+	loadEnvFile(environmentPath);
+	const missing = [
+		"GMAIL_CLIENT_ID",
+		"GMAIL_CLIENT_SECRET",
+		"GMAIL_TOKEN_CACHE_BASE64",
+		"GRAPH_CLIENT_ID",
+		"GRAPH_TENANT_ID",
+		"GRAPH_TOKEN_CACHE_BASE64",
+	].filter((name) => !process.env[name]);
+	if (missing.length > 0) {
+		console.error(
+			`Missing provider test credentials: ${missing.join(", ")}. Run pnpm provider:authorize for each provider.`,
+		);
+		process.exit(2);
+	}
+}
 
 interface Failure {
 	/** Deduplication key: error code, or test name. */
@@ -150,7 +177,7 @@ if (mode !== "native") {
 	});
 }
 
-if (mode !== "fast" && mode !== "native") {
+if (mode !== "fast" && mode !== "native" && mode !== "live") {
 	steps.push({ name: "tests", ...dotnetTest("Category!=Deep", "tests") });
 	steps.push({
 		name: "vitest",
@@ -171,6 +198,24 @@ if (mode === "native") {
 			"native-credentials",
 			false,
 		),
+	});
+}
+
+if (mode === "live") {
+	steps.push({
+		name: "live-providers",
+		command: "dotnet",
+		args: [
+			"test",
+			"server/MyloMail.Api.IntegrationTests/MyloMail.Api.IntegrationTests.csproj",
+			"--nologo",
+			"--no-build",
+			"--logger",
+			"console;verbosity=quiet",
+			"--filter",
+			"FullyQualifiedName~GmailConformanceTests|FullyQualifiedName~GraphConformanceTests",
+		],
+		parse: testParser(PATTERNS.xunitFailure),
 	});
 }
 

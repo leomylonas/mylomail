@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.Api.Tests", "serve
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.Api.IntegrationTests", "server\MyloMail.Api.IntegrationTests\MyloMail.Api.IntegrationTests.csproj", "{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyloMail.ProviderTestAuth", "server\MyloMail.ProviderTestAuth\MyloMail.ProviderTestAuth.csproj", "{FCCC7C8F-96F3-4A85-9C9E-68EAE3E406E6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,5 +28,9 @@ Global
 		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5C73025E-CCF3-4DA7-A8EB-2AA86E1196ED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FCCC7C8F-96F3-4A85-9C9E-68EAE3E406E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FCCC7C8F-96F3-4A85-9C9E-68EAE3E406E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FCCC7C8F-96F3-4A85-9C9E-68EAE3E406E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FCCC7C8F-96F3-4A85-9C9E-68EAE3E406E6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

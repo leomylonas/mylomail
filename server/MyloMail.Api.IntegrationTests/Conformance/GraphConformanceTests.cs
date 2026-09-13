@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Graph;
+using MyloMail.Api.Tests.Credentials;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
@@ -13,6 +14,8 @@ namespace MyloMail.Api.Tests.Conformance;
 /// <summary>Real Graph conformance subject. It is intentionally skipped without a local client id.</summary>
 public sealed class GraphConformanceTests : MailProviderConformanceTests
 {
+	private const string TokenCacheVariable = "GRAPH_TOKEN_CACHE_BASE64";
+
 	private static string? ClientId => Environment.GetEnvironmentVariable("GRAPH_CLIENT_ID");
 
 	private static string Authority =>
@@ -21,7 +24,9 @@ public sealed class GraphConformanceTests : MailProviderConformanceTests
 	protected override string? SkipReason =>
 		string.IsNullOrWhiteSpace(ClientId)
 			? "GRAPH_CLIENT_ID not set — source .dev/provider-test.env"
-			: null;
+			: !ProviderTestCredentialCache.IsConfigured(TokenCacheVariable)
+				? $"{TokenCacheVariable} not set — run pnpm provider:authorize graph"
+				: null;
 
 	protected override async Task<IConformanceHarness> CreateHarnessAsync() =>
 		await GraphConformanceHarness.CreateAsync(ClientId!, Authority);
@@ -30,7 +35,9 @@ public sealed class GraphConformanceTests : MailProviderConformanceTests
 public sealed class GraphConformanceHarness : IConformanceHarness
 {
 	private static readonly InMemoryCredentialStore SharedCredentials = new();
-	private static readonly Guid SharedAccountId = Guid.NewGuid();
+	private static readonly ProviderTestCredential SavedCredential =
+		ProviderTestCredentialCache.Load("GRAPH_TOKEN_CACHE_BASE64", "msal-token-cache-v1");
+	private static readonly Guid SharedAccountId = SavedCredential.AccountId;
 	private static readonly SemaphoreSlim AuthorizationGate = new(1, 1);
 	private readonly GraphServiceClient client;
 	private readonly List<string> createdFolders = [];
@@ -56,6 +63,11 @@ public sealed class GraphConformanceHarness : IConformanceHarness
 	public static async Task<GraphConformanceHarness> CreateAsync(string clientId, string authority)
 	{
 		var credentials = SharedCredentials;
+		await ProviderTestCredentialCache.SeedIfMissingAsync(
+			credentials,
+			SavedCredential,
+			CancellationToken.None
+		);
 		var oauth = new GraphOAuthAuthenticator(credentials, clientId, authority);
 		var account = new Account
 		{

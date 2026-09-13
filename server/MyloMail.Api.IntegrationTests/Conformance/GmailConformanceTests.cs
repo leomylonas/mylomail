@@ -7,6 +7,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Gmail;
+using MyloMail.Api.Tests.Credentials;
 using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
 
 namespace MyloMail.Api.Tests.Conformance;
@@ -14,6 +15,8 @@ namespace MyloMail.Api.Tests.Conformance;
 /// <summary>Real Gmail conformance subject. It is intentionally skipped without local OAuth configuration.</summary>
 public sealed class GmailConformanceTests : MailProviderConformanceTests
 {
+	private const string TokenCacheVariable = "GMAIL_TOKEN_CACHE_BASE64";
+
 	private static string? ClientId => Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
 
 	private static string? ClientSecret => Environment.GetEnvironmentVariable("GMAIL_CLIENT_SECRET");
@@ -21,7 +24,9 @@ public sealed class GmailConformanceTests : MailProviderConformanceTests
 	protected override string? SkipReason =>
 		string.IsNullOrWhiteSpace(ClientId) || string.IsNullOrWhiteSpace(ClientSecret)
 			? "GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET not set — source .dev/provider-test.env"
-			: null;
+			: !ProviderTestCredentialCache.IsConfigured(TokenCacheVariable)
+				? $"{TokenCacheVariable} not set — run pnpm provider:authorize gmail"
+				: null;
 
 	protected override async Task<IConformanceHarness> CreateHarnessAsync() =>
 		await GmailConformanceHarness.CreateAsync(ClientId!, ClientSecret!);
@@ -30,7 +35,9 @@ public sealed class GmailConformanceTests : MailProviderConformanceTests
 public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMailboxResolver
 {
 	private static readonly InMemoryCredentialStore SharedCredentials = new();
-	private static readonly Guid SharedAccountId = Guid.NewGuid();
+	private static readonly ProviderTestCredential SavedCredential =
+		ProviderTestCredentialCache.Load("GMAIL_TOKEN_CACHE_BASE64", "google-token-cache-v1");
+	private static readonly Guid SharedAccountId = SavedCredential.AccountId;
 	private static readonly SemaphoreSlim AuthorizationGate = new(1, 1);
 	private readonly GmailOAuthAuthenticator oauth;
 	private readonly GmailService service;
@@ -73,6 +80,11 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 	public static async Task<GmailConformanceHarness> CreateAsync(string clientId, string clientSecret)
 	{
 		var credentials = SharedCredentials;
+		await ProviderTestCredentialCache.SeedIfMissingAsync(
+			credentials,
+			SavedCredential,
+			CancellationToken.None
+		);
 		var oauth = new GmailOAuthAuthenticator(
 			credentials,
 			new ClientSecrets { ClientId = clientId, ClientSecret = clientSecret }
