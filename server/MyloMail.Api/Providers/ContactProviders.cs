@@ -133,6 +133,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		HttpMethod.Post,
 		$"{BaseUrl}/people:createContact?personFields=names,emailAddresses,metadata&sources=READ_SOURCE_TYPE_CONTACT",
 		null,
+		null,
 		contact,
 		null,
 		ct
@@ -150,6 +151,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		HttpMethod.Patch,
 		$"{BaseUrl}/{ResourcePath(id)}:updateContact?updatePersonFields=names,emailAddresses&personFields=names,emailAddresses,metadata&sources=READ_SOURCE_TYPE_CONTACT",
 		expectedRevision,
+		providerContainerId,
 		contact,
 		id,
 		ct
@@ -172,13 +174,17 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		HttpMethod method,
 		string url,
 		string? revision,
+		string? sourceId,
 		ProviderContactWrite contact,
 		string? id,
 		CancellationToken ct
 	)
 	{
+		if (revision is not null && sourceId is null)
+		{
+			sourceId = await GetContactSourceIdAsync(account, id!, ct);
+		}
 		using var request = await RequestAsync(account, method, url, ct);
-		if (revision is not null) request.Headers.TryAddWithoutValidation("If-Match", revision);
 		var names = new[] { new { unstructuredName = contact.DisplayName } };
 		var emails = contact.Emails.Select(email => new { value = email });
 		request.Content = revision is null
@@ -188,7 +194,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 				resourceName = id,
 				metadata = new
 				{
-					sources = new[] { new { type = "CONTACT", etag = revision } },
+					sources = new[] { new { type = "CONTACT", id = sourceId, etag = revision } },
 				},
 				names,
 				emailAddresses = emails,
@@ -197,6 +203,27 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		await EnsureAsync(response, ct);
 		using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
 		return Parse(json.RootElement);
+	}
+
+	private async Task<string> GetContactSourceIdAsync(
+		Account account,
+		string id,
+		CancellationToken ct
+	)
+	{
+		using var request = await RequestAsync(
+			account,
+			HttpMethod.Get,
+			$"{BaseUrl}/{ResourcePath(id)}?personFields=metadata&sources=READ_SOURCE_TYPE_CONTACT",
+			ct
+		);
+		using var response = await client.SendAsync(request, ct);
+		await EnsureAsync(response, ct);
+		using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+		return ContactSourceValue(json.RootElement, "id")
+			?? throw new ProviderContactRejectedException(
+				"Google People did not return the contact source identifier."
+			);
 	}
 
 	private async Task<HttpRequestMessage> RequestAsync(
@@ -241,7 +268,8 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		if ((int)response.StatusCode is >= 400 and < 500)
 		{
 			var body = await response.Content.ReadAsStringAsync(ct);
-			if (body.Contains("failedPrecondition", StringComparison.OrdinalIgnoreCase))
+			if (body.Contains("failedPrecondition", StringComparison.OrdinalIgnoreCase)
+				|| body.Contains("FAILED_PRECONDITION", StringComparison.Ordinal))
 				throw new ProviderConflictException("The Google contact changed remotely.");
 			throw new ProviderContactRejectedException($"Google People rejected the contact operation with HTTP {(int)response.StatusCode}.");
 		}
@@ -261,7 +289,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 
 	private static ProviderContact Parse(JsonElement row) => new(
 		row.GetProperty("resourceName").GetString()!,
-		ContactSourceRevision(row),
+		ContactSourceValue(row, "etag"),
 		row.TryGetProperty("names", out var names) && names.GetArrayLength() > 0
 			? names[0].GetProperty("displayName").GetString() ?? ""
 			: "",
@@ -271,10 +299,11 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 				.Where(email => email is not null)
 				.Cast<string>()
 				.ToArray()
-			: []
+			: [],
+		ContactSourceValue(row, "id")
 	);
 
-	private static string? ContactSourceRevision(JsonElement person)
+	private static string? ContactSourceValue(JsonElement person, string property)
 	{
 		if (!person.TryGetProperty("metadata", out var metadata)
 			|| !metadata.TryGetProperty("sources", out var sources)) return null;
@@ -282,7 +311,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 		{
 			if (source.TryGetProperty("type", out var type)
 				&& type.GetString() == "CONTACT"
-				&& source.TryGetProperty("etag", out var etag)) return etag.GetString();
+				&& source.TryGetProperty(property, out var value)) return value.GetString();
 		}
 		return null;
 	}

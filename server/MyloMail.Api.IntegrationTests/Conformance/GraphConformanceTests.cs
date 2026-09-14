@@ -6,12 +6,17 @@ using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Graph;
 using MyloMail.Api.Tests.Credentials;
+using Xunit;
 using DomainMailbox = MyloMail.Api.Domain.Mailbox;
 using GraphMessage = Microsoft.Graph.Models.Message;
 
 namespace MyloMail.Api.Tests.Conformance;
 
 /// <summary>Real Graph conformance subject. It is intentionally skipped without a local client id.</summary>
+[Collection("Graph live provider")]
+[Trait("Category", "LiveProvider")]
+[Trait("Provider", "Graph")]
+[Trait("Area", "Mail")]
 public sealed class GraphConformanceTests : MailProviderConformanceTests
 {
 	private const string TokenCacheVariable = "GRAPH_TOKEN_CACHE_BASE64";

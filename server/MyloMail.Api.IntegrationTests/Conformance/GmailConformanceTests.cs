@@ -8,11 +8,16 @@ using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Providers.Gmail;
 using MyloMail.Api.Tests.Credentials;
+using Xunit;
 using GmailMessage = Google.Apis.Gmail.v1.Data.Message;
 
 namespace MyloMail.Api.Tests.Conformance;
 
 /// <summary>Real Gmail conformance subject. It is intentionally skipped without local OAuth configuration.</summary>
+[Collection("Gmail live provider")]
+[Trait("Category", "LiveProvider")]
+[Trait("Provider", "Gmail")]
+[Trait("Area", "Mail")]
 public sealed class GmailConformanceTests : MailProviderConformanceTests
 {
 	private const string TokenCacheVariable = "GMAIL_TOKEN_CACHE_BASE64";
@@ -116,18 +121,19 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 
 	public async Task<MessageOccurrenceRef> SeedMessageAsync(Mailbox mailbox, CancellationToken ct = default)
 	{
-		var sent = await service.Users.Messages
-			.Send(new GmailMessage { Raw = RawMessage("seed") }, "me")
-			.ExecuteAsync(ct);
-		var id = sent.Id ?? throw new InvalidOperationException("Gmail did not return the seeded message id.");
-		createdMessages.Add(id);
-		await service.Users.Messages
-			.Modify(
-				new ModifyMessageRequest { AddLabelIds = [ProviderMailboxId(mailbox.Id)] },
-				"me",
-				id
+		var inserted = await service.Users.Messages
+			.Insert(
+				new GmailMessage
+				{
+					Raw = RawMessage("seed"),
+					LabelIds = [ProviderMailboxId(mailbox.Id)],
+				},
+				"me"
 			)
 			.ExecuteAsync(ct);
+		var id = inserted.Id
+			?? throw new InvalidOperationException("Gmail did not return the seeded message id.");
+		createdMessages.Add(id);
 		return new MessageOccurrenceRef(Guid.NewGuid(), mailbox.Id, id);
 	}
 
@@ -157,6 +163,10 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 		{
 			await SeedMessageAsync(mailbox, ct);
 		}
+		// Inserting enough messages to cross the provider's 200-item page also consumes most
+		// of a reduced test project's per-user minute quota. Let that window clear before the
+		// conformance assertion fetches every first-page message.
+		await Task.Delay(TimeSpan.FromMinutes(1), ct);
 	}
 
 	public async Task<ProviderCursorState> BaselineCursorAsync(Mailbox mailbox, CancellationToken ct = default)

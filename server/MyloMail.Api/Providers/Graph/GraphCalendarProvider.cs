@@ -97,7 +97,7 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 				{
 					var master = await ThrottleAwareAsync(() => client.Me.Events[masterId].GetAsync(
 						configuration => configuration.QueryParameters.Select = [
-							"id", "@odata.etag", "transactionId", "iCalUId", "subject", "body", "location",
+							"id", "transactionId", "iCalUId", "subject", "body", "location",
 							"start", "end", "isAllDay", "isCancelled", "showAs", "attendees", "isReminderOn",
 							"reminderMinutesBeforeStart", "recurrence", "organizer", "responseStatus",
 						],
@@ -131,7 +131,7 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 	public async Task<CalendarEventCreation> CreateEventAsync(Account account, DomainCalendar calendar, CalendarEventDto ev, CancellationToken ct)
 	{
 		var client = await ClientAsync(account, ct);
-		var toCreate = ToGraphEvent(ev);
+		var toCreate = ToGraphEvent(ev, omitMissingOptionalValues: true);
 		toCreate.TransactionId = ev.ProviderCreationKey;
 		var created = await ThrottleAwareAsync(
 			() => client.Me.Calendars[CalendarId(calendar)].Events.PostAsync(toCreate, cancellationToken: ct)
@@ -161,7 +161,7 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 					configuration =>
 					{
 						configuration.QueryParameters.Select = [
-							"id", "@odata.etag", "transactionId", "iCalUId", "subject", "body", "location",
+							"id", "transactionId", "iCalUId", "subject", "body", "location",
 							"start", "end", "isAllDay", "isCancelled", "showAs", "attendees", "isReminderOn",
 							"reminderMinutesBeforeStart", "recurrence", "organizer", "responseStatus", "seriesMasterId", "originalStart",
 						];
@@ -318,19 +318,65 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		};
 	}
 
-	private static GraphEvent ToGraphEvent(CalendarEventDto ev) => new()
+	private static GraphEvent ToGraphEvent(
+		CalendarEventDto ev,
+		bool omitMissingOptionalValues = false
+	)
 	{
-		Subject = ev.Title,
-		Body = ev.Description is null ? null : new ItemBody { ContentType = BodyType.Html, Content = ev.Description },
-		Location = ev.Location is null ? null : new Location { DisplayName = ev.Location },
-		Start = DateTimeTimeZoneOf(ev.Start, ev.StartTimeZoneId),
-		End = DateTimeTimeZoneOf(ev.End, ev.EndTimeZoneId),
-		IsAllDay = ev.IsAllDay,
-		Attendees = [.. ev.Attendees.Select(attendee => new Microsoft.Graph.Models.Attendee { EmailAddress = new EmailAddress { Name = attendee.Name, Address = attendee.Email }, Type = TypeOf(attendee.Role) })],
-		IsReminderOn = ev.Reminders.Count > 0,
-		ReminderMinutesBeforeStart = ev.Reminders.Count > 0 ? Math.Max(0, (int)(ev.Start - ev.Reminders.Min()).TotalMinutes) : null,
-		Recurrence = GraphRecurrenceOf(ev),
-	};
+		var graphEvent = new GraphEvent
+		{
+			Subject = ev.Title,
+			Start = DateTimeTimeZoneOf(ev.Start, ev.StartTimeZoneId),
+			End = DateTimeTimeZoneOf(ev.End, ev.EndTimeZoneId),
+			IsAllDay = ev.IsAllDay,
+			Attendees =
+			[
+				.. ev.Attendees.Select(attendee =>
+					new Microsoft.Graph.Models.Attendee
+					{
+						EmailAddress = new EmailAddress
+						{
+							Name = attendee.Name,
+							Address = attendee.Email,
+						},
+						Type = TypeOf(attendee.Role),
+					}
+				),
+			],
+			IsReminderOn = ev.Reminders.Count > 0,
+		};
+		if (!omitMissingOptionalValues || ev.Description is not null)
+		{
+			graphEvent.Body = ev.Description is null
+				? null
+				: new ItemBody
+				{
+					ContentType = BodyType.Html,
+					Content = ev.Description,
+				};
+		}
+		if (!omitMissingOptionalValues || ev.Location is not null)
+		{
+			graphEvent.Location = ev.Location is null
+				? null
+				: new Location { DisplayName = ev.Location };
+		}
+		if (!omitMissingOptionalValues || ev.Reminders.Count > 0)
+		{
+			graphEvent.ReminderMinutesBeforeStart = ev.Reminders.Count > 0
+				? Math.Max(
+					0,
+					(int)(ev.Start - ev.Reminders.Min()).TotalMinutes
+				)
+				: null;
+		}
+		var recurrence = GraphRecurrenceOf(ev);
+		if (!omitMissingOptionalValues || recurrence is not null)
+		{
+			graphEvent.Recurrence = recurrence;
+		}
+		return graphEvent;
+	}
 
 	private static string CalendarId(DomainCalendar calendar) => string.IsNullOrEmpty(calendar.ProviderCalendarId)
 		? throw new InvalidOperationException("Graph calendars always have a provider id.")
@@ -481,26 +527,59 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			throw new NotSupportedException("Microsoft Graph relative monthly and yearly recurrence supports exactly one BYDAY value.");
 		}
 
+		// Kiota's backing store treats an explicit null assignment as a changed value and
+		// serializes it. Graph rejects recurrence fields that do not belong to the selected
+		// pattern even when their JSON value is null, so set only applicable properties.
 		var pattern = new RecurrencePattern
 		{
-			FirstDayOfWeek = normalizedFrequency == "WEEKLY"
-				? fields.TryGetValue("WKST", out var weekStart)
-					? GraphDayOfWeekOf(weekStart)
-					: GraphDayOfWeek.Sunday
-				: null,
-			Index = hasByDay && patternType is RecurrencePatternType.RelativeMonthly or RecurrencePatternType.RelativeYearly
-				? WeekIndexOf(fields["BYSETPOS"])
-				: null,
 			Type = patternType,
 			Interval = RecurrenceInteger(fields, "INTERVAL", 1, 1, 99),
-			DayOfMonth = patternType is RecurrencePatternType.AbsoluteMonthly or RecurrencePatternType.AbsoluteYearly
-				? RecurrenceInteger(fields, "BYMONTHDAY", localStart.Day, 1, 31)
-				: null,
-			Month = patternType is RecurrencePatternType.AbsoluteYearly or RecurrencePatternType.RelativeYearly
-				? RecurrenceInteger(fields, "BYMONTH", localStart.Month, 1, 12)
-				: null,
-			DaysOfWeek = daysOfWeek?.Select(day => (GraphDayOfWeek?)day).ToList(),
 		};
+		if (normalizedFrequency == "WEEKLY")
+		{
+			pattern.FirstDayOfWeek = fields.TryGetValue("WKST", out var weekStart)
+				? GraphDayOfWeekOf(weekStart)
+				: GraphDayOfWeek.Sunday;
+		}
+		if (
+			hasByDay
+			&& patternType is RecurrencePatternType.RelativeMonthly
+				or RecurrencePatternType.RelativeYearly
+		)
+		{
+			pattern.Index = WeekIndexOf(fields["BYSETPOS"]);
+		}
+		if (
+			patternType is RecurrencePatternType.AbsoluteMonthly
+				or RecurrencePatternType.AbsoluteYearly
+		)
+		{
+			pattern.DayOfMonth = RecurrenceInteger(
+				fields,
+				"BYMONTHDAY",
+				localStart.Day,
+				1,
+				31
+			);
+		}
+		if (
+			patternType is RecurrencePatternType.AbsoluteYearly
+				or RecurrencePatternType.RelativeYearly
+		)
+		{
+			pattern.Month = RecurrenceInteger(
+				fields,
+				"BYMONTH",
+				localStart.Month,
+				1,
+				12
+			);
+		}
+		if (daysOfWeek is not null)
+		{
+			pattern.DaysOfWeek =
+				daysOfWeek.Select(day => (GraphDayOfWeek?)day).ToList();
+		}
 		var range = new RecurrenceRange
 		{
 			StartDate = DateOnly.FromDateTime(localStart.DateTime),

@@ -61,7 +61,7 @@ public sealed partial class GraphMailProvider
 			{
 				configuration.QueryParameters.Filter =
 					$"internetMessageId eq '{stableMessageId.Replace("'", "''", StringComparison.Ordinal)}' and isDraft eq true";
-				configuration.QueryParameters.Select = ["id", "@odata.etag", "isDraft"];
+				configuration.QueryParameters.Select = ["id", "isDraft"];
 			},
 			ct
 		));
@@ -73,7 +73,7 @@ public sealed partial class GraphMailProvider
 	{
 		var client = await ClientAsync(account, ct);
 		var message = await ThrottleAwareAsync(() => client.Me.Messages[providerMessageId].GetAsync(
-			configuration => configuration.QueryParameters.Select = ["id", "@odata.etag", "isDraft"],
+			configuration => configuration.QueryParameters.Select = ["id", "isDraft"],
 			ct
 		));
 		return message?.IsDraft == true ? DraftResultOf(message) : null;

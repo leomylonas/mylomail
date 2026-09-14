@@ -9,7 +9,7 @@
  *   pnpm check:platform  build + tests on non-Linux hosts
  *   pnpm check:deep  + fault injection + provider conformance (slow, explicit only)
  *   pnpm check:native-credentials  one real host credential-store round trip
- *   pnpm check:live-providers  real Gmail and Graph conformance using local cached tokens
+ *   pnpm check:live-providers [gmail|graph] [mail|calendar|contacts]
  */
 
 import { existsSync } from "node:fs";
@@ -19,9 +19,30 @@ import { spawnSync } from "node:child_process";
 import { PATTERNS, MAX_SHOWN, isWindows, relativePath } from "./tooling.ts";
 
 type Mode = "full" | "fast" | "deep" | "platform" | "native" | "live";
+type LiveProvider = "all" | "gmail" | "graph";
+type LiveArea = "all" | "mail" | "calendar" | "contacts";
 
 const mode = (process.argv[2] ?? "full") as Mode;
+const liveProvider = (process.argv[3] ?? "all") as LiveProvider;
+const liveArea = (process.argv[4] ?? "all") as LiveArea;
 const ROOT = process.cwd();
+
+if (
+	mode === "live" &&
+	!(["all", "gmail", "graph"] as const).includes(liveProvider)
+) {
+	console.error("Live provider must be one of: all, gmail, graph.");
+	process.exit(2);
+}
+if (
+	mode === "live" &&
+	!(["all", "mail", "calendar", "contacts"] as const).includes(liveArea)
+) {
+	console.error(
+		"Live provider area must be one of: all, mail, calendar, contacts.",
+	);
+	process.exit(2);
+}
 
 if (mode === "live") {
 	const environmentPath = join(ROOT, ".dev", "provider-test.env");
@@ -31,12 +52,12 @@ if (mode === "live") {
 	}
 	loadEnvFile(environmentPath);
 	const missing = [
-		"GMAIL_CLIENT_ID",
-		"GMAIL_CLIENT_SECRET",
-		"GMAIL_TOKEN_CACHE_BASE64",
-		"GRAPH_CLIENT_ID",
-		"GRAPH_TENANT_ID",
-		"GRAPH_TOKEN_CACHE_BASE64",
+		...(liveProvider !== "graph"
+			? ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_TOKEN_CACHE_BASE64"]
+			: []),
+		...(liveProvider !== "gmail"
+			? ["GRAPH_CLIENT_ID", "GRAPH_TENANT_ID", "GRAPH_TOKEN_CACHE_BASE64"]
+			: []),
 	].filter((name) => !process.env[name]);
 	if (missing.length > 0) {
 		console.error(
@@ -212,8 +233,26 @@ if (mode === "live") {
 			"--no-build",
 			"--logger",
 			"console;verbosity=quiet",
+			...(process.env.MYLOMAIL_TEST_RESULTS_DIRECTORY
+				? [
+						"--logger",
+						`trx;LogFilePrefix=live-${liveProvider}-${liveArea}`,
+						"--results-directory",
+						process.env.MYLOMAIL_TEST_RESULTS_DIRECTORY,
+					]
+				: []),
 			"--filter",
-			"FullyQualifiedName~GmailConformanceTests|FullyQualifiedName~GraphConformanceTests",
+			[
+				"Category=LiveProvider",
+				liveProvider === "all"
+					? null
+					: `Provider=${liveProvider === "gmail" ? "Gmail" : "Graph"}`,
+				liveArea === "all"
+					? null
+					: `Area=${liveArea[0].toUpperCase()}${liveArea.slice(1)}`,
+			]
+				.filter((part) => part !== null)
+				.join("&"),
 		],
 		parse: testParser(PATTERNS.xunitFailure),
 	});

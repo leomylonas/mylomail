@@ -26,7 +26,7 @@ public sealed partial class GmailMailProvider(
 ) : IMailProvider
 {
 	private const string UserId = "me";
-	private const int SyncPageSize = 200;
+	private const int SyncPageSize = 100;
 	private const string InitialSyncCursorPrefix = "mylomail-gmail-initial-v1.";
 
 	public ProviderType Type => ProviderType.Gmail;
