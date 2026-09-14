@@ -30,12 +30,16 @@
 
 ## Next task
 
-Complete the fourth-pass architecture review, then remediate and verify the two evidence-backed findings already isolated:
+Complete the fourth-pass architecture review, then remediate and verify the evidence-backed findings already isolated:
 
 1. `MutationJobs.DrainAsync` hot-loops on `ProviderNotConfiguredException`. `MutationExecutor.ExecuteAsync` resolves `providers.For(account)` before creating an attempt, but the job's generic catch releases the untouched claim and immediately enqueues another drain. This was observed natively as hundreds of thousands of repeated missing-credential failures.
-2. Pending notifications have no renderer-readiness replay. `StartupScheduler` calls `NotificationService.RedispatchPendingAsync` before a SignalR renderer can connect; `IHubEvents.NotificationReadyAsync` succeeds with zero clients, and nothing redispatches when a client later becomes ready. The durable row remains undelivered across restarts.
+2. Pending notifications have no renderer-readiness or reconnect replay. `StartupScheduler` calls `NotificationService.RedispatchPendingAsync` before the backend is listening, so no SignalR renderer can receive it; nothing redispatches when a client later connects. The durable row remains undelivered across restarts.
+3. `ContentAcquisition.AcquireAsync` treats `ProviderAuthenticationException` and `ProviderNotConfiguredException` as message-content failures, consuming the per-message retry budget even though no content was unreadable. `ContentJobs.FetchNextAsync` then immediately continues the self-scheduling chain. Its credential-store branch also returns without scheduling the retry its comment promises.
+4. `DraftSyncService.PushAsync` deliberately rethrows a definite authentication rejection after clearing an initial-create claim, but `DraftJobs.PushAsync` handles only throttling and network failures. With automatic Hangfire retry disabled, the dirty draft remains durable but the account is not transitioned or announced as needing intervention.
+5. Graph mail, calendar, and contact token acquisition deliberately leave administrator-consent-required `MsalException` untranslated. Background workers therefore miss their `ProviderAuthenticationException` control path and apply generic retry/failure behavior instead of the architecture's structured Validation/`AuthState.Error` result. Centralize MSAL translation while preserving the administrator-consent problem details.
+6. `SendExecutor.SendAsync` classifies `ProviderNotConfiguredException` after its durable `Dispatched` write as an ambiguous send, even though provider construction failed before any send call. It must return the outbox item to `Scheduled`, close the local attempt as a definite pre-send failure, and stop the account worker without blind retry.
 
-Continue the review for analogous provider-configuration, retry-ownership, credential recovery, and lifecycle gaps before editing. Add the fourth audit report, focused regression/fault-injection coverage required by the affected domains, an independent invariant review, and a green `pnpm check`.
+Finish checking analogous export, sync-loop, IMAP IDLE, and reauthentication recovery paths before editing. Add the fourth audit report, focused regression/fault-injection coverage required by the affected domains, an independent invariant review, and a green `pnpm check`.
 
 ## Required reading
 
@@ -46,9 +50,11 @@ Continue the review for analogous provider-configuration, retry-ownership, crede
 
 ## Fourth-pass review in progress
 
-- Confirmed the two findings above from source and prior native runtime evidence.
-- Reviewed mutation dispatch ordering, outbox provider acquisition, notification durability/replay, startup reconstruction, draft credential recovery, provider-id storage, retry annotations, sync transactions, Graph request construction, renderer import/export conventions, and structured logging.
-- No fourth-pass source changes or verification claims have been made yet.
+- Confirmed the six findings above from current source and prior native runtime evidence.
+- Completed the persistence/bootstrap/packaging/CI slice with no new findings: WAL/FULL/timeout/FK coverage, migration backup, network-directory rejection, FTS repair/tombstone coupling, runtime packaging, release matrix, telemetry, and logging remain aligned with the third-pass remediation.
+- Completed the Electron/renderer slice with no additional source finding beyond the backend notification readiness gap: spawn/attach cleanup, launch-token secrecy, CSP/navigation blocking, multi-window state, reconnect cache repair, tray/quit, notification deduplication, and compose close barriers remain aligned.
+- Provider/credential review found the Graph administrator-consent translation gap above; Graph immutable IDs, credential authority/fallback, TLS pinning, and provider factory routing had no additional surviving finding.
+- Core ordering/recovery review remains in progress. No fourth-pass source remediation or verification claim has been made yet.
 
 ## Live risks / decisions
 
