@@ -14,6 +14,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Account> Accounts => Set<Account>();
 	public DbSet<SendIdentity> SendIdentities => Set<SendIdentity>();
 	public DbSet<AccountTrustedCertificate> AccountTrustedCertificates => Set<AccountTrustedCertificate>();
+	public DbSet<AccountCredentialCleanup> AccountCredentialCleanups => Set<AccountCredentialCleanup>();
 	public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
 	public DbSet<Domain.ImapMailboxMetadata> ImapMailboxMetadata => Set<Domain.ImapMailboxMetadata>();
 
@@ -26,6 +27,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<Attachment> Attachments => Set<Attachment>();
 	public DbSet<MessageSearchContent> MessageSearchContents => Set<MessageSearchContent>();
 
+	public DbSet<MailboxTopologyEpoch> MailboxTopologyEpochs => Set<MailboxTopologyEpoch>();
 	public DbSet<MailboxTopologySyncState> MailboxTopologySyncStates => Set<MailboxTopologySyncState>();
 	public DbSet<MailboxCoverageState> MailboxCoverageStates => Set<MailboxCoverageState>();
 	public DbSet<ChangeStreamState> ChangeStreamStates => Set<ChangeStreamState>();
@@ -91,6 +93,11 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		{
 			e.HasKey(x => x.AccountId);
 		});
+
+		model.Entity<AccountCredentialCleanup>(e =>
+		{
+			e.HasKey(x => x.AccountId);
+		});
 	}
 
 	private static void ConfigureAccounts(ModelBuilder model)
@@ -128,6 +135,16 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.HasForeignKey(x => x.AccountId)
 				.OnDelete(DeleteBehavior.Cascade);
 			e.HasIndex(x => new { x.AccountId, x.ExpectedHostname, x.Sha256Fingerprint }).IsUnique();
+		});
+
+		model.Entity<MailboxTopologyEpoch>(e =>
+		{
+			e.HasKey(x => new { x.AccountId, x.ProviderMailboxId });
+			e.Property(x => x.ProviderMailboxId).IsRequired();
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
 		});
 	}
 

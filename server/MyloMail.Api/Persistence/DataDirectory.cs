@@ -108,7 +108,7 @@ public static class DataDirectory
 			return;
 		}
 
-		EnsureLocalUnix(path, ReadProcMounts());
+		EnsureLocalUnix(ResolveExistingAncestorThroughLinks(path), ReadProcMounts());
 	}
 
 	internal static void EnsureLocalUnix(
@@ -116,7 +116,7 @@ public static class DataDirectory
 		IEnumerable<(string Point, string Type)> mounts
 	)
 	{
-		var mount = FindMount(path, mounts);
+		var mount = FindMount(ResolveExistingAncestorThroughLinks(path), mounts);
 		if (mount is not null)
 		{
 			EnsureFileSystemIsLocal(path, mount.Value.Type);
@@ -193,12 +193,12 @@ public static class DataDirectory
 			Path.DirectorySeparatorChar,
 			StringSplitOptions.RemoveEmptyEntries
 		);
-		foreach (var segment in segments)
+		for (var index = 0; index < segments.Length; index++)
 		{
-			var directory = new DirectoryInfo(Path.Combine(current, segment));
+			var directory = new DirectoryInfo(Path.Combine(current, segments[index]));
 			if (!directory.Exists)
 			{
-				return current;
+				return Path.Combine(current, Path.Combine(segments[index..]));
 			}
 
 			current = directory.ResolveLinkTarget(returnFinalTarget: true)?.FullName

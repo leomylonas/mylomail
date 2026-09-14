@@ -84,15 +84,13 @@ public sealed class MailboxAvailabilityProjectionTests
 		harness.Provider.BeforeInitialSyncReturnAsync = () =>
 			Task.FromException(new InvalidOperationException("Malformed coverage page."));
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.CoveragePageAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.CoveragePageAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 
 		var summary = await SummaryAsync(harness);
@@ -140,15 +138,13 @@ public sealed class MailboxAvailabilityProjectionTests
 		Assert.Equal(MailboxAvailability.Usable, afterRestart.Availability);
 		Assert.Empty(harness.Events.Mailboxes);
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.CoveragePageAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.CoveragePageAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 		Assert.Equal(MailboxAvailability.Degraded, (await SummaryAsync(harness)).Availability);
 		Assert.Equal(MailboxAvailability.Degraded, Assert.Single(harness.Events.Mailboxes).Availability);
@@ -163,10 +159,8 @@ public sealed class MailboxAvailabilityProjectionTests
 		await SetCoverageAsync(harness, CoverageStatus.Backfilling);
 		harness.Provider.FailListMailboxesWith(new InvalidOperationException("Malformed topology."));
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(scope =>
-				scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
-			)
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
 		);
 
 		var summary = await SummaryAsync(harness);
@@ -194,15 +188,13 @@ public sealed class MailboxAvailabilityProjectionTests
 		await SetCoverageAsync(harness, CoverageStatus.Backfilling);
 		harness.Provider.FailNextIntegrityWith(new InvalidOperationException("Malformed UID snapshot."));
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.IntegrityAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.IntegrityAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 
 		var summary = await SummaryAsync(harness);
@@ -242,15 +234,13 @@ public sealed class MailboxAvailabilityProjectionTests
 		harness.Events.Mailboxes.Clear();
 		harness.Provider.FailNextChangeStreamWith(new InvalidOperationException("Malformed delta."));
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.ChangeStreamAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.ChangeStreamAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 		Assert.Equal("Malformed delta.", await harness.UsingAsync(async scope =>
 			(await scope
@@ -296,15 +286,13 @@ public sealed class MailboxAvailabilityProjectionTests
 				throw new InvalidOperationException("Stale malformed delta.");
 			});
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.ChangeStreamAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.ChangeStreamAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 
 		Assert.Null(await harness.UsingAsync(async scope =>
@@ -334,15 +322,13 @@ public sealed class MailboxAvailabilityProjectionTests
 				throw new InvalidOperationException("Stale malformed snapshot.");
 			});
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(async scope =>
-				await scope
-					.GetRequiredService<SyncJobs>()
-					.IntegrityAsync(
-						harness.Account.Id,
-						(await harness.MailboxAsync(scope, "INBOX")).Id
-					)
-			)
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<SyncJobs>()
+				.IntegrityAsync(
+					harness.Account.Id,
+					(await harness.MailboxAsync(scope, "INBOX")).Id
+				)
 		);
 
 		Assert.Empty(await harness.UsingAsync(scope =>
@@ -367,10 +353,8 @@ public sealed class MailboxAvailabilityProjectionTests
 				throw new InvalidOperationException("Malformed history.");
 			});
 
-		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			harness.UsingAsync(scope =>
-				scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
-			)
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
 		);
 
 		await harness.UsingAsync(async scope =>

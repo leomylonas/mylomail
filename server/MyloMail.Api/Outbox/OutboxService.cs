@@ -4,6 +4,7 @@ using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 
 namespace MyloMail.Api.Outbox;
 
@@ -20,7 +21,8 @@ public sealed class OutboxService(
 	MyloMailDbContext context,
 	TimeProvider clock,
 	IHubEvents events,
-	IOutboxDispatcher dispatcher
+	IOutboxDispatcher dispatcher,
+	IMailProviderFactory providers
 )
 {
 	private const string TransitionSql = """
@@ -44,19 +46,121 @@ public sealed class OutboxService(
 		CancellationToken ct = default
 	)
 	{
+		var draft = await context.Drafts.SingleAsync(
+			candidate => candidate.Id == draftId && candidate.AccountId == account.Id,
+			ct
+		);
 		var now = clock.GetUtcNow();
-		var item = new OutboxItem
+		var assignedStableIdentity = draft.StableMessageId is null;
+		var stableMessageId = draft.StableMessageId ?? NewMessageId(account);
+		draft.StableMessageId = stableMessageId;
+		if (
+			assignedStableIdentity
+			&& account.ProviderType == ProviderType.Microsoft365
+			&& draft.ProviderDraftId is not null
+		)
 		{
-			Id = Guid.NewGuid(),
-			AccountId = account.Id,
-			DraftId = draftId,
-			Status = OutboxStatus.Scheduled,
-			ScheduledSendAt = scheduledFor ?? now.AddSeconds(account.UndoSendDelaySeconds),
-			StableMessageId = NewMessageId(account),
-			CreatedAt = now,
-		};
+			// An older/materialised Graph draft may not carry the local reconciliation
+			// identity on the server. Force the pre-send draft push to persist it before the
+			// externally visible send attempt is claimed.
+			draft.PushedAt = null;
+		}
 
-		context.OutboxItems.Add(item);
+		var item = await context.OutboxItems.FirstOrDefaultAsync(
+			candidate => candidate.StableMessageId == stableMessageId,
+			ct
+		);
+		if (item?.Status == OutboxStatus.AmbiguousOutcome)
+		{
+			if (
+				item.ReconcilingSince is not { } reconcilingSince
+				|| now - reconcilingSince < SendReconciler.ReconciliationWindow
+			)
+			{
+				throw new InvalidOperationException(
+					"This send is still being reconciled and cannot be sent again yet."
+				);
+			}
+
+			if (
+				account.ProviderType == ProviderType.Microsoft365
+				&& (draft.ProviderMessageId ?? draft.ProviderDraftId) is { } providerMessageId
+			)
+			{
+				// The immutable id may now name the already-sent item rather than a mutable
+				// draft. Resolve that provider fact before authorising a new send.
+				var remoteDraft = await providers
+					.For(account)
+					.FindDraftByMessageIdAsync(account, providerMessageId, ct);
+				if (remoteDraft is null)
+				{
+					draft.ProviderDraftId = null;
+					draft.ProviderMessageId = null;
+					draft.PushedAt = null;
+					draft.ProviderRevision = null;
+				}
+				else
+				{
+					draft.ProviderDraftId = remoteDraft.ProviderDraftId;
+					draft.ProviderMessageId =
+						remoteDraft.ProviderMessageId ?? remoteDraft.ProviderDraftId;
+					draft.ProviderRevision = remoteDraft.ProviderRevision;
+				}
+			}
+
+			// Reaching QueueAsync again is the user's explicit send-again action after the
+			// ambiguity window. Reuse the durable row, but mint a new Message-ID so the new
+			// attempt cannot be mistaken for the first possibly-successful send.
+			stableMessageId = NewMessageId(account);
+			draft.StableMessageId = stableMessageId;
+			item.StableMessageId = stableMessageId;
+			if (
+				account.ProviderType == ProviderType.Microsoft365
+				&& draft.ProviderDraftId is not null
+			)
+			{
+				draft.PushedAt = null;
+			}
+			await context
+				.MutationExecutionAttempts.Where(attempt =>
+					attempt.OutboxItemId == item.Id && attempt.State != MutationAttemptState.Completed
+				)
+				.ExecuteUpdateAsync(
+					setters =>
+						setters
+							.SetProperty(attempt => attempt.State, MutationAttemptState.Completed)
+							.SetProperty(attempt => attempt.ResultPersistedAt, now),
+					ct
+				);
+		}
+		else if (
+			item is not null
+			&& item.Status is not OutboxStatus.Cancelled
+			&& item.Status is not OutboxStatus.Failed
+		)
+		{
+			throw new InvalidOperationException("This draft is already queued for sending.");
+		}
+		if (item is null)
+		{
+			item = new OutboxItem
+			{
+				Id = Guid.NewGuid(),
+				AccountId = account.Id,
+				DraftId = draftId,
+				StableMessageId = stableMessageId,
+			};
+			context.OutboxItems.Add(item);
+		}
+		item.DraftId = draftId;
+		item.Status = OutboxStatus.Scheduled;
+		item.ScheduledSendAt = scheduledFor ?? now.AddSeconds(account.UndoSendDelaySeconds);
+		item.CreatedAt = now;
+		item.Attempts = 0;
+		item.RecipientSnapshot = [];
+		item.LastError = null;
+		item.SentAt = null;
+		item.ReconcilingSince = null;
 		await context.SaveChangesAsync(ct);
 
 		// The outbox is the one place a user watches a thing they cannot cancel much longer,

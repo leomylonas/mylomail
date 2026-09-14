@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Persistence;
@@ -18,10 +20,9 @@ namespace MyloMail.Api.Tests.Content;
 public sealed class SearchIndexMigrationTests
 {
 	[Fact]
-	public async Task Re_running_migrations_over_indexed_content_leaves_the_index_intact()
+	public async Task Migrating_across_the_search_content_rebuild_leaves_the_index_intact()
 	{
 		await using var database = new TestDatabase();
-		await database.MigrateAsync();
 
 		var services = new ServiceCollection()
 			.AddLogging()
@@ -33,35 +34,47 @@ public sealed class SearchIndexMigrationTests
 		await using (var scope = services.CreateAsyncScope())
 		{
 			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			await context
+				.GetService<IMigrator>()
+				.MigrateAsync("20260830224443_Outbox");
 			var accountId = Guid.NewGuid();
-			context.Accounts.Add(new Api.Domain.Account { Id = accountId, DisplayName = "Test" });
+			await context.Database.ExecuteSqlInterpolatedAsync(
+				$"""
+				INSERT INTO "Accounts" (
+					"Id", "AuthState", "CertificateTrustMode", "Color", "DisplayName",
+					"InitialSyncMode", "IsEnabled", "NotificationsEnabled", "PollIntervalSeconds",
+					"PollingEnabled", "ProviderType", "SortOrder", "UndoSendDelaySeconds"
+				) VALUES (
+					{accountId}, 0, 0, '', 'Test', 0, 1, 1, 60, 1, 0, 0, 5
+				);
+				"""
+			);
 
 			for (var i = 0; i < 3; i++)
 			{
 				var messageId = Guid.NewGuid();
-				context.Messages.Add(
-					new Api.Domain.Message
-					{
-						Id = messageId,
-						AccountId = accountId,
-						Subject = $"Message {i}",
-						ReceivedAt = DateTimeOffset.UnixEpoch,
-					}
-				);
-				context.MessageSearchContents.Add(
-					new Api.Domain.MessageSearchContent
-					{
-						MessageId = messageId,
-						Subject = $"Message {i}",
-						BodyText = $"body number {i}",
-					}
+				await context.Database.ExecuteSqlInterpolatedAsync(
+					$"""
+					INSERT INTO "Messages" (
+						"Id", "AccountId", "Bcc", "Cc", "From", "HasNonInlineAttachments",
+						"IsAnswered", "IsDraft", "IsFlagged", "IsRead", "RawFetched",
+						"ReceivedAt", "ReplyToAddresses", "Snippet", "Subject", "To"
+					) VALUES (
+						{messageId}, {accountId}, '', '', '', 0, 0, 0, 0, 0, 0,
+						{DateTimeOffset.UnixEpoch}, '', '', {$"Message {i}"}, ''
+					);
+					INSERT INTO "MessageSearchContents" (
+						"MessageId", "Subject", "BodyText", "FromAddresses", "ToAddresses", "CcAddresses"
+					) VALUES (
+						{messageId}, {$"Message {i}"}, {$"body number {i}"}, '', '', ''
+					);
+					"""
 				);
 			}
 
-			await context.SaveChangesAsync();
-			rowIds.AddRange(await context.MessageSearchContents.Select(c => c.RowId).ToListAsync());
-
-			foreach (var row in await context.MessageSearchContents.ToListAsync())
+			var rows = await context.MessageSearchContents.ToListAsync();
+			rowIds.AddRange(rows.Select(row => row.RowId));
+			foreach (var row in rows)
 			{
 				await context.Database.ExecuteSqlAsync(
 					$"""
@@ -72,14 +85,20 @@ public sealed class SearchIndexMigrationTests
 			}
 		}
 
-		// Migrating again is what a released build does on every launch.
+		// Cross RestrictSearchContentDeletion in the released direction.
 		await database.MigrateAsync();
 
 		await using (var scope = services.CreateAsyncScope())
 		{
 			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
 
-			Assert.Equal(rowIds, await context.MessageSearchContents.Select(c => c.RowId).ToListAsync());
+			Assert.Equal(
+				rowIds.Order(),
+				await context.MessageSearchContents
+					.OrderBy(content => content.RowId)
+					.Select(content => content.RowId)
+					.ToListAsync()
+			);
 
 			// The index still describes the rows it was built from.
 			await context.Database.ExecuteSqlRawAsync(

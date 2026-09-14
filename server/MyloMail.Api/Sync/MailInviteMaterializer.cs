@@ -332,6 +332,7 @@ public sealed class MailInviteMaterializer(
 		};
 		context.Calendars.Add(created);
 		await context.SaveChangesAsync(ct);
+		await events.CalendarCollectionChangedAsync(accountId);
 		return created.Id;
 	}
 }

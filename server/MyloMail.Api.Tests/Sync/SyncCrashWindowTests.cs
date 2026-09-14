@@ -204,6 +204,7 @@ public sealed class SyncCrashWindowTests
 		);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.SyncAsync(harness);
 		var occurrenceId = harness.Provider.SeedMessage(
 			"INBOX",
 			Guid.NewGuid(),
@@ -319,6 +320,31 @@ public sealed class SyncCrashWindowTests
 
 			// The membership under the retired generation is not written.
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
+		});
+	}
+
+	[Fact]
+	public async Task Recreated_provider_mailbox_advances_its_persisted_topology_epoch()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		var first = await harness.UsingAsync(async scope =>
+		{
+			var mailbox = await harness.MailboxAsync(scope, "INBOX");
+			return (mailbox.Id, mailbox.TopologyGeneration);
+		});
+
+		harness.Provider.RemoveMailbox("INBOX");
+		await SyncTests.ReconcileAsync(harness);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var recreated = await harness.MailboxAsync(scope, "INBOX");
+			Assert.NotEqual(first.Id, recreated.Id);
+			Assert.True(recreated.TopologyGeneration > first.TopologyGeneration);
 		});
 	}
 

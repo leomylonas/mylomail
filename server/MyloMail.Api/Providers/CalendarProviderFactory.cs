@@ -118,7 +118,7 @@ public sealed class CalendarProviderFactory(
 			catch (HttpRequestException) when (Rejected is { } rejected)
 			{
 				throw new ProviderAuthenticationException(
-					CertificateTrust.Problem(rejected.Hostname, rejected.Fingerprint, rejected.Issuer).Detail!
+					CertificateTrust.Problem(rejected.Hostname, rejected.Fingerprint, rejected.Issuer)
 				);
 			}
 		}

@@ -1,11 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
 
@@ -335,6 +337,45 @@ public sealed class MutationExecutionTests
 		});
 	}
 
+	[Fact]
+	public async Task Indistinguishable_recovery_candidates_keep_the_attempt_unresolved()
+	{
+		await using var harness = await MutationHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.Basic)
+		);
+		await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		harness.Provider.SeedMessage("ARCHIVE", harness.MessageId, DateTimeOffset.UnixEpoch);
+		harness.Provider.SeedMessage("ARCHIVE", harness.MessageId, DateTimeOffset.UnixEpoch);
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+
+		harness.Clock.Advance(TimeSpan.FromHours(1));
+		var reclaimed = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationClaimService>()
+				.ClaimAsync(harness.AccountId, "replacement-worker", TimeSpan.FromMinutes(5), 10)
+		);
+		Assert.Empty(reclaimed);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(MutationState.Leased, (await context.MutationItems.SingleAsync()).State);
+			var attempt = await context.MutationExecutionAttempts.SingleAsync();
+			Assert.Equal(MutationAttemptState.Ambiguous, attempt.State);
+			Assert.Null(attempt.ResultPersistedAt);
+		});
+	}
+
+
 	/// <summary>
 	/// Execution identity is resolved after preceding mutations settle. Two chained moves are
 	/// the case that would break if the occurrence id were captured at enqueue time: the
@@ -595,6 +636,96 @@ public sealed class MutationExecutionTests
 			Assert.NotEmpty(await services.GetRequiredService<StartupReconciliation>().AmbiguousItemsAsync());
 		});
 	}
+	[Fact]
+	public async Task A_mixed_partial_batch_keeps_only_its_unreported_sibling_ambiguous()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var otherMessageId = await MutationOrderingTests.AddMessageAsync(harness, "partial-sibling");
+		var first = await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		var second = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.SetFlagsAsync(
+					harness.AccountId,
+					otherMessageId,
+					new MyloMail.Api.Providers.Contracts.FlagUpdate(true, null)
+				)
+		);
+		var omittedOccurrenceId = await harness.UsingAsync(async services =>
+			(await services
+				.GetRequiredService<MyloMailDbContext>()
+				.MessageMailboxes.SingleAsync(occurrence => occurrence.MessageId == otherMessageId))
+				.ProviderOccurrenceId
+		);
+		harness.Provider.OmitFromBatchResults(omittedOccurrenceId);
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var items = await context.MutationItems.OrderBy(item => item.MessageId).ToListAsync();
+			Assert.Equal(MutationState.Completed, items.Single(item => item.Id == first.Id).State);
+			Assert.Equal(MutationState.Leased, items.Single(item => item.Id == second.Id).State);
+			var attempt = await context.MutationExecutionAttempts.SingleAsync();
+			Assert.Equal(MutationAttemptState.Ambiguous, attempt.State);
+			Assert.Equal(2, await context.MutationExecutionAttemptItems.CountAsync());
+		});
+
+		await harness.RestartAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)
+		);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(
+				MutationState.Completed,
+				(await context.MutationItems.SingleAsync(item => item.Id == first.Id)).State
+			);
+			Assert.Equal(
+				MutationState.Pending,
+				(await context.MutationItems.SingleAsync(item => item.Id == second.Id)).State
+			);
+			Assert.True((await context.Messages.SingleAsync(message => message.Id == harness.MessageId)).IsRead);
+			Assert.False((await context.Messages.SingleAsync(message => message.Id == otherMessageId)).IsRead);
+		});
+		var retryable = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationClaimService>()
+				.ClaimAsync(harness.AccountId, "retry-worker", TimeSpan.FromMinutes(5), 10)
+		);
+		Assert.Equal(second.Id, Assert.Single(retryable).Id);
+	}
+
+	[Fact]
+	public async Task A_pre_dispatch_provider_failure_releases_the_current_batch_for_retry()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		harness.FailNextProviderResolutionWith =
+			new CredentialStoreUnavailableException("the keyring is locked");
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationJobs>().DrainAsync(harness.AccountId)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var item = await services
+				.GetRequiredService<MyloMailDbContext>()
+				.MutationItems.SingleAsync();
+			Assert.Equal(MutationState.Pending, item.State);
+			Assert.Null(item.LeaseOwner);
+			Assert.Contains(
+				((RecordingJobClient)services
+					.GetRequiredService<Hangfire.IBackgroundJobClient>())
+					.Created,
+				job => job.Method.Name == nameof(MutationJobs.DrainAsync)
+			);
+		});
+	}
+
 
 	internal static async Task ExecuteAsync(MutationHarness harness)
 	{

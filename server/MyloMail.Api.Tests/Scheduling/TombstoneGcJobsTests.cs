@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Notifications;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Scheduling;
+using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -239,6 +242,187 @@ public sealed class TombstoneGcJobsTests
 			Assert.True(await context.Messages.AnyAsync(m => m.Id == harness.MessageId));
 		});
 	}
+
+	[Fact]
+	public async Task Expired_click_navigation_releases_the_message_without_losing_notification_deduplication()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await OrphanTheSeededMessageAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var message = await context.Messages.SingleAsync(row => row.Id == harness.MessageId);
+			message.OrphanedAt = harness.Clock.GetUtcNow() - PastGracePeriod;
+			message.ProviderStableId = "stable-message";
+			context.NotificationRecords.Add(
+				new NotificationRecord
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.AccountId,
+					MessageId = harness.MessageId,
+					ProviderStableId = message.ProviderStableId,
+					CreatedAt = harness.Clock.GetUtcNow(),
+					DeliveredAt = harness.Clock.GetUtcNow(),
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await SweepAsync(harness);
+		await harness.UsingAsync(async services =>
+			Assert.True(await services
+				.GetRequiredService<MyloMailDbContext>()
+				.Messages.AnyAsync(message => message.Id == harness.MessageId))
+		);
+
+		harness.Clock.Advance(TimeSpan.FromDays(8));
+		await SweepAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.False(await context.Messages.AnyAsync(message => message.Id == harness.MessageId));
+			var retained = await context.NotificationRecords.SingleAsync();
+			Assert.Null(retained.MessageId);
+			Assert.Equal("stable-message", retained.ProviderStableId);
+
+			var account = await context.Accounts.SingleAsync(candidate =>
+				candidate.Id == harness.AccountId
+			);
+			account.NotificationsEnabled = true;
+			account.NotificationEpoch = DateTimeOffset.UnixEpoch;
+			var replayed = new Message
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				ProviderStableId = "stable-message",
+				ReceivedAt = harness.Clock.GetUtcNow(),
+			};
+			Assert.Empty(
+				await services
+					.GetRequiredService<NotificationService>()
+					.RecordEligibleAsync(account, [replayed], DateTimeOffset.UnixEpoch)
+			);
+		});
+	}
+
+	[Fact]
+	public async Task Graph_tombstone_waits_until_every_current_folder_stream_crosses_the_orphan_boundary()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await OrphanTheSeededMessageAsync(harness);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(account => account.Id == harness.AccountId);
+			account.ProviderType = ProviderType.Microsoft365;
+			var orphanedAt = harness.Clock.GetUtcNow() - PastGracePeriod;
+			var message = await context.Messages.SingleAsync(row => row.Id == harness.MessageId);
+			message.OrphanedAt = orphanedAt;
+			var mailboxes = await context.Mailboxes.OrderBy(mailbox => mailbox.Id).ToListAsync();
+			context.ChangeStreamStates.AddRange(
+				mailboxes.Select((mailbox, index) =>
+					new ChangeStreamState
+					{
+						Id = Guid.NewGuid(),
+						AccountId = harness.AccountId,
+						MailboxId = mailbox.Id,
+						CursorKind = CursorKind.GraphDelta,
+						LastSyncedAt = harness.Clock.GetUtcNow(),
+						LastCompletedWalkAt = index == 0
+							? orphanedAt - TimeSpan.FromMinutes(1)
+							: harness.Clock.GetUtcNow(),
+						NotificationBaselineAt = DateTimeOffset.UnixEpoch,
+					}
+				)
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await SweepAsync(harness);
+		await harness.UsingAsync(async services =>
+			Assert.True(await services
+				.GetRequiredService<MyloMailDbContext>()
+				.Messages.AnyAsync(message => message.Id == harness.MessageId))
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			foreach (var state in await context.ChangeStreamStates.ToListAsync())
+			{
+				state.LastCompletedWalkAt = harness.Clock.GetUtcNow();
+			}
+			await context.SaveChangesAsync();
+		});
+		await SweepAsync(harness);
+		await harness.UsingAsync(async services =>
+			Assert.False(await services
+				.GetRequiredService<MyloMailDbContext>()
+				.Messages.AnyAsync(message => message.Id == harness.MessageId))
+		);
+	}
+	[Fact]
+	public async Task Graph_walk_fenced_tombstones_do_not_starve_a_later_collectible_message()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Graph);
+		var targetId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var streamFence = harness.Clock.GetUtcNow() - TimeSpan.FromHours(2);
+			var mailboxIds = await context
+				.Mailboxes.Where(mailbox => mailbox.AccountId == harness.AccountId)
+				.Select(mailbox => mailbox.Id)
+				.ToListAsync();
+			foreach (var mailboxId in mailboxIds)
+			{
+				var state = await context.ChangeStreamStates.FirstOrDefaultAsync(candidate =>
+					candidate.AccountId == harness.AccountId && candidate.MailboxId == mailboxId
+				);
+				if (state is null)
+				{
+					state = new ChangeStreamState
+					{
+						Id = Guid.NewGuid(),
+						AccountId = harness.AccountId,
+						MailboxId = mailboxId,
+						CursorKind = CursorKind.GraphDelta,
+						NotificationBaselineAt = DateTimeOffset.UnixEpoch,
+					};
+					context.ChangeStreamStates.Add(state);
+				}
+				state.IsRebasing = false;
+				state.LastError = null;
+				state.LastCompletedWalkAt = streamFence;
+			}
+
+			for (var index = 1; index <= 50; index++)
+			{
+				context.Messages.Add(new Message
+				{
+					Id = Guid.Parse($"00000000-0000-0000-0000-{index:X12}"),
+					AccountId = harness.AccountId,
+					OrphanedAt = harness.Clock.GetUtcNow() - TimeSpan.FromHours(1),
+				});
+			}
+			context.Messages.Add(new Message
+			{
+				Id = targetId,
+				AccountId = harness.AccountId,
+				OrphanedAt = harness.Clock.GetUtcNow() - TimeSpan.FromHours(3),
+			});
+			await context.SaveChangesAsync();
+		});
+
+		await SweepAsync(harness);
+
+		await harness.UsingAsync(async services =>
+			Assert.False(await services
+				.GetRequiredService<MyloMailDbContext>()
+				.Messages.AnyAsync(message => message.Id == targetId))
+		);
+	}
+
 
 	[Fact]
 	public async Task A_message_a_draft_is_replying_to_is_not_collected()

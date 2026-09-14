@@ -19,7 +19,14 @@ internal static class SyncPagePayload
 		GenerationSnapshot generations
 	) =>
 		SqliteJson.Serialize(
-			new StagedPage(result.Upserted, result.FlagChanges, result.Removed, remoteDrafts, generations.Values)
+			new StagedPage(
+				result.Upserted,
+				result.FlagChanges,
+				result.Removed,
+				remoteDrafts,
+				generations.Values,
+				result.PermanentlyDeletedProviderMessageIds ?? []
+			)
 		);
 
 	public static (SyncResult Result, IReadOnlyList<RemoteDraftPayload> RemoteDrafts, GenerationSnapshot Generations) Deserialize(string payload)
@@ -29,7 +36,14 @@ internal static class SyncPagePayload
 			?? throw new InvalidOperationException("A staged change page could not be read back.");
 
 		return (
-			new SyncResult(null, null, page.Upserted, page.FlagChanges, page.Removed),
+			new SyncResult(
+				null,
+				null,
+				page.Upserted,
+				page.FlagChanges,
+				page.Removed,
+				page.PermanentlyDeletedProviderMessageIds ?? []
+			),
 			page.RemoteDrafts,
 			GenerationSnapshot.From(page.Generations)
 		);
@@ -45,6 +59,7 @@ internal static class SyncPagePayload
 		IReadOnlyList<OccurrenceFlagChange> FlagChanges,
 		IReadOnlyList<OccurrenceRemoval> Removed,
 		IReadOnlyList<RemoteDraftPayload> RemoteDrafts,
-		IReadOnlyDictionary<string, int> Generations
+		IReadOnlyDictionary<string, int> Generations,
+		IReadOnlyList<string>? PermanentlyDeletedProviderMessageIds = null
 	);
 }

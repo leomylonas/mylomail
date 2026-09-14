@@ -55,6 +55,10 @@ public sealed class TopologySyncService(
 			.Where(m => m.AccountId == account.Id)
 			.ToListAsync(ct);
 		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		var epochs = await context
+			.MailboxTopologyEpochs.Where(epoch => epoch.AccountId == account.Id)
+			.ToDictionaryAsync(epoch => epoch.ProviderMailboxId, StringComparer.Ordinal, ct);
+
 
 		var byProviderId = existing
 			.Where(m => m.ProviderMailboxId is not null)
@@ -73,12 +77,42 @@ public sealed class TopologySyncService(
 
 			if (byProviderId.TryGetValue(dto.ProviderMailboxId, out var mailbox))
 			{
+				if (!epochs.TryGetValue(dto.ProviderMailboxId, out var epoch))
+				{
+					epoch = new MailboxTopologyEpoch
+					{
+						AccountId = account.Id,
+						ProviderMailboxId = dto.ProviderMailboxId,
+						Generation = mailbox.TopologyGeneration,
+					};
+					context.MailboxTopologyEpochs.Add(epoch);
+					epochs[dto.ProviderMailboxId] = epoch;
+				}
+				else if (epoch.Generation < mailbox.TopologyGeneration)
+				{
+					epoch.Generation = mailbox.TopologyGeneration;
+				}
 				Update(mailbox, effectiveDto);
 				updated++;
 			}
 			else
 			{
-				mailbox = Create(account, effectiveDto);
+				if (!epochs.TryGetValue(dto.ProviderMailboxId, out var epoch))
+				{
+					epoch = new MailboxTopologyEpoch
+					{
+						AccountId = account.Id,
+						ProviderMailboxId = dto.ProviderMailboxId,
+						Generation = 0,
+					};
+					context.MailboxTopologyEpochs.Add(epoch);
+					epochs[dto.ProviderMailboxId] = epoch;
+				}
+				else
+				{
+					epoch.Generation = checked(epoch.Generation + 1);
+				}
+				mailbox = Create(account, effectiveDto, epoch.Generation);
 				context.Mailboxes.Add(mailbox);
 				byProviderId[dto.ProviderMailboxId] = mailbox;
 				added++;
@@ -356,11 +390,35 @@ public sealed class TopologySyncService(
 	/// </remarks>
 	public async Task<int> BumpGenerationAsync(Guid mailboxId, CancellationToken ct = default)
 	{
-		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId, ct);
-		mailbox.TopologyGeneration++;
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		var mailbox = await context.Mailboxes.FirstAsync(candidate => candidate.Id == mailboxId, ct);
+		if (mailbox.ProviderMailboxId is null)
+		{
+			throw new InvalidOperationException("A local-only mailbox has no provider topology generation.");
+		}
+		var epoch = await context.MailboxTopologyEpochs.FirstOrDefaultAsync(
+			candidate =>
+				candidate.AccountId == mailbox.AccountId
+				&& candidate.ProviderMailboxId == mailbox.ProviderMailboxId,
+			ct
+		);
+		if (epoch is null)
+		{
+			epoch = new MailboxTopologyEpoch
+			{
+				AccountId = mailbox.AccountId,
+				ProviderMailboxId = mailbox.ProviderMailboxId,
+				Generation = mailbox.TopologyGeneration,
+			};
+			context.MailboxTopologyEpochs.Add(epoch);
+		}
+		epoch.Generation = checked(Math.Max(epoch.Generation, mailbox.TopologyGeneration) + 1);
+		mailbox.TopologyGeneration = epoch.Generation;
 
-		// Coverage restarts: what was fetched belonged to the previous incarnation.
-		var coverage = await context.MailboxCoverageStates.FirstOrDefaultAsync(c => c.MailboxId == mailboxId, ct);
+		var coverage = await context.MailboxCoverageStates.FirstOrDefaultAsync(
+			candidate => candidate.MailboxId == mailboxId,
+			ct
+		);
 		if (coverage is not null)
 		{
 			coverage.Status = CoverageStatus.NotStarted;
@@ -369,10 +427,11 @@ public sealed class TopologySyncService(
 		}
 
 		await context.SaveChangesAsync(ct);
+		await transaction.CommitAsync(ct);
 		return mailbox.TopologyGeneration;
 	}
 
-	private static Mailbox Create(Account account, MailboxDto dto) =>
+	private static Mailbox Create(Account account, MailboxDto dto, int topologyGeneration) =>
 		new()
 		{
 			Id = Guid.NewGuid(),
@@ -383,6 +442,7 @@ public sealed class TopologySyncService(
 			IsSubscribed = dto.IsSubscribed,
 			ProviderTotalCount = dto.TotalCount,
 			ProviderUnreadCount = dto.UnreadCount,
+			TopologyGeneration = topologyGeneration,
 			ImapMetadata = ToMetadata(dto),
 		};
 

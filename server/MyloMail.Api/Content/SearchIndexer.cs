@@ -1,4 +1,4 @@
-using System.Text;
+using HtmlAgilityPack;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
@@ -198,47 +198,44 @@ public sealed class SearchIndexer(MyloMailDbContext context)
 	}
 
 	/// <summary>
-	/// Removes tags, script and style content so only readable text is indexed.
+	/// Extracts readable text with the same maintained HTML parser the architecture requires,
+	/// never treating attributes or markup as message content.
 	/// </summary>
-	/// <remarks>
-	/// Deliberately crude and deliberately not a parser: this feeds a search index, where a
-	/// stray character costs a slightly worse match, whereas parsing untrusted HTML to render
-	/// it is a different job with different stakes. Rendering uses the original markup.
-	/// </remarks>
 	private static string StripMarkup(string html)
 	{
-		var text = new StringBuilder(html.Length);
-		var depth = 0;
-		var skipping = false;
+		var document = new HtmlDocument();
+		document.LoadHtml(html);
 
-		for (var i = 0; i < html.Length; i++)
+		var text = document.DocumentNode
+			.Descendants()
+			.Where(node => node.NodeType == HtmlNodeType.Text && node.Ancestors().All(IsVisibleForSearch))
+			.Select(node => HtmlEntity.DeEntitize(node.InnerText));
+
+		return string.Join(
+			' ',
+			string.Join(' ', text).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+		);
+	}
+
+	private static bool IsVisibleForSearch(HtmlNode node)
+	{
+		if (node.Name is "script" or "style" or "template" or "head")
 		{
-			if (html[i] == '<')
-			{
-				var tag = html.AsSpan(i);
-				skipping =
-					tag.StartsWith("<script", StringComparison.OrdinalIgnoreCase)
-					|| tag.StartsWith("<style", StringComparison.OrdinalIgnoreCase)
-					|| (skipping && !tag.StartsWith("</script", StringComparison.OrdinalIgnoreCase)
-						&& !tag.StartsWith("</style", StringComparison.OrdinalIgnoreCase));
-				depth++;
-				continue;
-			}
-
-			if (html[i] == '>')
-			{
-				depth = Math.Max(0, depth - 1);
-				text.Append(' ');
-				continue;
-			}
-
-			if (depth == 0 && !skipping)
-			{
-				text.Append(html[i]);
-			}
+			return false;
 		}
 
-		return string.Join(' ', text.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+		if (
+			node.Attributes["hidden"] is not null
+			|| node.GetAttributeValue("aria-hidden", string.Empty)
+				.Equals("true", StringComparison.OrdinalIgnoreCase)
+		)
+		{
+			return false;
+		}
+
+		var style = node.GetAttributeValue("style", string.Empty);
+		return !style.Contains("display:none", StringComparison.OrdinalIgnoreCase)
+			&& !style.Contains("visibility:hidden", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static string Flatten(InternetAddressList addresses) =>

@@ -147,6 +147,104 @@ public sealed class ImapLiveSyncTests
 		}
 	}
 
+	[SkippableFact]
+	public async Task Coverage_resume_uses_a_UID_boundary_when_an_earlier_page_is_expunged()
+	{
+		Skip.If(
+			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
+			"TEST_IMAP_QRESYNC_HOST/PORT not set — start the matrix with `pnpm imap:up`"
+		);
+		await using var harness = await ImapConformanceHarness.CreateAsync(Settings());
+		var oldest = await harness.SeedMessageAsync(harness.Source);
+		var middle = await harness.SeedMessageAsync(harness.Source);
+		var newest = await harness.SeedMessageAsync(harness.Source);
+
+		var first = await harness.Provider.InitialSyncMailboxAsync(
+			harness.Account,
+			harness.Source,
+			null,
+			InitialSyncMode.Full,
+			null,
+			1,
+			CancellationToken.None
+		);
+		Assert.Equal(
+			newest.ProviderOccurrenceId,
+			Assert.Single(first.Messages).Occurrences.Single().ProviderOccurrenceId
+		);
+		Assert.NotNull(first.ResumeToken);
+
+		await harness.Provider.DeletePermanentlyAsync(
+			harness.Account,
+			[newest],
+			CancellationToken.None
+		);
+		var second = await harness.Provider.InitialSyncMailboxAsync(
+			harness.Account,
+			harness.Source,
+			first.ResumeToken,
+			InitialSyncMode.Full,
+			null,
+			1,
+			CancellationToken.None
+		);
+
+		Assert.Equal(
+			middle.ProviderOccurrenceId,
+			Assert.Single(second.Messages).Occurrences.Single().ProviderOccurrenceId
+		);
+		Assert.NotEqual(
+			oldest.ProviderOccurrenceId,
+			Assert.Single(second.Messages).Occurrences.Single().ProviderOccurrenceId
+		);
+	}
+
+	[SkippableFact]
+	public async Task A_null_IMAP_change_cursor_captures_a_baseline_without_returning_history()
+	{
+		Skip.If(
+			string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Port),
+			"TEST_IMAP_QRESYNC_HOST/PORT not set — start the matrix with `pnpm imap:up`"
+		);
+		await using var harness = await ImapConformanceHarness.CreateAsync(Settings());
+		await harness.SeedMessageAsync(harness.Source);
+		await harness.SeedMessageAsync(harness.Source);
+
+		var baseline = await harness.Provider.SyncMailboxAsync(
+			harness.Account,
+			harness.Source,
+			null,
+			null,
+			CancellationToken.None
+		);
+		Assert.Empty(baseline.Upserted);
+		Assert.Null(baseline.Continuation);
+		var cursor = Assert.IsType<Api.Providers.Contracts.ImapUidCursor>(baseline.NewCursor);
+
+		var later = await harness.SeedMessageAsync(harness.Source);
+		var incremental = await harness.Provider.SyncMailboxAsync(
+			harness.Account,
+			harness.Source,
+			cursor,
+			null,
+			CancellationToken.None
+		);
+		Assert.Equal(
+			later.ProviderOccurrenceId,
+			Assert.Single(incremental.Upserted).Occurrences.Single().ProviderOccurrenceId
+		);
+	}
+
+	private static ImapConnectionSettings Settings() =>
+		new(
+			Host!,
+			int.Parse(Port!),
+			ImapSecurity: MailTransportSecurity.StartTls,
+			UserName: Environment.GetEnvironmentVariable("TEST_IMAP_USER") ?? "test@mylomail.local",
+			Password: Environment.GetEnvironmentVariable("TEST_IMAP_PASSWORD") ?? "password",
+			CertificateTrustMode: CertificateTrustMode.TrustAll
+		);
+
 	private sealed class SingleProviderFactory(IMailProvider provider) : IMailProviderFactory
 	{
 		public IMailProvider For(Account account) => provider;

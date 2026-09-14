@@ -46,6 +46,25 @@ public sealed class ChangeStreamService(
 		using var lease = await gate.EnterAsync(account.Id, ct);
 		var provider = providers.For(account);
 		var state = await GetOrCreateStateAsync(account, mailbox, provider.Capabilities, ct);
+		var recovering = state.LastError is not null;
+		if (
+			account.ProviderType == ProviderType.Imap
+			&& state.CursorState is not null
+			&& !state.IsRebasing
+			&& !await context.MailboxCoverageStates.AnyAsync(
+				coverage =>
+					coverage.MailboxId == mailbox.Id
+					&& coverage.Status == CoverageStatus.Covered,
+				ct
+			)
+		)
+		{
+			// Rechecked after the account gate: a poll and an IDLE wake may both have seen
+			// rebasing before the first one established the baseline. Only the null-cursor
+			// baseline may run ahead of coverage; subsequent IMAP pages must wait so stale
+			// coverage cannot overwrite a removal or flag change whose cursor already moved.
+			return new ChangeStreamOutcome(0, Staged: false, ResyncTriggered: false);
+		}
 
 		var baselineCutoff = state.IsRebasing
 			? state.NotificationBaselineAt
@@ -84,6 +103,20 @@ public sealed class ChangeStreamService(
 				);
 
 				var result = await provider.SyncMailboxAsync(account, mailbox, state.CursorState, continuation, ct);
+				if (account.ProviderType == ProviderType.Imap && state.CursorState is null)
+				{
+					// A null IMAP cursor is a snapshot boundary, not a backlog fetch. The real
+					// adapter already returns no observations here; enforcing it at the
+					// orchestration boundary keeps alternate adapters and tests from applying
+					// stale history ahead of coverage.
+					result = result with
+					{
+						Upserted = [],
+						FlagChanges = [],
+						Removed = [],
+						PermanentlyDeletedProviderMessageIds = [],
+					};
+				}
 				if (
 					provider.Capabilities.RequiresCoverageBeforeInitialChangeStream
 					&& state.CursorState is null
@@ -123,7 +156,17 @@ public sealed class ChangeStreamService(
 			return new ChangeStreamOutcome(pages, Staged: stage, ResyncTriggered: true);
 		}
 
-		await AnnounceMailboxAsync(mailbox, ct);
+		if (recovering)
+		{
+			if (provider.Capabilities.ChangeStreamScope == ChangeStreamScope.Account)
+			{
+				await MailboxSummaryDtoFactory.AnnounceAsync(context, events, account.Id, mailboxId: null, ct);
+			}
+			else
+			{
+				await AnnounceMailboxAsync(mailbox, ct);
+			}
+		}
 		return new ChangeStreamOutcome(pages, stage, ResyncTriggered: false);
 	}
 
@@ -257,13 +300,13 @@ public sealed class ChangeStreamService(
 		CancellationToken ct
 	)
 	{
-		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
 		ContentApplyResult applied = new(new IngestResult([], [], [], [], false, []), [], [], []);
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			var mailboxes = await MailboxesByProviderIdAsync(account, ct);
 
 			applied = await ApplyContentAsync(
 				account,
@@ -276,19 +319,21 @@ public sealed class ChangeStreamService(
 			);
 
 			var completesRebase = state.IsRebasing && result.NewCursor is not null;
+			var syncedAt = clock.GetUtcNow();
 			if (result.NewCursor is not null)
 			{
 				state.CursorState = result.NewCursor;
 				state.CursorKind = result.NewCursor.Kind;
 				state.IsRebasing = false;
+				state.LastCompletedWalkAt = syncedAt;
 			}
 			if (completesRebase)
 			{
 				await ClearIntegrityErrorsAsync(account.Id, state.MailboxId, ct);
 			}
 
-			state.LastSyncedAt = clock.GetUtcNow();
-			state.BaselineEstablishedAt ??= clock.GetUtcNow();
+			state.LastSyncedAt = syncedAt;
+			state.BaselineEstablishedAt ??= syncedAt;
 			state.LastError = null;
 
 			faults.Reached(FaultPoints.SyncPageAfterApplyBeforeCommit);
@@ -388,25 +433,78 @@ public sealed class ChangeStreamService(
 
 		var removedMessageIds = new List<Guid>();
 		var counted = new HashSet<Guid>(ingested.CountedMailboxIds);
-		foreach (var group in result.Removed.GroupBy(r => r.ProviderMailboxId))
+		var removalEvents = new List<OccurrenceRemoval>(result.Removed);
+		foreach (var group in result.Removed.GroupBy(removal => removal.ProviderMailboxId))
 		{
 			if (mailboxes.TryGetValue(group.Key, out var target))
 			{
 				// Removes the occurrence, never the canonical message: a Graph move surfaces
 				// as a removal and an addition in either order.
-				var removed = await ingestor.RemoveOccurrencesAsync(target, [.. group.Select(r => r.ProviderOccurrenceId)], generations, ct);
+				var removed = await ingestor.RemoveOccurrencesAsync(
+					target,
+					[.. group.Select(removal => removal.ProviderOccurrenceId)],
+					generations,
+					ct
+				);
 				removedMessageIds.AddRange(removed);
 				if (removed.Count > 0)
 				{
-					// A removal that matched nothing locally leaves the count where it was, so
-					// it is not a mailbox change to announce.
 					counted.Add(target.Id);
 				}
 			}
 		}
 
+		var permanentlyDeletedIds = result.PermanentlyDeletedProviderMessageIds ?? [];
+		if (permanentlyDeletedIds.Count > 0)
+		{
+			var deletedOccurrences = await (
+				from occurrence in context.MessageMailboxes
+				join message in context.Messages on occurrence.MessageId equals message.Id
+				join mailbox in context.Mailboxes on occurrence.MailboxId equals mailbox.Id
+				where message.AccountId == account.Id
+					&& message.ProviderStableId != null
+					&& permanentlyDeletedIds.Contains(message.ProviderStableId)
+					&& mailbox.ProviderMailboxId != null
+				select new
+				{
+					occurrence.MessageId,
+					occurrence.ProviderOccurrenceId,
+					ProviderMailboxId = mailbox.ProviderMailboxId!,
+				}
+			).ToListAsync(ct);
+
+			foreach (var group in deletedOccurrences.GroupBy(occurrence => occurrence.ProviderMailboxId))
+			{
+				if (!mailboxes.TryGetValue(group.Key, out var target))
+				{
+					continue;
+				}
+				var occurrenceIds = group.Select(occurrence => occurrence.ProviderOccurrenceId).Distinct().ToArray();
+				var removed = await ingestor.RemoveOccurrencesAsync(target, occurrenceIds, generations, ct);
+				removedMessageIds.AddRange(removed);
+				if (removed.Count > 0)
+				{
+					counted.Add(target.Id);
+					removalEvents.AddRange(
+						occurrenceIds.Select(occurrenceId =>
+							new OccurrenceRemoval(group.Key, occurrenceId))
+					);
+				}
+			}
+		}
 		draftIds.AddRange(
-			await drafts.ApplyRemovalsAsync(account, result.Removed, mailboxes, generations, ct)
+			await drafts.ApplyPermanentRemovalsAsync(
+				account,
+				permanentlyDeletedIds,
+				mailboxes,
+				generations,
+				ct
+			)
+		);
+
+
+		draftIds.AddRange(
+			await drafts.ApplyRemovalsAsync(account, removalEvents, mailboxes, generations, ct)
 		);
 
 		return new ContentApplyResult(
@@ -477,6 +575,7 @@ public sealed class ChangeStreamService(
 
 			state.LastSyncedAt = clock.GetUtcNow();
 			state.BaselineEstablishedAt ??= clock.GetUtcNow();
+			state.LastError = null;
 
 			// Evaluated now, from the provider's own DTOs, rather than deferred behind
 			// canonical replay — otherwise live mail goes unnotified for the length of the
@@ -517,7 +616,6 @@ public sealed class ChangeStreamService(
 		}
 		faults.Reached(FaultPoints.SyncBeforeStagedReplay);
 
-		var mailboxes = await MailboxesByProviderIdAsync(account, ct);
 		var replayed = 0;
 
 		while (true)
@@ -562,6 +660,7 @@ public sealed class ChangeStreamService(
 			await strategy.ExecuteAsync(async () =>
 			{
 				await using var transaction = await context.Database.BeginTransactionAsync(ct);
+				var mailboxes = await MailboxesByProviderIdAsync(account, ct);
 
 				// Eligibility for this page was already evaluated and announced while it was
 				// staged (§3); replay's own notification work is only the backfill inside
@@ -578,6 +677,7 @@ public sealed class ChangeStreamService(
 				context.StagedChangeEvents.Remove(staged);
 
 				await context.SaveChangesAsync(ct);
+				faults.Reached(FaultPoints.SyncPageAfterApplyBeforeCommit);
 				await transaction.CommitAsync(ct);
 
 			});
@@ -671,16 +771,13 @@ public sealed class ChangeStreamService(
 		if (state.MailboxId is null)
 		{
 			var accountMailboxes = await context.Mailboxes.Where(candidate => candidate.AccountId == account.Id).ToListAsync(ct);
-			foreach (var accountMailbox in accountMailboxes)
-			{
-				accountMailbox.TopologyGeneration++;
-			}
+			await AdvanceTopologyEpochsAsync(accountMailboxes, ct);
 		}
 		else
 		{
 			// A mailbox-scoped cursor reset is a new provider-identity epoch for every
 			// mailbox-bound worker, including content already in flight.
-			mailbox.TopologyGeneration++;
+			await AdvanceTopologyEpochsAsync([mailbox], ct);
 		}
 
 		var coverages = state.MailboxId is null
@@ -734,6 +831,53 @@ public sealed class ChangeStreamService(
 			account.Id
 		);
 	}
+
+	private async Task AdvanceTopologyEpochsAsync(
+		IReadOnlyCollection<Mailbox> mailboxes,
+		CancellationToken ct
+	)
+	{
+		var providerMailboxIds = mailboxes
+			.Select(candidate => candidate.ProviderMailboxId)
+			.Where(providerMailboxId => providerMailboxId is not null)
+			.Cast<string>()
+			.Distinct(StringComparer.Ordinal)
+			.ToArray();
+		var accountIds = mailboxes
+			.Select(mailbox => mailbox.AccountId)
+			.Distinct()
+			.ToArray();
+		var epochs = await context.MailboxTopologyEpochs
+			.Where(epoch =>
+				accountIds.Contains(epoch.AccountId)
+				&& providerMailboxIds.Contains(epoch.ProviderMailboxId)
+			)
+			.ToDictionaryAsync(
+				epoch => (epoch.AccountId, epoch.ProviderMailboxId),
+				ct
+			);
+
+		foreach (var mailbox in mailboxes)
+		{
+			mailbox.TopologyGeneration = checked(mailbox.TopologyGeneration + 1);
+			if (mailbox.ProviderMailboxId is not { } providerMailboxId)
+			{
+				continue;
+			}
+			if (!epochs.TryGetValue((mailbox.AccountId, providerMailboxId), out var epoch))
+			{
+				epoch = new MailboxTopologyEpoch
+				{
+					AccountId = mailbox.AccountId,
+					ProviderMailboxId = providerMailboxId,
+				};
+				context.MailboxTopologyEpochs.Add(epoch);
+				epochs.Add((mailbox.AccountId, providerMailboxId), epoch);
+			}
+			epoch.Generation = Math.Max(epoch.Generation, mailbox.TopologyGeneration);
+		}
+	}
+
 	private async Task ClearIntegrityErrorsAsync(
 		Guid accountId,
 		Guid? mailboxId,

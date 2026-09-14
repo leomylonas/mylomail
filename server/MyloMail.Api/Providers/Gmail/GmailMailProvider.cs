@@ -85,22 +85,15 @@ public sealed partial class GmailMailProvider(
 		var service = await ServiceAsync(account, ct);
 		var response = await service.Users.Labels.List(UserId).ExecuteThrottleAwareAsync(ct);
 
-		var mailboxes =
-			response.Labels
-				?.Where(label => label.Id is not null && label.Name is not null)
-				.Select(label => new MailboxDto
-				{
-					ProviderMailboxId = label.Id!,
-					Name = label.Name!,
-					// Gmail's labels are flat. Any visual hierarchy is local and derived (§1).
-					ParentProviderMailboxId = null,
-					SpecialUse = SpecialUseOf(label.Id!),
-					IsSubscribed = label.LabelListVisibility != "labelHide",
-					TotalCount = label.MessagesTotal,
-					UnreadCount = label.MessagesUnread,
-				})
-				.ToList()
-			?? [];
+		var labels = response.Labels ?? [];
+		var mailboxes = new List<MailboxDto>(labels.Count);
+		foreach (var label in labels.Where(label => label.Id is not null && label.Name is not null))
+		{
+			// labels.list omits the message counts. Fetch each label's authoritative metadata
+			// rather than mistaking its absent fields for an empty mailbox.
+			var metadata = await service.Users.Labels.Get(UserId, label.Id!).ExecuteThrottleAwareAsync(ct);
+			mailboxes.Add(ToMailboxDto(metadata));
+		}
 
 		return new MailboxTopologyResult(mailboxes, [], null, IsFullSnapshot: true);
 	}
@@ -267,49 +260,44 @@ public sealed partial class GmailMailProvider(
 			throw new ArgumentException("Gmail sync requires a Gmail history cursor.", nameof(cursor));
 		}
 
+		if (!ulong.TryParse(history.HistoryId, out var requestedHistoryId))
+		{
+			throw new ProviderCursorInvalidException("Gmail history cursor is invalid.");
+		}
 		var request = service.Users.History.List(UserId);
-		request.StartHistoryId = ulong.Parse(history.HistoryId);
+		request.StartHistoryId = requestedHistoryId;
 		request.PageToken = continuation;
 		request.MaxResults = SyncPageSize;
 
 		try
 		{
 			var page = await request.ExecuteThrottleAwareAsync(ct);
-			var changedMessageIds = (page.History ?? [])
-				.SelectMany(item => item.MessagesAdded ?? [])
-				.Select(item => item.Message?.Id)
-				.Concat(
-					(page.History ?? [])
-						.SelectMany(item => item.LabelsAdded ?? [])
-						.Select(item => item.Message?.Id)
-				)
-				.Concat(
-					(page.History ?? [])
-						.SelectMany(item => item.LabelsRemoved ?? [])
-						.Select(item => item.Message?.Id)
-				)
-				.Where(id => id is not null)
-				.Cast<string>()
-				.Distinct()
-				.ToList();
-
+			if (
+				page.HistoryId is { } currentHistoryId
+				&& requestedHistoryId > currentHistoryId
+			)
+			{
+				// Gmail may accept a syntactically valid future history id and return an
+				// empty page instead of 404. Such a value cannot have been a committed local
+				// cursor; treating it as valid would move the client backwards to the
+				// response's current id without a triggered resynchronisation.
+				throw new ProviderCursorInvalidException("Gmail history cursor is invalid.");
+			}
+			if (page.NextPageToken is null && page.HistoryId is null)
+			{
+				// A completed Gmail history page must return the mailbox's current history
+				// id. An empty terminal response without it is how Gmail reports some
+				// syntactically valid but unusable start ids; it cannot advance a durable
+				// cursor safely.
+				throw new ProviderCursorInvalidException("Gmail history cursor is invalid.");
+			}
+			var changes = GmailHistoryChanges.From(page.History ?? []);
 			var upserted = await MessagesAsync(
 				service,
-				changedMessageIds.Select(id => new GmailMessage { Id = id }),
+				changes.ChangedMessageIds.Select(id => new GmailMessage { Id = id }),
 				ct
 			);
-			IReadOnlyList<OccurrenceRemoval> removed =
-			[
-				.. (page.History ?? [])
-					.SelectMany(item => item.LabelsRemoved ?? [])
-					.SelectMany(change =>
-						(change.LabelIds ?? []).Select(labelId => new OccurrenceRemoval(
-							labelId,
-							change.Message?.Id ?? string.Empty
-						))
-					)
-					.Where(change => change.ProviderOccurrenceId.Length > 0),
-			];
+			var removed = FinalLabelRemovals(changes.LabelRemovals, upserted);
 
 			return new SyncResult(
 				page.NextPageToken is null && page.HistoryId is not null
@@ -318,7 +306,8 @@ public sealed partial class GmailMailProvider(
 				page.NextPageToken,
 				upserted,
 				[],
-				removed
+				removed,
+				changes.PermanentlyDeletedMessageIds
 			);
 		}
 		catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
@@ -452,6 +441,75 @@ public sealed partial class GmailMailProvider(
 			// corrects it from the real MIME.
 			HasNonInlineAttachments = HasNonInlineAttachment(message.Payload),
 		};
+	}
+
+	internal static IReadOnlyList<OccurrenceRemoval> FinalLabelRemovals(
+		IReadOnlyList<OccurrenceRemoval> removals,
+		IReadOnlyList<MessageDto> upserted
+	)
+	{
+		var membershipsAfterPage = upserted
+			.SelectMany(message =>
+				message.Occurrences.Select(occurrence => (occurrence.ProviderMailboxId, occurrence.ProviderOccurrenceId))
+			)
+			.ToHashSet();
+		return removals
+			.Where(removal =>
+				!membershipsAfterPage.Contains((removal.ProviderMailboxId, removal.ProviderOccurrenceId))
+			)
+			.ToList();
+	}
+
+	internal static MailboxDto ToMailboxDto(Label label) =>
+		new()
+		{
+			ProviderMailboxId = label.Id ?? throw new InvalidOperationException("Gmail did not return a label id."),
+			Name = label.Name ?? throw new InvalidOperationException("Gmail did not return a label name."),
+			// Gmail's labels are flat. Any visual hierarchy is local and derived (§1).
+			ParentProviderMailboxId = null,
+			SpecialUse = SpecialUseOf(label.Id!),
+			IsSubscribed = label.LabelListVisibility != "labelHide",
+			TotalCount = label.MessagesTotal,
+			UnreadCount = label.MessagesUnread,
+		};
+
+	internal sealed record GmailHistoryChanges(
+		IReadOnlyList<string> ChangedMessageIds,
+		IReadOnlyList<string> PermanentlyDeletedMessageIds,
+		IReadOnlyList<OccurrenceRemoval> LabelRemovals
+	)
+	{
+		public static GmailHistoryChanges From(IEnumerable<History> history)
+		{
+			var deletedIds = history
+				.SelectMany(item => item.MessagesDeleted ?? [])
+				.Select(change => change.Message?.Id)
+				.OfType<string>()
+				.Distinct(StringComparer.Ordinal)
+				.ToList();
+			var deleted = deletedIds.ToHashSet(StringComparer.Ordinal);
+			var changed = history
+				.SelectMany(item => item.MessagesAdded ?? [])
+				.Select(change => change.Message?.Id)
+				.Concat(history.SelectMany(item => item.LabelsAdded ?? []).Select(change => change.Message?.Id))
+				.Concat(history.SelectMany(item => item.LabelsRemoved ?? []).Select(change => change.Message?.Id))
+				.OfType<string>()
+				.Where(id => !deleted.Contains(id))
+				.Distinct(StringComparer.Ordinal)
+				.ToList();
+			var removals = history
+				.SelectMany(item => item.LabelsRemoved ?? [])
+				.SelectMany(change =>
+					(change.LabelIds ?? []).Select(labelId => new OccurrenceRemoval(
+						labelId,
+						change.Message?.Id ?? string.Empty
+					))
+				)
+				.Where(change => change.ProviderOccurrenceId.Length > 0 && !deleted.Contains(change.ProviderOccurrenceId))
+				.Distinct()
+				.ToList();
+			return new GmailHistoryChanges(changed, deletedIds, removals);
+		}
 	}
 
 	private static bool HasNonInlineAttachment(GmailMessagePart? part)

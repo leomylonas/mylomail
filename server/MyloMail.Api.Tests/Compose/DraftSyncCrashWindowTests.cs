@@ -4,6 +4,8 @@ using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Sync;
 using Xunit;
@@ -63,6 +65,34 @@ public sealed class DraftSyncCrashWindowTests
 			Assert.True(ambiguous.SyncConflict);
 			Assert.NotNull(ambiguous.PushDispatchedForSavedAt);
 		});
+	}
+
+	[Fact]
+	public async Task A_rejected_created_draft_records_its_remote_identity_and_announces_the_failure()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var identityId = await SeedIdentityAsync(harness);
+		await SeedDraftAsync(harness, identityId, "Rejected alias");
+		var rejection = new ProviderDraftRejectedException(
+			"The selected From alias was rejected.",
+			new DraftResult("remote-draft", "remote-revision", "remote-message")
+		);
+		harness.Provider.FailDraftPushWith(rejection);
+
+		var pushed = await PushAsync(harness);
+
+		Assert.Equal(0, pushed);
+		await harness.UsingAsync(async scope =>
+		{
+			var draft = await scope.GetRequiredService<MyloMailDbContext>().Drafts.SingleAsync();
+			Assert.True(draft.SyncConflict);
+			Assert.Equal("remote-draft", draft.ProviderDraftId);
+			Assert.Equal("remote-message", draft.ProviderMessageId);
+			Assert.Equal("remote-revision", draft.ProviderRevision);
+			Assert.NotNull(draft.PushedAt);
+			Assert.Null(draft.PushDispatchedForSavedAt);
+		});
+		Assert.Single(harness.Events.Drafts);
 	}
 
 	/// <summary>

@@ -224,6 +224,10 @@ export type MailboxSummaryDto = {
     availability: MailboxAvailability;
     /** Transpiled from MyloMail.Api.Domain.CoverageStatus */
     coverage: CoverageStatus;
+    /** Transpiled from int */
+    coverageMessagesFetched: number;
+    /** Transpiled from int */
+    coverageEstimatedTotal?: number;
     /** Transpiled from bool */
     isCollapsed: boolean;
     /** Transpiled from MyloMail.Api.Domain.InitialSyncMode */
@@ -480,6 +484,20 @@ export type MutationEnqueueResultDto = {
     accepted: MutationEnqueueAcceptanceDto[];
     /** Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid> */
     rejectedMessageIds: string[];
+}
+
+/** Transpiled from MyloMail.Api.Contracts.MutationQueuedDto */
+export type MutationQueuedDto = {
+    /** Transpiled from System.Guid */
+    mutationItemId: string;
+    /** Transpiled from System.Guid */
+    messageId: string;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from MyloMail.Api.Domain.MutationOperationKind */
+    operationKind: MutationOperationKind;
+    /** Transpiled from System.Guid */
+    sourceMailboxId?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MutationSettledDto */

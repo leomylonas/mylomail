@@ -4,6 +4,7 @@ using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Persistence;
+using MyloMail.Api.Tests.Sync;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Compose;
@@ -22,7 +23,7 @@ public sealed class SendIdentityServiceTests
 		var accountId = await SeedAccountAsync(database);
 
 		var identity = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 
 		Assert.True(identity.IsDefault);
@@ -35,11 +36,11 @@ public sealed class SendIdentityServiceTests
 		await database.MigrateAsync();
 		var accountId = await SeedAccountAsync(database);
 		await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 
 		var second = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Alias", "alias@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Alias", "alias@example.com", null)
 		);
 
 		Assert.False(second.IsDefault);
@@ -52,18 +53,19 @@ public sealed class SendIdentityServiceTests
 		await database.MigrateAsync();
 		var accountId = await SeedAccountAsync(database);
 		var first = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 		var second = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Alias", "alias@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Alias", "alias@example.com", null)
 		);
 
-		await UsingAsync(database, context => new SendIdentityService(context).SetDefaultAsync(second.Id));
+		await UsingAsync(database, context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).SetDefaultAsync(second.Id));
 
 		await UsingAsync(database, async context =>
 		{
 			Assert.False((await context.SendIdentities.SingleAsync(i => i.Id == first.Id)).IsDefault);
 			Assert.True((await context.SendIdentities.SingleAsync(i => i.Id == second.Id)).IsDefault);
+			Assert.Equal(1, await context.SendIdentities.CountAsync(i => i.AccountId == accountId && i.IsDefault));
 			return true;
 		});
 	}
@@ -75,11 +77,11 @@ public sealed class SendIdentityServiceTests
 		await database.MigrateAsync();
 		var accountId = await SeedAccountAsync(database);
 		var identity = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			UsingAsync(database, context => new SendIdentityService(context).DeleteAsync(identity.Id))
+			UsingAsync(database, context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).DeleteAsync(identity.Id))
 		);
 	}
 
@@ -90,10 +92,10 @@ public sealed class SendIdentityServiceTests
 		await database.MigrateAsync();
 		var accountId = await SeedAccountAsync(database);
 		var first = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 		var second = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Alias", "alias@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Alias", "alias@example.com", null)
 		);
 		await UsingAsync(database, async context =>
 		{
@@ -110,13 +112,13 @@ public sealed class SendIdentityServiceTests
 		});
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() =>
-			UsingAsync(database, context => new SendIdentityService(context).DeleteAsync(second.Id))
+			UsingAsync(database, context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).DeleteAsync(second.Id))
 		);
 
 		// The other (unreferenced, non-default) identity deletes cleanly, confirming the
 		// rejection above is really about the draft reference and not something broader.
-		await UsingAsync(database, context => new SendIdentityService(context).SetDefaultAsync(second.Id));
-		await UsingAsync(database, context => new SendIdentityService(context).DeleteAsync(first.Id));
+		await UsingAsync(database, context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).SetDefaultAsync(second.Id));
+		await UsingAsync(database, context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).DeleteAsync(first.Id));
 		await UsingAsync(database, async context =>
 			Assert.False(await context.SendIdentities.AnyAsync(i => i.Id == first.Id))
 		);
@@ -139,7 +141,7 @@ public sealed class SendIdentityServiceTests
 		await Assert.ThrowsAsync<InvalidOperationException>(() =>
 			UsingAsync(
 				database,
-				context => new SendIdentityService(context).AddAsync(accountId, displayName, emailAddress, null)
+				context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, displayName, emailAddress, null)
 			)
 		);
 
@@ -155,13 +157,13 @@ public sealed class SendIdentityServiceTests
 		await database.MigrateAsync();
 		var accountId = await SeedAccountAsync(database);
 		var identity = await UsingAsync(database, context =>
-			new SendIdentityService(context).AddAsync(accountId, "Work", "work@example.com", null)
+			new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).AddAsync(accountId, "Work", "work@example.com", null)
 		);
 
 		await Assert.ThrowsAsync<InvalidOperationException>(() =>
 			UsingAsync(
 				database,
-				context => new SendIdentityService(context).UpdateAsync(identity.Id, "", "work@example.com", null)
+				context => new SendIdentityService(context, new MyloMail.Api.Hubs.NoHubEvents()).UpdateAsync(identity.Id, "", "work@example.com", null)
 			)
 		);
 
@@ -169,6 +171,22 @@ public sealed class SendIdentityServiceTests
 		await UsingAsync(database, async context =>
 			Assert.Equal("Work", (await context.SendIdentities.SingleAsync(i => i.Id == identity.Id)).DisplayName)
 		);
+	}
+
+	[Fact]
+	public async Task A_committed_identity_change_is_broadcast_to_other_windows()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var accountId = await SeedAccountAsync(database);
+		var events = new RecordingHubEvents();
+
+		await UsingAsync(database, context =>
+			new SendIdentityService(context, events)
+				.AddAsync(accountId, "Work", "work@example.com", null)
+		);
+
+		Assert.Equal([accountId], events.SendIdentityAccounts);
 	}
 
 	private static async Task<T> UsingAsync<T>(TestDatabase database, Func<MyloMailDbContext, Task<T>> work)

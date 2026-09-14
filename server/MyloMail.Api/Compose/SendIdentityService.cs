@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 
 namespace MyloMail.Api.Compose;
@@ -10,7 +11,7 @@ namespace MyloMail.Api.Compose;
 /// identity, selectable at compose time; this is where one gets added, edited, deleted, or
 /// promoted to the account's default.
 /// </summary>
-public sealed class SendIdentityService(MyloMailDbContext context)
+public sealed class SendIdentityService(MyloMailDbContext context, IHubEvents events)
 {
 	public async Task<SendIdentity> AddAsync(
 		Guid accountId,
@@ -37,6 +38,7 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 		};
 		context.SendIdentities.Add(identity);
 		await context.SaveChangesAsync(ct);
+		await events.SendIdentitiesChangedAsync(accountId);
 		return identity;
 	}
 
@@ -55,6 +57,7 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 		identity.EmailAddress = emailAddress;
 		identity.SignatureHtml = signatureHtml;
 		await context.SaveChangesAsync(ct);
+		await events.SendIdentitiesChangedAsync(identity.AccountId);
 		return identity;
 	}
 
@@ -79,34 +82,28 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 	}
 
 	/// <summary>
-	/// Promotes one identity to the account's default, demoting whichever one held it.
+	/// Promotes one identity to the account's default without ever committing an account with
+	/// no default identity.
 	/// </summary>
-	/// <remarks>
-	/// Demoted and saved <b>before</b> the promotion is even applied, as two separate writes
-	/// rather than one batch: SQLite's own unique partial index (exactly one default per
-	/// account) is checked per statement, not deferred to commit, and EF Core does not
-	/// guarantee the two UPDATEs in a single <c>SaveChangesAsync</c> apply in the order they
-	/// were assigned — promoting first would transiently leave two rows satisfying the index's
-	/// filter and fail with a constraint violation that has nothing to do with anything being
-	/// genuinely wrong.
-	/// </remarks>
 	public async Task<SendIdentity> SetDefaultAsync(Guid identityId, CancellationToken ct = default)
 	{
 		var identity = await context.SendIdentities.FirstAsync(i => i.Id == identityId, ct);
-		if (!identity.IsDefault)
+		if (identity.IsDefault)
 		{
-			var current = await context.SendIdentities.SingleOrDefaultAsync(
-				i => i.AccountId == identity.AccountId && i.IsDefault,
-				ct
-			);
-			if (current is not null)
-			{
-				current.IsDefault = false;
-				await context.SaveChangesAsync(ct);
-			}
-			identity.IsDefault = true;
-			await context.SaveChangesAsync(ct);
+			return identity;
 		}
+
+		await using var transaction = await context.Database.BeginTransactionAsync(ct);
+		await context
+			.SendIdentities.Where(i => i.AccountId == identity.AccountId && i.IsDefault)
+			.ExecuteUpdateAsync(update => update.SetProperty(i => i.IsDefault, false), ct);
+		await context
+			.SendIdentities.Where(i => i.Id == identityId)
+			.ExecuteUpdateAsync(update => update.SetProperty(i => i.IsDefault, true), ct);
+		await transaction.CommitAsync(ct);
+
+		await context.Entry(identity).ReloadAsync(ct);
+		await events.SendIdentitiesChangedAsync(identity.AccountId);
 		return identity;
 	}
 
@@ -136,5 +133,6 @@ public sealed class SendIdentityService(MyloMailDbContext context)
 
 		context.SendIdentities.Remove(identity);
 		await context.SaveChangesAsync(ct);
+		await events.SendIdentitiesChangedAsync(identity.AccountId);
 	}
 }

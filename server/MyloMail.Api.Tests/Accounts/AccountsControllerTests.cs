@@ -482,10 +482,11 @@ public sealed class AccountsControllerTests
 		var provisioning = new AccountProvisioningService(
 			services.GetRequiredService<MyloMailDbContext>(),
 			new ThrowingCredentialStore(),
+			services.GetRequiredService<AccountCredentialCleanupService>(),
 			services.GetRequiredService<IMailProviderFactory>(),
 			services.GetRequiredService<StartupScheduler>(),
 			services.GetRequiredService<IHubEvents>(),
-			services.GetRequiredService<SearchIndexer>(),
+			services.GetRequiredService<MyloMail.Api.FaultInjection.IFaultInjector>(),
 			services.GetRequiredService<TimeProvider>(),
 			NullLogger<AccountProvisioningService>.Instance
 		);

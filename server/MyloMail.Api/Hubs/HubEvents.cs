@@ -23,6 +23,7 @@ public interface IHubEvents
 	Task OutboxStatusChangedAsync(OutboxItemDto item);
 
 	Task MessageSyncFailedAsync(MutationFailureDto failure);
+	Task MessageMutationQueuedAsync(MutationQueuedDto queued);
 
 	Task MessageMutationSettledAsync(MutationSettledDto settlement);
 
@@ -47,10 +48,13 @@ public interface IHubEvents
 
 	/// <summary>Raised when the provider rejects an event update's revision precondition.</summary>
 	Task CalendarConflictDetectedAsync(Guid eventId);
+	Task CalendarCollectionChangedAsync(Guid accountId);
+	Task SendIdentitiesChangedAsync(Guid accountId);
 	Task ContactsChangedAsync(Guid accountId);
 
 
 	Task AccountStatusChangedAsync(AccountDto account);
+	Task AccountRemovedAsync(Guid accountId);
 
 	/// <summary>
 	/// A durable notification record exists and is not yet delivered. Dispatch is owned by
@@ -101,6 +105,8 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => hub.Clients.All.OutboxStatusChanged(item);
 
+	public Task MessageMutationQueuedAsync(MutationQueuedDto queued) =>
+		hub.Clients.All.MessageMutationQueued(queued);
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) =>
 		hub.Clients.All.MessageSyncFailed(failure);
 
@@ -118,10 +124,15 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 	public Task CalendarEventUpdatedAsync(Guid eventId) => hub.Clients.All.CalendarEventUpdated(eventId);
 
 	public Task CalendarConflictDetectedAsync(Guid eventId) => hub.Clients.All.CalendarConflictDetected(eventId);
+	public Task CalendarCollectionChangedAsync(Guid accountId) =>
+		hub.Clients.All.CalendarCollectionChanged(accountId);
+	public Task SendIdentitiesChangedAsync(Guid accountId) =>
+		hub.Clients.All.SendIdentitiesChanged(accountId);
 	public Task ContactsChangedAsync(Guid accountId) => hub.Clients.All.ContactsChanged(accountId);
 
 
 	public Task AccountStatusChangedAsync(AccountDto account) => hub.Clients.All.AccountStatusChanged(account);
+	public Task AccountRemovedAsync(Guid accountId) => hub.Clients.All.AccountRemoved(accountId);
 
 	public Task NotificationReadyAsync(NotificationDto notification) =>
 		hub.Clients.All.NotificationReady(notification);
@@ -148,6 +159,7 @@ public sealed class NoHubEvents : IHubEvents
 	public Task MailboxTreeChangedAsync(Guid accountId) => Task.CompletedTask;
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
+	public Task MessageMutationQueuedAsync(MutationQueuedDto queued) => Task.CompletedTask;
 
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
 
@@ -164,10 +176,13 @@ public sealed class NoHubEvents : IHubEvents
 	public Task CalendarEventUpdatedAsync(Guid eventId) => Task.CompletedTask;
 
 	public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
+	public Task CalendarCollectionChangedAsync(Guid accountId) => Task.CompletedTask;
+	public Task SendIdentitiesChangedAsync(Guid accountId) => Task.CompletedTask;
 	public Task ContactsChangedAsync(Guid accountId) => Task.CompletedTask;
 
 
 	public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
+	public Task AccountRemovedAsync(Guid accountId) => Task.CompletedTask;
 
 	public Task NotificationReadyAsync(NotificationDto notification) => Task.CompletedTask;
 

@@ -87,6 +87,16 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.ToTable("Accounts");
                 });
 
+            modelBuilder.Entity("MyloMail.Api.Domain.AccountCredentialCleanup", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("AccountCredentialCleanups");
+                });
+
             modelBuilder.Entity("MyloMail.Api.Domain.AccountTrustedCertificate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -409,6 +419,9 @@ namespace MyloMail.Api.Persistence.Migrations
 
                     b.Property<bool>("IsRebasing")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("LastCompletedWalkAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("LastError")
                         .HasColumnType("TEXT");
@@ -834,6 +847,23 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Mailboxes");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.MailboxTopologyEpoch", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProviderMailboxId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AccountId", "ProviderMailboxId");
+
+                    b.ToTable("MailboxTopologyEpochs");
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.MailboxCoverageState", b =>
@@ -1604,6 +1634,15 @@ namespace MyloMail.Api.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.MailboxTopologyEpoch", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.MailboxCoverageState", b =>

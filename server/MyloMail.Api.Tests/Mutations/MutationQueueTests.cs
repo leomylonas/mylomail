@@ -152,6 +152,25 @@ public sealed class MutationQueueTests
 
 		Assert.Equal([item.AccountId], harness.Dispatcher.Requested);
 	}
+	[Fact]
+	public async Task Durable_enqueue_is_broadcast_with_its_source_membership()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var item = await harness.UsingAsync(services =>
+			services
+				.GetRequiredService<MutationQueue>()
+				.MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId)
+		);
+
+		var queued = Assert.Single(harness.Events.MutationQueued);
+		Assert.Equal(item.Id, queued.MutationItemId);
+		Assert.Equal(harness.MessageId, queued.MessageId);
+		Assert.Equal(harness.AccountId, queued.AccountId);
+		Assert.Equal(MutationOperationKind.MoveMessage, queued.OperationKind);
+		Assert.Equal(harness.InboxId, queued.SourceMailboxId);
+	}
+
 
 	/// <summary>An id supplied by the caller is kept, so a caller can correlate what it enqueued.</summary>
 	[Fact]

@@ -4,6 +4,7 @@ using MyloMail.Api.Compose;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Sync;
 using Xunit;
@@ -69,6 +70,31 @@ public sealed class DraftSyncCredentialStoreTests
 		);
 		Assert.Equal(AuthState.Connected, account.AuthState);
 		Assert.Null(account.LastAuthError);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task A_definite_pre_create_rejection_clears_the_durable_create_claim(
+		bool throttled
+	)
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var identityId = await SeedIdentityAsync(harness);
+		await SeedDraftAsync(harness, identityId);
+		Exception failure = throttled
+			? new ProviderThrottledException(TimeSpan.FromSeconds(30), "slow down")
+			: new ProviderAuthenticationException("reauthenticate");
+		harness.Provider.FailDraftPushWith(failure);
+
+		await Assert.ThrowsAsync(failure.GetType(), () => PushAsync(harness));
+
+		var draft = await harness.UsingAsync(services =>
+			services.GetRequiredService<MyloMailDbContext>().Drafts.SingleAsync()
+		);
+		Assert.Null(draft.ProviderDraftId);
+		Assert.Null(draft.PushDispatchedForSavedAt);
+		Assert.Null(draft.PushedAt);
 	}
 
 	private static async Task<Guid> SeedIdentityAsync(SyncHarness harness)

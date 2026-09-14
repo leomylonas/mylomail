@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using MyloMail.Api.Contracts;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
@@ -77,6 +78,7 @@ internal sealed class SyncHarness : IAsyncDisposable
 			.AddSingleton<IFaultInjector>(Faults)
 			.AddSingleton<IMailProviderFactory>(new StubFactory(Provider))
 			.AddSingleton<ICalendarProviderFactory>(new StubCalendarFactory(CalendarProvider))
+			.AddSingleton<ICredentialStore, InMemoryCredentialStore>()
 			.AddSingleton<IHubEvents>(Events)
 			.AddSingleton<IBackgroundJobClient>(new RecordingJobClient())
 			.BuildServiceProvider();
@@ -249,18 +251,22 @@ internal sealed class RecordingHubEvents : IHubEvents
 	public List<Guid> CalendarEvents { get; } = [];
 
 	public List<Guid> CalendarConflicts { get; } = [];
+	public List<Guid> CalendarCollections { get; } = [];
+	public List<Guid> SendIdentityAccounts { get; } = [];
 	public List<Guid> ContactAccounts { get; } = [];
 
 
 	public List<NotificationDto> Notifications { get; } = [];
 
 	public List<AccountDto> AccountStatuses { get; } = [];
+	public List<Guid> RemovedAccounts { get; } = [];
 
 	public List<OutboxItemDto> OutboxStatuses { get; } = [];
 
 	public Exception? OutboxStatusFailure { get; set; }
 
 	public List<MutationFailureDto> SyncFailures { get; } = [];
+	public List<MutationQueuedDto> MutationQueued { get; } = [];
 
 	public List<MutationSettledDto> MutationSettlements { get; } = [];
 
@@ -278,12 +284,16 @@ internal sealed class RecordingHubEvents : IHubEvents
 		Drafts.Clear();
 		CalendarEvents.Clear();
 		CalendarConflicts.Clear();
+		CalendarCollections.Clear();
+		SendIdentityAccounts.Clear();
 		ContactAccounts.Clear();
 		Notifications.Clear();
 		AccountStatuses.Clear();
+		RemovedAccounts.Clear();
 		OutboxStatuses.Clear();
 		OutboxStatusFailure = null;
 		SyncFailures.Clear();
+		MutationQueued.Clear();
 		MutationSettlements.Clear();
 		Progress.Clear();
 		Connectivity.Clear();
@@ -318,12 +328,30 @@ internal sealed class RecordingHubEvents : IHubEvents
 		CalendarConflicts.Add(eventId);
 		return Task.CompletedTask;
 	}
+	public Task CalendarCollectionChangedAsync(Guid accountId)
+	{
+		CalendarCollections.Add(accountId);
+		return Task.CompletedTask;
+	}
+
+	public Task SendIdentitiesChangedAsync(Guid accountId)
+	{
+		SendIdentityAccounts.Add(accountId);
+		return Task.CompletedTask;
+	}
+
 	public Task ContactsChangedAsync(Guid accountId)
 	{
 		ContactAccounts.Add(accountId);
 		return Task.CompletedTask;
 	}
 
+
+	public Task AccountRemovedAsync(Guid accountId)
+	{
+		RemovedAccounts.Add(accountId);
+		return Task.CompletedTask;
+	}
 
 	public Task MessageDeletedAsync(Guid messageId)
 	{
@@ -366,6 +394,12 @@ internal sealed class RecordingHubEvents : IHubEvents
 	public Task MessageSyncFailedAsync(MutationFailureDto failure)
 	{
 		SyncFailures.Add(failure);
+		return Task.CompletedTask;
+	}
+
+	public Task MessageMutationQueuedAsync(MutationQueuedDto queued)
+	{
+		MutationQueued.Add(queued);
 		return Task.CompletedTask;
 	}
 

@@ -11,6 +11,21 @@ internal static class LinuxSecretServiceCredentialStore
 	private static readonly ObjectPath RootPath = new("/org/freedesktop/secrets");
 	private static readonly ObjectPath NoPromptPath = new("/");
 
+	public static async Task<bool> IsAvailableAsync(CancellationToken ct)
+	{
+		try
+		{
+			using var connection = Connect(ct);
+			await connection.ConnectAsync();
+			var service = new DBusService(connection, ServiceName);
+			return await service.CreateService(RootPath).ReadAliasAsync("default") != NoPromptPath;
+		}
+		catch (Exception) when (!ct.IsCancellationRequested)
+		{
+			return false;
+		}
+	}
+
 	public static async Task StoreAsync(string serviceName, Guid accountId, string encoded, CancellationToken ct)
 	{
 		using var connection = Connect(ct);

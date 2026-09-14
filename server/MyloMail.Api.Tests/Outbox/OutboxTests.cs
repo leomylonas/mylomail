@@ -4,6 +4,8 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Outbox;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
+using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -38,6 +40,15 @@ public sealed class OutboxTests
 		Assert.NotEmpty(item.StableMessageId);
 		Assert.StartsWith("<", item.StableMessageId, StringComparison.Ordinal);
 		Assert.EndsWith(">", item.StableMessageId, StringComparison.Ordinal);
+		Assert.Equal(
+			item.StableMessageId,
+			await harness.UsingAsync(async services =>
+				(await services
+					.GetRequiredService<MyloMailDbContext>()
+					.Drafts.SingleAsync(draft => draft.Id == item.DraftId))
+					.StableMessageId
+			)
+		);
 	}
 
 	[Fact]
@@ -52,6 +63,108 @@ public sealed class OutboxTests
 		));
 
 		Assert.Equal(OutboxStatus.Cancelled, await StatusAsync(harness, item.Id));
+	}
+
+	[Fact]
+	public async Task A_cancelled_draft_can_be_queued_again_with_its_same_stable_identity()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await SetUndoDelayAsync(harness, 30);
+		var cancelled = await QueueAsync(harness);
+		Assert.True(await harness.UsingAsync(services =>
+			services.GetRequiredService<OutboxService>().TryCancelAsync(cancelled.Id)
+		));
+
+		var requeued = await QueueAsync(harness);
+
+		Assert.Equal(cancelled.Id, requeued.Id);
+		Assert.Equal(cancelled.StableMessageId, requeued.StableMessageId);
+		Assert.Equal(OutboxStatus.Scheduled, requeued.Status);
+		Assert.Single(await harness.UsingAsync(async services =>
+			await services.GetRequiredService<MyloMailDbContext>().OutboxItems.ToListAsync()
+		));
+	}
+
+	[Fact]
+	public async Task An_expired_ambiguous_send_is_reused_with_a_new_remote_identity()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Graph);
+		var ambiguous = await QueueAsync(harness);
+		var originalStableMessageId = ambiguous.StableMessageId;
+		var attemptId = Guid.NewGuid();
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var item = await context.OutboxItems.SingleAsync(candidate => candidate.Id == ambiguous.Id);
+			var draft = await context.Drafts.SingleAsync(candidate => candidate.Id == item.DraftId);
+			item.Status = OutboxStatus.AmbiguousOutcome;
+			item.ReconcilingSince =
+				harness.Clock.GetUtcNow() - SendReconciler.ReconciliationWindow - TimeSpan.FromSeconds(1);
+			draft.ProviderDraftId = "remote-draft";
+			draft.ProviderMessageId = "remote-message";
+			draft.PushedAt = harness.Clock.GetUtcNow();
+			context.MutationExecutionAttempts.Add(new MutationExecutionAttempt
+			{
+				Id = attemptId,
+				AccountId = harness.AccountId,
+				Provider = ProviderType.Microsoft365,
+				OperationKind = MutationOperationKind.Send,
+				State = MutationAttemptState.Ambiguous,
+				CreatedAt = harness.Clock.GetUtcNow(),
+				OutboxItemId = item.Id,
+				DispatchedAt = harness.Clock.GetUtcNow(),
+			});
+			await context.SaveChangesAsync();
+		});
+
+		var requeued = await QueueAsync(harness);
+
+		Assert.Equal(ambiguous.Id, requeued.Id);
+		Assert.NotEqual(originalStableMessageId, requeued.StableMessageId);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var draft = await context.Drafts.SingleAsync();
+			var attempt = await context.MutationExecutionAttempts.SingleAsync(
+				candidate => candidate.Id == attemptId
+			);
+			Assert.Null(draft.PushedAt);
+			Assert.Equal(requeued.StableMessageId, draft.StableMessageId);
+			Assert.Equal(MutationAttemptState.Completed, attempt.State);
+			Assert.NotNull(attempt.ResultPersistedAt);
+			Assert.Single(await context.OutboxItems.ToListAsync());
+		});
+	}
+
+	[Fact]
+	public async Task A_definite_Graph_draft_preparation_failure_reschedules_the_due_send()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Graph);
+		var item = await QueueAsync(harness);
+		harness.Provider.FailDraftPushWith(new InvalidOperationException("Graph rejected the draft."));
+
+		await harness.UsingAsync(async services =>
+		{
+			var jobs = (RecordingJobClient)services
+				.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			jobs.Created.Clear();
+			jobs.States.Clear();
+			await services.GetRequiredService<OutboxJobs>().RunAsync(harness.AccountId);
+
+
+			Assert.Equal(
+				OutboxStatus.Scheduled,
+				(await services.GetRequiredService<MyloMailDbContext>()
+					.OutboxItems.SingleAsync(candidate => candidate.Id == item.Id))
+					.Status
+			);
+
+			Assert.Contains(
+				jobs.Created,
+				job => job.Method.Name == nameof(OutboxJobs.RunAsync)
+			);
+		});
 	}
 
 	/// <summary>

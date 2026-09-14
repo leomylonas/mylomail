@@ -75,7 +75,36 @@ public sealed class DataDirectoryTests
 				Path.Combine(link, "not-created", "data")
 			);
 
-			Assert.Equal(target, resolved);
+			Assert.Equal(Path.Combine(target, "not-created", "data"), resolved);
+		}
+		finally
+		{
+			Directory.Delete(root, recursive: true);
+		}
+	}
+
+	[Fact]
+	public void Rejects_a_network_mount_reached_through_a_symlink_with_a_nonexistent_suffix()
+	{
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		{
+			return;
+		}
+
+		var root = Path.Combine(Path.GetTempPath(), "mylomail-tests", Guid.NewGuid().ToString("n"));
+		var target = Path.Combine(root, "network-target");
+		var link = Path.Combine(root, "local-looking-link");
+		Directory.CreateDirectory(target);
+		Directory.CreateSymbolicLink(link, target);
+
+		try
+		{
+			Assert.Throws<InvalidOperationException>(() =>
+				DataDirectory.EnsureLocalUnix(
+					Path.Combine(link, "not-created", "data"),
+					[(root, "ext4"), (target, "nfs")]
+				)
+			);
 		}
 		finally
 		{

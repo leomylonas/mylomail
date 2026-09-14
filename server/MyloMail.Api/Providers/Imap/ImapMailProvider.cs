@@ -136,7 +136,7 @@ public sealed partial class ImapMailProvider : IMailProvider
 		{
 			client.Dispose();
 			throw new ProviderAuthenticationException(
-				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer).Detail!
+				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer)
 			);
 		}
 		catch (NotSupportedException ex)
@@ -185,18 +185,12 @@ public sealed partial class ImapMailProvider : IMailProvider
 			await client.DisconnectAsync(true, ct);
 			return new AuthResult(true, AuthState.Connected, null);
 		}
-		catch (ProviderAuthenticationException) when (rejectedCertificate is { } rejected)
+		catch (ProviderAuthenticationException ex) when (ex.Problem is { } problem)
 		{
-			// ConnectAsync already translated the rejection into this same exception type;
-			// rejectedCertificate is still set (it's cleared only at the top of the next
-			// ConnectAsync call), so the original structured Problem — fingerprint, issuer,
-			// hostname as extension fields, not just the flattened message text — is
-			// reconstructed exactly as it was before that translation moved here.
-			return new AuthResult(
-				false,
-				AuthState.Error,
-				CertificateTrust.Problem(settings.Host, rejected.Fingerprint, rejected.Issuer)
-			);
+			// ConnectAsync preserves the certificate rejection as a common structured problem.
+			// Do not rebuild it from the display message: its extension data drives the
+			// explicit pin action.
+			return new AuthResult(false, AuthState.Error, problem);
 		}
 		catch (ProviderAuthenticationException ex)
 		{

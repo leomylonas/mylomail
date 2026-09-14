@@ -33,6 +33,7 @@ public sealed class NotificationEligibilityTests
 		await SyncTests.ReconcileAsync(harness);
 
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 
 		// A message was genuinely created — this is not a test of ingestion — but the very
 		// first page a stream ever applies must not treat its own catch-up as new mail.
@@ -50,6 +51,7 @@ public sealed class NotificationEligibilityTests
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
 		await SyncTests.ReconcileAsync(harness);
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 		Assert.Empty(harness.Events.Notifications);
 
 		// Basic-tier IMAP re-reports its whole mailbox on every poll — the fake provider does
@@ -70,6 +72,7 @@ public sealed class NotificationEligibilityTests
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
 		await SyncTests.ReconcileAsync(harness);
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 
 		// The epoch moves ahead of the next message's date: an account resynchronisation
 		// finding old mail through a fresh stream must not treat it as news either, even
@@ -96,6 +99,7 @@ public sealed class NotificationEligibilityTests
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
 		await SyncTests.ReconcileAsync(harness);
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -124,6 +128,7 @@ public sealed class NotificationEligibilityTests
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
 		await SyncTests.ReconcileAsync(harness);
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 		Assert.Empty(harness.Events.Notifications);
 
 		// Real time passes before the resync is triggered, and more still passes while the
@@ -142,6 +147,7 @@ public sealed class NotificationEligibilityTests
 		harness.Clock.Advance(TimeSpan.FromMinutes(10));
 
 		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
 
 		// The re-fetched backlog message is excluded by the same fixed baseline; only the one
 		// that arrived after resync was triggered notifies — even though the fetch that found

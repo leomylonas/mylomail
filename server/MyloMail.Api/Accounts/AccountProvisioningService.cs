@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using MyloMail.Api.Content;
 using MyloMail.Api.Contracts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -39,10 +39,11 @@ public sealed record NewAccount(
 public sealed class AccountProvisioningService(
 	MyloMailDbContext context,
 	ICredentialStore credentials,
+	AccountCredentialCleanupService credentialCleanup,
 	IMailProviderFactory providers,
 	StartupScheduler scheduler,
 	IHubEvents events,
-	SearchIndexer search,
+	IFaultInjector faults,
 	TimeProvider clock,
 	ILogger<AccountProvisioningService> logger
 )
@@ -278,6 +279,7 @@ public sealed class AccountProvisioningService(
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null)
 		{
+			await credentialCleanup.CompleteIfPendingAsync(accountId, ct);
 			return;
 		}
 
@@ -299,7 +301,14 @@ public sealed class AccountProvisioningService(
 
 		account.IsEnabled = false;
 		account.LastAuthError = null;
+		if (!await context.AccountCredentialCleanups.AnyAsync(cleanup => cleanup.AccountId == accountId, ct))
+		{
+			// Removal intent commits with the disable transition. Startup can therefore finish
+			// both database/search deletion and credential erasure after every later crash.
+			context.AccountCredentialCleanups.Add(new AccountCredentialCleanup { AccountId = accountId });
+		}
 		await context.SaveChangesAsync(ct);
+		faults.Reached(FaultPoints.AccountRemovalAfterIntentBeforeDatabaseDelete);
 
 		if (activeExports.Count > 0)
 		{
@@ -311,36 +320,14 @@ public sealed class AccountProvisioningService(
 				.ExecuteUpdateAsync(u => u.SetProperty(j => j.Status, ExportJobStatus.CancelRequested), ct);
 		}
 
-		// Before the account goes: messages cascade from it, and a message cannot be deleted
-		// while it is still indexed — the index would otherwise be left describing rows that
-		// no longer exist (§8).
-		await search.RemoveForAccountAsync(accountId, ct);
+		await credentialCleanup.CompleteDatabaseRemovalAsync(accountId, ct);
+		await events.AccountRemovedAsync(accountId);
 
-		// Mailbox.ParentId is Restrict, not Cascade (a topology sync must never let one
-		// deleted folder silently take its whole subtree with it) — but that same guard blocks
-		// SQLite's own FK-cascade from Account down to Mailbox here: it deletes a parent
-		// mailbox row while a child mailbox still references it, which SQLite refuses with a
-		// FOREIGN KEY constraint failure. Every mailbox in this account is about to be deleted
-		// together via that same cascade, so breaking every parent link first is safe — there
-		// is no longer a subtree left for Restrict to protect.
-		await context
-			.Mailboxes.Where(m => m.AccountId == accountId)
-			.ExecuteUpdateAsync(u => u.SetProperty(m => m.ParentId, (Guid?)null), ct);
 
-		context.Accounts.Remove(account);
-		await context.SaveChangesAsync(ct);
-
-		// Last, so a crash mid-removal leaves a disabled account with its credential rather
-		// than a live account with none.
-		await credentials.DeleteAsync(accountId, ct);
-		await credentials.DeleteSlotAsync(accountId, CredentialSlots.CalDav, ct);
-		await credentials.DeleteSlotAsync(accountId, CredentialSlots.Smtp, ct);
-		await credentials.DeleteSlotAsync(accountId, CredentialSlots.GmailClientSecret, ct);
+		await credentialCleanup.CompleteAsync(accountId, ct);
 
 		logger.LogInformation("Account {AccountId} removed at {At}.", accountId, clock.GetUtcNow());
 
-		account.IsEnabled = false;
-		await events.AccountStatusChangedAsync(AccountDtoFactory.ToDto(account, address: null));
 	}
 }
 

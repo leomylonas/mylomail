@@ -316,12 +316,14 @@ public class MailHub(
 	IBackgroundJobClient jobs,
 	Scheduling.ConnectivityMonitor connectivity,
 	Scheduling.PollRegistry polls,
+	Scheduling.CoverageRegistry coverageLoops,
 	Scheduling.ImapIdleRegistry imapIdle,
 	MailInviteMaterializer invites,
 	IIncomingMailAuthentication authentication,
 	IHubEvents events,
 	Scheduling.AccountGate gate,
-	IFaultInjector faults
+	IFaultInjector faults,
+	TimeProvider clock
 ) : Hub<IMailClient>, IMailHub
 {
 	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
@@ -640,9 +642,13 @@ public class MailHub(
 	{
 		try
 		{
-			return ToSendIdentityDto(
-				await identities.AddAsync(accountId, displayName, emailAddress, signatureHtml)
+			var identity = await identities.AddAsync(
+				accountId,
+				displayName,
+				emailAddress,
+				signatureHtml
 			);
+			return ToSendIdentityDto(identity);
 		}
 		catch (InvalidOperationException ex)
 		{
@@ -659,9 +665,13 @@ public class MailHub(
 	{
 		try
 		{
-			return ToSendIdentityDto(
-				await identities.UpdateAsync(identityId, displayName, emailAddress, signatureHtml)
+			var identity = await identities.UpdateAsync(
+				identityId,
+				displayName,
+				emailAddress,
+				signatureHtml
 			);
+			return ToSendIdentityDto(identity);
 		}
 		catch (InvalidOperationException ex)
 		{
@@ -669,8 +679,11 @@ public class MailHub(
 		}
 	}
 
-	public async Task<SendIdentityDto> SetDefaultSendIdentity(Guid identityId) =>
-		ToSendIdentityDto(await identities.SetDefaultAsync(identityId));
+	public async Task<SendIdentityDto> SetDefaultSendIdentity(Guid identityId)
+	{
+		var identity = await identities.SetDefaultAsync(identityId);
+		return ToSendIdentityDto(identity);
+	}
 
 	public async Task DeleteSendIdentity(Guid identityId)
 	{
@@ -994,23 +1007,19 @@ public class MailHub(
 
 		if (resumingPolling)
 		{
-			// Deliberately no polls.StopAll(account.Id) here (unlike
-			// StartupScheduler.ResumeAccountAsync, which is safe to clear unconditionally
-			// because a job that hit ProviderAuthenticationException already stopped and
-			// released its own slot before that path runs). A loop disabled and re-enabled
+			// Deliberately no registry-wide reset here. A loop disabled and re-enabled
 			// fast enough may not have ticked yet, so it may still hold its registry slot
 			// without having stopped — force-clearing it here would let TopologyAsync's
-			// TryStart claim a second, concurrent loop for the same scope, doubling the poll
-			// rate. Leaving the slot alone means: if the old loop already noticed and
-			// stopped, TryStart below claims it correctly; if it hasn't yet, TryStart simply
-			// no-ops and the still-alive loop resumes itself on its own next tick, since
-			// PollingEnabled is true again by then.
+			// TryStart claim a second, concurrent loop for the same scope.
 			if (polls.TryStart(account.Id, Scheduling.SyncJobs.TopologyScope))
 			{
 				jobs.Enqueue<Scheduling.SyncJobs>(j => j.TopologyAsync(account.Id, default));
 			}
 			if (account.ProviderType != ProviderType.Imap)
 				jobs.Enqueue<Scheduling.ContactJobs>(job => job.StartRefreshAsync(account.Id));
+			jobs.Enqueue<Scheduling.SyncJobs>(job =>
+				job.ReplayStagedAsync(account.Id, default)
+			);
 		}
 
 		// An old-generation coverage page exits rather than scheduling a successor. Start one
@@ -1020,9 +1029,12 @@ public class MailHub(
 		{
 			foreach (var mailboxId in affectedMailboxIds)
 			{
-				jobs.Enqueue<Scheduling.SyncJobs>(job =>
-					job.CoveragePageAsync(account.Id, mailboxId, default)
-				);
+				if (coverageLoops.TryStart(account.Id, mailboxId))
+				{
+					jobs.Enqueue<Scheduling.SyncJobs>(job =>
+						job.CoveragePageAsync(account.Id, mailboxId, default)
+					);
+				}
 			}
 			await MailboxSummaryDtoFactory.AnnounceManyAsync(
 				context,
@@ -1445,6 +1457,14 @@ public class MailHub(
 			.NotificationRecords.AsNoTracking()
 			.FirstOrDefaultAsync(notification => notification.Id == notificationId);
 		if (record is null)
+		{
+			return null;
+		}
+		if (
+			record.DeliveredAt is { } deliveredAt
+			&& clock.GetUtcNow() - deliveredAt
+				> Notifications.NotificationService.NavigationRetention
+		)
 		{
 			return null;
 		}

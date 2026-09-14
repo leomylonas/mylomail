@@ -13,6 +13,15 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 
 	public static async Task<bool> IsAvailableAsync(string dataDirectory, CancellationToken ct)
 	{
+		// A locked Secret Service collection is present but temporarily inaccessible, not absent.
+		// Probing it by writing a secret conflates those states and silently switches an existing
+		// account to the empty master-password store. Test only service/collection presence here;
+		// point-of-use reads still report a locked collection as CredentialStoreUnavailable.
+		if (OperatingSystem.IsLinux())
+		{
+			return await LinuxSecretServiceCredentialStore.IsAvailableAsync(ct);
+		}
+
 		var store = new NativeCredentialStore(dataDirectory);
 		var probeId = Guid.NewGuid();
 		try

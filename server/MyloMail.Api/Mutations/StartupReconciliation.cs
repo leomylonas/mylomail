@@ -22,6 +22,7 @@ public sealed record OutstandingWork(
 	IReadOnlyList<Guid> IncompleteExports,
 	IReadOnlyList<Guid> DraftAccountsNeedingPush,
 	IReadOnlyList<Guid> PendingCalendarCreationAccounts,
+	IReadOnlyList<Guid> StagedChangeAccounts,
 	IReadOnlyList<Guid> UndeliveredNotificationAccounts
 );
 
@@ -80,6 +81,11 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			select calendar.AccountId
 		).Distinct().ToListAsync(ct);
 
+		var stagedChangeAccounts = await context
+			.StagedChangeEvents.Select(staged => staged.AccountId)
+			.Distinct()
+			.ToListAsync(ct);
+
 		// Scheduled sends waiting for their undo window. With in-memory job storage the
 		// Hangfire job is gone, so this is the only thing that makes a pending send survive
 		// a restart.
@@ -109,15 +115,16 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 		logger.LogInformation(
 			"Startup reconciliation found {Backfills} backfills, {Chains} non-terminal mutations, "
 				+ "{Ambiguous} unresolved attempts, {Content} unfetched messages, {Drafts} accounts with drafts to push, "
-				+ "{CalendarCreations} accounts with calendar creates to reconcile, {Pending} pending sends, "
-				+ "{Unresolved} sends awaiting reconciliation, {Exports} incomplete exports, and "
-				+ "{Notifications} accounts with undelivered notifications.",
+				+ "{CalendarCreations} accounts with calendar creates to reconcile, {StagedChanges} accounts with staged history, "
+				+ "{Pending} pending sends, {Unresolved} sends awaiting reconciliation, "
+				+ "{Exports} incomplete exports, and {Notifications} accounts with undelivered notifications.",
 			backfilling.Count,
 			chains.Count,
 			ambiguous.Count,
 			content.Count,
 			draftAccounts.Count,
 			calendarCreationAccounts.Count,
+			stagedChangeAccounts.Count,
 			pendingSends.Count,
 			unresolvedSends.Count,
 			exports.Count,
@@ -134,6 +141,7 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			exports,
 			draftAccounts,
 			calendarCreationAccounts,
+			stagedChangeAccounts,
 			notificationAccounts
 		);
 	}
@@ -142,15 +150,28 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 	/// Releases leases held by a process that no longer exists.
 	/// </summary>
 	/// <remarks>
-	/// Releasing the lease says only that no worker owns the item. It says nothing about what
-	/// the server saw, which is why the item's attempt membership — not its state — decides
-	/// whether it may be re-executed or must first be reconciled.
+	/// Releasing the lease says only that no worker owns the item. Items in an unresolved
+	/// dispatched/ambiguous attempt retain their lease state so the claimant cannot mistake
+	/// them for conclusively requeued work before reconciliation observes the provider.
 	/// </remarks>
 	public async Task<int> ReleaseOrphanedLeasesAsync(CancellationToken ct = default)
 	{
 		var now = clock.GetUtcNow();
 		return await context
-			.MutationItems.Where(m => m.State == MutationState.Leased)
+			.MutationItems.Where(m =>
+				m.State == MutationState.Leased
+				&& !context.MutationExecutionAttemptItems.Any(membership =>
+					membership.MutationItemId == m.Id
+					&& context.MutationExecutionAttempts.Any(attempt =>
+						attempt.Id == membership.AttemptId
+						&& attempt.ResultPersistedAt == null
+						&& (
+							attempt.State == MutationAttemptState.Dispatched
+							|| attempt.State == MutationAttemptState.Ambiguous
+						)
+					)
+				)
+			)
 			.ExecuteUpdateAsync(
 				updates =>
 					updates

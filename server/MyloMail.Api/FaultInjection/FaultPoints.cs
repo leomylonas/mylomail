@@ -66,6 +66,16 @@ public static class FaultPoints
 	/// <summary>After response headers and part of an attachment body reach the client.</summary>
 	public const string AttachmentDownloadMidTransfer =
 		"attachment-download.mid-transfer";
+	/// <summary>After tombstone and FTS deletion are applied, before their transaction commits.</summary>
+	public const string TombstoneAfterDeleteBeforeCommit = "tombstone.after-delete-before-commit";
+
+
+	/// <summary>
+	/// After account removal intent and the disabled state commit, before database/search
+	/// deletion begins.
+	/// </summary>
+	public const string AccountRemovalAfterIntentBeforeDatabaseDelete =
+		"account-removal.after-intent-before-database-delete";
 
 	/// <summary>After cursor invalidation state is changed, before its atomic save.</summary>
 	public const string CursorInvalidationAfterApplyBeforeCommit =

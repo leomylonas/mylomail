@@ -1,5 +1,7 @@
 using System.Net.Sockets;
+using System.Text;
 using Hangfire;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MyloMail.Api.Domain;
@@ -125,6 +127,11 @@ public sealed class ImapIdleRegistryTests
 				SpecialUse = SpecialUse.Inbox,
 				IsSubscribed = true,
 			});
+			context.MailboxCoverageStates.Add(new MailboxCoverageState
+			{
+				MailboxId = mailboxId,
+				Status = CoverageStatus.Covered,
+			});
 			await context.SaveChangesAsync();
 			Assert.True(
 				provider
@@ -157,6 +164,89 @@ public sealed class ImapIdleRegistryTests
 			jobs,
 			job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
 		);
+	}
+
+	[Fact]
+	public async Task An_IDLE_arrival_downloads_its_message_body()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		var inbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
+
+		var messageId = Guid.NewGuid();
+		var occurrenceId = harness.Provider.SeedMessage(
+			"INBOX",
+			messageId,
+			DateTimeOffset.UnixEpoch.AddMinutes(1)
+		);
+		inbox.Messages[occurrenceId].RawBytes = Encoding.UTF8.GetBytes(
+			$"""
+			From: Someone <sender@example.test>
+			To: test@example.test
+			Subject: Live arrival
+			Message-ID: <{messageId:N}@example.test>
+			Date: Thu, 1 Jan 1970 00:01:00 +0000
+			Content-Type: text/plain; charset=utf-8
+
+			Live body.
+			"""
+		);
+
+		var mailboxId = await harness.UsingAsync(async provider =>
+		{
+			var jobs = (RecordingJobClient)provider.GetRequiredService<IBackgroundJobClient>();
+			jobs.Created.Clear();
+			var id = (await harness.MailboxAsync(provider, "INBOX")).Id;
+			Assert.True(
+				provider
+					.GetRequiredService<ImapIdleWakeRegistry>()
+					.Request((harness.Account.Id, id))
+			);
+			return id;
+		});
+
+		await harness.UsingAsync(provider =>
+			provider
+				.GetRequiredService<SyncJobs>()
+				.WakeChangeStreamAsync(harness.Account.Id, mailboxId)
+		);
+		var scheduledAccountId = await harness.UsingAsync(provider =>
+		{
+			var created = ((RecordingJobClient)provider.GetRequiredService<IBackgroundJobClient>())
+				.Created.Where(job => job.Method.Name == nameof(ContentJobs.FetchNextAsync));
+			return Task.FromResult(Assert.IsType<Guid>(Assert.Single(created).Args[0]));
+		});
+		await harness.UsingAsync(provider =>
+			provider.GetRequiredService<ContentJobs>().FetchNextAsync(scheduledAccountId)
+		);
+
+		await harness.UsingAsync(async provider =>
+		{
+			var context = provider.GetRequiredService<MyloMailDbContext>();
+			var persistedMessageId = await context
+				.MessageMailboxes.Where(occurrence =>
+					occurrence.MailboxId == mailboxId
+					&& occurrence.ProviderOccurrenceId == occurrenceId
+				)
+				.Select(occurrence => occurrence.MessageId)
+				.SingleAsync();
+			Assert.True(
+				(await context.Messages.SingleAsync(message => message.Id == persistedMessageId))
+					.RawFetched
+			);
+			Assert.Equal(
+				"Live body.",
+				(
+					await context.MessageBodies.SingleAsync(body =>
+						body.MessageId == persistedMessageId
+					)
+				).TextBody
+			);
+		});
 	}
 
 	[Fact]

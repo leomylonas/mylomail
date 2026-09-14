@@ -325,11 +325,16 @@ public sealed class MutationCrashWindowTests
 			var reconciliation = services.GetRequiredService<StartupReconciliation>();
 
 			var released = await reconciliation.ReleaseOrphanedLeasesAsync();
-			Assert.Equal(1, released);
+			Assert.Equal(0, released);
 
 			var work = await reconciliation.FindAsync();
 			Assert.Single(work.NonTerminalMutationChains);
 			Assert.Single(work.AmbiguousAttempts);
+			Assert.Equal(
+				MutationState.Leased,
+				(await services.GetRequiredService<MyloMailDbContext>()
+					.MutationItems.SingleAsync()).State
+			);
 		});
 	}
 

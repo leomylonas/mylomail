@@ -63,8 +63,13 @@ public static class CertificateTrust
 			Detail = $"The certificate presented by {hostname} is not trusted (issued by {issuer}, SHA-256 {fingerprint}).",
 			Category = ErrorCategory.Validation,
 		};
+		// These are public certificate attributes, required for the explicit pin decision.
+		// They must travel as structured data because neither mutation nor background transport
+		// may recover security decisions by parsing display text.
 		problem.Extensions["hostname"] = hostname;
 		problem.Extensions["sha256Fingerprint"] = fingerprint;
+		problem.Extensions["issuer"] = issuer;
+		problem.Extensions["pinningAction"] = "TrustCertificate";
 		return problem;
 	}
 }

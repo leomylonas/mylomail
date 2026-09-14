@@ -79,7 +79,7 @@ public sealed class MutationReconciler(
 				continue;
 			}
 
-			var observed = new Dictionary<Guid, IReadOnlyDictionary<Guid, string>>();
+			var observed = new Dictionary<Guid, MutationObservation>();
 			foreach (var item in unresolved)
 			{
 				observed[item.Id] = await ObserveAsync(account, item.MessageId, ct);
@@ -87,21 +87,39 @@ public sealed class MutationReconciler(
 
 			var removedMessageIds = new List<Guid>();
 			var confirmedMutations = new List<MutationSettledDto>();
+			var attemptIndeterminate = false;
 			foreach (var item in unresolved)
 			{
-				var locations = observed[item.Id];
+				var observation = observed[item.Id];
+				if (observation.IsIndeterminate)
+				{
+					attemptIndeterminate = true;
+					continue;
+				}
+
 				var resolvedTargetMailboxId = memberships[item.Id].ResolvedTargetMailboxId;
-				locations = await CompletePartialImapTrashMoveAsync(
+				observation = await CompletePartialImapTrashMoveAsync(
 					account,
 					item,
 					resolvedTargetMailboxId,
-					locations,
+					observation,
 					ct
 				);
-				var applied = IsApplied(account, item, resolvedTargetMailboxId, locations);
+				if (observation.IsIndeterminate)
+				{
+					attemptIndeterminate = true;
+					continue;
+				}
+
+				var applied = IsApplied(
+					account,
+					item,
+					resolvedTargetMailboxId,
+					observation.Locations
+				);
 				if (applied)
 				{
-					if (await SynchroniseLocationsAsync(item.MessageId, locations, ct))
+					if (await SynchroniseLocationsAsync(item.MessageId, observation.Locations, ct))
 					{
 						removedMessageIds.Add(item.MessageId);
 					}
@@ -121,8 +139,10 @@ public sealed class MutationReconciler(
 				}
 			}
 
-			attempt.State = MutationAttemptState.Completed;
-			attempt.ResultPersistedAt = clock.GetUtcNow();
+			attempt.State = attemptIndeterminate
+				? MutationAttemptState.Ambiguous
+				: MutationAttemptState.Completed;
+			attempt.ResultPersistedAt = attemptIndeterminate ? null : clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
 			var deleted = await MessageChangeAnnouncer.AnnounceDeletedAsync(
 				context,
@@ -144,7 +164,10 @@ public sealed class MutationReconciler(
 			{
 				await events.MessageMutationSettledAsync(settlement);
 			}
-			settled++;
+			if (!attemptIndeterminate)
+			{
+				settled++;
+			}
 		}
 
 		if (settled > 0)
@@ -177,23 +200,24 @@ public sealed class MutationReconciler(
 		return Task.CompletedTask;
 	}
 
-	private async Task<IReadOnlyDictionary<Guid, string>> CompletePartialImapTrashMoveAsync(
+	private async Task<MutationObservation> CompletePartialImapTrashMoveAsync(
 		Account account,
 		MutationItem item,
 		Guid? resolvedTargetMailboxId,
-		IReadOnlyDictionary<Guid, string> locations,
+		MutationObservation observation,
 		CancellationToken ct
 	)
 	{
+		var locations = observation.Locations;
 		if (account.ProviderType != ProviderType.Imap
 			|| item.OperationKind != MutationOperationKind.MoveToTrash)
 		{
-			return locations;
+			return observation;
 		}
 
 		if (resolvedTargetMailboxId is not Guid trash || !locations.ContainsKey(trash))
 		{
-			return locations;
+			return observation;
 		}
 
 		var source = await context
@@ -202,7 +226,7 @@ public sealed class MutationReconciler(
 			.FirstOrDefaultAsync(ct);
 		if (source is null || source.MailboxId == trash)
 		{
-			return locations;
+			return observation;
 		}
 
 		// A basic IMAP server may have completed COPY but crashed before marking and
@@ -237,15 +261,21 @@ public sealed class MutationReconciler(
 			);
 		}
 		var after = await ObserveAsync(account, item.MessageId, ct);
-		if (sourceSnapshot.ExistingOccurrenceIds.Contains(source.ProviderOccurrenceId)
-			|| !after.TryGetValue(trash, out var trashProviderId))
+		if (
+			after.IsIndeterminate
+			|| sourceSnapshot.ExistingOccurrenceIds.Contains(source.ProviderOccurrenceId)
+			|| !after.Locations.TryGetValue(trash, out var trashProviderId)
+		)
 		{
 			return after;
 		}
 
 		// The exact source UID is gone and Trash is present, so the intent is complete.
 		// Do not attach other heuristic Message-ID matches to this canonical message.
-		return new Dictionary<Guid, string> { [trash] = trashProviderId };
+		return new MutationObservation(
+			new Dictionary<Guid, string> { [trash] = trashProviderId },
+			false
+		);
 	}
 
 	private static bool IsApplied(
@@ -274,7 +304,11 @@ public sealed class MutationReconciler(
 		}
 	}
 
-	private async Task<IReadOnlyDictionary<Guid, string>> ObserveAsync(Account account, Guid messageId, CancellationToken ct)
+	private async Task<MutationObservation> ObserveAsync(
+		Account account,
+		Guid messageId,
+		CancellationToken ct
+	)
 	{
 		var message = await context.Messages.FirstAsync(m => m.Id == messageId, ct);
 		var known = await (
@@ -289,39 +323,88 @@ public sealed class MutationReconciler(
 		);
 		var mailboxes = await context.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null).ToListAsync(ct);
 		var locations = new Dictionary<Guid, string>();
+		var isIndeterminate = false;
 		var provider = providers.For(account);
 
 		foreach (var mailbox in mailboxes)
 		{
+			var exactOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
+			var heuristicOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
 			string? token = null;
 			do
 			{
-				var page = await provider.InitialSyncMailboxAsync(account, mailbox, token, InitialSyncMode.Full, null, 200, ct);
-				foreach (var dto in page.Messages.Where(dto => Matches(message, known, dto)))
+				var page = await provider.InitialSyncMailboxAsync(
+					account,
+					mailbox,
+					token,
+					InitialSyncMode.Full,
+					null,
+					200,
+					ct
+				);
+				foreach (var dto in page.Messages)
 				{
-					var occurrence = dto.Occurrences.FirstOrDefault(o => o.ProviderMailboxId == mailbox.ProviderMailboxId);
-					if (occurrence is not null)
+					var occurrence = dto.Occurrences.FirstOrDefault(candidate =>
+						candidate.ProviderMailboxId == mailbox.ProviderMailboxId
+					);
+					if (occurrence is null)
 					{
-						locations[mailbox.Id] = occurrence.ProviderOccurrenceId;
+						continue;
+					}
+
+					if (MatchesExactly(message, known, dto))
+					{
+						exactOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
+					}
+					else if (MatchesHeuristically(message, dto))
+					{
+						heuristicOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
 					}
 				}
 				token = page.ResumeToken;
 			} while (token is not null);
+
+			var candidates = exactOccurrenceIds.Count > 0
+				? exactOccurrenceIds
+				: heuristicOccurrenceIds;
+			if (candidates.Count == 1)
+			{
+				locations[mailbox.Id] = candidates.Single();
+			}
+			else if (candidates.Count > 1)
+			{
+				isIndeterminate = true;
+				logger.LogWarning(
+					"Mutation recovery for message {MessageId} found {Count} indistinguishable candidates in mailbox {MailboxId}; no provider occurrence was adopted.",
+					messageId,
+					candidates.Count,
+					mailbox.Id
+				);
+			}
 		}
 
-		return locations;
+		return new MutationObservation(locations, isIndeterminate);
 	}
 
-	private static bool Matches(
+	private sealed record MutationObservation(
+		IReadOnlyDictionary<Guid, string> Locations,
+		bool IsIndeterminate
+	);
+
+	private static bool MatchesExactly(
 		Message message,
 		IReadOnlyDictionary<(string ProviderMailboxId, string ProviderOccurrenceId), bool> known,
 		MessageDto dto
 	) =>
 		(message.ProviderStableId is not null && message.ProviderStableId == dto.ProviderStableId)
-		|| dto.Occurrences.Any(occurrence => known.ContainsKey((occurrence.ProviderMailboxId, occurrence.ProviderOccurrenceId)))
-		|| (message.MessageIdHeader is not null
-			&& message.MessageIdHeader == dto.MessageIdHeader
-			&& message.ReceivedAt == dto.ReceivedAt);
+		|| dto.Occurrences.Any(occurrence =>
+			known.ContainsKey((occurrence.ProviderMailboxId, occurrence.ProviderOccurrenceId))
+		);
+
+	private static bool MatchesHeuristically(Message message, MessageDto dto) =>
+		message.MessageIdHeader is not null
+		&& message.MessageIdHeader == dto.MessageIdHeader
+		&& message.ReceivedAt == dto.ReceivedAt;
 
 	private async Task<bool> SynchroniseLocationsAsync(Guid messageId, IReadOnlyDictionary<Guid, string> locations, CancellationToken ct)
 	{

@@ -53,15 +53,40 @@ public sealed class IntegrityReconciliationService(
 		var strategy = context.Database.CreateExecutionStrategy();
 		var availabilityRecovered = false;
 		IReadOnlyList<Guid> removedMessageIds = [];
+		var applied = false;
 		await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			var currentMailbox = await context.Mailboxes
+				.AsNoTracking()
+				.FirstOrDefaultAsync(
+					candidate =>
+						candidate.Id == mailbox.Id
+						&& candidate.AccountId == account.Id
+						&& candidate.ProviderMailboxId != null
+						&& candidate.TopologyGeneration == mailbox.TopologyGeneration,
+					ct
+				);
+			if (currentMailbox is null
+				|| !await context.Accounts.AnyAsync(
+					candidate => candidate.Id == account.Id && candidate.IsEnabled,
+					ct
+				))
+			{
+				return;
+			}
+
 			var missingIds = known
 				.Where(o => !snapshot.ExistingOccurrenceIds.Contains(o.ProviderOccurrenceId))
 				.Select(o => o.ProviderOccurrenceId)
 				.ToList();
-			removedMessageIds = await ingestor.RemoveOccurrencesAsync(mailbox, missingIds, generations, ct);
-			await ingestor.ApplyFlagChangesAsync(mailbox, snapshot.FlagChanges, generations, ct);
+			removedMessageIds = await ingestor.RemoveOccurrencesAsync(
+				currentMailbox,
+				missingIds,
+				generations,
+				ct
+			);
+			await ingestor.ApplyFlagChangesAsync(currentMailbox, snapshot.FlagChanges, generations, ct);
 
 			var state = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(s => s.MailboxId == mailbox.Id, ct);
 			availabilityRecovered = state?.LastError is not null;
@@ -75,7 +100,13 @@ public sealed class IntegrityReconciliationService(
 			state.LastError = null;
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
+			applied = true;
 		});
+		if (!applied)
+		{
+			return;
+		}
+
 
 		// Reconciliation exists to remove occurrences a degraded IMAP server never reported as
 		// expunged, so a run that removed any is a run that changed this mailbox's count —

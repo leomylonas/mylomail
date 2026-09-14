@@ -1,3 +1,5 @@
+using MyloMail.Api.Errors;
+
 namespace MyloMail.Api.Providers;
 
 /// <summary>
@@ -28,5 +30,21 @@ public class ProviderThrottledException(TimeSpan retryAfter, string message, Exc
 /// auth failure burns the user's remaining attempts against some providers, and none of them
 /// recover on their own.
 /// </remarks>
-public class ProviderAuthenticationException(string message, Exception? inner = null)
-	: Exception(message, inner);
+public class ProviderAuthenticationException : Exception
+{
+	public ProviderAuthenticationException(string message, Exception? inner = null)
+		: base(message, inner) { }
+
+	/// <summary>
+	/// Keeps a provider's actionable rejection intact at asynchronous transport boundaries,
+	/// where reducing it to <see cref="Exception.Message"/> would discard structured recovery
+	/// data such as an untrusted certificate's pin target.
+	/// </summary>
+	public ProviderAuthenticationException(MutationProblemDetails problem, Exception? inner = null)
+		: base(problem.Detail ?? problem.Title ?? "Authentication was rejected.", inner)
+	{
+		Problem = problem;
+	}
+
+	public MutationProblemDetails? Problem { get; }
+}

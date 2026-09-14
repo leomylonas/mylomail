@@ -40,7 +40,19 @@ public sealed class MutationClaimService(MyloMailDbContext context, TimeProvider
 			WHERE head."AccountId" = "MutationItems"."AccountId"
 			  AND head."MessageId" = "MutationItems"."MessageId"
 			  AND head."State" NOT IN ($completed, $failed, $cancelled)
-		  );
+		  )
+		  AND (
+			"State" != $leased
+			OR NOT EXISTS (
+				SELECT 1
+				FROM "MutationExecutionAttemptItems" AS membership
+				INNER JOIN "MutationExecutionAttempts" AS attempt
+					ON attempt."Id" = membership."AttemptId"
+				WHERE membership."MutationItemId" = "MutationItems"."Id"
+				  AND attempt."State" IN ($dispatched, $ambiguous)
+				  AND attempt."ResultPersistedAt" IS NULL
+			)
+		  )
 		""";
 
 	/// <summary>
@@ -179,6 +191,8 @@ public sealed class MutationClaimService(MyloMailDbContext context, TimeProvider
 				new SqliteParameter("$expectedState", (int)candidate.State),
 				new SqliteParameter("$expectedOwner", (object?)candidate.LeaseOwner ?? DBNull.Value),
 				new SqliteParameter("$leased", (int)MutationState.Leased),
+				new SqliteParameter("$dispatched", (int)MutationAttemptState.Dispatched),
+				new SqliteParameter("$ambiguous", (int)MutationAttemptState.Ambiguous),
 				new SqliteParameter("$completed", (int)MutationState.Completed),
 				new SqliteParameter("$failed", (int)MutationState.Failed),
 				new SqliteParameter("$cancelled", (int)MutationState.Cancelled),

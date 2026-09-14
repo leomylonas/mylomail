@@ -56,6 +56,32 @@ public sealed class ProviderMutationBatchingTests
 		Assert.Equal(1, handler.RequestCount);
 	}
 
+	[Theory]
+	[InlineData(HttpStatusCode.Unauthorized)]
+	[InlineData(HttpStatusCode.Forbidden)]
+	public async Task Gmail_batch_authentication_subresponses_pause_the_account(HttpStatusCode status)
+	{
+		using var service = CreateGmailService(new GmailBatchHandler(itemStatus: status));
+
+		await Assert.ThrowsAsync<ProviderAuthenticationException>(() =>
+			GmailMailProvider.MoveToTrashBatchAsync(service, References(), CancellationToken.None)
+		);
+	}
+
+	[Theory]
+	[InlineData(HttpStatusCode.RequestTimeout)]
+	[InlineData(HttpStatusCode.ServiceUnavailable)]
+	public async Task Gmail_indeterminate_batch_subresponses_do_not_become_terminal_item_failures(
+		HttpStatusCode status
+	)
+	{
+		using var service = CreateGmailService(new GmailBatchHandler(itemStatus: status));
+
+		await Assert.ThrowsAsync<HttpRequestException>(() =>
+			GmailMailProvider.MoveToTrashBatchAsync(service, References(), CancellationToken.None)
+		);
+	}
+
 	[Fact]
 	public async Task Gmail_outer_batch_throttle_is_translated()
 	{
@@ -119,11 +145,15 @@ public sealed class ProviderMutationBatchingTests
 		Assert.Equal(1, handler.RequestCount);
 	}
 
-	private static MessageOccurrenceRef[] References() =>
-	[
-		new(Guid.NewGuid(), Guid.NewGuid(), "message-one"),
-		new(Guid.NewGuid(), Guid.NewGuid(), "message-two"),
-	];
+	private static MessageOccurrenceRef[] References()
+	{
+		var trashMailboxId = Guid.NewGuid();
+		return
+		[
+			new(Guid.NewGuid(), Guid.NewGuid(), "message-one", trashMailboxId),
+			new(Guid.NewGuid(), Guid.NewGuid(), "message-two", trashMailboxId),
+		];
+	}
 
 	private static GmailService CreateGmailService(HttpMessageHandler handler)
 	{
@@ -152,7 +182,8 @@ public sealed class ProviderMutationBatchingTests
 	}
 
 	private sealed class GmailBatchHandler(
-		GmailBatchMode mode = GmailBatchMode.Results
+		GmailBatchMode mode = GmailBatchMode.Results,
+		HttpStatusCode? itemStatus = null
 	) : HttpMessageHandler
 	{
 		public int RequestCount { get; private set; }
@@ -187,7 +218,7 @@ public sealed class ProviderMutationBatchingTests
 			const string boundary = "batch_response";
 			var body = mode == GmailBatchMode.ItemsThrottled
 				? ThrottledBody(boundary)
-				: ResultsBody(boundary);
+				: ResultsBody(boundary, itemStatus);
 			var response = new HttpResponseMessage(HttpStatusCode.OK)
 			{
 				Content = new StringContent(body, Encoding.UTF8),
@@ -198,25 +229,29 @@ public sealed class ProviderMutationBatchingTests
 			return response;
 		}
 
-		private static string ResultsBody(string boundary) =>
+		private static string ResultsBody(string boundary, HttpStatusCode? itemStatus) =>
 			string.Join(
 				"\r\n",
 				$"--{boundary}",
 				"Content-Type: application/http",
 				"Content-ID: response-1",
 				"",
-				"HTTP/1.1 200 OK",
+				$"HTTP/1.1 {(int)(itemStatus ?? HttpStatusCode.OK)} {itemStatus ?? HttpStatusCode.OK}",
 				"Content-Type: application/json",
 				"",
-				"{\"id\":\"message-one\"}",
+				itemStatus is null
+					? "{\"id\":\"message-one\"}"
+					: $"{{\"error\":{{\"code\":{(int)itemStatus.Value},\"message\":\"rejected\"}}}}",
 				$"--{boundary}",
 				"Content-Type: application/http",
 				"Content-ID: response-2",
 				"",
-				"HTTP/1.1 404 Not Found",
+				$"HTTP/1.1 {(int)(itemStatus ?? HttpStatusCode.NotFound)} {itemStatus ?? HttpStatusCode.NotFound}",
 				"Content-Type: application/json",
 				"",
-				"{\"error\":{\"code\":404,\"message\":\"not found\"}}",
+				itemStatus is null
+					? "{\"error\":{\"code\":404,\"message\":\"not found\"}}"
+					: $"{{\"error\":{{\"code\":{(int)itemStatus.Value},\"message\":\"rejected\"}}}}",
 				$"--{boundary}--",
 				""
 			);

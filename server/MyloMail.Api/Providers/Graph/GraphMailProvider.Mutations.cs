@@ -50,6 +50,16 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
+		return await SetFlagsBatchAsync(client, refs, update, ct);
+	}
+
+	internal static async Task<BatchResult> SetFlagsBatchAsync(
+		GraphServiceClient client,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		FlagUpdate update,
+		CancellationToken ct
+	)
+	{
 		var items = new List<BatchItemResult>(refs.Count);
 		foreach (var group in refs.Chunk(20))
 		{
@@ -78,16 +88,23 @@ public sealed partial class GraphMailProvider
 			}
 
 			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
-			var statuses = await response.GetResponsesStatusCodesAsync();
+			TimeSpan? retryAfter = null;
 			foreach (var (id, reference) in steps)
 			{
-				var status = statuses[id];
+				using var itemResponse = await response.GetResponseByIdAsync(id);
+				retryAfter = LongestRetryAfter(retryAfter, itemResponse);
+				if (itemResponse.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+				{
+					continue;
+				}
+				ThrowIfBatchResponseRequiresRecovery(itemResponse.StatusCode);
 				items.Add(
-					status is >= System.Net.HttpStatusCode.OK and < System.Net.HttpStatusCode.MultipleChoices
+					itemResponse.IsSuccessStatusCode
 						? new BatchItemResult(reference.MessageId, reference.MailboxId, true, null, [])
-						: Failed(reference, status)
+						: Failed(reference, itemResponse.StatusCode)
 				);
 			}
+			ThrowIfBatchThrottled(retryAfter);
 		}
 
 		return new BatchResult(items);
@@ -101,6 +118,16 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
+		return await MoveMessagesBatchAsync(client, refs, target, ct);
+	}
+
+	internal static async Task<BatchResult> MoveMessagesBatchAsync(
+		GraphServiceClient client,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		DomainMailbox target,
+		CancellationToken ct
+	)
+	{
 		var destinationId = ProviderMailboxId(target);
 		var items = new List<BatchItemResult>(refs.Count);
 		foreach (var group in refs.Chunk(20))
@@ -117,24 +144,23 @@ public sealed partial class GraphMailProvider
 			}
 
 			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
+			TimeSpan? retryAfter = null;
 			foreach (var (id, reference) in steps)
 			{
 				using var itemResponse = await response.GetResponseByIdAsync(id);
+				retryAfter = LongestRetryAfter(retryAfter, itemResponse);
+				if (itemResponse.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+				{
+					continue;
+				}
+				ThrowIfBatchResponseRequiresRecovery(itemResponse.StatusCode);
 				if (!itemResponse.IsSuccessStatusCode)
 				{
 					items.Add(Failed(reference, itemResponse.StatusCode));
 					continue;
 				}
 
-				var json = await itemResponse.Content.ReadAsStringAsync(ct);
-				using var document = System.Text.Json.JsonDocument.Parse(json);
-				if (!document.RootElement.TryGetProperty("id", out var idProperty))
-				{
-					throw new InvalidOperationException("Graph move returned no immutable id.");
-				}
-
-				var providerId = idProperty.GetString()
-					?? throw new InvalidOperationException("Graph move returned an empty immutable id.");
+				var providerId = await MovedProviderIdAsync(itemResponse, ct);
 				items.Add(
 					new BatchItemResult(
 						reference.MessageId,
@@ -148,16 +174,16 @@ public sealed partial class GraphMailProvider
 					)
 				);
 			}
+			ThrowIfBatchThrottled(retryAfter);
 		}
 
 		return new BatchResult(items);
 	}
 
 	/// <summary>
-	/// Moves the occurrence with no destination <see cref="DomainMailbox"/> the way
-	/// <see cref="MoveMessagesAsync"/> has one, since well-known folder names (<c>deleteditems</c>
-	/// here) are valid Graph folder ids on their own — the same well-known-id shortcut
-	/// <see cref="MoveMailboxAsync"/> uses for the mailbox root.
+	/// Moves the occurrence to Graph's well-known <c>deleteditems</c> folder. The execution
+	/// reference carries the already-resolved stable local Trash mailbox for the destination
+	/// occurrence change.
 	/// </summary>
 	public async Task<BatchResult> MoveToTrashAsync(
 		Account account,
@@ -165,8 +191,17 @@ public sealed partial class GraphMailProvider
 		CancellationToken ct
 	)
 	{
-		const string TrashFolderId = "deleteditems";
 		var client = await ClientAsync(account, ct);
+		return await MoveToTrashBatchAsync(client, refs, ct);
+	}
+
+	internal static async Task<BatchResult> MoveToTrashBatchAsync(
+		GraphServiceClient client,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		CancellationToken ct
+	)
+	{
+		const string TrashFolderId = "deleteditems";
 		var items = new List<BatchItemResult>(refs.Count);
 		foreach (var group in refs.Chunk(20))
 		{
@@ -182,25 +217,41 @@ public sealed partial class GraphMailProvider
 			}
 
 			var response = await ThrottleAwareAsync(() => client.Batch.PostAsync(batch, ct));
+			TimeSpan? retryAfter = null;
 			foreach (var (id, reference) in steps)
 			{
 				using var itemResponse = await response.GetResponseByIdAsync(id);
+				retryAfter = LongestRetryAfter(retryAfter, itemResponse);
+				if (itemResponse.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+				{
+					continue;
+				}
+				ThrowIfBatchResponseRequiresRecovery(itemResponse.StatusCode);
 				if (!itemResponse.IsSuccessStatusCode)
 				{
 					items.Add(Failed(reference, itemResponse.StatusCode));
 					continue;
 				}
 
+				var targetId = reference.ResolvedTargetMailboxId
+					?? throw new InvalidOperationException(
+						"Move-to-Trash requires the resolved local Trash mailbox."
+					);
+				var providerId = await MovedProviderIdAsync(itemResponse, ct);
 				items.Add(
 					new BatchItemResult(
 						reference.MessageId,
 						reference.MailboxId,
 						true,
 						null,
-						[new OccurrenceChange(reference.MailboxId, null, Removed: true)]
+						[
+							new OccurrenceChange(reference.MailboxId, null, Removed: true),
+							new OccurrenceChange(targetId, providerId, Removed: false),
+						]
 					)
 				);
 			}
+			ThrowIfBatchThrottled(retryAfter);
 		}
 
 		return new BatchResult(items);
@@ -255,24 +306,12 @@ public sealed partial class GraphMailProvider
 			foreach (var (id, reference) in steps)
 			{
 				using var response = await batchResponse.GetResponseByIdAsync(id);
+				retryAfter = LongestRetryAfter(retryAfter, response);
 				if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
 				{
-					var header = response.Headers.RetryAfter;
-					var itemDelay =
-						header?.Delta
-						?? (header?.Date is { } date
-							? date - DateTimeOffset.UtcNow
-							: (TimeSpan?)null);
-					if (itemDelay is not { } positiveDelay || positiveDelay <= TimeSpan.Zero)
-					{
-						positiveDelay = GraphThrottleAwareRequests.DefaultRetryAfter;
-					}
-					if (retryAfter is null || positiveDelay > retryAfter)
-					{
-						retryAfter = positiveDelay;
-					}
 					continue;
 				}
+				ThrowIfBatchResponseRequiresRecovery(response.StatusCode);
 
 				items.Add(
 					response.IsSuccessStatusCode
@@ -286,13 +325,7 @@ public sealed partial class GraphMailProvider
 						: Failed(reference, response.StatusCode)
 				);
 			}
-			if (retryAfter is { } delay)
-			{
-				throw new ProviderThrottledException(
-					delay,
-					"Microsoft Graph throttled this request."
-				);
-			}
+			ThrowIfBatchThrottled(retryAfter);
 		}
 
 		return new BatchResult(items);
@@ -315,6 +348,72 @@ public sealed partial class GraphMailProvider
 
 	private static void SetImmutableIdPreference(RequestInformation request) =>
 		request.Headers.Add("Prefer", "IdType=\"ImmutableId\"");
+
+	private static async Task<string> MovedProviderIdAsync(
+		System.Net.Http.HttpResponseMessage response,
+		CancellationToken ct
+	)
+	{
+		var json = await response.Content.ReadAsStringAsync(ct);
+		using var document = System.Text.Json.JsonDocument.Parse(json);
+		if (!document.RootElement.TryGetProperty("id", out var idProperty))
+		{
+			throw new InvalidOperationException("Graph move returned no immutable id.");
+		}
+
+		return idProperty.GetString()
+			?? throw new InvalidOperationException("Graph move returned an empty immutable id.");
+	}
+
+	private static TimeSpan? LongestRetryAfter(
+		TimeSpan? current,
+		System.Net.Http.HttpResponseMessage response
+	)
+	{
+		if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests)
+		{
+			return current;
+		}
+
+		var header = response.Headers.RetryAfter;
+		var delay = header?.Delta
+			?? (header?.Date is { } date ? date - DateTimeOffset.UtcNow : (TimeSpan?)null);
+		if (delay is not { } positiveDelay || positiveDelay <= TimeSpan.Zero)
+		{
+			positiveDelay = DefaultRetryAfter;
+		}
+		return current is null || positiveDelay > current ? positiveDelay : current;
+	}
+
+	private static void ThrowIfBatchThrottled(TimeSpan? retryAfter)
+	{
+		if (retryAfter is { } delay)
+		{
+			throw new ProviderThrottledException(delay, "Microsoft Graph throttled this request.");
+		}
+	}
+
+	private static void ThrowIfBatchResponseRequiresRecovery(System.Net.HttpStatusCode status)
+	{
+		if (status is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+		{
+			throw new ProviderAuthenticationException(
+				"Microsoft Graph rejected authentication for a dispatched mutation item."
+			);
+		}
+
+		if (
+			status == System.Net.HttpStatusCode.RequestTimeout
+			|| (int)status < 200
+			|| (int)status is >= 300 and < 400
+			|| (int)status >= 500
+		)
+		{
+			throw new HttpRequestException(
+				$"Microsoft Graph returned indeterminate HTTP {(int)status} for a dispatched mutation item."
+			);
+		}
+	}
 
 	private static BatchItemResult Failed(
 		MessageOccurrenceRef reference,

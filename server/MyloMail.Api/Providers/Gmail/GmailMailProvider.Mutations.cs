@@ -10,6 +10,7 @@ namespace MyloMail.Api.Providers.Gmail;
 
 public sealed partial class GmailMailProvider
 {
+	internal const int MutationPreflightBatchSize = 100;
 	public async Task<BatchResult> SetFlagsAsync(
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
@@ -92,6 +93,10 @@ public sealed partial class GmailMailProvider
 			{
 				var slot = index;
 				var reference = group[index];
+				var trashMailboxId = reference.ResolvedTargetMailboxId
+					?? throw new InvalidOperationException(
+						"Move-to-trash execution requires a resolved local Trash mailbox."
+					);
 				batch.Queue<GmailMessage>(
 					service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId),
 					(content, error, responseIndex, response) =>
@@ -115,22 +120,30 @@ public sealed partial class GmailMailProvider
 							return;
 						}
 
-						outcomes[slot] =
-							response.IsSuccessStatusCode
-								? new BatchItemResult(
-									reference.MessageId,
-									reference.MailboxId,
-									true,
-									null,
-									[
-										new OccurrenceChange(
-											reference.MailboxId,
-											null,
-											Removed: true
-										),
-									]
-								)
-								: Failed(reference, response.StatusCode);
+						if (response.IsSuccessStatusCode)
+						{
+							outcomes[slot] = new BatchItemResult(
+								reference.MessageId,
+								reference.MailboxId,
+								true,
+								null,
+								[
+									new OccurrenceChange(
+										reference.MailboxId,
+										null,
+										Removed: true
+									),
+									new OccurrenceChange(
+										trashMailboxId,
+										content?.Id ?? reference.ProviderOccurrenceId,
+										Removed: false
+									),
+								]
+							);
+							return;
+						}
+
+						outcomes[slot] = PreflightOutcome(reference, response.StatusCode);
 					}
 				);
 			}
@@ -227,21 +240,85 @@ public sealed partial class GmailMailProvider
 	{
 		var existing = new List<MessageOccurrenceRef>();
 		var missing = new List<BatchItemResult>();
-		foreach (var reference in refs)
+		foreach (var group in refs.Chunk(MutationPreflightBatchSize))
 		{
-			try
+			var outcomes = new BatchItemResult?[group.Length];
+			var batch = new BatchRequest(service);
+			TimeSpan? retryAfter = null;
+			for (var index = 0; index < group.Length; index++)
 			{
-				await service.Users.Messages.Get(UserId, reference.ProviderOccurrenceId).ExecuteThrottleAwareAsync(ct);
-				existing.Add(reference);
+				var slot = index;
+				var reference = group[index];
+				var request = service.Users.Messages.Get(UserId, reference.ProviderOccurrenceId);
+				request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Minimal;
+				batch.Queue<GmailMessage>(
+					request,
+					(content, error, responseIndex, response) =>
+					{
+						if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+						{
+							var header = response.Headers.RetryAfter;
+							var delay =
+								header?.Delta
+								?? (header?.Date is { } date
+									? date - DateTimeOffset.UtcNow
+									: (TimeSpan?)null);
+							if (delay is not { } positiveDelay || positiveDelay <= TimeSpan.Zero)
+							{
+								positiveDelay = GmailRequestExtensions.DefaultRetryAfter;
+							}
+							if (retryAfter is null || positiveDelay > retryAfter)
+							{
+								retryAfter = positiveDelay;
+							}
+							return;
+						}
+
+						outcomes[slot] = PreflightOutcome(reference, response.StatusCode);
+					}
+				);
 			}
-			catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+			await batch.ExecuteThrottleAwareAsync(service, ct);
+			if (retryAfter is { } delay)
 			{
-				missing.Add(NotFound(reference));
+				throw new ProviderThrottledException(delay, "Gmail rate limit exceeded.");
+			}
+			var classified = ClassifyPreflightOutcomes(group, outcomes);
+			existing.AddRange(classified.Existing);
+			missing.AddRange(classified.Missing);
+		}
+
+		return (existing, missing);
+	}
+	internal static (IReadOnlyList<MessageOccurrenceRef> Existing, List<BatchItemResult> Missing) ClassifyPreflightOutcomes(
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		IReadOnlyList<BatchItemResult?> outcomes
+	)
+	{
+		if (refs.Count != outcomes.Count)
+		{
+			throw new ArgumentException("Each Gmail preflight request must have exactly one outcome.", nameof(outcomes));
+		}
+
+		var existing = new List<MessageOccurrenceRef>();
+		var missing = new List<BatchItemResult>();
+		for (var index = 0; index < refs.Count; index++)
+		{
+			var outcome = outcomes[index]
+				?? throw new InvalidOperationException("Gmail omitted an item response from its batch.");
+			if (outcome.Succeeded)
+			{
+				existing.Add(refs[index]);
+			}
+			else
+			{
+				missing.Add(outcome);
 			}
 		}
 
 		return (existing, missing);
 	}
+
 
 	private static Task BatchModifyAsync(
 		GmailService service,
@@ -291,7 +368,34 @@ public sealed partial class GmailMailProvider
 		return labels;
 	}
 
-	private static BatchItemResult Failed(
+	internal static BatchItemResult PreflightOutcome(
+		MessageOccurrenceRef reference,
+		System.Net.HttpStatusCode status
+	)
+	{
+		if ((int)status is >= 200 and < 300)
+		{
+			return new BatchItemResult(reference.MessageId, reference.MailboxId, true, null, []);
+		}
+
+		if (status is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+		{
+			throw new ProviderAuthenticationException(
+				"Gmail rejected authentication for a mutation existence preflight."
+			);
+		}
+
+		if (status == System.Net.HttpStatusCode.RequestTimeout || (int)status < 400 || (int)status >= 500)
+		{
+			throw new HttpRequestException(
+				$"Gmail returned indeterminate HTTP {(int)status} for a mutation existence preflight."
+			);
+		}
+
+		return Failed(reference, status);
+	}
+
+	internal static BatchItemResult Failed(
 		MessageOccurrenceRef reference,
 		System.Net.HttpStatusCode status
 	) =>

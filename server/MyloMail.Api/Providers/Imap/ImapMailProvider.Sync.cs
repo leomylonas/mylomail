@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
@@ -10,6 +11,13 @@ namespace MyloMail.Api.Providers.Imap;
 public sealed partial class ImapMailProvider
 {
 	private const int SyncPageSize = 200;
+	private sealed record ImapCoverageResume(
+		uint? BeforeUid,
+		uint? MinimumUid,
+		long? DeliveredAfterUtcTicks,
+		int EstimatedTotal
+	);
+
 
 	public async Task<InitialSyncPage> InitialSyncMailboxAsync(
 		Account account,
@@ -24,36 +32,51 @@ public sealed partial class ImapMailProvider
 		using var client = await ConnectAsync(ct);
 		var folder = await OpenAsync(client, mailbox, FolderAccess.ReadOnly, ct);
 
-		var query = mode switch
-		{
-			// A bound limits historical backfill, never future synchronisation (§3).
-			InitialSyncMode.LastNMonths when bound is int months => SearchQuery.DeliveredAfter(
-				DateTime.UtcNow.AddMonths(-months)
-			),
-			_ => SearchQuery.All,
-		};
+		var resume = ParseCoverageResume(resumeToken);
+		var deliveredAfter = resume?.DeliveredAfterUtcTicks is long ticks
+			? new DateTime(ticks, DateTimeKind.Utc)
+			: mode == InitialSyncMode.LastNMonths && bound is int months
+				? DateTime.UtcNow.AddMonths(-months)
+				: (DateTime?)null;
+		var query = deliveredAfter is DateTime cutoff
+			? SearchQuery.DeliveredAfter(cutoff)
+			: SearchQuery.All;
 
 		var matching = (await folder.SearchAsync(query, ct)).OrderByDescending(uid => uid.Id).ToList();
-
-		if (mode == InitialSyncMode.LastNMessages && bound is int count)
+		uint? minimumUid = resume?.MinimumUid;
+		if (resume is null && mode == InitialSyncMode.LastNMessages && bound is int count)
 		{
 			matching = matching.Take(count).ToList();
+			minimumUid = matching.Count > 0 ? matching[^1].Id : null;
+		}
+		else if (minimumUid is uint minimum)
+		{
+			matching = matching.Where(uid => uid.Id >= minimum).ToList();
 		}
 
-		var offset = int.TryParse(resumeToken, out var parsed) ? parsed : 0;
-		var page = matching.Skip(offset).Take(pageSize).ToList();
-		var consumed = offset + page.Count;
-		var hasMore = consumed < matching.Count;
+		if (resume?.BeforeUid is uint before)
+		{
+			matching = matching.Where(uid => uid.Id < before).ToList();
+		}
+
+		var estimatedTotal = resume?.EstimatedTotal ?? matching.Count;
+		var page = matching.Take(pageSize).ToList();
+		var hasMore = matching.Count > page.Count;
+		var next = hasMore
+			? JsonSerializer.Serialize(
+				new ImapCoverageResume(
+					page[^1].Id,
+					minimumUid,
+					deliveredAfter?.Ticks,
+					estimatedTotal
+				)
+			)
+			: null;
 
 		var messages = await SummariseAsync(folder, page, ct);
 		await client.DisconnectAsync(true, ct);
 
-		return new InitialSyncPage(
-			messages,
-			hasMore ? consumed.ToString() : null,
-			hasMore,
-			matching.Count
-		);
+		return new InitialSyncPage(messages, next, hasMore, estimatedTotal);
 	}
 
 	public async Task<SyncResult> SyncMailboxAsync(
@@ -110,6 +133,24 @@ public sealed partial class ImapMailProvider
 				$"UIDVALIDITY for '{folder.FullName}' changed from {previous.UidValidity} to {folder.UidValidity}"
 			);
 		}
+		if (previous is null)
+		{
+			// Coverage owns historical materialisation. The live stream starts at the
+			// mailbox's current UID boundary so a bounded account cannot ingest its entire
+			// backlog as new mail (and notify for it) merely because no cursor existed yet.
+			var highestKnownUid = folder.UidNext is { } uidNext && uidNext.IsValid && uidNext.Id > 0
+				? uidNext.Id - 1
+				: 0;
+			var baseline = new ImapUidCursor(
+				folder.UidValidity,
+				highestKnownUid,
+				folder.Supports(FolderFeature.ModSequences) ? folder.HighestModSeq : null,
+				null
+			);
+			await client.DisconnectAsync(true, ct);
+			return new SyncResult(baseline, null, [], [], []);
+		}
+
 
 		var since = previous?.HighestKnownUid ?? 0;
 		var resumeFrom = uint.TryParse(continuation, out var parsed) ? parsed : since;
@@ -152,6 +193,25 @@ public sealed partial class ImapMailProvider
 					.Select(uid => new OccurrenceRemoval(folder.FullName, uid.ToString())),
 			]
 		);
+	}
+
+	private static ImapCoverageResume? ParseCoverageResume(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return null;
+		}
+
+		try
+		{
+			return JsonSerializer.Deserialize<ImapCoverageResume>(value);
+		}
+		catch (JsonException)
+		{
+			// Legacy ordinal tokens are unsafe under expunge. Restarting from the stable UID
+			// boundary replays already-upserted rows but cannot skip an unseen message.
+			return null;
+		}
 	}
 
 	public async Task<MailboxIntegritySnapshot> GetMailboxIntegritySnapshotAsync(

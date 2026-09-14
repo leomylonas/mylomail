@@ -298,7 +298,23 @@ public sealed class SendCrashWindowTests
 		var pending = await OutboxTests.QueueAsync(harness);
 		await OutboxTests.SetUndoDelayAsync(harness, 300);
 
-		var inFlight = await OutboxTests.QueueAsync(harness);
+		var inFlight = await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			var identityId = await context.SendIdentities.Select(identity => identity.Id).SingleAsync();
+			var draft = new Draft
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				SendIdentityId = identityId,
+				Subject = "In-flight send",
+				SavedAt = DateTimeOffset.UnixEpoch,
+			};
+			context.Drafts.Add(draft);
+			await context.SaveChangesAsync();
+			return await services.GetRequiredService<OutboxService>().QueueAsync(account, draft.Id);
+		});
 		await harness.UsingAsync(services =>
 			services.GetRequiredService<OutboxService>().TryClaimForSendAsync(inFlight.Id)
 		);

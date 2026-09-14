@@ -41,11 +41,12 @@ public sealed class GraphOAuthAuthenticator
 					await application.AcquireTokenSilent(Scopes, cachedAccount).ExecuteAsync(ct);
 					return new AuthResult(true, AuthState.Connected, null);
 				}
-				catch (MsalUiRequiredException ex)
-					when (ex.Classification == UiRequiredExceptionClassification.ConsentRequired)
+				catch (MsalUiRequiredException)
 				{
-					// Existing mail-only grants need incremental calendar consent. Silent consent
-					// failure is user-actionable reauthentication, not administrator denial.
+					// MSAL uses this for every silent-cache state the user can recover by
+					// signing in again (expired/revoked refresh tokens, password changes and
+					// incremental consent). The interactive request below remains responsible
+					// for distinguishing an actual administrator-consent policy denial.
 				}
 			}
 
@@ -89,8 +90,9 @@ public sealed class GraphOAuthAuthenticator
 
 	/// <summary>
 	/// A tenant blocking ordinary user consent surfaces as the interactive STS error
-	/// <c>AADSTS90094</c>. Silent <c>ConsentRequired</c> means the user needs an
-	/// incremental-consent flow and must not be reported as administrator denial (§5).
+	/// <c>AADSTS90094</c>. Every silent <see cref="MsalUiRequiredException"/> is instead
+	/// interactive recovery for the cached session; it must not be reported as administrator
+	/// denial (§5).
 	/// </summary>
 	internal static bool IsAdminConsentRequired(MsalException ex) =>
 		ex is MsalServiceException { Message: var message }

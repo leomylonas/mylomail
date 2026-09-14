@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.FaultInjection;
+using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers.Contracts;
 
@@ -15,7 +16,9 @@ public sealed class MutationQueue(
 	MyloMailDbContext context,
 	TimeProvider clock,
 	IFaultInjector faults,
-	IMutationDispatcher dispatcher
+	IHubEvents events,
+	IMutationDispatcher dispatcher,
+	ILogger<MutationQueue> logger
 )
 {
 	public Task<MutationItem> SetFlagsAsync(
@@ -161,6 +164,18 @@ public sealed class MutationQueue(
 				throw new MutationHubException(ErrorCategory.Validation, $"Message {item.MessageId} does not belong to account {item.AccountId}.");
 			}
 
+			Guid? sourceMailboxId = null;
+			if (item.OperationKind != MutationOperationKind.SetFlags)
+			{
+				sourceMailboxId = item.OperationKind == MutationOperationKind.RemoveFromMailbox
+					? item.ScopeMailboxId
+					: await context
+						.MessageMailboxes.Where(occurrence => occurrence.MessageId == item.MessageId)
+						.OrderBy(occurrence => occurrence.MailboxId)
+						.Select(occurrence => (Guid?)occurrence.MailboxId)
+						.FirstOrDefaultAsync(ct);
+			}
+
 			try
 			{
 				var highest = await context
@@ -197,6 +212,29 @@ public sealed class MutationQueue(
 			// Only once the intent is durable. Asking for execution before the commit would
 			// race a worker against a transaction that might still roll back, and the user's
 			// change would appear to happen and then un-happen.
+			try
+			{
+				await events.MessageMutationQueuedAsync(
+					new Contracts.MutationQueuedDto(
+						item.Id,
+						item.MessageId,
+						item.AccountId,
+						item.OperationKind,
+						sourceMailboxId
+					)
+				);
+			}
+			catch (Exception ex)
+			{
+				// The intent is already durable. A transport failure must not turn this into
+				// an apparent enqueue failure that invites the caller to submit it again.
+				logger.LogWarning(
+					ex,
+					"Could not broadcast queued mutation {MutationItemId}.",
+					item.Id
+				);
+			}
+
 			dispatcher.RequestDrain(item.AccountId);
 
 			return item;

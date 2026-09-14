@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyloMail.Api.Accounts;
 using MyloMail.Api.Compose;
 using MyloMail.Api.Content;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Mutations;
@@ -143,6 +144,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<MailInviteMaterializer>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();
+		services.AddScoped<AccountCredentialCleanupService>();
 		services.AddScoped<MessageSearch>();
 		services.AddScoped<DraftService>();
 		services.AddScoped<SendIdentityService>();
@@ -168,7 +170,9 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton(TimeProvider.System);
 		services.AddSingleton<AccountGate>();
 		services.AddSingleton<PollRegistry>();
+		services.AddSingleton<CoverageRegistry>();
 		services.AddSingleton<IntegrityRegistry>();
+		services.AddSingleton<SyncRetryBackoff>();
 		services.TryAddSingleton<ImapIdleRegistry>();
 		services.TryAddSingleton<ImapIdleWakeRegistry>();
 		services.TryAddSingleton<ContactRefreshRegistry>();

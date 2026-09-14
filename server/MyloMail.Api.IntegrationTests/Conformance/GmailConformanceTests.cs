@@ -44,6 +44,8 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 		ProviderTestCredentialCache.Load("GMAIL_TOKEN_CACHE_BASE64", "google-token-cache-v1");
 	private static readonly Guid SharedAccountId = SavedCredential.AccountId;
 	private static readonly SemaphoreSlim AuthorizationGate = new(1, 1);
+	private static string? ExpiredHistoryId =>
+		Environment.GetEnvironmentVariable("GMAIL_EXPIRED_HISTORY_ID");
 	private readonly GmailOAuthAuthenticator oauth;
 	private readonly GmailService service;
 	private readonly Dictionary<Guid, string> providerMailboxIds = [];
@@ -74,7 +76,7 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 
 	public IMailProvider Provider { get; }
 
-	public bool CanProduceExpiredCursor => false;
+	public bool CanProduceExpiredCursor => !string.IsNullOrWhiteSpace(ExpiredHistoryId);
 
 	public Account Account { get; }
 
@@ -176,7 +178,7 @@ public sealed class GmailConformanceHarness : IConformanceHarness, IProviderMail
 	}
 
 	public Task<ProviderCursorState> ExpiredCursorAsync(Mailbox mailbox, CancellationToken ct = default) =>
-		Task.FromResult<ProviderCursorState>(new GmailHistoryCursor("1"));
+		Task.FromResult<ProviderCursorState>(new GmailHistoryCursor(ExpiredHistoryId!));
 
 	public async Task<MessageOccurrenceRef> UnresolvableOccurrenceAsync(
 		Mailbox mailbox,

@@ -36,6 +36,7 @@ public sealed class MutationJobs(
 )
 {
 	private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(5);
+	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
 	/// <summary>
 	/// Claims the eligible heads for one account and executes them in homogeneous batches.
@@ -74,6 +75,33 @@ public sealed class MutationJobs(
 		{
 			await reconciler.ReconcileAsync(accountId, ct);
 		}
+		catch (ProviderThrottledException ex)
+		{
+			gate.Throttle(accountId, ex.RetryAfter);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
+			jobs.Schedule<MutationJobs>(job => job.DrainAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (ProviderAuthenticationException ex)
+		{
+			account.AuthState = AuthState.NeedsReauth;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException ex)
+		{
+			account.AuthState = AuthState.CredentialStoreUnavailable;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			jobs.Schedule<MutationJobs>(
+				job => job.DrainAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
 			await connectivity.PauseAsync(
@@ -103,6 +131,23 @@ public sealed class MutationJobs(
 		for (var batchIndex = 0; batchIndex < batches.Length; batchIndex++)
 		{
 			var batch = batches[batchIndex];
+			Task ReleaseUnattemptedAsync() =>
+				claims.ReleaseUnattemptedAsync(
+					accountId,
+					leaseOwner,
+					batches
+						.Skip(batchIndex)
+						.SelectMany(batchToRelease => batchToRelease)
+						.Select(item => item.Id),
+					ct
+				);
+			Task ReleaseCurrentAsync() =>
+				claims.ReleaseUnattemptedAsync(
+					accountId,
+					leaseOwner,
+					batch.Select(item => item.Id),
+					ct
+				);
 			try
 			{
 				await executor.ExecuteAsync(account, batch, ct);
@@ -115,6 +160,7 @@ public sealed class MutationJobs(
 				// reference post-claim-CAS (see the reload comment just below): this only reads
 				// its fields to build a DTO, it never writes through it.
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct, gate);
+				await ReleaseUnattemptedAsync();
 				jobs.Schedule<MutationJobs>(j => j.DrainAsync(accountId, default), ex.RetryAfter);
 				return;
 			}
@@ -131,6 +177,7 @@ public sealed class MutationJobs(
 				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				await ReleaseUnattemptedAsync();
 				return;
 			}
 			catch (Credentials.CredentialStoreUnavailableException ex)
@@ -144,6 +191,11 @@ public sealed class MutationJobs(
 				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				await ReleaseUnattemptedAsync();
+				jobs.Schedule<MutationJobs>(
+					job => job.DrainAsync(accountId, default),
+					CredentialStoreRetryDelay
+				);
 				return;
 			}
 			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
@@ -157,15 +209,7 @@ public sealed class MutationJobs(
 				// crossed the provider boundary and earlier batches have settled, so neither
 				// can be released. Later batches have provably not started and must be released
 				// before pausing or a short outage strands them until the lease expires.
-				await claims.ReleaseUnattemptedAsync(
-					accountId,
-					leaseOwner,
-					batches
-						.Skip(batchIndex + 1)
-						.SelectMany(batchToRelease => batchToRelease)
-						.Select(item => item.Id),
-					ct
-				);
+				await ReleaseUnattemptedAsync();
 				await connectivity.PauseAsync(
 					workKey,
 					client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
@@ -177,6 +221,7 @@ public sealed class MutationJobs(
 				// The attempt is already marked ambiguous by the executor. One batch failing
 				// must not abandon the others: they are separate user intentions.
 				logger.LogError(ex, "A mutation batch for account {AccountId} failed.", accountId);
+				await ReleaseCurrentAsync();
 			}
 		}
 

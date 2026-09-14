@@ -27,9 +27,9 @@ public class NotificationRecord
 	public Guid? MessageId { get; set; }
 
 	/// <summary>
-	/// The provider's own stable message id — set only for a notification recorded from
-	/// staging, where it is the sole identity available until replay runs. Gmail always has
-	/// one; this path exists only for Gmail's account-scoped staged history.
+	/// The provider's own stable message id, when one exists. It remains durable after click
+	/// navigation expires so replaying a later provider change cannot notify the same message
+	/// a second time.
 	/// </summary>
 	public string? ProviderStableId { get; set; }
 

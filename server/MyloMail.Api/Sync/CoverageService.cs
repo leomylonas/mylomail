@@ -89,6 +89,7 @@ public sealed class CoverageService(
 		IReadOnlyList<Message> rethreaded = [];
 		IReadOnlyList<Guid> countedMailboxIds = [];
 		var contactSuggestionsChanged = false;
+		IReadOnlyList<NotificationDto> notificationAnnouncements = [];
 
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -140,6 +141,27 @@ public sealed class CoverageService(
 				.Where(m => m.ProviderStableId is not null)
 				.ToDictionary(m => m.ProviderStableId!, m => m.Id);
 			await notifications.BackfillMessageIdsAsync(account.Id, resolvedByProviderStableId, ct);
+			if (account.ProviderType == ProviderType.Imap)
+			{
+				var notificationBaseline = await context
+					.ChangeStreamStates.Where(state =>
+						state.AccountId == account.Id
+						&& state.MailboxId == mailbox.Id
+						&& state.CursorState != null
+						&& !state.IsRebasing
+					)
+					.Select(state => (DateTimeOffset?)state.NotificationBaselineAt)
+					.FirstOrDefaultAsync(ct);
+				if (notificationBaseline is { } baseline)
+				{
+					notificationAnnouncements = await notifications.RecordEligibleAsync(
+						account,
+						[.. ingested.Created, .. ingested.Updated],
+						baseline,
+						ct
+					);
+				}
+			}
 
 			// Backfill raises no new-message event: this is a backlog the user already has,
 			// but persisted descendants rethreaded by this page still invalidate their lists.
@@ -159,6 +181,7 @@ public sealed class CoverageService(
 		});
 
 		faults.Reached(FaultPoints.SyncPageAfterCommit);
+		await notifications.AnnounceAsync(notificationAnnouncements);
 
 		// After the page is committed, never before: an event announcing progress that a crash
 		// then discarded would leave the UI ahead of the database.

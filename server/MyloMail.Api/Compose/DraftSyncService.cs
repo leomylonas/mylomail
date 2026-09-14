@@ -223,6 +223,77 @@ public sealed class DraftSyncService(
 				draft.SyncConflict = true;
 				logger.LogWarning(ex, "Draft {DraftId} conflicts with the server's copy.", draft.Id);
 			}
+			catch (ProviderAuthenticationException) when (ownsInitialCreate)
+			{
+				await ClearInitialCreateClaimAsync(draft, sending, ct);
+				throw;
+			}
+			catch (ProviderThrottledException) when (ownsInitialCreate)
+			{
+				await ClearInitialCreateClaimAsync(draft, sending, ct);
+				throw;
+			}
+			catch (ProviderDraftRejectedException ex)
+			{
+				// Graph can create the remote draft and then normalize its selected From alias.
+				// Persist that concrete remote copy as a conflict: it is a provider rejection,
+				// not evidence that server-side drafts are unavailable or that creation is ambiguous.
+				if (ownsInitialCreate)
+				{
+					var committed = await context
+						.Drafts.Where(d =>
+							d.Id == draft.Id
+							&& d.ProviderDraftId == null
+							&& d.PushDispatchedForSavedAt == sending
+						)
+						.ExecuteUpdateAsync(
+							setters => setters
+								.SetProperty(d => d.ProviderDraftId, ex.Draft.ProviderDraftId)
+								.SetProperty(d => d.ProviderMessageId, ex.Draft.ProviderMessageId ?? ex.Draft.ProviderDraftId)
+								.SetProperty(d => d.ProviderRevision, ex.Draft.ProviderRevision)
+								.SetProperty(d => d.PushedAt, sending)
+								.SetProperty(d => d.PushDispatchedForSavedAt, (DateTimeOffset?)null)
+								.SetProperty(d => d.SyncConflict, true),
+							ct
+						);
+					if (committed != 1)
+					{
+						throw new InvalidOperationException("Rejected draft creation lost its durable claim.");
+					}
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+				else
+				{
+					draft.ProviderDraftId = ex.Draft.ProviderDraftId;
+					draft.ProviderMessageId = ex.Draft.ProviderMessageId ?? ex.Draft.ProviderDraftId;
+					draft.ProviderRevision = ex.Draft.ProviderRevision;
+					draft.PushedAt = sending;
+					draft.SyncConflict = true;
+				}
+				logger.LogWarning(ex, "Draft {DraftId} was rejected by the server.", draft.Id);
+				if (
+					!ownsInitialCreate
+					&& ex.InnerException is ProviderAuthenticationException or ProviderThrottledException
+				)
+				{
+					await context.SaveChangesAsync(ct);
+					await context.Entry(draft).ReloadAsync(ct);
+				}
+				if (
+					ex.InnerException is ProviderAuthenticationException or ProviderThrottledException
+				)
+				{
+					await events.DraftUpdatedAsync(draft.Id);
+				}
+				if (ex.InnerException is ProviderAuthenticationException authentication)
+				{
+					throw authentication;
+				}
+				if (ex.InnerException is ProviderThrottledException throttled)
+				{
+					throw throttled;
+				}
+			}
 			catch (NotSupportedException)
 			{
 				draft.PushDispatchedForSavedAt = null;
@@ -270,6 +341,29 @@ public sealed class DraftSyncService(
 		}
 
 		return pushed;
+	}
+
+	private async Task ClearInitialCreateClaimAsync(
+		Draft draft,
+		DateTimeOffset sending,
+		CancellationToken ct
+	)
+	{
+		await context
+			.Drafts.Where(candidate =>
+				candidate.Id == draft.Id
+				&& candidate.ProviderDraftId == null
+				&& candidate.PushDispatchedForSavedAt == sending
+			)
+			.ExecuteUpdateAsync(
+				setters =>
+					setters.SetProperty(
+						candidate => candidate.PushDispatchedForSavedAt,
+						(DateTimeOffset?)null
+					),
+				ct
+			);
+		await context.Entry(draft).ReloadAsync(ct);
 	}
 
 	/// <summary>

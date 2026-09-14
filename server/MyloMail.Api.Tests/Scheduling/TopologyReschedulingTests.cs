@@ -227,29 +227,76 @@ public sealed class TopologyReschedulingTests
 	}
 
 	/// <summary>
-	/// The contrasting case: a genuine bug (not network-class) must still stop the loop and
-	/// propagate, exactly as before this pass — the new catch clause's <c>when</c> guard must
-	/// not accidentally swallow real application errors along with network ones.
+	/// A provider 5xx or other transient non-network failure keeps the sole loop owner and
+	/// schedules a bounded-backoff successor. With Hangfire retries disabled, rethrowing here
+	/// would permanently stop topology and every loop topology owns.
 	/// </summary>
 	[Fact]
-	public async Task A_non_network_failure_still_stops_the_loop_and_propagates()
+	public async Task A_transient_non_network_failure_reschedules_without_releasing_ownership()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
-		harness.Provider.FailListMailboxesWith(new InvalidOperationException("not a network problem"));
+		harness.Provider.FailListMailboxesWith(new InvalidOperationException("temporary provider failure"));
 
 		await harness.UsingAsync(async scope =>
 		{
 			scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope);
-			await Assert.ThrowsAsync<InvalidOperationException>(
-				() => scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
-			);
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
 		});
 
-		// Released: a fresh TryStart for the same scope must succeed, proving polls.Stop ran.
-		var released = await harness.UsingAsync(scope =>
-			Task.FromResult(scope.GetRequiredService<PollRegistry>().TryStart(harness.Account.Id, SyncJobs.TopologyScope))
+		var created = await CreatedJobsAsync(harness);
+		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.TopologyAsync));
+		var stillClaimed = await harness.UsingAsync(scope =>
+			Task.FromResult(
+				!scope.GetRequiredService<PollRegistry>()
+					.TryStart(harness.Account.Id, SyncJobs.TopologyScope)
+			)
 		);
-		Assert.True(released);
+		Assert.True(stillClaimed);
+	}
+
+	[Fact]
+	public async Task An_active_account_throttle_defers_topology_without_ending_its_loop()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		await harness.UsingAsync(async scope =>
+		{
+			scope.GetRequiredService<PollRegistry>()
+				.TryStart(harness.Account.Id, SyncJobs.TopologyScope);
+			scope.GetRequiredService<AccountGate>()
+				.Throttle(harness.Account.Id, TimeSpan.FromSeconds(42));
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+		});
+
+		Assert.Empty(harness.Provider.TopologyCursors);
+		Assert.Single(
+			await CreatedJobsAsync(harness),
+			job => job.Method.Name == nameof(SyncJobs.TopologyAsync)
+		);
+		var stillClaimed = await harness.UsingAsync(scope =>
+			Task.FromResult(
+				!scope.GetRequiredService<PollRegistry>()
+					.TryStart(harness.Account.Id, SyncJobs.TopologyScope)
+			)
+		);
+		Assert.True(stillClaimed);
+	}
+
+	[Fact]
+	public async Task Repeated_topology_starters_create_only_one_coverage_owner_per_mailbox()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+
+		await harness.UsingAsync(async scope =>
+		{
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+		});
+
+		Assert.Single(
+			await CreatedJobsAsync(harness),
+			job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync)
+		);
 	}
 
 	private static AccountSettingsDto AccountSettings(Account account, bool pollingEnabled) =>

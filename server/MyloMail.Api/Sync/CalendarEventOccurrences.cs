@@ -118,7 +118,7 @@ public static class CalendarEventOccurrences
 						master.IsAllDay,
 						master.Status,
 						IsRecurring: true,
-						SyncConflict: false,
+						SyncConflict: master.SyncConflict,
 						IsVirtualOccurrence: true,
 						MasterEventId: master.Id,
 						IsRecurrenceMaster: true

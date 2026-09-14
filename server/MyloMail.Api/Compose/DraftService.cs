@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MimeKit;
+using MimeKit.Utils;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Hubs;
@@ -340,33 +342,33 @@ public sealed class DraftService(
 		}
 		var account = await context.Accounts.FirstAsync(a => a.Id == draft.AccountId, ct);
 
-		if (draft.Attachments.Count > 0)
+		var constraints = await providers.For(account).GetAttachmentConstraintsAsync(account, ct);
+		var oversizedFile =
+			constraints.ApiPerFileLimit is long perFileLimit
+				? draft.Attachments.FirstOrDefault(a => a.Size > perFileLimit)
+				: null;
+		if (oversizedFile is not null)
 		{
-			var constraints = await providers.For(account).GetAttachmentConstraintsAsync(account, ct);
-			var oversizedFile =
-				constraints.ApiPerFileLimit is long perFileLimit
-					? draft.Attachments.FirstOrDefault(a => a.Size > perFileLimit)
-					: null;
-			if (oversizedFile is not null)
+			throw new InvalidOperationException(
+				$"\"{oversizedFile.Filename}\" is larger than this account's per-file attachment limit."
+			);
+		}
+
+		// The provider receives an RFC 5322 message, not a bag of attachment lengths.
+		// Serialising the complete message is the only authoritative limit check: it
+		// includes multipart boundaries, transfer encoding, recipients, headers and body.
+		var totalLimit = constraints.ConfiguredOverride ?? constraints.KnownMessageSizeLimit;
+		if (totalLimit is long limit)
+		{
+			var from = await context.SendIdentities
+				.Where(identity => identity.Id == draft.SendIdentityId)
+				.Select(identity => identity.EmailAddress)
+				.FirstAsync(ct);
+			if (EncodedMimeSize(draft, from) > limit)
 			{
 				throw new InvalidOperationException(
-					$"\"{oversizedFile.Filename}\" is larger than this account's per-file attachment limit."
+					"This complete message is larger than this account can send. Remove attachments or shorten the message."
 				);
-			}
-
-			// Base64 encoding inflates raw bytes by 4/3 — checked against what actually goes
-			// out on the wire, not the on-disk attachment sizes (§15), mirroring Compose.tsx's
-			// own client-side check.
-			var totalLimit = constraints.ConfiguredOverride ?? constraints.KnownMessageSizeLimit;
-			if (totalLimit is long limit)
-			{
-				var encodedTotal = draft.Attachments.Sum(a => (long)Math.Ceiling(a.Size * (4.0 / 3.0)));
-				if (encodedTotal > limit)
-				{
-					throw new InvalidOperationException(
-						"These attachments are too large for this account to send."
-					);
-				}
 			}
 		}
 
@@ -390,4 +392,56 @@ public sealed class DraftService(
 			.SendIdentities.Where(i => i.AccountId == accountId && i.IsDefault)
 			.Select(i => i.Id)
 			.FirstAsync(ct);
+
+	private static long EncodedMimeSize(Draft draft, string fromAddress)
+	{
+		var message = new MimeMessage
+		{
+			MessageId = MimeUtils.GenerateMessageId(),
+			Date = DateTimeOffset.UtcNow,
+			Subject = draft.Subject
+		};
+		message.From.Add(new MailboxAddress(fromAddress, fromAddress));
+		foreach (var address in draft.To) message.To.Add(new MailboxAddress(address.Name, address.Email));
+		foreach (var address in draft.Cc) message.Cc.Add(new MailboxAddress(address.Name, address.Email));
+		foreach (var address in draft.Bcc) message.Bcc.Add(new MailboxAddress(address.Name, address.Email));
+
+		var body = new BodyBuilder
+		{
+			HtmlBody = draft.BodyHtml,
+			TextBody = string.Join(' ', System.Text.RegularExpressions.Regex
+				.Replace(draft.BodyHtml, "<[^>]+>", " ")
+				.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+		};
+		foreach (var attachment in draft.Attachments)
+		{
+			var part = attachment.IsInline
+				? body.LinkedResources.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType))
+				: body.Attachments.Add(attachment.Filename, attachment.Content, ContentType.Parse(attachment.MimeType));
+			if (attachment.IsInline && attachment.ContentId is { } contentId) part.ContentId = contentId;
+		}
+		message.Body = body.ToMessageBody();
+
+		using var output = new CountingStream();
+		message.WriteTo(output);
+		return output.Length;
+	}
+
+	private sealed class CountingStream : Stream
+	{
+		private long length;
+
+		public override bool CanRead => false;
+		public override bool CanSeek => false;
+		public override bool CanWrite => true;
+		public override long Length => length;
+		public override long Position { get => length; set => throw new NotSupportedException(); }
+		public override void Flush() { }
+		public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+		public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+		public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+		public override void SetLength(long value) => throw new NotSupportedException();
+		public override void Write(byte[] buffer, int offset, int count) => length += count;
+		public override void Write(ReadOnlySpan<byte> buffer) => length += buffer.Length;
+	}
 }

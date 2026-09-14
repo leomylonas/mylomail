@@ -70,10 +70,11 @@ public sealed class AccountProvisioningTests
 				new AccountProvisioningService(
 					services.GetRequiredService<MyloMailDbContext>(),
 					spy,
+					services.GetRequiredService<AccountCredentialCleanupService>(),
 					services.GetRequiredService<MyloMail.Api.Providers.IMailProviderFactory>(),
 					services.GetRequiredService<MyloMail.Api.Scheduling.StartupScheduler>(),
 					services.GetRequiredService<MyloMail.Api.Hubs.IHubEvents>(),
-					services.GetRequiredService<MyloMail.Api.Content.SearchIndexer>(),
+					services.GetRequiredService<MyloMail.Api.FaultInjection.IFaultInjector>(),
 					TimeProvider.System,
 					services.GetRequiredService<ILogger<AccountProvisioningService>>()
 				).AddAsync(new NewAccount("Test", ProviderType.Gmail, "someone@example.org", null, Secret()))
@@ -334,6 +335,8 @@ public sealed class AccountProvisioningTests
 		await harness.UsingAsync(services =>
 			services.GetRequiredService<AccountProvisioningService>().RemoveAsync(account.Id)
 		);
+
+		Assert.Equal(account.Id, Assert.Single(harness.Events.RemovedAccounts));
 
 		await harness.UsingAsync(async services =>
 		{

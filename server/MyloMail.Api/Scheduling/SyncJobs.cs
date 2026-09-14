@@ -41,7 +41,9 @@ public sealed class SyncJobs(
 	AccountGate gate,
 	ConnectivityMonitor connectivity,
 	PollRegistry polls,
+	CoverageRegistry coverageLoops,
 	IntegrityRegistry integrityLoops,
+	SyncRetryBackoff retryBackoff,
 	ImapIdleWakeRegistry idleWakes,
 	IMailProviderFactory providers,
 	IBackgroundJobClient jobs,
@@ -100,6 +102,14 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, TopologyScope);
 			return;
 		}
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(job => job.TopologyAsync(accountId, default), delay)
+			))
+		{
+			return;
+		}
+
 
 		List<Guid> pending;
 		Guid? changeStreamMailboxId = null;
@@ -114,6 +124,57 @@ public sealed class SyncJobs(
 				.Where(m => !context.MailboxCoverageStates.Any(c => c.MailboxId == m.Id && c.Status == CoverageStatus.Covered))
 				.Select(m => m.Id)
 				.ToListAsync(ct);
+			if (account.ProviderType == ProviderType.Imap)
+			{
+				var unbaselinedMailboxes = await context
+					.Mailboxes.Where(mailbox =>
+						mailbox.AccountId == accountId
+						&& mailbox.ProviderMailboxId != null
+						&& !context.ChangeStreamStates.Any(state =>
+							state.AccountId == accountId
+							&& state.MailboxId == mailbox.Id
+							&& state.CursorState != null
+							&& !state.IsRebasing
+						)
+					)
+					.OrderBy(mailbox => mailbox.Id)
+					.ToListAsync(ct);
+				foreach (var streamMailbox in unbaselinedMailboxes)
+				{
+					var coverage = await context.MailboxCoverageStates.FirstOrDefaultAsync(
+						state => state.MailboxId == streamMailbox.Id,
+						ct
+					);
+					if (coverage?.Status == CoverageStatus.Covered)
+					{
+						// A Covered row without a live baseline can only be the residue of a
+						// crash between those two durable steps. Re-open coverage before
+						// capturing UIDNEXT; otherwise mail delivered in that window would sit
+						// below the new cursor and never be observed.
+						coverage.Status = CoverageStatus.NotStarted;
+						coverage.MessagesFetched = 0;
+						coverage.EstimatedTotal = null;
+						coverage.ResumeToken = null;
+						coverage.StartedAt = null;
+						coverage.LastError = null;
+						await context.SaveChangesAsync(ct);
+						if (!pending.Contains(streamMailbox.Id))
+						{
+							pending.Add(streamMailbox.Id);
+						}
+					}
+
+					// Capture UIDNEXT before coverage starts. SyncMailboxAsync persists only
+					// this boundary for a null IMAP cursor; historical rows remain owned by
+					// the bounded coverage walk, while later UIDs remain discoverable live.
+					changeStreamMailboxId = streamMailbox.Id;
+					changeStreamTopologyGeneration = streamMailbox.TopologyGeneration;
+					runningChangeStream = true;
+					await GuardAsync(account, () => changes.SyncAsync(account, streamMailbox, ct), ct);
+					runningChangeStream = false;
+				}
+			}
+
 			var hasGmailBaseline = account.ProviderType == ProviderType.Gmail
 				&& await context.ChangeStreamStates.AnyAsync(
 					state => state.AccountId == accountId
@@ -160,6 +221,19 @@ public sealed class SyncJobs(
 			);
 			return;
 		}
+		catch (ProviderAuthenticationException)
+		{
+			polls.Stop(accountId, TopologyScope);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.TopologyAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
 			if (runningChangeStream && changeStreamMailboxId is Guid streamMailboxId)
@@ -176,14 +250,21 @@ public sealed class SyncJobs(
 			{
 				await topology.RecordFailureAsync(accountId, ex, ct);
 			}
-			polls.Stop(accountId, TopologyScope);
-			throw;
+			jobs.Schedule<SyncJobs>(
+				job => job.TopologyAsync(accountId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
 		}
+		retryBackoff.Reset(workKey);
 
 
 		foreach (var mailboxId in pending)
 		{
-			jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
+			if (coverageLoops.TryStart(accountId, mailboxId))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
+			}
 		}
 
 		await StartChangeStreamsAsync(account, ct);
@@ -244,6 +325,17 @@ public sealed class SyncJobs(
 		{
 			return;
 		}
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(
+					job => job.CalendarCreationRecoveryAsync(accountId, default),
+					delay
+				)
+			))
+		{
+			return;
+		}
+
 
 		try
 		{
@@ -254,10 +346,12 @@ public sealed class SyncJobs(
 			{
 				jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), TimeSpan.FromMinutes(5));
 			}
+			retryBackoff.Reset(workKey);
 		}
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default), ex.RetryAfter);
+			return;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
@@ -267,6 +361,11 @@ public sealed class SyncJobs(
 					job => job.CalendarCreationRecoveryAsync(accountId, default)
 				)
 			);
+			return;
+		}
+		catch (ProviderAuthenticationException)
+		{
+			return;
 		}
 		catch (Credentials.CredentialStoreUnavailableException)
 		{
@@ -274,6 +373,16 @@ public sealed class SyncJobs(
 				j => j.CalendarCreationRecoveryAsync(accountId, default),
 				CredentialStoreRetryDelay
 			);
+			return;
+		}
+		catch (Exception ex) when (ex is not SimulatedCrashException)
+		{
+			logger.LogWarning(ex, "Calendar creation recovery failed for account {AccountId}.", accountId);
+			jobs.Schedule<SyncJobs>(
+				job => job.CalendarCreationRecoveryAsync(accountId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
 		}
 	}
 
@@ -295,6 +404,14 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, CalendarScope);
 			return;
 		}
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(job => job.CalendarAsync(accountId, default), delay)
+			))
+		{
+			return;
+		}
+
 
 		try
 		{
@@ -313,11 +430,29 @@ public sealed class SyncJobs(
 			);
 			return;
 		}
-		catch (Exception)
+		catch (ProviderAuthenticationException)
 		{
 			polls.Stop(accountId, CalendarScope);
-			throw;
+			return;
 		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.CalendarAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
+		catch (Exception ex) when (ex is not SimulatedCrashException)
+		{
+			logger.LogWarning(ex, "Calendar synchronization failed for account {AccountId}.", accountId);
+			jobs.Schedule<SyncJobs>(
+				job => job.CalendarAsync(accountId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
+		}
+		retryBackoff.Reset(workKey);
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{
@@ -365,7 +500,20 @@ public sealed class SyncJobs(
 		var mailboxQuery = context.Mailboxes.Where(m =>
 			m.AccountId == account.Id && m.ProviderMailboxId != null
 		);
-		if (capabilities.RequiresCoverageBeforeInitialChangeStream)
+		if (account.ProviderType == ProviderType.Imap)
+		{
+			mailboxQuery = mailboxQuery.Where(mailbox =>
+				context.MailboxCoverageStates.Any(coverage =>
+					coverage.MailboxId == mailbox.Id && coverage.Status == CoverageStatus.Covered
+				)
+				|| context.ChangeStreamStates.Any(state =>
+					state.AccountId == account.Id
+					&& state.MailboxId == mailbox.Id
+					&& state.IsRebasing
+				)
+			);
+		}
+		else if (capabilities.RequiresCoverageBeforeInitialChangeStream)
 		{
 			mailboxQuery = mailboxQuery.Where(m =>
 				context.MailboxCoverageStates.Any(coverage =>
@@ -423,12 +571,25 @@ public sealed class SyncJobs(
 		var account = await RunnableAsync(accountId, ct);
 		if (account is null)
 		{
+			coverageLoops.Stop(accountId, mailboxId);
+			return;
+		}
+
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(
+					job => job.CoveragePageAsync(accountId, mailboxId, default),
+					delay
+				)
+			))
+		{
 			return;
 		}
 
 		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
 		if (mailbox is null || mailbox.ProviderMailboxId is null)
 		{
+			coverageLoops.Stop(accountId, mailboxId);
 			// Removed by topology reconciliation between this job being enqueued and running.
 			return;
 		}
@@ -440,8 +601,13 @@ public sealed class SyncJobs(
 		}
 		catch (CoverageBaselinePendingException)
 		{
-			// Cursor invalidation queues its owning change-stream loop's topology restart.
-			// A coverage job must not create competing account-scoped stream loops.
+			// Keep the sole ownership claim while waiting for the owning stream/topology
+			// restart to establish the new baseline. Releasing here races settings/topology
+			// starters and can strand or duplicate the replacement walk.
+			jobs.Schedule<SyncJobs>(
+				j => j.CoveragePageAsync(accountId, mailboxId, default),
+				TimeSpan.FromSeconds(5)
+			);
 			return;
 		}
 		catch (ProviderThrottledException ex)
@@ -459,6 +625,19 @@ public sealed class SyncJobs(
 			);
 			return;
 		}
+		catch (ProviderAuthenticationException)
+		{
+			coverageLoops.Stop(accountId, mailboxId);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.CoveragePageAsync(accountId, mailboxId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
 			await coverage.RecordFailureAsync(
@@ -469,11 +648,17 @@ public sealed class SyncJobs(
 				ex,
 				ct
 			);
-			throw;
+			jobs.Schedule<SyncJobs>(
+				job => job.CoveragePageAsync(accountId, mailboxId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
 		}
+		retryBackoff.Reset(workKey);
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{
+			coverageLoops.Stop(accountId, mailboxId);
 			return;
 		}
 
@@ -482,6 +667,7 @@ public sealed class SyncJobs(
 			jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
 			return;
 		}
+		coverageLoops.Stop(accountId, mailboxId);
 
 		await StartChangeStreamsAsync(account, ct);
 
@@ -516,6 +702,17 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, mailboxId);
 			return;
 		}
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(
+					job => job.ChangeStreamAsync(accountId, mailboxId, default),
+					delay
+				)
+			))
+		{
+			return;
+		}
+
 
 		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
 		if (mailbox is null || mailbox.ProviderMailboxId is null)
@@ -531,14 +728,25 @@ public sealed class SyncJobs(
 				&& !state.IsRebasing,
 			ct
 		);
+		var isRebasing = await context.ChangeStreamStates.AnyAsync(
+			state =>
+				state.AccountId == accountId
+				&& state.MailboxId == mailboxId
+				&& state.IsRebasing,
+			ct
+		);
+		var coverageCovered = await context.MailboxCoverageStates.AnyAsync(
+			coverage =>
+				coverage.MailboxId == mailboxId
+				&& coverage.Status == CoverageStatus.Covered,
+			ct
+		);
 		if (
-			providers.For(account).Capabilities.RequiresCoverageBeforeInitialChangeStream
-			&& !hasEstablishedCursor
-			&& !await context.MailboxCoverageStates.AnyAsync(
-				coverage =>
-					coverage.MailboxId == mailboxId
-					&& coverage.Status == CoverageStatus.Covered,
-				ct
+			(account.ProviderType == ProviderType.Imap && !coverageCovered && !isRebasing)
+			|| (
+				providers.For(account).Capabilities.RequiresCoverageBeforeInitialChangeStream
+				&& !hasEstablishedCursor
+				&& !coverageCovered
 			)
 		)
 		{
@@ -552,10 +760,10 @@ public sealed class SyncJobs(
 		}
 		catch (ProviderThrottledException ex)
 		{
-			// Rescheduled at exactly the delay the provider named. Without this the loop
-			// would simply end here, since retry is disabled — and live sync for this scope
-			// would never resume.
-			jobs.Schedule<SyncJobs>(j => j.ChangeStreamAsync(accountId, mailboxId, default), ex.RetryAfter);
+			jobs.Schedule<SyncJobs>(
+				job => job.ChangeStreamAsync(accountId, mailboxId, default),
+				ex.RetryAfter
+			);
 			return;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
@@ -568,6 +776,19 @@ public sealed class SyncJobs(
 			);
 			return;
 		}
+		catch (ProviderAuthenticationException)
+		{
+			polls.Stop(accountId, mailboxId);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.ChangeStreamAsync(accountId, mailboxId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
 			await changes.RecordFailureAsync(
@@ -577,9 +798,13 @@ public sealed class SyncJobs(
 				ex,
 				ct
 			);
-			polls.Stop(accountId, mailboxId);
-			throw;
+			jobs.Schedule<SyncJobs>(
+				job => job.ChangeStreamAsync(accountId, mailboxId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
 		}
+		retryBackoff.Reset(workKey);
 
 
 		if (!await StillRunnableAsync(accountId, ct))
@@ -589,6 +814,10 @@ public sealed class SyncJobs(
 			polls.Stop(accountId, mailboxId);
 			return;
 		}
+		// A live page can create queued content after the previous content sweep has drained.
+		// Start a fresh sweep now; otherwise notification navigation reaches the message but
+		// leaves its body in Queued forever.
+		jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));
 
 		jobs.Schedule<SyncJobs>(
 			j => j.ChangeStreamAsync(accountId, mailboxId, default),
@@ -619,11 +848,39 @@ public sealed class SyncJobs(
 				candidate => candidate.Id == mailboxId,
 				ct
 			);
-			if (account is null || mailbox is null) return;
+			if (account is not { } runnableAccount || mailbox is not { } currentMailbox) return;
+			if (
+				runnableAccount.ProviderType == ProviderType.Imap
+				&& !await context.MailboxCoverageStates.AnyAsync(
+					coverage =>
+						coverage.MailboxId == mailboxId
+						&& coverage.Status == CoverageStatus.Covered,
+					ct
+				)
+				&& !await context.ChangeStreamStates.AnyAsync(
+					state =>
+						state.AccountId == accountId
+						&& state.MailboxId == mailboxId
+						&& state.IsRebasing,
+					ct
+				)
+			)
+			{
+				return;
+			}
+			if (gate.Delay(accountId) > TimeSpan.Zero) return;
 
 			try
 			{
-				await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
+				await GuardAsync(
+					runnableAccount,
+					() => changes.SyncAsync(runnableAccount, currentMailbox, ct),
+					ct
+				);
+				// IDLE is only a latency hint for metadata, but a successful wake can introduce
+				// the first queued body after the content sweep has gone idle.
+				jobs.Enqueue<ContentJobs>(job =>
+					job.FetchNextAsync(accountId, default));
 			}
 			catch (ProviderThrottledException)
 			{
@@ -662,13 +919,67 @@ public sealed class SyncJobs(
 	/// <summary>Replays staged history once coverage allows it.</summary>
 	public async Task ReplayStagedAsync(Guid accountId, CancellationToken ct = default)
 	{
-		var account = await RunnableAsync(accountId, ct);
+		var workKey = $"{nameof(ReplayStagedAsync)}:{accountId}";
+		// Staged pages are already durable local input. Replay must not be coupled to
+		// background polling, connectivity, or an account throttle; doing so can strand a
+		// crash-recovery transaction forever after the user pauses polling.
+		var account = await context.Accounts.FirstOrDefaultAsync(
+			candidate => candidate.Id == accountId && candidate.IsEnabled,
+			ct
+		);
 		if (account is null)
 		{
 			return;
 		}
 
-		await GuardAsync(account, () => changes.ReplayStagedAsync(account, ct), ct);
+		try
+		{
+			await GuardAsync(account, () => changes.ReplayStagedAsync(account, ct), ct);
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.ReplayStagedAsync(accountId, default),
+				ex.RetryAfter
+			);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(
+					job => job.ReplayStagedAsync(accountId, default)
+				)
+			);
+			return;
+		}
+		catch (ProviderAuthenticationException)
+		{
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.ReplayStagedAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
+		catch (Exception ex) when (ex is not SimulatedCrashException)
+		{
+			logger.LogWarning(ex, "Staged history replay failed for account {AccountId}.", accountId);
+			jobs.Schedule<SyncJobs>(
+				job => job.ReplayStagedAsync(accountId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
+		}
+		retryBackoff.Reset(workKey);
+
+		// Replaying Gmail's staged history can materialise messages after the earlier coverage
+		// sweep finished. Their queued bodies need a new owner for the same reason as live pages.
+		jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));
 	}
 
 	/// <summary>
@@ -695,6 +1006,17 @@ public sealed class SyncJobs(
 			integrityLoops.Stop(accountId, mailboxId);
 			return;
 		}
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(
+					job => job.IntegrityAsync(accountId, mailboxId, default),
+					delay
+				)
+			))
+		{
+			return;
+		}
+
 
 		try
 		{
@@ -702,7 +1024,10 @@ public sealed class SyncJobs(
 		}
 		catch (ProviderThrottledException ex)
 		{
-			jobs.Schedule<SyncJobs>(j => j.IntegrityAsync(accountId, mailboxId, default), ex.RetryAfter);
+			jobs.Schedule<SyncJobs>(
+				job => job.IntegrityAsync(accountId, mailboxId, default),
+				ex.RetryAfter
+			);
 			return;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
@@ -715,6 +1040,19 @@ public sealed class SyncJobs(
 			);
 			return;
 		}
+		catch (ProviderAuthenticationException)
+		{
+			integrityLoops.Stop(accountId, mailboxId);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.IntegrityAsync(accountId, mailboxId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
 		catch (Exception ex) when (ex is not SimulatedCrashException)
 		{
 			await integrity.RecordFailureAsync(
@@ -724,9 +1062,13 @@ public sealed class SyncJobs(
 				ex,
 				ct
 			);
-			integrityLoops.Stop(accountId, mailboxId);
-			throw;
+			jobs.Schedule<SyncJobs>(
+				job => job.IntegrityAsync(accountId, mailboxId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
 		}
+		retryBackoff.Reset(workKey);
 
 		if (!await StillRunnableAsync(accountId, ct))
 		{
@@ -738,6 +1080,19 @@ public sealed class SyncJobs(
 			j => j.IntegrityAsync(accountId, mailboxId, default),
 			TimeSpan.FromMinutes(30) + gate.Delay(accountId)
 		);
+	}
+
+	private bool DeferForThrottle(Guid accountId, Action<TimeSpan> schedule)
+	{
+		var delay = gate.Delay(accountId);
+		if (delay <= TimeSpan.Zero)
+		{
+			return false;
+		}
+
+		logger.LogInformation("Account {AccountId} is throttled for a further {Delay}.", accountId, delay);
+		schedule(delay);
+		return true;
 	}
 
 	private TimeSpan PollInterval(Account account) =>
@@ -767,12 +1122,7 @@ public sealed class SyncJobs(
 			return null;
 		}
 
-		var delay = gate.Delay(accountId);
-		if (delay > TimeSpan.Zero)
-		{
-			logger.LogInformation("Account {AccountId} is throttled for a further {Delay}.", accountId, delay);
-			return null;
-		}
+
 
 		return account;
 	}
@@ -785,6 +1135,11 @@ public sealed class SyncJobs(
 	{
 		try
 		{
+			var throttleDelay = gate.Delay(account.Id);
+			if (throttleDelay > TimeSpan.Zero)
+			{
+				throw new ProviderThrottledException(throttleDelay, "Account is throttled.");
+			}
 			var result = await work();
 			if (account.AuthState == AuthState.CredentialStoreUnavailable)
 			{

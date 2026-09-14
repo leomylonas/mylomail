@@ -24,6 +24,11 @@ public sealed class CalendarSyncService(
 	CalendarSyncGate gate
 )
 {
+	private sealed record CalendarReconciliation(
+		IReadOnlyList<Guid> RemovedEventIds,
+		bool CollectionChanged
+	);
+
 	/// <param name="resolvingEventId">
 	/// Null for every ordinary sync pass — routine polling must never silently pick a side on
 	/// a flagged conflict, so a conflicted event's upsert is skipped, leaving the local edit
@@ -46,10 +51,14 @@ public sealed class CalendarSyncService(
 		using var disposable = provider as IDisposable;
 
 		var observed = await provider.ListCalendarsAsync(account, ct);
-		var removedEventIds = await ReconcileCalendarsAsync(account.Id, observed, ct);
-		foreach (var eventId in removedEventIds)
+		var reconciliation = await ReconcileCalendarsAsync(account.Id, observed, ct);
+		foreach (var eventId in reconciliation.RemovedEventIds)
 		{
 			await events.CalendarEventUpdatedAsync(eventId);
+		}
+		if (reconciliation.CollectionChanged)
+		{
+			await events.CalendarCollectionChangedAsync(account.Id);
 		}
 
 		// A local-only calendar has no provider backing at all (§1, §13 Epic 7) — nothing to
@@ -153,12 +162,13 @@ public sealed class CalendarSyncService(
 		}
 	}
 
-	private async Task<IReadOnlyList<Guid>> ReconcileCalendarsAsync(
+	private async Task<CalendarReconciliation> ReconcileCalendarsAsync(
 		Guid accountId,
 		IReadOnlyList<CalendarDto> observed,
 		CancellationToken ct
 	)
 	{
+		var collectionChanged = false;
 		foreach (var dto in observed)
 		{
 			var calendar = await context.Calendars.SingleOrDefaultAsync(
@@ -178,9 +188,13 @@ public sealed class CalendarSyncService(
 						IsDefault = dto.IsDefault,
 					}
 				);
+				collectionChanged = true;
 			}
 			else
 			{
+				collectionChanged |= calendar.Name != dto.Name
+					|| calendar.Colour != dto.Colour
+					|| calendar.IsDefault != dto.IsDefault;
 				calendar.Name = dto.Name;
 				calendar.Colour = dto.Colour;
 				calendar.IsDefault = dto.IsDefault;
@@ -198,9 +212,10 @@ public sealed class CalendarSyncService(
 			.Select(e => e.Id)
 			.ToListAsync(ct);
 		context.Calendars.RemoveRange(removed);
+		collectionChanged |= removed.Count > 0;
 
 		await context.SaveChangesAsync(ct);
-		return removedIds;
+		return new CalendarReconciliation(removedIds, collectionChanged);
 	}
 
 	private async Task SynchronizeCalendarAsync(

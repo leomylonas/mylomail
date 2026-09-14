@@ -160,6 +160,8 @@ internal static class MailboxSummaryDtoFactory
 						row.LocalCount,
 						availability,
 						coverage?.Status ?? CoverageStatus.NotStarted,
+						coverage?.MessagesFetched ?? 0,
+						coverage?.EstimatedTotal,
 						row.Mailbox.IsCollapsed,
 						row.Mailbox.InitialSyncModeOverride,
 						row.Mailbox.InitialSyncBoundValueOverride,

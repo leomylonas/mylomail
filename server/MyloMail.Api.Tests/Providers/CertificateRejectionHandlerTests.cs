@@ -1,3 +1,4 @@
+using MyloMail.Api.Errors;
 using MyloMail.Api.Providers;
 using Xunit;
 
@@ -37,7 +38,12 @@ public sealed class CertificateRejectionHandlerTests
 		var first = await Assert.ThrowsAsync<ProviderAuthenticationException>(
 			() => invoker.SendAsync(new HttpRequestMessage(HttpMethod.Get, "https://mail.example.test/"), default)
 		);
-		Assert.Contains("mail.example.test", first.Message);
+		Assert.NotNull(first.Problem);
+		Assert.Equal(ErrorCategory.Validation, first.Problem!.Category);
+		Assert.Equal("mail.example.test", first.Problem.Extensions["hostname"]);
+		Assert.Equal("aa".PadRight(64, 'a'), first.Problem.Extensions["sha256Fingerprint"]);
+		Assert.Equal("CN=Example", first.Problem.Extensions["issuer"]);
+		Assert.Equal("TrustCertificate", first.Problem.Extensions["pinningAction"]);
 
 		// The second request's own validation callback never rejects anything, so nothing sets
 		// Rejected again — if the handler failed to reset it after the first request, this

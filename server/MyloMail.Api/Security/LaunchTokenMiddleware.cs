@@ -63,14 +63,11 @@ public sealed class LaunchTokenMiddleware(RequestDelegate next, string expectedT
 
 public static class LaunchTokenApplicationBuilderExtensions
 {
-	public const string EnvironmentVariable = "MYLOMAIL_LAUNCH_TOKEN";
-
-	public static IApplicationBuilder UseLaunchToken(this IApplicationBuilder app)
+	public static IApplicationBuilder UseLaunchToken(this IApplicationBuilder app, string token)
 	{
-		var token = Environment.GetEnvironmentVariable(EnvironmentVariable);
 		if (string.IsNullOrWhiteSpace(token))
 		{
-			throw new InvalidOperationException($"{EnvironmentVariable} must be supplied by Electron for every backend launch.");
+			throw new InvalidOperationException("Electron must supply a launch token for every backend launch.");
 		}
 
 		return app.UseMiddleware<LaunchTokenMiddleware>(token);

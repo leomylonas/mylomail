@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
@@ -22,6 +23,7 @@ namespace MyloMail.Api.Scheduling;
 public sealed class StartupScheduler(
 	MyloMailDbContext context,
 	StartupReconciliation reconciliation,
+	AccountCredentialCleanupService credentialCleanup,
 	SearchIndexer search,
 	MessageIngestor ingestor,
 	PollRegistry polls,
@@ -34,6 +36,8 @@ public sealed class StartupScheduler(
 {
 	public async Task ScheduleAsync(CancellationToken ct = default)
 	{
+		await credentialCleanup.CompletePendingAsync(ct);
+
 		// A lease held by the process that just died owns nothing now. This says nothing
 		// about what the server saw — that is the attempt's business, and an item from an
 		// unresolved attempt is reconciled rather than re-executed.
@@ -94,6 +98,10 @@ public sealed class StartupScheduler(
 			{
 				jobs.Enqueue<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default));
 			}
+			if (work.StagedChangeAccounts.Contains(accountId))
+			{
+				jobs.Enqueue<SyncJobs>(job => job.ReplayStagedAsync(accountId, default));
+			}
 
 			// A message left Queued/Fetching by the crash has no other path back onto the queue:
 			// ContentJobs.FetchNextAsync only self-schedules its own successor while content
@@ -123,18 +131,6 @@ public sealed class StartupScheduler(
 			jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
 
 
-		foreach (var mailboxId in work.BackfillingMailboxes)
-		{
-			var accountId = await context
-				.Mailboxes.Where(m => m.Id == mailboxId)
-				.Select(m => m.AccountId)
-				.FirstOrDefaultAsync(ct);
-
-			if (accountId != Guid.Empty)
-			{
-				jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
-			}
-		}
 
 		var contactOperations = await context.ContactOperations
 			.Where(operation => operation.State == ContactOperationState.Pending
@@ -193,9 +189,9 @@ public sealed class StartupScheduler(
 		await context.SaveChangesAsync(ct);
 		await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 
-		// The poll loops stopped when the account was paused, so their slots are released and
-		// topology may start them again.
-		polls.StopAll(accountId);
+		// Jobs that observed the authentication failure release their own registry slots.
+		// Others may still be queued or in flight; preserve their ownership so resume cannot
+		// admit duplicate topology, stream, calendar, or coverage loops.
 
 		if (polls.TryStart(accountId, SyncJobs.TopologyScope))
 		{
@@ -208,6 +204,7 @@ public sealed class StartupScheduler(
 		jobs.Enqueue<DraftJobs>(j => j.PushAsync(accountId, default));
 		jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
 		jobs.Enqueue<SyncJobs>(j => j.CalendarCreationRecoveryAsync(accountId, default));
+		jobs.Enqueue<SyncJobs>(j => j.ReplayStagedAsync(accountId, default));
 		var contactOperations = await context.ContactOperations
 			.Where(operation => context.Contacts.Any(contact =>
 				contact.Id == operation.ContactId && contact.AccountId == accountId))

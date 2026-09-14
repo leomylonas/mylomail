@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Compose;
 using MyloMail.Api.Contacts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
@@ -25,6 +26,7 @@ public sealed class SendExecutor(
 	MyloMailDbContext context,
 	IMailProviderFactory providers,
 	OutboxService outbox,
+	DraftSyncService draftSync,
 	ContactSuggestionService contactSuggestions,
 	TimeProvider clock,
 	IFaultInjector faults,
@@ -34,6 +36,29 @@ public sealed class SendExecutor(
 {
 	public async Task SendAsync(Account account, Guid outboxItemId, CancellationToken ct = default)
 	{
+		if (account.ProviderType == ProviderType.Microsoft365)
+		{
+			// Graph send is deliberately split at the durable server-draft boundary. The
+			// draft synchronizer owns creation/recovery and persists its immutable id before
+			// this method claims the externally visible send attempt.
+			try
+			{
+				await draftSync.PushAsync(account.Id, ct);
+			}
+			catch (Exception ex) when (
+				ex is not ProviderThrottledException
+				&& ex is not ProviderAuthenticationException
+				&& ex is not CredentialStoreUnavailableException
+				&& !ConnectivityMonitor.IsNetworkFailure(ex)
+			)
+			{
+				throw new SendPreparationException(
+					"The Microsoft 365 server draft could not be prepared for sending.",
+					ex
+				);
+			}
+		}
+
 		// The claim is the compare-and-swap that races cancellation. Losing it is a normal
 		// outcome, not an error: the user cancelled in time.
 		if (!await outbox.TryClaimForSendAsync(outboxItemId, ct))
@@ -71,6 +96,19 @@ public sealed class SendExecutor(
 			await context.SaveChangesAsync(ct);
 			await outbox.AnnounceStatusAsync(item.Id, ct);
 			return;
+		}
+		if (account.ProviderType == ProviderType.Microsoft365
+			&& (
+				draft.ProviderDraftId is null
+				|| draft.PushedAt is null
+				|| draft.PushedAt < draft.SavedAt
+			))
+		{
+			item.Status = OutboxStatus.Scheduled;
+			item.LastError = "The Microsoft 365 server draft is not ready to send yet.";
+			await context.SaveChangesAsync(ct);
+			await outbox.AnnounceStatusAsync(item.Id, ct);
+			throw new SendPreparationException(item.LastError);
 		}
 
 		// Resolved here rather than stored on the draft: the identity is the stored fact and
@@ -244,4 +282,11 @@ public sealed class SendExecutor(
 	/// not a shared base class something else could accidentally also match.</summary>
 	internal static string? AppendFailureOf(IMailProvider provider) =>
 		provider is ImapMailProvider { AppendFailure: string appendFailure } ? appendFailure : null;
+}
+
+public sealed class SendPreparationException : Exception
+{
+	public SendPreparationException(string message) : base(message) { }
+	public SendPreparationException(string message, Exception innerException)
+		: base(message, innerException) { }
 }

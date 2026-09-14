@@ -195,6 +195,7 @@ public sealed class CrossWindowBroadcastTests
 		public Task MailboxTreeChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
 		public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
+		public Task MessageMutationQueuedAsync(MutationQueuedDto queued) => Task.CompletedTask;
 		public Task MessageMutationSettledAsync(MutationSettledDto settlement) => Task.CompletedTask;
 		public Task MessageReceivedAsync(MessageSummaryDto message) => Task.CompletedTask;
 		public Task MessageUpdatedAsync(MessageSummaryDto message) => Task.CompletedTask;
@@ -202,8 +203,11 @@ public sealed class CrossWindowBroadcastTests
 		public Task DraftUpdatedAsync(Guid draftId) => Task.CompletedTask;
 		public Task CalendarEventUpdatedAsync(Guid eventId) => Task.CompletedTask;
 		public Task CalendarConflictDetectedAsync(Guid eventId) => Task.CompletedTask;
+		public Task CalendarCollectionChangedAsync(Guid accountId) => Task.CompletedTask;
+		public Task SendIdentitiesChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task ContactsChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task AccountStatusChangedAsync(AccountDto account) => Task.CompletedTask;
+		public Task AccountRemovedAsync(Guid accountId) => Task.CompletedTask;
 		public Task NotificationReadyAsync(NotificationDto notification) => Task.CompletedTask;
 		public Task ExportProgressAsync(Guid exportId, int written, int total) => Task.CompletedTask;
 		public Task ConnectivityChangedAsync(bool online) => Task.CompletedTask;

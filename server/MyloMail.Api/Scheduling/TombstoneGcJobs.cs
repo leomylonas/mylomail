@@ -2,6 +2,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Domain;
+using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Sync;
@@ -17,8 +18,8 @@ namespace MyloMail.Api.Scheduling;
 /// Physical deletion is a garbage-collection decision based on references, not something a
 /// mutation worker performs when its own chain goes terminal — this is why <see
 /// cref="MutationItem.MessageId"/> carries no foreign key. The references checked here are
-/// exactly the ones §6 names: a live (non-terminal) mutation, an undelivered notification whose
-/// click-to-navigate still needs the row, and a draft's reply linkage.
+/// exactly the ones §6 names: a live mutation, a notification whose click-routing retention
+/// window is still open, and a draft's reply linkage.
 /// </para>
 /// <para>
 /// <b>Zero membership is not immediately collectible.</b> Under Graph's folder-scoped delta a
@@ -39,6 +40,7 @@ public sealed class TombstoneGcJobs(
 	SearchIndexer search,
 	MessageIngestor ingestor,
 	TimeProvider clock,
+	IFaultInjector faults,
 	IHubEvents events,
 	IBackgroundJobClient jobs,
 	ILogger<TombstoneGcJobs> logger
@@ -75,62 +77,138 @@ public sealed class TombstoneGcJobs(
 		);
 	}
 
+
 	/// <summary>Finds and reclaims at most one tombstone, returning whether it found one.</summary>
 	private async Task<bool> CollectOneAsync(Guid accountId, CancellationToken ct)
 	{
 		var now = clock.GetUtcNow();
-		var candidates = await context
-			.Messages.Where(m => m.AccountId == accountId)
-			.Where(m => !context.MessageMailboxes.Any(o => o.MessageId == m.Id))
-			.Select(m => new { m.Id, m.OrphanedAt })
-			.Take(CandidateBatchLimit)
-			.ToListAsync(ct);
+		var candidateQuery = context
+			.Messages.Where(message => message.AccountId == accountId)
+			.Where(message => !context.MessageMailboxes.Any(occurrence => occurrence.MessageId == message.Id))
+			.Where(message =>
+				!context.MutationItems.Any(mutation =>
+					mutation.MessageId == message.Id
+					&& mutation.State != MutationState.Completed
+					&& mutation.State != MutationState.Failed
+					&& mutation.State != MutationState.Cancelled
+				)
+				&& !context.MessagePendingChanges.Any(change => change.MessageId == message.Id)
+				&& !context.Drafts.Any(draft => draft.InReplyToMessageId == message.Id)
+				&& !(
+					from membership in context.MutationExecutionAttemptItems
+					join attempt in context.MutationExecutionAttempts on membership.AttemptId equals attempt.Id
+					join mutation in context.MutationItems on membership.MutationItemId equals mutation.Id
+					where mutation.MessageId == message.Id
+						&& attempt.ResultPersistedAt == null
+						&& (
+							attempt.State == MutationAttemptState.Dispatched
+							|| attempt.State == MutationAttemptState.Ambiguous
+						)
+					select membership
+				).Any()
+			)
+			.OrderBy(message => message.Id)
+			.Select(message => new { message.Id, message.OrphanedAt });
 
-		foreach (var candidate in candidates)
+		// A Graph walk fence can retain an arbitrary number of otherwise eligible rows.
+		// Page across the whole candidate set instead of letting the first fixed batch starve
+		// collectible rows that sort after it; each query and allocation remains bounded.
+		for (var offset = 0; ; offset += CandidateBatchLimit)
 		{
-			if (candidate.OrphanedAt is null)
+			var candidates = await candidateQuery
+				.Skip(offset)
+				.Take(CandidateBatchLimit)
+				.ToListAsync(ct);
+			if (candidates.Count == 0)
 			{
-				// First time this message has been seen with no membership at all — start the
-				// grace period rather than acting on it now.
-				await MarkOrphanedAsync(candidate.Id, now, ct);
-				continue;
+				return false;
 			}
 
-			if (now - candidate.OrphanedAt.Value < GracePeriod)
+			foreach (var candidate in candidates)
 			{
-				continue;
-			}
+				if (candidate.OrphanedAt is null)
+				{
+					await MarkOrphanedAsync(candidate.Id, now, ct);
+					continue;
+				}
 
-			if (await TryCollectAsync(candidate.Id, ct))
-			{
-				logger.LogInformation("Collected tombstoned message {MessageId}.", candidate.Id);
-				return true;
+				if (now - candidate.OrphanedAt.Value < GracePeriod)
+				{
+					continue;
+				}
+
+				if (await TryCollectAsync(candidate.Id, ct))
+				{
+					logger.LogInformation("Collected tombstoned message {MessageId}.", candidate.Id);
+					return true;
+				}
 			}
 		}
-
-		return false;
 	}
 
 	private async Task MarkOrphanedAsync(Guid messageId, DateTimeOffset now, CancellationToken ct)
 	{
-		var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId, ct);
-		if (message is null || message.OrphanedAt is not null)
-		{
-			return;
-		}
-
-		message.OrphanedAt = now;
-		await context.SaveChangesAsync(ct);
+		await context
+			.Messages.Where(message =>
+				message.Id == messageId
+				&& message.OrphanedAt == null
+				&& !context.MessageMailboxes.Any(occurrence => occurrence.MessageId == message.Id)
+			)
+			.ExecuteUpdateAsync(setters => setters.SetProperty(message => message.OrphanedAt, now), ct);
 	}
 
 	private async Task<bool> IsCollectibleAsync(Guid messageId, CancellationToken ct)
 	{
+		var now = clock.GetUtcNow();
+		var message = await context.Messages.AsNoTracking().FirstOrDefaultAsync(row => row.Id == messageId, ct);
+		if (message?.OrphanedAt is not DateTimeOffset orphanedAt
+			|| now - orphanedAt < GracePeriod
+			|| await context.MessageMailboxes.AnyAsync(occurrence => occurrence.MessageId == messageId, ct))
+		{
+			return false;
+		}
+
+		var accountProvider = await context
+			.Accounts.Where(account => account.Id == message.AccountId)
+			.Select(account => (ProviderType?)account.ProviderType)
+			.FirstOrDefaultAsync(ct);
+		if (accountProvider == ProviderType.Microsoft365)
+		{
+			var providerMailboxIds = await context
+				.Mailboxes.Where(mailbox =>
+					mailbox.AccountId == message.AccountId && mailbox.ProviderMailboxId != null
+				)
+				.Select(mailbox => mailbox.Id)
+				.ToListAsync(ct);
+			var crossedStreams = await context
+				.ChangeStreamStates.Where(stream =>
+					stream.AccountId == message.AccountId
+					&& stream.MailboxId != null
+					&& providerMailboxIds.Contains(stream.MailboxId.Value)
+					&& !stream.IsRebasing
+					&& stream.LastError == null
+					&& stream.LastCompletedWalkAt != null
+				)
+				.Select(stream => new { stream.MailboxId, stream.LastCompletedWalkAt })
+				.ToListAsync(ct);
+			if (providerMailboxIds.Any(mailboxId =>
+				!crossedStreams.Any(stream =>
+					stream.MailboxId == mailboxId && stream.LastCompletedWalkAt >= orphanedAt
+				)))
+			{
+				// Graph move halves arrive on independent folder streams. A wall-clock grace
+				// period alone cannot prove the destination half was observed after an offline
+				// interval; every current stream must have crossed the orphaning boundary.
+				return false;
+			}
+		}
+
 		var hasLiveMutation = await context.MutationItems.AnyAsync(
-			m =>
-				m.MessageId == messageId
-				&& m.State != MutationState.Completed
-				&& m.State != MutationState.Failed
-				&& m.State != MutationState.Cancelled,
+			mutation =>
+				mutation.MessageId == messageId
+				&& mutation.State != MutationState.Completed
+				&& mutation.State != MutationState.Failed
+				&& mutation.State != MutationState.Cancelled,
 			ct
 		);
 		if (hasLiveMutation)
@@ -138,40 +216,41 @@ public sealed class TombstoneGcJobs(
 			return false;
 		}
 
-		var hasPendingChange = await context.MessagePendingChanges.AnyAsync(
-			c => c.MessageId == messageId,
-			ct
-		);
-		if (hasPendingChange)
+		if (await context.MessagePendingChanges.AnyAsync(change => change.MessageId == messageId, ct))
 		{
 			return false;
 		}
 
-		var hasUndeliveredNotification = await context.NotificationRecords.AnyAsync(
-			n => n.MessageId == messageId && n.DeliveredAt == null,
-			ct
-		);
-		if (hasUndeliveredNotification)
+		var notificationDeliveries = await context
+			.NotificationRecords.Where(notification => notification.MessageId == messageId)
+			.Select(notification => notification.DeliveredAt)
+			.ToListAsync(ct);
+		var navigationCutoff =
+			now - Notifications.NotificationService.NavigationRetention;
+		if (
+			notificationDeliveries.Any(deliveredAt =>
+				deliveredAt is null || deliveredAt > navigationCutoff
+			)
+		)
 		{
 			return false;
 		}
 
-		var hasReplyLinkage = await context.Drafts.AnyAsync(d => d.InReplyToMessageId == messageId, ct);
-		if (hasReplyLinkage)
+		if (await context.Drafts.AnyAsync(draft => draft.InReplyToMessageId == messageId, ct))
 		{
 			return false;
 		}
 
-		// A dispatched attempt has no durable result precisely because the server may already
-		// have acted. Its item keeps the canonical id reconciliation needs; collecting that row
-		// first would turn ambiguity into silent outcome loss (§6).
 		var hasUnresolvedAttempt = await (
 			from membership in context.MutationExecutionAttemptItems
 			join attempt in context.MutationExecutionAttempts on membership.AttemptId equals attempt.Id
 			join mutation in context.MutationItems on membership.MutationItemId equals mutation.Id
 			where mutation.MessageId == messageId
 				&& attempt.ResultPersistedAt == null
-				&& (attempt.State == MutationAttemptState.Dispatched || attempt.State == MutationAttemptState.Ambiguous)
+				&& (
+					attempt.State == MutationAttemptState.Dispatched
+					|| attempt.State == MutationAttemptState.Ambiguous
+				)
 			select membership
 		).AnyAsync(ct);
 		return !hasUnresolvedAttempt;
@@ -204,6 +283,15 @@ public sealed class TombstoneGcJobs(
 		var changedHeader = message.MessageIdHeader;
 		IReadOnlyList<Message> rethreaded = [];
 
+		var expiredNotificationLinks = await context
+			.NotificationRecords.Where(notification => notification.MessageId == messageId)
+			.ToListAsync(ct);
+		foreach (var notification in expiredNotificationLinks)
+		{
+			notification.MessageId = null;
+			notification.ProviderStableId ??= message.ProviderStableId;
+		}
+
 		// The FTS5 external-content row must go in the same operation as the message row it
 		// mirrors, or search returns hits pointing at nothing (§6). Its own foreign key is
 		// Restrict, not Cascade, for exactly this reason — removed here first rather than relied
@@ -222,6 +310,7 @@ public sealed class TombstoneGcJobs(
 			await context.SaveChangesAsync(ct);
 		}
 
+		faults.Reached(FaultPoints.TombstoneAfterDeleteBeforeCommit);
 		await transaction.CommitAsync(ct);
 		// Announced again here, not only when the last membership went: a reading pane — and
 		// especially a popped-out message window with no list to drop its selection — polls

@@ -194,6 +194,29 @@ public sealed class CalendarEventOccurrencesTests
 		Assert.Equal("Standup", occurrence.Title);
 	}
 
+	[Fact]
+	public async Task A_virtual_occurrence_carries_its_conflicted_masters_state()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (calendarId, _, secondOccurrence) = await SeedWeeklySeriesAsync(
+			database,
+			syncConflict: true
+		);
+
+		var events = await UsingAsync(
+			database,
+			context => CalendarEventOccurrences.ForCalendarAsync(
+				context,
+				calendarId,
+				secondOccurrence.AddDays(-1),
+				secondOccurrence.AddDays(1)
+			)
+		);
+
+		Assert.True(Assert.Single(events).SyncConflict);
+	}
+
 	/// <summary>
 	/// Eighty-ninth architecture-review pass: Outlook/Exchange are known to emit non-standard
 	/// <c>TZID</c>s (e.g. "Customized Time Zone") that aren't in the tz database this runs
@@ -453,7 +476,8 @@ public sealed class CalendarEventOccurrencesTests
 	}
 
 	private static async Task<(Guid CalendarId, Guid MasterId, DateTimeOffset SecondOccurrence)> SeedWeeklySeriesAsync(
-		TestDatabase database
+		TestDatabase database,
+		bool syncConflict = false
 	)
 	{
 		var accountId = Guid.NewGuid();
@@ -487,6 +511,7 @@ public sealed class CalendarEventOccurrencesTests
 						End = firstOccurrence.AddMinutes(30),
 						RecurrenceRules = ["FREQ=WEEKLY;COUNT=6"],
 						Status = EventStatus.Confirmed,
+						SyncConflict = syncConflict,
 					}
 				);
 				await context.SaveChangesAsync();

@@ -108,6 +108,11 @@ public class ChangeStreamState
 	/// </summary>
 	public bool IsRebasing { get; set; }
 	public DateTimeOffset? LastSyncedAt { get; set; }
+	/// <summary>
+	/// Last page that completed a provider delta walk and supplied its durable final cursor.
+	/// Continuation pages do not advance this fence.
+	/// </summary>
+	public DateTimeOffset? LastCompletedWalkAt { get; set; }
 	public string? LastError { get; set; }
 
 	/// <summary>

@@ -4,9 +4,8 @@ using MyloMail.Api.Persistence;
 namespace MyloMail.Api.Credentials;
 
 /// <summary>Selects a usable native store at startup, or the explicitly supplied fallback.</summary>
-public sealed class CredentialStoreSelector(string dataDirectory) : IDisposable
+public sealed class CredentialStoreSelector(string dataDirectory, string? masterPassword) : IDisposable
 {
-	private const string MasterPasswordEnvironmentVariable = "MYLOMAIL_MASTER_PASSWORD";
 	private bool useNativeStore;
 	private byte[]? fallbackKey;
 
@@ -19,14 +18,13 @@ public sealed class CredentialStoreSelector(string dataDirectory) : IDisposable
 	public async Task InitializeAsync(MyloMailDbContext database, CancellationToken ct)
 	{
 		useNativeStore = await NativeCredentialStore.IsAvailableAsync(dataDirectory, ct);
+		var suppliedPassword = Interlocked.Exchange(ref masterPassword, null);
 		if (useNativeStore) return;
 
-		var masterPassword = Environment.GetEnvironmentVariable(MasterPasswordEnvironmentVariable);
-		Environment.SetEnvironmentVariable(MasterPasswordEnvironmentVariable, null);
-		if (string.IsNullOrEmpty(masterPassword)) throw new CredentialStoreUnavailableException();
+		if (string.IsNullOrEmpty(suppliedPassword)) throw new CredentialStoreUnavailableException();
 
 		using var store = new MasterPasswordCredentialStore(database, []);
-		await store.InitializeAsync(masterPassword, ct);
+		await store.InitializeAsync(suppliedPassword, ct);
 		fallbackKey = store.CreateKeyCopy();
 	}
 

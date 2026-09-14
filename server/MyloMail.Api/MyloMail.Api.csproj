@@ -13,6 +13,7 @@
 		<PackageReference Include="Google.Apis.Gmail.v1" Version="1.75.0.4225" />
 		<PackageReference Include="Google.Apis.Calendar.v3" Version="1.75.0.4206" />
 		<PackageReference Include="MailKit" Version="4.17.0" />
+		<PackageReference Include="HtmlAgilityPack" Version="1.11.62" />
 		<PackageReference Include="DnsClient" Version="1.8.0" />
 		<PackageReference Include="Microsoft.Graph" Version="6.5.0" />
 		<PackageReference Include="Microsoft.Identity.Client" Version="4.88.0" />
@@ -22,9 +23,6 @@
 		<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
 		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
 		<RuntimeHostConfigurationOption Include="System.Globalization.UseNls" Value="false" />
-		<PackageReference Include="Tmds.DBus.Generator" Version="0.95.0">
-			<PrivateAssets>all</PrivateAssets>
-		</PackageReference>
 		<PackageReference Include="Tmds.DBus.Protocol" Version="0.95.0" />
 		<PackageReference Include="TypedSignalR.Client.TypeScript.Attributes" Version="1.17.0" />
 		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
@@ -38,8 +36,5 @@
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="MyloMail.Api.Tests" />
-	</ItemGroup>
-	<ItemGroup>
-		<AdditionalFiles Include="Credentials/SecretService.DBus.xml" Namespace="MyloMail.Api.Credentials.SecretService" DBusGeneratorMode="Proxy" />
 	</ItemGroup>
 </Project>

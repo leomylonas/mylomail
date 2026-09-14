@@ -33,22 +33,21 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		var small = draft.Attachments.Where(a => a.Content.LongLength <= InlineAttachmentLimit).ToList();
-		var large = draft.Attachments.Where(a => a.Content.LongLength > InlineAttachmentLimit).ToList();
-
-		var message = ToOutgoingMessage(draft, stableMessageId);
-		message.Attachments = [.. small.Select(ToFileAttachment)];
-
-		var created =
-			await ThrottleAwareAsync(() => client.Me.Messages.PostAsync(message, cancellationToken: ct))
-			?? throw new InvalidOperationException("Graph did not return the created draft.");
-		var draftId = created.Id ?? throw new InvalidOperationException("Graph's created draft has no id.");
-
-		foreach (var attachment in large)
+		var draftId = draft.ProviderDraftId
+			?? throw new InvalidOperationException(
+				"Microsoft Graph send requires a durably persisted server-draft identity."
+			);
+		if (!string.Equals(draft.StableMessageId, stableMessageId, StringComparison.Ordinal))
 		{
-			await UploadLargeAttachmentAsync(client, draftId, attachment, ct);
+			throw new InvalidOperationException(
+				"The persisted Microsoft Graph draft does not match this send attempt."
+			);
 		}
 
+		// Draft creation/update and its immutable id are owned by DraftSyncService and commit
+		// before SendExecutor marks the externally visible send attempt Dispatched. This call
+		// is therefore one irreversible provider boundary, not create+upload+send hidden
+		// behind one ambiguous attempt.
 		await ThrottleAwareAsync(() => client.Me.Messages[draftId].Send.PostAsync(cancellationToken: ct));
 	}
 
@@ -120,36 +119,6 @@ public sealed partial class GraphMailProvider
 		}
 	}
 
-	private static GraphMessage ToOutgoingMessage(Draft draft, string stableMessageId) =>
-		new()
-		{
-			// Best-effort: Graph generates its own internetMessageId server-side for a message
-			// sent via /sendMail, and whether it honours a caller-supplied one has not been
-			// confirmed against a live account (§1) — reconciliation's Message-ID search may
-			// therefore need the fallback heuristics it already has for exactly this case.
-			InternetMessageId = stableMessageId,
-			ToRecipients = [.. draft.To.Select(ToRecipient)],
-			CcRecipients = [.. draft.Cc.Select(ToRecipient)],
-			BccRecipients = [.. draft.Bcc.Select(ToRecipient)],
-			Subject = draft.Subject,
-			Body = new ItemBody { ContentType = BodyType.Html, Content = draft.BodyHtml },
-			// References is the parent's own chain with its own Message-ID already appended by
-			// the caller (RFC 5322 §3.6.4) — not just the immediate parent — so a client
-			// threading solely on References can still reconstruct a thread more than one reply
-			// deep, the same fix applied to IMAP/Gmail's own MimeKit-built References list.
-			InternetMessageHeaders =
-				draft.InReplyToHeader is string inReplyTo
-					?
-					[
-						new InternetMessageHeader { Name = "In-Reply-To", Value = inReplyTo },
-						new InternetMessageHeader
-						{
-							Name = "References",
-							Value = draft.ReferencesHeader ?? inReplyTo,
-						},
-					]
-					: null,
-		};
 
 	private static Recipient ToRecipient(Address address) =>
 		new() { EmailAddress = new EmailAddress { Name = address.Name, Address = address.Email } };

@@ -27,9 +27,13 @@ namespace MyloMail.Api.Controllers;
 [Route("messages/{messageId:guid}/parts")]
 public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 {
-	/// <summary>Returns the part with the given <c>Content-ID</c>.</summary>
-	[HttpGet("{contentId}")]
-	public async Task<IActionResult> Get(Guid messageId, string contentId, CancellationToken ct)
+	/// <summary>Returns the part named by a Content-ID held in the request body.</summary>
+	[HttpPost]
+	public async Task<IActionResult> Get(
+		Guid messageId,
+		[FromBody] InlinePartRequest request,
+		CancellationToken ct
+	)
 	{
 		var raw = await context.MessageRaws.FirstOrDefaultAsync(r => r.MessageId == messageId, ct);
 		if (raw is null)
@@ -41,7 +45,7 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 		var mime = await MimeMessage.LoadAsync(stream, ct);
 		MimeStructureValidator.Validate(mime);
 
-		var wanted = contentId.Trim('<', '>');
+		var wanted = request.ContentId.Trim('<', '>');
 		var part = mime
 			.BodyParts.OfType<MimePart>()
 			.FirstOrDefault(candidate => candidate.ContentId?.Trim('<', '>') == wanted);
@@ -62,3 +66,5 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 	}
 
 }
+
+public sealed record InlinePartRequest(string ContentId);

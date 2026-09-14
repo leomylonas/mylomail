@@ -35,11 +35,13 @@ public static class MutationProblemTransport
 		exception switch
 		{
 			MutationHubException hub => hub.Problem,
+			ProviderAuthenticationException ex when ex.Problem is { } problem => problem,
 			ProviderAuthenticationException ex => Create(ErrorCategory.Auth, ex.Message),
 			ProviderThrottledException ex => WithRetryAfter(Create(ErrorCategory.RateLimit, ex.Message), ex.RetryAfter),
 			ProviderConflictException ex => Create(ErrorCategory.Conflict, ex.Message),
 			DbUpdateConcurrencyException ex => Create(ErrorCategory.Conflict, ex.Message),
 			ProviderContactRejectedException ex => Create(ErrorCategory.ProviderRejected, ex.Message),
+			ProviderDraftRejectedException ex => Create(ErrorCategory.ProviderRejected, ex.Message),
 			ProviderNotConfiguredException ex => Create(
 				ErrorCategory.Unknown,
 				ex.Message,
@@ -65,10 +67,15 @@ public static class MutationProblemTransport
 
 	public static MutationProblemDetails FromProviderException(Exception exception)
 	{
-		var problem = FromException(exception);
-		return problem.Category is ErrorCategory.Unknown or ErrorCategory.Validation
+		if (exception is ProviderAuthenticationException ex && ex.Problem is { } problem)
+		{
+			return problem;
+		}
+
+		var mapped = FromException(exception);
+		return mapped.Category is ErrorCategory.Unknown or ErrorCategory.Validation
 			? Create(ErrorCategory.ProviderRejected, exception.Message)
-			: problem;
+			: mapped;
 	}
 
 	public static MutationProblemDetails FromStatus(

@@ -114,6 +114,7 @@ public sealed class OutboxJobs(
 	ILogger<OutboxJobs> logger
 )
 {
+	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 	/// <summary>
 	/// Reconciles first, then sends what is due.
 	/// </summary>
@@ -204,6 +205,23 @@ public sealed class OutboxJobs(
 				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				jobs.Schedule<OutboxJobs>(
+					job => job.RunAsync(accountId, default),
+					CredentialStoreRetryDelay
+				);
+				return;
+			}
+			catch (SendPreparationException ex)
+			{
+				logger.LogWarning(
+					ex,
+					"Outbox item {OutboxItemId} could not finish its definite pre-send preparation.",
+					item.Id
+				);
+				jobs.Schedule<OutboxJobs>(
+					job => job.RunAsync(accountId, default),
+					CredentialStoreRetryDelay
+				);
 				return;
 			}
 			catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))

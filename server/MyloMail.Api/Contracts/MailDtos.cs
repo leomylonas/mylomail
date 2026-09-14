@@ -39,6 +39,8 @@ public record MailboxSummaryDto(
 	int LocalCount,
 	MailboxAvailability Availability,
 	CoverageStatus Coverage,
+	int CoverageMessagesFetched,
+	int? CoverageEstimatedTotal,
 	bool IsCollapsed,
 	InitialSyncMode? InitialSyncModeOverride,
 	int? InitialSyncBoundValueOverride,
@@ -307,6 +309,15 @@ public record MutationEnqueueResultDto(
 	IReadOnlyList<MutationEnqueueAcceptanceDto> Accepted,
 	IReadOnlyList<Guid> RejectedMessageIds
 );
+[TranspilationSource]
+public record MutationQueuedDto(
+	Guid MutationItemId,
+	Guid MessageId,
+	Guid AccountId,
+	MutationOperationKind OperationKind,
+	Guid? SourceMailboxId
+);
+
 
 [TranspilationSource]
 public record MutationSettledDto(

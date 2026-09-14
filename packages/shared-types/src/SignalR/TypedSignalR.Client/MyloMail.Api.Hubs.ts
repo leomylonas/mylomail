@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -446,6 +446,11 @@ export type IMailClient = {
     */
     accountStatusChanged(account: AccountDto): Promise<void>;
     /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    accountRemoved(accountId: string): Promise<void>;
+    /**
     * @param mailbox Transpiled from MyloMail.Api.Contracts.MailboxSummaryDto
     * @returns Transpiled from System.Threading.Tasks.Task
     */
@@ -491,6 +496,11 @@ export type IMailClient = {
     */
     messageSyncFailed(failure: MutationFailureDto): Promise<void>;
     /**
+    * @param queued Transpiled from MyloMail.Api.Contracts.MutationQueuedDto
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    messageMutationQueued(queued: MutationQueuedDto): Promise<void>;
+    /**
     * A mutation item whose provider outcome is durably confirmed (§6).
     * @param settlement Transpiled from MyloMail.Api.Contracts.MutationSettledDto
     * @returns Transpiled from System.Threading.Tasks.Task
@@ -516,6 +526,16 @@ export type IMailClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     calendarConflictDetected(eventId: string): Promise<void>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    calendarCollectionChanged(accountId: string): Promise<void>;
+    /**
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    sendIdentitiesChanged(accountId: string): Promise<void>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task

@@ -7,6 +7,7 @@ using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Sync;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -54,6 +55,7 @@ public sealed class SyncTests
 			Assert.Equal("<p>Body</p>", draft.BodyHtml.Trim());
 			Assert.Equal(occurrence, draft.ProviderDraftId);
 			Assert.Equal(occurrence, draft.ProviderRevision);
+			Assert.Equal("<remote-draft@example.test>", draft.StableMessageId);
 			Assert.Empty(await context.Messages.ToListAsync());
 			Assert.Equal([draft.Id], harness.Events.Drafts);
 		});
@@ -895,6 +897,17 @@ public sealed class SyncTests
 						mailbox.TopologyGeneration
 					)
 			);
+			var epochs = await context.MailboxTopologyEpochs.ToDictionaryAsync(
+				epoch => epoch.ProviderMailboxId,
+				epoch => epoch.Generation
+			);
+			Assert.All(
+				mailboxes,
+				mailbox => Assert.Equal(
+					mailbox.TopologyGeneration,
+					epochs[mailbox.ProviderMailboxId!]
+				)
+			);
 		});
 		Assert.Equal(2, harness.Events.Mailboxes.Count);
 		Assert.All(
@@ -929,7 +942,107 @@ public sealed class SyncTests
 		});
 	}
 
-	/// <summary>
+	[Fact]
+	public void Staged_payload_preserves_account_scoped_permanent_deletions()
+	{
+		var payload = SyncPagePayload.Serialize(
+			new SyncResult(null, null, [], [], [], ["deleted-provider-message"]),
+			[],
+			GenerationSnapshot.From(new Dictionary<string, int>())
+		);
+
+		var (result, _, _) = SyncPagePayload.Deserialize(payload);
+
+		Assert.Equal(
+			["deleted-provider-message"],
+			result.PermanentlyDeletedProviderMessageIds
+		);
+	}
+
+	/// <summary>Account-wide Gmail deletions include drafts that have no canonical message row.</summary>
+	[Fact]
+	public async Task Gmail_permanent_deletion_removes_a_remote_draft_before_staged_cursor_work_is_retired()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("DRAFT", SpecialUse.Drafts);
+		await ReconcileAsync(harness);
+
+		var draftId = Guid.NewGuid();
+		const string providerMessageId = "gmail-draft-message";
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var identity = new SendIdentity
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.Account.Id,
+				EmailAddress = "author@example.test",
+				IsDefault = true,
+			};
+			context.SendIdentities.Add(identity);
+			context.Drafts.Add(new Draft
+			{
+				Id = draftId,
+				AccountId = harness.Account.Id,
+				SendIdentityId = identity.Id,
+				ProviderDraftId = "gmail-draft-container",
+				ProviderMessageId = providerMessageId,
+				ProviderRevision = "1",
+				SavedAt = DateTimeOffset.UnixEpoch,
+				PushedAt = DateTimeOffset.UnixEpoch,
+			});
+
+			var mailboxes = await context.Mailboxes.ToListAsync();
+			foreach (var mailbox in mailboxes)
+			{
+				var coverage = await context.MailboxCoverageStates.FindAsync(mailbox.Id);
+				if (coverage is null)
+				{
+					context.MailboxCoverageStates.Add(
+						new MailboxCoverageState
+						{
+							MailboxId = mailbox.Id,
+							Status = CoverageStatus.Covered,
+						}
+					);
+				}
+				else
+				{
+					coverage.Status = CoverageStatus.Covered;
+				}
+			}
+			context.StagedChangeEvents.Add(new StagedChangeEvent
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.Account.Id,
+				Ordinal = 1,
+				Payload = SyncPagePayload.Serialize(
+					new SyncResult(null, null, [], [], [], [providerMessageId]),
+					[],
+					GenerationSnapshot.From(
+						mailboxes.ToDictionary(
+							mailbox => mailbox.ProviderMailboxId!,
+							mailbox => mailbox.TopologyGeneration
+						)
+					)
+				),
+				StagedAt = DateTimeOffset.UnixEpoch,
+			});
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ChangeStreamService>().ReplayStagedAsync(harness.Account)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.Null(await context.Drafts.SingleOrDefaultAsync(draft => draft.Id == draftId));
+			Assert.Empty(await context.StagedChangeEvents.ToListAsync());
+		});
+	}
+
 	/// Gmail drains history durably but unapplied while backfill runs. Applying it
 	/// concurrently would let a stale backfill page resurrect a membership history has already
 	/// removed.
@@ -1165,6 +1278,31 @@ public sealed class SyncTests
 			// Still 50 — the second page never committed the remaining message.
 			Assert.Equal(messagesAfterFirstPage, await context.Messages.CountAsync());
 		});
+	}
+
+	[Fact]
+	public async Task Calendar_collection_changes_are_announced_once_after_commit()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<CalendarSyncService>()
+				.SynchronizeAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+		Assert.Equal(harness.Account.Id, Assert.Single(harness.Events.CalendarCollections));
+		harness.Events.Clear();
+
+		await harness.UsingAsync(async scope =>
+			await scope
+				.GetRequiredService<CalendarSyncService>()
+				.SynchronizeAsync(await harness.AccountInScopeAsync(scope))
+		);
+
+		Assert.Empty(harness.Events.CalendarCollections);
 	}
 
 	/// <summary>
@@ -1425,6 +1563,80 @@ public sealed class SyncTests
 		});
 	}
 
+	[Fact]
+	public async Task A_covered_IMAP_mailbox_without_a_baseline_reopens_coverage_before_UIDNEXT()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.ChangeStreamStates.RemoveRange(context.ChangeStreamStates);
+			await context.SaveChangesAsync();
+		});
+
+		var gapMessageId = Guid.NewGuid();
+		harness.Provider.SeedMessage(
+			"INBOX",
+			gapMessageId,
+			harness.Clock.GetUtcNow().AddMinutes(1)
+		);
+		await harness.UsingAsync(async scope =>
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			Assert.Equal(
+				CoverageStatus.NotStarted,
+				(await scope.GetRequiredService<MyloMailDbContext>()
+					.MailboxCoverageStates.SingleAsync()).Status
+			);
+			Assert.DoesNotContain(
+				((RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>())
+					.Created,
+				job => job.Method.Name == nameof(SyncJobs.ChangeStreamAsync)
+			);
+		});
+		await CoverAsync(harness);
+		await harness.UsingAsync(async scope =>
+			Assert.Contains(
+				await scope.GetRequiredService<MyloMailDbContext>().Messages.ToListAsync(),
+				message => message.MessageIdHeader == $"<{gapMessageId:N}@fake.test>"
+			)
+		);
+	}
+
+	[Fact]
+	public async Task IMAP_incremental_pages_wait_for_coverage_after_the_baseline()
+	{
+		await using var harness = await SyncHarness.CreateAsync(
+			ProviderShapes.Imap(ImapCapabilityTier.QResync)
+		);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await ReconcileAsync(harness);
+		await SyncAsync(harness);
+
+		harness.Provider.SeedMessage(
+			"INBOX",
+			Guid.NewGuid(),
+			harness.Clock.GetUtcNow().AddMinutes(1)
+		);
+		var blocked = await SyncAsync(harness);
+
+		Assert.Equal(0, blocked.Pages);
+		await harness.UsingAsync(async scope =>
+			Assert.Empty(
+				await scope.GetRequiredService<MyloMailDbContext>().Messages.ToListAsync()
+			)
+		);
+	}
+
 	private static MailboxDto TopologyMailbox(
 		string providerMailboxId,
 		string? name = null,
@@ -1480,6 +1692,7 @@ public sealed class SyncTests
 		var message = new MimeMessage();
 		message.From.Add(MailboxAddress.Parse("author@example.test"));
 		message.To.Add(MailboxAddress.Parse("recipient@example.test"));
+		message.MessageId = "remote-draft@example.test";
 		message.Subject = "Remote draft";
 		message.Body = new TextPart("html") { Text = "<p>Body</p>" };
 		using var stream = new MemoryStream();

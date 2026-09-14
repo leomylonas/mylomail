@@ -27,6 +27,23 @@ public sealed class SearchIndexerTests
 		await harness.AssertIndexIsIntactAsync();
 	}
 
+	[Fact]
+	public async Task Html_indexing_extracts_visible_decoded_text_without_markup_or_attributes()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexHtmlAsync(
+			"<p title='privateattribute'>Visible&nbsp;words &amp; symbols</p><span hidden>privateHidden</span><i style='display:none'>privateStyle</i><style>.hidden { color: red; }</style><script>privateScript()</script>",
+			"alice@example.org"
+		);
+
+		Assert.Equal(1, await harness.MatchCountAsync("Visible"));
+		Assert.Equal(1, await harness.MatchCountAsync("symbols"));
+		Assert.Equal(0, await harness.MatchCountAsync("privateattribute"));
+		Assert.Equal(0, await harness.MatchCountAsync("privateScript"));
+		Assert.Equal(0, await harness.MatchCountAsync("privateHidden"));
+		Assert.Equal(0, await harness.MatchCountAsync("privateStyle"));
+	}
+
 	/// <summary>
 	/// Re-indexing a message replaces its terms rather than corrupting the index.
 	/// </summary>
@@ -121,6 +138,19 @@ public sealed class SearchIndexerTests
 		await harness.AssertIndexIsIntactAsync();
 	}
 
+	[Fact]
+	public async Task Rolling_back_account_removal_keeps_both_the_account_and_its_search_rows()
+	{
+		await using var harness = new IndexHarness();
+		await harness.IndexAsync("Retained", "transactional body", "alice@example.org");
+
+		await harness.RollbackAccountRemovalAsync();
+
+		Assert.Equal(1, await harness.MatchCountAsync("transactional"));
+		Assert.Equal(1, await harness.ContentRowCountAsync());
+		await harness.AssertIndexIsIntactAsync();
+	}
+
 	/// <summary>
 	/// A damaged index can be rebuilt from content, without losing anything.
 	/// </summary>
@@ -204,6 +234,23 @@ public sealed class SearchIndexerTests
 				);
 		}
 
+		public async Task IndexHtmlAsync(string html, string from)
+		{
+			await using var scope = services.CreateAsyncScope();
+			var mime = new MimeMessage();
+			mime.From.Add(MailboxAddress.Parse(from));
+			mime.To.Add(MailboxAddress.Parse("test@example.org"));
+
+			await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.IndexAsync(
+					MessageId,
+					mime,
+					new MessageBody { MessageId = MessageId, HtmlBody = html },
+					CancellationToken.None
+				);
+		}
+
 		public async Task RemoveAsync()
 		{
 			await using var scope = services.CreateAsyncScope();
@@ -258,6 +305,21 @@ public sealed class SearchIndexerTests
 			await scope.ServiceProvider.GetRequiredService<SearchIndexer>().RebuildAsync(CancellationToken.None);
 		}
 
+		/// <summary>Exercises the same search/content deletion transaction without committing it.</summary>
+		public async Task RollbackAccountRemovalAsync()
+		{
+			await using var scope = services.CreateAsyncScope();
+			var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			await using var transaction = await context.Database.BeginTransactionAsync();
+
+			await scope.ServiceProvider
+				.GetRequiredService<SearchIndexer>()
+				.RemoveForAccountAsync(account.Id, CancellationToken.None);
+			context.Accounts.Remove(account);
+			await context.SaveChangesAsync();
+			await transaction.RollbackAsync();
+		}
 		/// <summary>Deletes the account, as account removal does.</summary>
 		public async Task DeleteAccountAsync()
 		{

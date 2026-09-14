@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -348,6 +348,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
     public readonly register = (connection: HubConnection, receiver: IMailClient): Disposable => {
 
         const __accountStatusChanged = (...args: [AccountDto]) => receiver.accountStatusChanged(...args);
+        const __accountRemoved = (...args: [string]) => receiver.accountRemoved(...args);
         const __mailboxUpdated = (...args: [MailboxSummaryDto]) => receiver.mailboxUpdated(...args);
         const __mailboxTreeChanged = (...args: [string]) => receiver.mailboxTreeChanged(...args);
         const __messageReceived = (...args: [MessageSummaryDto]) => receiver.messageReceived(...args);
@@ -356,11 +357,14 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __syncProgress = (...args: [SyncProgressDto]) => receiver.syncProgress(...args);
         const __exportProgress = (...args: [string, number, number]) => receiver.exportProgress(...args);
         const __messageSyncFailed = (...args: [MutationFailureDto]) => receiver.messageSyncFailed(...args);
+        const __messageMutationQueued = (...args: [MutationQueuedDto]) => receiver.messageMutationQueued(...args);
         const __messageMutationSettled = (...args: [MutationSettledDto]) => receiver.messageMutationSettled(...args);
         const __draftUpdated = (...args: [string]) => receiver.draftUpdated(...args);
         const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
         const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
+        const __calendarCollectionChanged = (...args: [string]) => receiver.calendarCollectionChanged(...args);
+        const __sendIdentitiesChanged = (...args: [string]) => receiver.sendIdentitiesChanged(...args);
         const __contactsChanged = (...args: [string]) => receiver.contactsChanged(...args);
         const __connectivityChanged = (...args: [boolean]) => receiver.connectivityChanged(...args);
         const __shellSettingsChanged = () => receiver.shellSettingsChanged();
@@ -368,6 +372,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __notificationReady = (...args: [NotificationDto]) => receiver.notificationReady(...args);
 
         connection.on("AccountStatusChanged", __accountStatusChanged);
+        connection.on("AccountRemoved", __accountRemoved);
         connection.on("MailboxUpdated", __mailboxUpdated);
         connection.on("MailboxTreeChanged", __mailboxTreeChanged);
         connection.on("MessageReceived", __messageReceived);
@@ -376,11 +381,14 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("SyncProgress", __syncProgress);
         connection.on("ExportProgress", __exportProgress);
         connection.on("MessageSyncFailed", __messageSyncFailed);
+        connection.on("MessageMutationQueued", __messageMutationQueued);
         connection.on("MessageMutationSettled", __messageMutationSettled);
         connection.on("DraftUpdated", __draftUpdated);
         connection.on("OutboxStatusChanged", __outboxStatusChanged);
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
         connection.on("CalendarConflictDetected", __calendarConflictDetected);
+        connection.on("CalendarCollectionChanged", __calendarCollectionChanged);
+        connection.on("SendIdentitiesChanged", __sendIdentitiesChanged);
         connection.on("ContactsChanged", __contactsChanged);
         connection.on("ConnectivityChanged", __connectivityChanged);
         connection.on("ShellSettingsChanged", __shellSettingsChanged);
@@ -389,6 +397,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
 
         const methodList: ReceiverMethod[] = [
             { methodName: "AccountStatusChanged", method: __accountStatusChanged },
+            { methodName: "AccountRemoved", method: __accountRemoved },
             { methodName: "MailboxUpdated", method: __mailboxUpdated },
             { methodName: "MailboxTreeChanged", method: __mailboxTreeChanged },
             { methodName: "MessageReceived", method: __messageReceived },
@@ -397,11 +406,14 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "SyncProgress", method: __syncProgress },
             { methodName: "ExportProgress", method: __exportProgress },
             { methodName: "MessageSyncFailed", method: __messageSyncFailed },
+            { methodName: "MessageMutationQueued", method: __messageMutationQueued },
             { methodName: "MessageMutationSettled", method: __messageMutationSettled },
             { methodName: "DraftUpdated", method: __draftUpdated },
             { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
             { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
+            { methodName: "CalendarCollectionChanged", method: __calendarCollectionChanged },
+            { methodName: "SendIdentitiesChanged", method: __sendIdentitiesChanged },
             { methodName: "ContactsChanged", method: __contactsChanged },
             { methodName: "ConnectivityChanged", method: __connectivityChanged },
             { methodName: "ShellSettingsChanged", method: __shellSettingsChanged },

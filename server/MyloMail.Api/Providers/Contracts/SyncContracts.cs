@@ -44,7 +44,8 @@ public record SyncResult(
 	string? Continuation,
 	IReadOnlyList<MessageDto> Upserted,
 	IReadOnlyList<OccurrenceFlagChange> FlagChanges,
-	IReadOnlyList<OccurrenceRemoval> Removed
+	IReadOnlyList<OccurrenceRemoval> Removed,
+	IReadOnlyList<string>? PermanentlyDeletedProviderMessageIds = null
 )
 {
 	/// <summary>

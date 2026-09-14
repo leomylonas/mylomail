@@ -49,6 +49,7 @@ namespace MyloMail.Api.Notifications;
 /// </remarks>
 public sealed class NotificationService(MyloMailDbContext context, IHubEvents events, TimeProvider clock)
 {
+	public static readonly TimeSpan NavigationRetention = TimeSpan.FromDays(7);
 	/// <summary>
 	/// Adds a tracked, not-yet-saved <see cref="NotificationRecord"/> for each eligible
 	/// message not already notified, and returns the DTOs to announce once the caller commits.
@@ -87,18 +88,17 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		// second, duplicate announcement and a pending row `BackfillMessageIdsAsync` can never
 		// reach again, because a MessageId-keyed record already exists for the same message.
 		var candidateStableIds = candidates.Where(m => m.ProviderStableId is not null).Select(m => m.ProviderStableId!).ToList();
-		var pendingByStableId = candidateStableIds.Count == 0
+		var recordsByStableId = candidateStableIds.Count == 0
 			? []
 			: await context
 				.NotificationRecords.Where(n =>
 					n.AccountId == account.Id
 					&& n.Kind == NotificationKind.NewMessage
-					&& n.MessageId == null
 					&& n.ProviderStableId != null
 					&& candidateStableIds.Contains(n.ProviderStableId!)
 				)
 				.ToListAsync(ct);
-		var pendingByStableIdLookup = pendingByStableId.ToDictionary(n => n.ProviderStableId!);
+		var recordsByStableIdLookup = recordsByStableId.ToDictionary(n => n.ProviderStableId!);
 
 		var announcements = new List<NotificationDto>();
 		foreach (var message in candidates)
@@ -110,11 +110,13 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 
 			if (
 				message.ProviderStableId is not null
-				&& pendingByStableIdLookup.TryGetValue(message.ProviderStableId, out var pending)
+				&& recordsByStableIdLookup.TryGetValue(message.ProviderStableId, out var existing)
 			)
 			{
-				// Already announced when it was staged; link it up rather than notifying again.
-				pending.MessageId = message.Id;
+				// A staged notification is linked once its canonical row appears. A retained
+				// delivered record remains deduplication evidence even after its navigation
+				// link has expired and the old message row was collected.
+				existing.MessageId ??= message.Id;
 				continue;
 			}
 
@@ -124,6 +126,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 				AccountId = account.Id,
 				MessageId = message.Id,
 				Kind = NotificationKind.NewMessage,
+				ProviderStableId = message.ProviderStableId,
 				CreatedAt = clock.GetUtcNow(),
 			};
 			context.NotificationRecords.Add(record);

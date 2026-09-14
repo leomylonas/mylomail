@@ -20,12 +20,18 @@ using Serilog;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 
+LaunchSecrets? launchSecrets = LaunchSecrets.ReadFromStandardInput();
+
 // Resolved before the database path is known, and therefore before anything in AppSettings
 // can be read (§15).
 var dataDirectory = DataDirectory.Resolve(
 	ProcessFaultInjector.DataDirectoryOverrideFromEnvironment()
 		?? BootstrapConfig.Load().DataDirectoryOverride
 );
+
+var launchToken = launchSecrets.LaunchToken;
+var credentialStoreSelector = new CredentialStoreSelector(dataDirectory, launchSecrets.MasterPassword);
+launchSecrets = null;
 
 // Async sink, and never message bodies/subjects/credentials — MessageId/AccountId/operation/
 // exception only (§10). That discipline is enforced by what call sites choose to log, not by
@@ -60,7 +66,7 @@ if (ProcessFaultInjector.FromEnvironment() is { } processFaults)
 }
 
 builder.Services.AddPersistence(dataDirectory);
-builder.Services.AddSingleton<CredentialStoreSelector>(_ => new CredentialStoreSelector(dataDirectory));
+builder.Services.AddSingleton(credentialStoreSelector);
 builder.Services.AddScoped<ICredentialStore>(provider =>
 	provider.GetRequiredService<CredentialStoreSelector>().Create(provider.GetRequiredService<MyloMailDbContext>()));
 builder.Services.AddProviderClients(builder.Configuration);
@@ -100,7 +106,7 @@ if (telemetryEnabled && !string.IsNullOrEmpty(otelEndpoint))
 var app = builder.Build();
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(MutationProblemTransport.WriteExceptionAsync));
 app.UseStatusCodePages(MutationProblemTransport.WriteStatusAsync);
-app.UseLaunchToken();
+app.UseLaunchToken(launchToken);
 
 // Method, path, status code and duration only — never headers or bodies (§10's no-PII rule,
 // the same one AddOtlpExporter's own auto-instrumentation follows below).

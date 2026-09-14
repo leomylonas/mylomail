@@ -244,6 +244,72 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		return changed;
 	}
 
+	public async Task<IReadOnlyList<Guid>> ApplyPermanentRemovalsAsync(
+		Account account,
+		IReadOnlyList<string> providerMessageIds,
+		IReadOnlyDictionary<string, Mailbox> mailboxesByProviderId,
+		GenerationSnapshot generations,
+		CancellationToken ct = default
+	)
+	{
+
+		if (providerMessageIds.Count == 0)
+		{
+			return [];
+		}
+
+		var permanentIds = providerMessageIds.ToHashSet(StringComparer.Ordinal);
+		var matchingDrafts = (await context.Drafts
+				.Where(draft => draft.AccountId == account.Id)
+				.ToListAsync(ct))
+			.Where(draft =>
+				draft.ProviderMessageId is { } providerMessageId
+					? permanentIds.Contains(providerMessageId)
+					: draft.ProviderDraftId is { } providerDraftId
+						&& permanentIds.Contains(providerDraftId)
+			)
+			.ToList();
+		if (matchingDrafts.Count == 0)
+		{
+			return [];
+		}
+
+		var draftMailboxes = mailboxesByProviderId.Values
+			.Where(mailbox => mailbox.EffectiveSpecialUse == SpecialUse.Drafts)
+			.ToArray();
+		if (draftMailboxes.Length != 1)
+		{
+			throw new InvalidOperationException(
+				"A permanent remote-draft deletion requires exactly one provider Drafts mailbox."
+			);
+		}
+		var draftsMailbox = draftMailboxes[0];
+		if (
+			draftsMailbox.ProviderMailboxId is not { } providerMailboxId
+			|| !generations.StillCurrent(providerMailboxId, draftsMailbox)
+		)
+		{
+			throw new InvalidOperationException(
+				"The Drafts mailbox changed while permanent deletions were being applied."
+			);
+		}
+
+		var changed = new List<Guid>(matchingDrafts.Count);
+		foreach (var draft in matchingDrafts)
+		{
+			if (draft.SyncConflict || draft.PushedAt is null || draft.PushedAt < draft.SavedAt)
+			{
+				draft.SyncConflict = true;
+			}
+			else
+			{
+				context.Drafts.Remove(draft);
+			}
+			changed.Add(draft.Id);
+		}
+		return changed;
+	}
+
 	private async Task<Guid> IdentityAsync(Guid accountId, MimeMessage mime, CancellationToken ct)
 	{
 		var from = mime.From.Mailboxes.FirstOrDefault()?.Address;
@@ -302,6 +368,11 @@ public sealed class RemoteDraftMaterializer(MyloMailDbContext context, IMailProv
 		draft.Subject = mime.Subject ?? string.Empty;
 		draft.BodyHtml = mime.GetTextBody(TextFormat.Html) ?? PlainHtml(mime.GetTextBody(TextFormat.Plain));
 		draft.Attachments = [.. Attachments(mime)];
+		var remoteStableMessageId = mime.Headers[HeaderId.MessageId];
+		if (!string.IsNullOrWhiteSpace(remoteStableMessageId))
+		{
+			draft.StableMessageId = remoteStableMessageId;
+		}
 		draft.ProviderDraftId = payload.ProviderDraftId;
 		draft.ProviderMessageId = payload.ProviderMessageId;
 		draft.ProviderRevision = payload.ProviderRevision;

@@ -97,9 +97,11 @@ public sealed partial class ImapMailProvider
 				// matches the connect-path's own CertificateTrust.Problem, so item.LastError
 				// reads the same way an AddAccount rejection would.
 				throw new ProviderAuthenticationException(
-					CertificateTrust
-						.Problem(settings.SmtpHost, certificateRejection.Fingerprint, certificateRejection.Issuer)
-						.Detail!
+					CertificateTrust.Problem(
+						settings.SmtpHost,
+						certificateRejection.Fingerprint,
+						certificateRejection.Issuer
+					)
 				);
 			}
 			catch (NotSupportedException ex)

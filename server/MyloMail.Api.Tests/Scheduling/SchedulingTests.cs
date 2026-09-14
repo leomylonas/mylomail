@@ -131,6 +131,32 @@ public sealed class SchedulingTests
 		Assert.True(registry.TryStart(account, first));
 		Assert.True(registry.TryStart(account, second));
 	}
+	[Fact]
+	public void A_coverage_walk_can_only_be_started_once_per_mailbox()
+	{
+		var registry = new CoverageRegistry();
+		var account = Guid.NewGuid();
+		var mailbox = Guid.NewGuid();
+
+		Assert.True(registry.TryStart(account, mailbox));
+		Assert.False(registry.TryStart(account, mailbox));
+		registry.Stop(account, mailbox);
+		Assert.True(registry.TryStart(account, mailbox));
+	}
+
+	[Fact]
+	public void Transient_sync_backoff_is_bounded_and_resets_after_success()
+	{
+		var retry = new SyncRetryBackoff();
+		var key = "topology:account";
+
+		Assert.Equal(TimeSpan.FromSeconds(5), retry.Next(key));
+		for (var attempt = 0; attempt < 10; attempt++) retry.Next(key);
+		Assert.Equal(TimeSpan.FromMinutes(5), retry.Next(key));
+		retry.Reset(key);
+		Assert.Equal(TimeSpan.FromSeconds(5), retry.Next(key));
+	}
+
 
 	[Fact]
 	public void An_unthrottled_account_waits_for_nothing()

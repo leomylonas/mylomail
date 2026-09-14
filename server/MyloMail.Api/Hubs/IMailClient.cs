@@ -23,6 +23,7 @@ namespace MyloMail.Api.Hubs;
 public interface IMailClient
 {
 	Task AccountStatusChanged(AccountDto account);
+	Task AccountRemoved(Guid accountId);
 
 	Task MailboxUpdated(MailboxSummaryDto mailbox);
 
@@ -44,6 +45,7 @@ public interface IMailClient
 
 	/// <summary>A mutation item reaching terminal failure (§6).</summary>
 	Task MessageSyncFailed(MutationFailureDto failure);
+	Task MessageMutationQueued(MutationQueuedDto queued);
 
 	/// <summary>A mutation item whose provider outcome is durably confirmed (§6).</summary>
 	Task MessageMutationSettled(MutationSettledDto settlement);
@@ -55,6 +57,9 @@ public interface IMailClient
 	Task CalendarEventUpdated(Guid eventId);
 
 	Task CalendarConflictDetected(Guid eventId);
+	Task CalendarCollectionChanged(Guid accountId);
+
+	Task SendIdentitiesChanged(Guid accountId);
 	Task ContactsChanged(Guid accountId);
 
 

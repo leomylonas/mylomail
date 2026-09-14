@@ -2,6 +2,8 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Security;
 using Xunit;
 
@@ -98,6 +100,27 @@ public sealed class CertificateTrustTests
 				SslPolicyErrors.RemoteCertificateNameMismatch
 			)
 		);
+	}
+
+	[Fact]
+	public void A_certificate_rejection_keeps_the_safe_pin_metadata_through_provider_problem_transport()
+	{
+		var certificateProblem = CertificateTrust.Problem(
+			"mail.example.test",
+			"0123456789abcdef",
+			"CN=Example Issuing CA"
+		);
+
+		var transported = MutationProblemTransport.FromProviderException(
+			new ProviderAuthenticationException(certificateProblem)
+		);
+
+		Assert.Same(certificateProblem, transported);
+		Assert.Equal(ErrorCategory.Validation, transported.Category);
+		Assert.Equal("mail.example.test", transported.Extensions["hostname"]);
+		Assert.Equal("0123456789abcdef", transported.Extensions["sha256Fingerprint"]);
+		Assert.Equal("CN=Example Issuing CA", transported.Extensions["issuer"]);
+		Assert.Equal("TrustCertificate", transported.Extensions["pinningAction"]);
 	}
 
 	private static X509Certificate2 SelfSigned()
