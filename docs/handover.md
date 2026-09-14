@@ -30,7 +30,12 @@
 
 ## Next task
 
-Obtain the two external fixtures above. No source remediation remains known from this audit.
+Complete the fourth-pass architecture review, then remediate and verify the two evidence-backed findings already isolated:
+
+1. `MutationJobs.DrainAsync` hot-loops on `ProviderNotConfiguredException`. `MutationExecutor.ExecuteAsync` resolves `providers.For(account)` before creating an attempt, but the job's generic catch releases the untouched claim and immediately enqueues another drain. This was observed natively as hundreds of thousands of repeated missing-credential failures.
+2. Pending notifications have no renderer-readiness replay. `StartupScheduler` calls `NotificationService.RedispatchPendingAsync` before a SignalR renderer can connect; `IHubEvents.NotificationReadyAsync` succeeds with zero clients, and nothing redispatches when a client later becomes ready. The durable row remains undelivered across restarts.
+
+Continue the review for analogous provider-configuration, retry-ownership, credential recovery, and lifecycle gaps before editing. Add the fourth audit report, focused regression/fault-injection coverage required by the affected domains, an independent invariant review, and a green `pnpm check`.
 
 ## Required reading
 
@@ -38,6 +43,12 @@ Obtain the two external fixtures above. No source remediation remains known from
 - `docs/architecture-audit-third-pass.md`
 - `docs/reviews/invariant-review.md`
 - The relevant guide under `docs/skills/` before changing persistence, providers, sync, mutations, fault injection, or the frontend shell.
+
+## Fourth-pass review in progress
+
+- Confirmed the two findings above from source and prior native runtime evidence.
+- Reviewed mutation dispatch ordering, outbox provider acquisition, notification durability/replay, startup reconstruction, draft credential recovery, provider-id storage, retry annotations, sync transactions, Graph request construction, renderer import/export conventions, and structured logging.
+- No fourth-pass source changes or verification claims have been made yet.
 
 ## Live risks / decisions
 
