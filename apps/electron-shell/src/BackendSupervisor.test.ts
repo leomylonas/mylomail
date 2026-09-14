@@ -8,6 +8,10 @@ import {
 } from "@mylomail/electron-shell/BackendSupervisor";
 
 class FakeChildProcess extends EventEmitter {
+	public readonly stdin = { end: vi.fn() };
+	public readonly kill = vi.fn();
+	public killed = false;
+
 	public exit(code: number): void {
 		this.emit("exit", code, null);
 	}
@@ -45,10 +49,13 @@ describe("startBackend", () => {
 			},
 		});
 		expect(requestMasterPassword).toHaveBeenCalledOnce();
+		expect(environments[0].MYLOMAIL_LAUNCH_TOKEN).toBeUndefined();
+		expect(environments[1].MYLOMAIL_LAUNCH_TOKEN).toBeUndefined();
 		expect(environments[0].MYLOMAIL_MASTER_PASSWORD).toBeUndefined();
-		expect(environments[1].MYLOMAIL_MASTER_PASSWORD).toBe("master password");
-		expect(backend.child).toBe(children[1]);
-		expect(backend.launchToken).not.toBe(environments[0].MYLOMAIL_LAUNCH_TOKEN);
+		expect(environments[1].MYLOMAIL_MASTER_PASSWORD).toBeUndefined();
+		expect(children[1].stdin.end).toHaveBeenCalledWith(
+			expect.stringContaining('"masterPassword":"master password"'),
+		);
 
 		// The restarted launch's port is what the renderer connects to; the first launch
 		// never had one.
@@ -70,6 +77,7 @@ describe("startBackend", () => {
 		await expect(starting).rejects.toThrow(
 			"Backend exited during startup with code 1.",
 		);
+		expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 		expect(requestMasterPassword).not.toHaveBeenCalled();
 	});
 });

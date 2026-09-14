@@ -7,7 +7,7 @@
 // repo (see passes 91-93/133), so this stays scoped per-file rather than switching the global
 // environment.
 import { describe, expect, it, vi } from "vitest";
-import type { HubConnection } from "@microsoft/signalr";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import type { QueryClient } from "@tanstack/react-query";
 import {
 	messageActions,
@@ -77,7 +77,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			[],
 			undefined,
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),
@@ -104,7 +104,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			[],
 			undefined,
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),
@@ -129,7 +129,7 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			[],
 			undefined,
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),
@@ -180,7 +180,7 @@ describe("messageActions — Move to", () => {
 				},
 			],
 			undefined,
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),
@@ -208,7 +208,7 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			[],
 			undefined,
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),
@@ -229,7 +229,7 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			[],
 			"Already in Trash.",
-			{} as HubConnection,
+			{} as MailHubConnection,
 			{} as QueryClient,
 			vi.fn(),
 			vi.fn(),

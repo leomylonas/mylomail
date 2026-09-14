@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, InlineNotification, ProgressBar } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
-import type { ExportJobDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { ExportJobStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Components/ExportAccount/ExportAccount.module.css";
 
@@ -14,7 +13,7 @@ export function ExportAccount({
 	hub,
 	accountId,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 }) {
 	const queryClient = useQueryClient();
@@ -22,16 +21,14 @@ export function ExportAccount({
 
 	const status = useQuery({
 		queryKey,
-		queryFn: () =>
-			hub.invoke<ExportJobDto | null>("GetExportStatus", accountId),
+		queryFn: () => hub.getExportStatus(accountId),
 	});
 
 	// Progress is broadcast to every connected client, not scoped to the account that started
 	// it — refetch and let the accountId check below decide whether this update is ours.
 	useEffect(() => {
 		const onProgress = () => void status.refetch();
-		hub.on("ExportProgress", onProgress);
-		return () => hub.off("ExportProgress", onProgress);
+		return hub.subscribe("exportProgress", onProgress).dispose;
 	}, [hub, status]);
 
 	const [destination, setDestination] = useState<string | null>(null);
@@ -41,14 +38,14 @@ export function ExportAccount({
 			const folder = await window.dialogs?.pickExportFolder();
 			if (!folder) return;
 			setDestination(folder);
-			await hub.invoke("StartBulkExport", accountId, folder);
+			await hub.startBulkExport(accountId, folder);
 		},
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
 	});
 
 	const cancel = useMutation({
 		mutationFn: async (exportId: string) => {
-			await hub.invoke("CancelBulkExport", exportId);
+			await hub.cancelBulkExport(exportId);
 		},
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
 	});

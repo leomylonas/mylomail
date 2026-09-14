@@ -1,6 +1,6 @@
 import { useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { HubConnection } from "@microsoft/signalr";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
 import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
@@ -31,7 +31,7 @@ export function Sidebar({
 	hub,
 	accounts,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accounts: SidebarAccount[];
 }) {
 	const queryClient = useQueryClient();
@@ -51,7 +51,7 @@ export function Sidebar({
 
 	const reorder = useMutation({
 		mutationFn: (orderedAccountIds: string[]) =>
-			hub.invoke("ReorderAccounts", orderedAccountIds),
+			hub.reorderAccounts(orderedAccountIds),
 		onSuccess: () =>
 			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
 		onError: reportFailure("The accounts could not be reordered"),
@@ -59,11 +59,7 @@ export function Sidebar({
 
 	const toggleCollapsed = useMutation({
 		mutationFn: (input: { accountId: string; collapsed: boolean }) =>
-			hub.invoke(
-				"SetAccountSidebarCollapsed",
-				input.accountId,
-				input.collapsed,
-			),
+			hub.setAccountSidebarCollapsed(input.accountId, input.collapsed),
 		onSuccess: () =>
 			void queryClient.invalidateQueries({ queryKey: ["accounts"] }),
 		onError: reportFailure("The sidebar setting could not be saved"),

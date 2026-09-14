@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	Button,
@@ -10,7 +11,6 @@ import {
 	TextInput,
 	Toggle,
 } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
@@ -100,7 +100,7 @@ export function EventModal({
 	onResolveConflict,
 	onClose,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	initial: EventFormValues;
 	syncConflict?: boolean;
 	/**
@@ -132,8 +132,7 @@ export function EventModal({
 
 	const detail = useQuery({
 		queryKey: ["calendar-event-detail", initial.eventId],
-		queryFn: () =>
-			hub.invoke<EventDetail>("GetCalendarEventDetail", initial.eventId),
+		queryFn: () => hub.getCalendarEventDetail(initial.eventId!),
 		enabled: !isNew,
 		staleTime: 0,
 		refetchOnMount: "always",
@@ -153,31 +152,51 @@ export function EventModal({
 		const endTimeZoneId = detail.data.endTimeZoneId ?? startTimeZoneId;
 		setValues((current) => ({
 			...current,
-			start: detail.data.start,
-			end: detail.data.end,
+			start: wireDate(detail.data.start),
+			end: wireDate(detail.data.end),
 			isAllDay: detail.data.isAllDay,
 			startTimeZoneId,
 			endTimeZoneId,
 			recurrenceRulesText: detail.data.recurrenceRules.join("\n"),
 			recurrenceDatesText: formatRecurrenceDateLines(
-				detail.data.recurrenceDates,
+				detail.data.recurrenceDates.map(wireDate),
 				startTimeZoneId,
 				detail.data.isAllDay,
 			),
 			exceptionDatesText: formatRecurrenceDateLines(
-				detail.data.exceptionDates,
+				detail.data.exceptionDates.map(wireDate),
 				startTimeZoneId,
 				detail.data.isAllDay,
 			),
 		}));
-		setAppliedDetail(detail.data);
+		setAppliedDetail({
+			...detail.data,
+			organizer: detail.data.organizer
+				? {
+						name: detail.data.organizer.name ?? null,
+						email: detail.data.organizer.email,
+					}
+				: null,
+			attendees: detail.data.attendees.map((attendee) => ({
+				...attendee,
+				name: attendee.name ?? null,
+			})),
+			myResponseStatus: detail.data.myResponseStatus ?? null,
+			reminders: detail.data.reminders.map(wireDate),
+			start: wireDate(detail.data.start),
+			end: wireDate(detail.data.end),
+			startTimeZoneId: detail.data.startTimeZoneId ?? null,
+			endTimeZoneId: detail.data.endTimeZoneId ?? null,
+			recurrenceDates: detail.data.recurrenceDates.map(wireDate),
+			exceptionDates: detail.data.exceptionDates.map(wireDate),
+		});
 	}
 
 	const detailLoaded = isNew || appliedDetail !== null;
 
 	const respond = useMutation({
 		mutationFn: (response: InviteResponse) =>
-			hub.invoke("RespondToInvite", initial.eventId, response, comment || null),
+			hub.respondToInvite(initial.eventId!, response, comment || ""),
 		onSuccess: () => {
 			setComment("");
 			void queryClient.invalidateQueries({
@@ -636,7 +655,7 @@ export function EventModal({
 						<h4>Reminders</h4>
 						<ul>
 							{detail.data.reminders.map((trigger) => (
-								<li key={trigger}>
+								<li key={wireDate(trigger)}>
 									{calendarFormatters.reminder(new Date(trigger))}
 								</li>
 							))}
@@ -681,12 +700,16 @@ function toInputValue(
 		: toZonedDateTimeInputValue(iso, timeZoneId);
 }
 
+function wireDate(value: string | Date): string {
+	return typeof value === "string" ? value : value.toISOString();
+}
 function fromInputValue(
 	value: string,
 	isAllDay: boolean,
 	timeZoneId: string,
 ): string {
 	if (!value) return value;
+
 	return isAllDay
 		? dayjs.utc(value).startOf("day").toISOString()
 		: fromZonedDateTimeInputValue(value, timeZoneId);

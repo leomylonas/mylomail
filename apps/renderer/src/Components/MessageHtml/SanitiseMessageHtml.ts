@@ -142,15 +142,9 @@ export async function resolveInlineImages(
 			const url = URL.createObjectURL(blob);
 			created.push(url);
 			rewritten = rewritten.replaceAll(`cid:${contentId}`, url);
-		} catch (error) {
-			// A part the message references but does not contain. Leaving the cid: in place is
-			// harmless — nothing can load it — and a broken image is a truer rendering than
-			// silently removing something the sender put there. Logged because the same
-			// symptom appears when the fetch itself is broken, and a silent catch made that
-			// indistinguishable.
-			console.warn(
-				`inline part ${contentId} could not be loaded: ${String(error)}`,
-			);
+		} catch {
+			// A missing inline part is rendered as a broken image. Do not include the
+			// remote-authored Content-ID in logs: console forwarding and telemetry can retain it.
 		}
 	}
 

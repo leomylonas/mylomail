@@ -17,6 +17,9 @@ export interface ErrorPresentation {
 	/** Whether it disappears on its own. A failure the user must act on does not.  */
 	transient: boolean;
 
+	/** The provider is already retrying at the requested pace; do not interrupt the user. */
+	silent?: boolean;
+
 	/** Present only when {@link action} is `"trust-certificate"` (§15). */
 	certificate?: { hostname: string; sha256Fingerprint: string };
 }
@@ -91,10 +94,10 @@ export function present(
 
 		case ErrorCategory.RateLimit:
 			return {
-				title: "Slowed down by the provider",
-				detail:
-					detail ?? "MyloMail is waiting the time the provider asked for.",
+				title: "",
+				detail: "",
 				transient: true,
+				silent: true,
 			};
 
 		case ErrorCategory.Conflict:

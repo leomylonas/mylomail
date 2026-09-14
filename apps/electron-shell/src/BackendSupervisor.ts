@@ -27,7 +27,7 @@ export interface BackendSupervisorOptions {
 	spawnProcess?(
 		command: string,
 		args: readonly string[],
-		options: { env: NodeJS.ProcessEnv; stdio: ["ignore", "pipe", "pipe"] },
+		options: { env: NodeJS.ProcessEnv; stdio: ["pipe", "pipe", "pipe"] },
 	): ChildProcess;
 }
 
@@ -46,6 +46,7 @@ export async function startBackend(
 			port: await waitForReadyOrExit(initial, options.waitUntilReady),
 		};
 	} catch (exitCode) {
+		stopBackend(initial);
 		if (exitCode !== credentialStoreUnavailableExitCode)
 			throw new Error(
 				`Backend exited during startup with code ${exitCode ?? "unknown"}.`,
@@ -56,10 +57,15 @@ export async function startBackend(
 	if (!password)
 		throw new Error("Credential storage requires a master password.");
 	const restarted = launch(options, spawnProcess, password);
-	return {
-		...restarted,
-		port: await waitForReadyOrExit(restarted, options.waitUntilReady),
-	};
+	try {
+		return {
+			...restarted,
+			port: await waitForReadyOrExit(restarted, options.waitUntilReady),
+		};
+	} catch (error) {
+		stopBackend(restarted);
+		throw error;
+	}
 }
 
 function launch(
@@ -68,19 +74,21 @@ function launch(
 	masterPassword?: string,
 ): BackendLaunch {
 	const inheritedEnvironment = { ...process.env };
+	delete inheritedEnvironment.MYLOMAIL_LAUNCH_TOKEN;
 	delete inheritedEnvironment.MYLOMAIL_MASTER_PASSWORD;
 	const launchToken = randomBytes(32).toString("base64url");
 	const child = spawnProcess(options.command, options.args, {
-		env: {
-			...inheritedEnvironment,
-			MYLOMAIL_LAUNCH_TOKEN: launchToken,
-			...(masterPassword === undefined
-				? {}
-				: { MYLOMAIL_MASTER_PASSWORD: masterPassword }),
-		},
-		stdio: ["ignore", "pipe", "pipe"],
+		env: inheritedEnvironment,
+		stdio: ["pipe", "pipe", "pipe"],
 	});
+	// stdin is a private inherited capability, unlike an inspectable environment or command
+	// line. The backend consumes this one JSON object before it starts listening.
+	child.stdin?.end(JSON.stringify({ launchToken, masterPassword }));
 	return { child, launchToken };
+}
+
+function stopBackend(backend: BackendLaunch): void {
+	if (!backend.child.killed) backend.child.kill("SIGTERM");
 }
 
 function waitForReadyOrExit(

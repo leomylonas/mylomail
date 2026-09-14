@@ -8,7 +8,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22",
+    "node": "22.x",
     "pnpm": ">=10"
   },
   "scripts": {
@@ -29,7 +29,7 @@
     "caldav:down": "docker compose -f tests/caldav-matrix/compose.yaml down -v",
     "generate:types": "tsx scripts/generate-types.ts",
     "build:electron": "tsx scripts/BuildElectron.ts",
-    "app": "pnpm build:electron && MYLOMAIL_RENDERER_PATH=apps/renderer/dist electron apps/electron-shell/dist/Main.js",
+    "app": "tsx scripts/LaunchApp.ts",
     "pretest:e2e": "pnpm build:electron && dotnet build --nologo -v q server/MyloMail.Api/MyloMail.Api.csproj",
     "e2e": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Playwright.config.ts",
     "e2e:attach": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Attach.Playwright.config.ts",
@@ -45,7 +45,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^44.0.0",
+    "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "eslint": "^9.35.0",

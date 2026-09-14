@@ -16,6 +16,7 @@ export type WindowRoute =
 			messageId: string;
 			subject: string;
 			senderAddress: string | undefined;
+			accountId: string | undefined;
 	  }
 	| { kind: "compose"; draftId: string; accountId: string }
 	| {
@@ -58,6 +59,7 @@ export function windowRouteFromSearch(search: WindowSearch): WindowRoute {
 			// already on the persisted remote-content allow list would still be blocked and
 			// re-prompted in this window, contradicting that allow list's whole point.
 			senderAddress: search.sender,
+			accountId: search.account,
 		};
 	}
 

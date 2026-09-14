@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import type { HubConnection } from "@microsoft/signalr";
 import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import type { CalendarEventSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { Button, ContentSwitcher, Switch } from "@carbon/react";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
@@ -24,14 +25,6 @@ import {
 	calendarGridStart,
 } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import styles from "@mylomail/renderer/Components/Calendar/Calendar.module.css";
-
-interface CalendarSummary {
-	id: string;
-	accountId: string;
-	name: string;
-	colour: string | null;
-	isDefault: boolean;
-}
 
 export interface CalendarEventSummary {
 	id: string;
@@ -62,6 +55,27 @@ export interface CalendarEventSummary {
 	isRecurrenceMaster: boolean;
 }
 
+function calendarEventSummary(
+	event: CalendarEventSummaryDto,
+): CalendarEventSummary {
+	return {
+		id: event.id,
+		calendarId: event.calendarId,
+		title: event.title,
+		location: event.location ?? null,
+		description: event.description ?? null,
+		start:
+			typeof event.start === "string" ? event.start : event.start.toISOString(),
+		end: typeof event.end === "string" ? event.end : event.end.toISOString(),
+		isAllDay: event.isAllDay,
+		isRecurring: event.isRecurring,
+		syncConflict: event.syncConflict,
+		isVirtualOccurrence: event.isVirtualOccurrence,
+		masterEventId: event.masterEventId ?? null,
+		isRecurrenceMaster: event.isRecurrenceMaster,
+	};
+}
+
 export type ModalState =
 	| { mode: "create"; calendarId: string; date: Dayjs }
 	| { mode: "edit"; event: CalendarEventSummary }
@@ -84,9 +98,16 @@ export function resolveLiveModalEvent(
 	modal: ModalState,
 	eventsById: Map<string, CalendarEventSummary>,
 ): CalendarEventSummary | undefined {
-	return modal?.mode === "edit"
-		? (eventsById.get(modal.event.id) ?? modal.event)
-		: undefined;
+	if (modal?.mode !== "edit") return undefined;
+
+	const direct = eventsById.get(modal.event.id);
+	if (direct) return direct;
+
+	for (const event of eventsById.values()) {
+		if (event.masterEventId === modal.event.id) return event;
+	}
+
+	return modal.event;
 }
 
 /**
@@ -98,7 +119,7 @@ export function Calendar({
 	hub,
 	accounts,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accounts: { id: string; color: string; providerType?: ProviderType }[];
 }) {
 	const [anchor, setAnchor] = useState(() => dayjs());
@@ -110,7 +131,7 @@ export function Calendar({
 	const calendarQueries = useQueries({
 		queries: accounts.map((account) => ({
 			queryKey: queryKeys.calendars(account.id),
-			queryFn: () => hub.invoke<CalendarSummary[]>("GetCalendars", account.id),
+			queryFn: () => hub.getCalendars(account.id),
 		})),
 	});
 
@@ -148,8 +169,7 @@ export function Calendar({
 				rangeEnd.toISOString(),
 			),
 			queryFn: () =>
-				hub.invoke<CalendarEventSummary[]>(
-					"GetCalendarEvents",
+				hub.getCalendarEvents(
 					calendar.id,
 					rangeStart.toISOString(),
 					rangeEnd.toISOString(),
@@ -163,7 +183,7 @@ export function Calendar({
 			eventQueries.flatMap((query, index) => {
 				const calendar = calendars[index];
 				return (query.data ?? []).map((event) => ({
-					...event,
+					...calendarEventSummary(event),
 					color: calendar.colour ?? calendar.accountColor,
 				}));
 			}),
@@ -204,7 +224,7 @@ export function Calendar({
 
 	const save = useMutation({
 		mutationFn: (values: EventFormValues) =>
-			hub.invoke("SaveCalendarEvent", {
+			hub.saveCalendarEvent({
 				eventId: values.eventId,
 				calendarId: values.calendarId,
 				title: values.title,
@@ -213,8 +233,8 @@ export function Calendar({
 				start: values.start,
 				end: values.end,
 				isAllDay: values.isAllDay,
-				startTimeZoneId: values.isAllDay ? null : values.startTimeZoneId,
-				endTimeZoneId: values.isAllDay ? null : values.endTimeZoneId,
+				startTimeZoneId: values.isAllDay ? undefined : values.startTimeZoneId,
+				endTimeZoneId: values.isAllDay ? undefined : values.endTimeZoneId,
 				recurrenceRules: recurrenceRuleLines(values.recurrenceRulesText),
 				recurrenceDates: parseRecurrenceDateLines(
 					values.recurrenceDatesText,
@@ -239,7 +259,7 @@ export function Calendar({
 	});
 
 	const remove = useMutation({
-		mutationFn: (eventId: string) => hub.invoke("DeleteCalendarEvent", eventId),
+		mutationFn: (eventId: string) => hub.deleteCalendarEvent(eventId),
 		onSuccess: () => {
 			setModal(null);
 			void invalidate();
@@ -261,7 +281,7 @@ export function Calendar({
 		}: {
 			eventId: string;
 			keepMine: boolean;
-		}) => hub.invoke("ResolveEventConflict", eventId, keepMine),
+		}) => hub.resolveEventConflict(eventId, keepMine),
 		onSuccess: () => {
 			setModal(null);
 			void invalidate();
@@ -285,6 +305,7 @@ export function Calendar({
 					<Button
 						kind="ghost"
 						size="sm"
+						aria-label="Previous month"
 						onClick={() => setAnchor(anchor.subtract(1, "month"))}
 					>
 						‹
@@ -295,6 +316,7 @@ export function Calendar({
 					<Button
 						kind="ghost"
 						size="sm"
+						aria-label="Next month"
 						onClick={() => setAnchor(anchor.add(1, "month"))}
 					>
 						›

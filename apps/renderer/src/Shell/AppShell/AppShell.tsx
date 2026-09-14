@@ -30,7 +30,10 @@ import { Contacts } from "@mylomail/renderer/Components/Contacts/Contacts";
 import { ActionableNotification, Button } from "@carbon/react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
-import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	queryKeys,
+	removeAccountCaches,
+} from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	fetchApi,
 	notificationForError,
@@ -163,12 +166,26 @@ export function AppShell({
 			store.setState("selectedAccountId", accounts.data[0].id);
 	}, [accounts.data, selectedAccountId, store]);
 
+	// Local pane state is reset by the same external AccountRemoved event that clears the
+	// window store and account-owned query caches in HubConnection.
+	useEffect(() => {
+		if (!hub) return;
+		return hub.subscribe("accountRemoved", (accountId: string) => {
+			if (accountId !== selectedAccountId) return;
+			if (selectedMessageId) {
+				queryClient.removeQueries({ queryKey: ["body", selectedMessageId] });
+			}
+			setQuery("");
+			setPane("reading");
+		}).dispose;
+	}, [hub, queryClient, selectedAccountId, selectedMessageId]);
+
 	// IMAP IDLE is deliberately limited to Inbox plus the mailbox this window is viewing.
 	// This is a non-durable wakeup hint only; the backend's normal poll loop remains the
 	// authoritative cursor-owning sync path.
 	useEffect(() => {
 		if (hub && selectedAccountId && selectedMailboxId) {
-			void hub.invoke("SetActiveMailbox", selectedAccountId, selectedMailboxId);
+			void hub.setActiveMailbox(selectedAccountId, selectedMailboxId);
 		}
 	}, [hub, selectedAccountId, selectedMailboxId]);
 
@@ -247,8 +264,7 @@ export function AppShell({
 			setPane("reading");
 
 			void waitForNotificationNavigation(
-				(notificationId) =>
-					hub.invoke("ResolveNotificationNavigation", notificationId),
+				(notificationId) => hub.resolveNotificationNavigation(notificationId),
 				clicked.notificationId,
 				controller.signal,
 				() =>
@@ -465,7 +481,7 @@ export function AppShell({
 				<div className={styles.calendarPanel}>
 					<Calendar hub={hub} accounts={accounts.data} />
 				</div>
-			) : (
+			) : layout.ready ? (
 				<Group
 					className={styles.panels}
 					defaultLayout={{
@@ -507,6 +523,7 @@ export function AppShell({
 									accountId={selectedAccountId}
 									ownAddress={selectedAccount?.emailAddress ?? ""}
 									mailboxId={selectedMailboxId}
+									selectedMessageId={selectedMessageId}
 									query={query}
 									onSelect={(message) => {
 										store.setState("selectedMessageId", message.id);
@@ -623,11 +640,19 @@ export function AppShell({
 								}
 								onClose={() => setPane("reading")}
 								onRemoved={() => {
-									// Cleared, not left pointing at a now-gone account: the
-									// existing "select the first account" effect only fires
-									// when this is falsy, and a removed account's id would
-									// otherwise linger as a selection nothing can resolve.
+									if (selectedAccountId) {
+										if (selectedMessageId) {
+											queryClient.removeQueries({
+												queryKey: ["body", selectedMessageId],
+											});
+										}
+										removeAccountCaches(queryClient, selectedAccountId);
+									}
 									store.setState("selectedAccountId", null);
+									store.setState("selectedMailboxId", null);
+									store.setState("selectedMessageId", null);
+									store.setState("selectedMessageSubject", "");
+									store.setState("selectedMessageSenderAddress", "");
 									void queryClient.invalidateQueries({
 										queryKey: ["accounts"],
 									});
@@ -638,7 +663,10 @@ export function AppShell({
 						{effectivePane === "app-settings" ? (
 							<ShellSettings onClose={() => setPane("reading")} />
 						) : null}
-						{hub && selectedMessageId && effectivePane === "reading" ? (
+						{hub &&
+						selectedAccountId &&
+						selectedMessageId &&
+						effectivePane === "reading" ? (
 							<ReadingPane
 								hub={hub}
 								messageId={selectedMessageId}
@@ -655,7 +683,7 @@ export function AppShell({
 										? () =>
 												void window.windows
 													?.open(
-														`message=${selectedMessageId}&subject=${encodeURIComponent(
+														`message=${selectedMessageId}&account=${selectedAccountId}&subject=${encodeURIComponent(
 															selectedMessageSubject,
 														)}${
 															selectedMessageSenderAddress
@@ -686,6 +714,8 @@ export function AppShell({
 						) : null}
 					</Panel>
 				</Group>
+			) : (
+				<div className={styles.panels} />
 			)}
 
 			{reauthenticatingAccountId && hub ? (

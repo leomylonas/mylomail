@@ -50,6 +50,25 @@ describe("resolveLiveModalEvent", () => {
 		expect(resolveLiveModalEvent(modal, eventsById)?.syncConflict).toBe(true);
 	});
 
+	it("uses a refreshed virtual occurrence for an edited recurring series", () => {
+		const snapshot = event({
+			id: "series-1:2026-09-06",
+			isVirtualOccurrence: true,
+			masterEventId: "series-1",
+			syncConflict: false,
+		});
+		const refreshedOccurrence = event({
+			id: "series-1:2026-09-06",
+			isVirtualOccurrence: true,
+			masterEventId: "series-1",
+			syncConflict: true,
+		});
+		const modal = { mode: "edit" as const, event: snapshot };
+		const eventsById = new Map([[refreshedOccurrence.id, refreshedOccurrence]]);
+
+		expect(resolveLiveModalEvent(modal, eventsById)).toBe(refreshedOccurrence);
+	});
+
 	// If the event has dropped out of the current query window (e.g. its own edit rescheduled
 	// it outside the visible month), the modal must keep showing something rather than nothing.
 	it("falls back to the frozen snapshot when the event isn't in the live map", () => {

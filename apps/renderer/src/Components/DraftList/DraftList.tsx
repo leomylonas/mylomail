@@ -1,7 +1,7 @@
 import { useEffect } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import type { OpenDraft } from "@mylomail/renderer/Components/Compose/Compose";
 import styles from "@mylomail/renderer/Components/DraftList/DraftList.module.css";
 
@@ -10,19 +10,18 @@ export function DraftList({
 	accountId,
 	onOpen,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 	onOpen: (draft: OpenDraft) => void;
 }) {
 	const drafts = useQuery({
 		queryKey: ["drafts", accountId],
-		queryFn: () => hub.invoke<OpenDraft[]>("GetDrafts", accountId),
+		queryFn: () => hub.getDrafts(accountId),
 	});
 
 	useEffect(() => {
 		const refresh = () => void drafts.refetch();
-		hub.on("DraftUpdated", refresh);
-		return () => hub.off("DraftUpdated", refresh);
+		return hub.subscribe("draftUpdated", refresh).dispose;
 	}, [drafts, hub]);
 
 	if (drafts.isLoading) return <p className={styles.empty}>Loading drafts…</p>;

@@ -4,12 +4,13 @@ import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresent
 
 describe("error presentation", () => {
 	/**
-	 * Every category must map to something. A category with no mapping would reach the user as
-	 * an empty toast, which is worse than the raw error it replaced.
+	 * User-visible categories must map to content. Rate limits are intentionally silent because
+	 * the provider worker already waits for Retry-After and resumes without user action.
 	 */
-	it("maps every category to a title and detail", () => {
+	it("maps every user-visible category to a title and detail", () => {
 		const categories = Object.values(ErrorCategory).filter(
-			(value): value is ErrorCategory => typeof value === "number",
+			(value): value is ErrorCategory =>
+				typeof value === "number" && value !== ErrorCategory.RateLimit,
 		);
 
 		expect(categories.length).toBeGreaterThan(0);
@@ -18,6 +19,13 @@ describe("error presentation", () => {
 			expect(presentation.title).not.toBe("");
 			expect(presentation.detail).not.toBe("");
 		}
+	});
+
+	it("suppresses rate-limit notifications while the provider waits", () => {
+		expect(present(ErrorCategory.RateLimit, null)).toMatchObject({
+			silent: true,
+			transient: true,
+		});
 	});
 
 	/**

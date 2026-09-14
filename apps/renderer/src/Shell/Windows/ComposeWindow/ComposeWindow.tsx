@@ -1,9 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-	Compose,
-	type OpenDraft,
-} from "@mylomail/renderer/Components/Compose/Compose";
+import { Compose } from "@mylomail/renderer/Components/Compose/Compose";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import styles from "@mylomail/renderer/Shell/Windows/StandaloneWindow.module.css";
 
@@ -23,9 +20,30 @@ export function ComposeWindow({
 	draftId: string;
 }) {
 	const { hub, status } = useHub();
+	const closeSaver = useRef<(() => Promise<boolean>) | null>(null);
+
+	useEffect(
+		() =>
+			window.windows?.onComposeCloseRequest(async () =>
+				closeSaver.current ? await closeSaver.current() : true,
+			),
+		[],
+	);
+	useEffect(() => {
+		if (!hub) return;
+		const subscription = hub.subscribe(
+			"accountRemoved",
+			(removedAccountId: string) => {
+				if (removedAccountId !== accountId) return;
+				closeSaver.current = null;
+				window.close();
+			},
+		);
+		return () => subscription.dispose();
+	}, [accountId, hub]);
 	const drafts = useQuery({
 		queryKey: ["drafts", accountId],
-		queryFn: () => hub!.invoke<OpenDraft[]>("GetDrafts", accountId),
+		queryFn: () => hub!.getDrafts(accountId),
 		enabled: !!hub,
 	});
 	const draft = drafts.data?.find((candidate) => candidate.id === draftId);
@@ -47,6 +65,12 @@ export function ComposeWindow({
 					accountId={accountId}
 					draft={draft}
 					onClose={() => window.close()}
+					registerCloseSaver={(save) => {
+						closeSaver.current = save;
+						return () => {
+							if (closeSaver.current === save) closeSaver.current = null;
+						};
+					}}
 				/>
 			) : (
 				<p className={styles.status}>

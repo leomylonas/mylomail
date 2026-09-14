@@ -18,8 +18,9 @@ export function createNotificationStore(): Store<NotificationState> {
 
 export function notify(
 	store: Store<NotificationState>,
-	notification: Omit<AppNotification, "id">,
+	notification: Omit<AppNotification, "id"> | null,
 ): void {
+	if (notification === null) return;
 	const existing = store.getState("notifications");
 
 	// Collapsed by title: a provider that rejects fifty messages in one batch produces fifty

@@ -14,6 +14,11 @@ describe("isDangerousAttachment", () => {
 		expect(isDangerousAttachment("/tmp/attachments/x/shortcut.lnk")).toBe(true);
 		expect(isDangerousAttachment("/tmp/attachments/x/helper.jar")).toBe(true);
 		expect(isDangerousAttachment("/tmp/attachments/x/install.hta")).toBe(true);
+		expect(isDangerousAttachment("/tmp/attachments/x/report.py")).toBe(true);
+		expect(isDangerousAttachment("/tmp/attachments/x/report.pyw")).toBe(true);
+		expect(isDangerousAttachment("/tmp/attachments/x/bootstrap.command")).toBe(
+			true,
+		);
 	});
 
 	it("does not flag ordinary document extensions", () => {

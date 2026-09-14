@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useQuery } from "@tanstack/react-query";
 import {
 	ActionableNotification,
@@ -15,10 +16,7 @@ import {
 	TimePicker,
 } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
-import type { HubConnection } from "@microsoft/signalr";
 import type {
-	AttachmentConstraintsDto,
-	ContactSuggestionDto,
 	OutboxItemDto,
 	SendIdentityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
@@ -70,9 +68,9 @@ export interface OpenDraft {
 	id: string;
 	sendIdentityId?: string | null;
 	inReplyToMessageId?: string | null;
-	to: { name: string | null; email: string }[];
-	cc: { name: string | null; email: string }[];
-	bcc: { name: string | null; email: string }[];
+	to: { name?: string; email: string }[];
+	cc: { name?: string; email: string }[];
+	bcc: { name?: string; email: string }[];
 	subject: string;
 	bodyHtml: string;
 	attachments: DraftAttachment[];
@@ -98,6 +96,32 @@ export function appendRecipient(value: string, email: string): string {
 	)
 		recipients.push(email);
 	return recipients.join(", ");
+}
+
+export async function saveComposeBeforeClose({
+	isDiscarding,
+	hasQueuedSend,
+	save,
+	awaitAttachmentMutations,
+	reportFailure,
+}: {
+	isDiscarding: boolean;
+	hasQueuedSend: boolean;
+	save: () => Promise<string>;
+	awaitAttachmentMutations: () => Promise<void>;
+	reportFailure: (error: unknown) => void;
+}): Promise<boolean> {
+	// Once SendDraft has queued an outbox item, it owns the draft's durable disposition.
+	// Saving after that point can recreate a draft the worker has already sent or deleted.
+	if (isDiscarding || hasQueuedSend) return true;
+	try {
+		await save();
+		await awaitAttachmentMutations();
+		return true;
+	} catch (error) {
+		reportFailure(error);
+		return false;
+	}
 }
 
 function RecipientField({
@@ -153,8 +177,9 @@ export function Compose({
 	onDetach,
 	draft,
 	seed,
+	registerCloseSaver,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 	onClose: () => void;
 	/**
@@ -169,14 +194,19 @@ export function Compose({
 	 * must show what was actually saved, not the seed it may once have started from.
 	 */
 	seed?: ComposeSeed;
+	/** Registers the durable-save barrier the detached shell window awaits before closing. */
+	registerCloseSaver?: (save: () => Promise<boolean>) => () => void;
 }) {
 	const { store: notifications } = useWindowNotifications();
 	// save() itself keeps throwing rather than reporting internally: send/detach/the
 	// forward-attachment-copy effect all await it and need to know it failed so they can skip
 	// their own next step, not proceed as if a draft id existed. Every top-level, fire-and-
 	// forget entry point below reports on its own catch instead.
-	const reportFailure = (title: string) => (error: unknown) =>
-		notify(notifications, notificationForError(error, title));
+	const reportFailure = useCallback(
+		(title: string) => (error: unknown) =>
+			notify(notifications, notificationForError(error, title)),
+		[notifications],
+	);
 
 	const [to, setTo] = useState(() => formatAddresses(draft?.to ?? seed?.to));
 	const [cc, setCc] = useState(() => formatAddresses(draft?.cc ?? seed?.cc));
@@ -199,16 +229,11 @@ export function Compose({
 	// tenant's real Exchange message-size cap frequently isn't discoverable at all.
 	const attachmentConstraints = useQuery({
 		queryKey: ["attachmentConstraints", accountId],
-		queryFn: () =>
-			hub.invoke<AttachmentConstraintsDto>(
-				"GetAttachmentConstraints",
-				accountId,
-			),
+		queryFn: () => hub.getAttachmentConstraints(accountId),
 	});
 	const contacts = useQuery({
 		queryKey: ["contacts", accountId],
-		queryFn: () =>
-			hub.invoke<ContactSuggestionDto[]>("GetContactSuggestions", accountId),
+		queryFn: () => hub.getContactSuggestions(accountId),
 	});
 	const contactSuggestions = useMemo(
 		() =>
@@ -257,10 +282,7 @@ export function Compose({
 	const [editorRevision, setEditorRevision] = useState(0);
 	useEffect(() => {
 		void (async () => {
-			const list = await hub.invoke<SendIdentityDto[]>(
-				"GetSendIdentities",
-				accountId,
-			);
+			const list = await hub.getSendIdentities(accountId);
 			setIdentities(list);
 			if (sendIdentityId) return;
 
@@ -304,6 +326,70 @@ export function Compose({
 			inReplyToMessageId,
 		};
 	});
+	useEffect(() => {
+		const subscription = hub.subscribe(
+			"sendIdentitiesChanged",
+			(changedAccountId: string) => {
+				if (changedAccountId !== accountId) return;
+				void hub
+					.getSendIdentities(accountId)
+					.then((list) => {
+						setIdentities(list);
+						const selectedIdentityId = fieldsRef.current.sendIdentityId;
+						if (
+							selectedIdentityId &&
+							list.some((identity) => identity.id === selectedIdentityId)
+						)
+							return;
+
+						const replacement =
+							list.find((identity) => identity.isDefault) ?? list[0];
+						const nextBody =
+							selectedIdentityId && replacement
+								? applyIdentitySignature(fieldsRef.current.body, replacement)
+								: fieldsRef.current.body;
+
+						setSendIdentityId(replacement?.id ?? null);
+						if (selectedIdentityId && replacement) {
+							setBody(nextBody);
+							setEditorRevision((current) => current + 1);
+						}
+						// Keep a queued autosave or send from observing a deleted identity
+						// before the passive state-to-ref effect runs.
+						fieldsRef.current = {
+							...fieldsRef.current,
+							body: nextBody,
+							sendIdentityId: replacement?.id ?? null,
+						};
+					})
+					.catch(
+						reportFailure("The send-from addresses could not be refreshed"),
+					);
+			},
+		);
+		return () => subscription.dispose();
+	}, [accountId, hub, reportFailure]);
+
+	const updateTo = (value: string) => {
+		fieldsRef.current = { ...fieldsRef.current, to: value };
+		setTo(value);
+	};
+	const updateCc = (value: string) => {
+		fieldsRef.current = { ...fieldsRef.current, cc: value };
+		setCc(value);
+	};
+	const updateBcc = (value: string) => {
+		fieldsRef.current = { ...fieldsRef.current, bcc: value };
+		setBcc(value);
+	};
+	const updateSubject = (value: string) => {
+		fieldsRef.current = { ...fieldsRef.current, subject: value };
+		setSubject(value);
+	};
+	const updateBody = (value: string) => {
+		fieldsRef.current = { ...fieldsRef.current, body: value };
+		setBody(value);
+	};
 
 	// Autosave, the manual "Save draft" button, "Send" and "Open in new window" all call
 	// `save()`, and any two of them can overlap — most obviously the debounced autosave firing
@@ -314,14 +400,22 @@ export function Compose({
 	// regardless of which save was actually newer. Chaining every save onto the previous one's
 	// promise serialises them, so each runs against the draft id the one before it produced.
 	const saveChain = useRef<Promise<string>>(Promise.resolve(draft?.id ?? ""));
+	const discarding = useRef(false);
+	// A ref, rather than React state, is the close barrier's source of truth: the native
+	// close request can arrive between SetState and its next render.
+	const queuedSend = useRef<Sent | null>(null);
+	const sendInFlight = useRef<Promise<void> | null>(null);
+	const attachmentMutations = useRef(new Set<Promise<unknown>>());
+	const attachmentFailure = useRef<unknown>(undefined);
 	const save = (): Promise<string> => {
 		const run = async (): Promise<string> => {
+			if (discarding.current) return fieldsRef.current.draftId ?? "";
 			const fields = fieldsRef.current;
-			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
-				draftId: fields.draftId,
+			const saved = await hub.saveDraft({
+				draftId: fields.draftId ?? undefined,
 				accountId,
-				sendIdentityId: fields.sendIdentityId,
-				inReplyToMessageId: fields.inReplyToMessageId,
+				sendIdentityId: fields.sendIdentityId ?? undefined,
+				inReplyToMessageId: fields.inReplyToMessageId ?? undefined,
 				to: parseAddresses(fields.to),
 				cc: parseAddresses(fields.cc),
 				bcc: parseAddresses(fields.bcc),
@@ -339,12 +433,70 @@ export function Compose({
 		return next;
 	};
 
+	const trackAttachmentMutation = <T,>(
+		mutation: () => Promise<T>,
+	): Promise<T> => {
+		const tracked = mutation();
+		attachmentMutations.current.add(tracked);
+		void tracked.then(
+			() => attachmentMutations.current.delete(tracked),
+			(error: unknown) => {
+				attachmentMutations.current.delete(tracked);
+				attachmentFailure.current ??= error;
+			},
+		);
+		return tracked;
+	};
+	const awaitAttachmentMutations = async (): Promise<void> => {
+		while (attachmentMutations.current.size > 0) {
+			await Promise.allSettled([...attachmentMutations.current]);
+		}
+		if (attachmentFailure.current !== undefined) {
+			const failure = attachmentFailure.current;
+			attachmentFailure.current = undefined;
+			throw failure;
+		}
+	};
+
+	const saveBeforeClose = useCallback(async (): Promise<boolean> => {
+		await sendInFlight.current;
+		return saveComposeBeforeClose({
+			isDiscarding: discarding.current,
+			hasQueuedSend: queuedSend.current !== null,
+			save,
+			awaitAttachmentMutations,
+			reportFailure: reportFailure("This draft could not be saved"),
+		});
+	}, [save, awaitAttachmentMutations, reportFailure]);
+
+	useEffect(
+		() => registerCloseSaver?.(saveBeforeClose),
+		[registerCloseSaver, saveBeforeClose],
+	);
+
+	const discard = async (): Promise<void> => {
+		discarding.current = true;
+		setBusy(true);
+		try {
+			await saveChain.current.catch(() => undefined);
+			const persistedDraftId = fieldsRef.current.draftId;
+			if (persistedDraftId) {
+				await hub.deleteDraft(persistedDraftId);
+			}
+			onClose();
+		} catch (error) {
+			discarding.current = false;
+			reportFailure("This draft could not be discarded")(error);
+			setBusy(false);
+		}
+	};
+
 	// Autosaved on a debounce so a popped-out window (§13 Epic 10) survives being closed
 	// without discarding — closing a window is not a moment this component gets to intercept,
 	// so the draft has to already be safe on the server by the time that happens, not saved in
 	// response to it. Skipped while empty: an untouched compose pane should not litter Drafts.
 	useEffect(() => {
-		if (!to && !subject && !body) return;
+		if (!to && !cc && !bcc && !subject && !body) return;
 		const timer = setTimeout(
 			() => void save().catch(reportFailure("This draft could not be saved")),
 			2000,
@@ -354,28 +506,29 @@ export function Compose({
 	}, [to, cc, bcc, subject, body]);
 
 	/** Shared by manual/dropped file uploads and the reply/forward copy-from-original path. */
-	const uploadAttachment = async (
+	const uploadAttachment = (
 		id: string,
 		content: Blob,
 		filename: string,
 		isInline = false,
 		contentId: string | null = null,
-	): Promise<void> => {
-		const form = new FormData();
-		form.append("file", content, filename);
-		if (isInline) {
-			form.append("isInline", "true");
-			if (contentId) {
-				form.append("contentId", contentId);
+	): Promise<void> =>
+		trackAttachmentMutation(async () => {
+			const form = new FormData();
+			form.append("file", content, filename);
+			if (isInline) {
+				form.append("isInline", "true");
+				if (contentId) {
+					form.append("contentId", contentId);
+				}
 			}
-		}
-		const response = await fetchApi(`/drafts/${id}/attachments`, {
-			method: "POST",
-			body: form,
+			const response = await fetchApi(`/drafts/${id}/attachments`, {
+				method: "POST",
+				body: form,
+			});
+			const attachment = (await response.json()) as DraftAttachment;
+			setAttachments((current) => [...current, attachment]);
 		});
-		const attachment = (await response.json()) as DraftAttachment;
-		setAttachments((current) => [...current, attachment]);
-	};
 
 	// A reply's or forward's own attachments have to be copied onto the new draft server-side —
 	// there is no "attach this other message's attachment" concept, only "upload bytes" — so
@@ -439,11 +592,7 @@ export function Compose({
 			// in flight when the user clicks resolve must not re-flip the banner back on with
 			// data read before this resolution happened (see the generation guard below).
 			resolutionGeneration.current += 1;
-			const resolved = await hub.invoke<OpenDraft>(
-				"ResolveDraftConflict",
-				draftId,
-				keepMine,
-			);
+			const resolved = await hub.resolveDraftConflict(draftId, keepMine);
 			setSyncConflict(resolved.syncConflict ?? false);
 			if (!keepMine) {
 				setTo(formatAddresses(resolved.to));
@@ -452,6 +601,7 @@ export function Compose({
 				setSubject(resolved.subject);
 				setBody(resolved.bodyHtml);
 				setAttachments(resolved.attachments);
+				setEditorRevision((current) => current + 1);
 			}
 		} catch (error) {
 			reportFailure("This conflict could not be resolved")(error);
@@ -468,16 +618,11 @@ export function Compose({
 		}
 	};
 
-	/**
-	 * `scheduledFor` absent (or null) is a normal send — the account's undo-send delay
-	 * applies. A given time is a genuine future schedule; both go through the same
-	 * `SendDraft` hub method and the same outbox mechanism server-side (§15).
-	 */
 	const send = async (scheduledFor?: Date) => {
 		const constraints = attachmentConstraints.data;
 		if (attachments.length && constraints) {
-			// Base64 encoding inflates raw bytes by 4/3 — the check is against what actually
-			// goes out on the wire, not the file sizes on disk (§15).
+			// Early attachment-only warning; the server checks the complete serialised MIME
+			// message before dispatch, including body, headers and multipart overhead.
 			const encodedTotal = attachments.reduce(
 				(sum, a) => sum + Math.ceil(a.size * (4 / 3)),
 				0,
@@ -495,7 +640,7 @@ export function Compose({
 			}
 			if (totalLimit && encodedTotal > totalLimit) {
 				window.alert(
-					"These attachments are too large for this account to send. Remove some before sending.",
+					"These attachments alone exceed this account's message-size limit. Remove some before sending.",
 				);
 				return;
 			}
@@ -517,24 +662,34 @@ export function Compose({
 		) {
 			return;
 		}
-		setBusy(true);
+		const operation = (async (): Promise<void> => {
+			setBusy(true);
+			try {
+				const id = await save();
+				await awaitAttachmentMutations();
+				const outboxItemId = await hub.sendDraft(
+					id,
+					scheduledFor ? scheduledFor.toISOString() : undefined,
+				);
+				const queued = { outboxItemId, cancelled: false, scheduledFor };
+				queuedSend.current = queued;
+				setSent(queued);
+			} catch (error) {
+				reportFailure(
+					scheduledFor
+						? "This message could not be scheduled"
+						: "This message could not be sent",
+				)(error);
+			} finally {
+				setBusy(false);
+				setSchedulePickerOpen(false);
+			}
+		})();
+		sendInFlight.current = operation;
 		try {
-			const id = await save();
-			const outboxItemId = await hub.invoke<string>(
-				"SendDraft",
-				id,
-				scheduledFor ? scheduledFor.toISOString() : null,
-			);
-			setSent({ outboxItemId, cancelled: false, scheduledFor });
-		} catch (error) {
-			reportFailure(
-				scheduledFor
-					? "This message could not be scheduled"
-					: "This message could not be sent",
-			)(error);
+			await operation;
 		} finally {
-			setBusy(false);
-			setSchedulePickerOpen(false);
+			if (sendInFlight.current === operation) sendInFlight.current = null;
 		}
 	};
 
@@ -605,12 +760,14 @@ export function Compose({
 		if (!draftId) return;
 		setBusy(true);
 		try {
-			await fetchApi(`/drafts/${draftId}/attachments/${attachmentId}`, {
-				method: "DELETE",
+			await trackAttachmentMutation(async () => {
+				await fetchApi(`/drafts/${draftId}/attachments/${attachmentId}`, {
+					method: "DELETE",
+				});
+				setAttachments((current) =>
+					current.filter((attachment) => attachment.id !== attachmentId),
+				);
 			});
-			setAttachments((current) =>
-				current.filter((attachment) => attachment.id !== attachmentId),
-			);
 		} catch (error) {
 			reportFailure("This attachment could not be removed")(error);
 		} finally {
@@ -623,10 +780,7 @@ export function Compose({
 	const undo = async () => {
 		if (!sent) return;
 		try {
-			const cancelled = await hub.invoke<boolean>(
-				"CancelScheduledSend",
-				sent.outboxItemId,
-			);
+			const cancelled = await hub.cancelScheduledSend(sent.outboxItemId);
 			// Functional update, not a spread of the closure-captured `sent`: a genuine
 			// OutboxStatusChanged can land while this call is still in flight, and overwriting
 			// it with a stale copy here would revert a real "Sent"/"Failed" back to whatever
@@ -639,27 +793,26 @@ export function Compose({
 		}
 	};
 
-	// Without this, this window never learns what actually happened after the undo-send
-	// window closes: OutboxService announces every status transition (§7, §15) specifically
-	// so a watcher isn't left staring at "Sending…" once the worker takes the item, but until
-	// now nothing in the renderer subscribed to it.
 	useEffect(() => {
 		const onStatusChanged = (item: OutboxItemDto) => {
-			setSent((current) =>
-				current && item.id === current.outboxItemId
-					? {
-							...current,
-							status: item.status,
-							lastError: item.lastError ?? undefined,
-							reconcilingSince: item.reconcilingSince
-								? new Date(item.reconcilingSince)
-								: undefined,
-						}
-					: current,
+			const current = queuedSend.current;
+			if (!current || item.id !== current.outboxItemId) return;
+			const updated = {
+				...current,
+				status: item.status,
+				lastError: item.lastError ?? undefined,
+				reconcilingSince: item.reconcilingSince
+					? new Date(item.reconcilingSince)
+					: undefined,
+			};
+			queuedSend.current = updated;
+			setSent((rendered) =>
+				rendered && rendered.outboxItemId === item.id
+					? { ...rendered, ...updated }
+					: updated,
 			);
 		};
-		hub.on("OutboxStatusChanged", onStatusChanged);
-		return () => hub.off("OutboxStatusChanged", onStatusChanged);
+		return hub.subscribe("outboxStatusChanged", onStatusChanged).dispose;
 	}, [hub]);
 
 	// A draft already open here can be flagged SyncConflict by a background sync running
@@ -684,7 +837,7 @@ export function Compose({
 			// race from re-flipping the banner back on immediately after the user resolved it.
 			const generation = resolutionGeneration.current;
 			void hub
-				.invoke<OpenDraft[]>("GetDrafts", accountId)
+				.getDrafts(accountId)
 				.then((drafts) => {
 					if (resolutionGeneration.current !== generation) return;
 					const match = drafts.find((item) => item.id === draftId);
@@ -697,8 +850,7 @@ export function Compose({
 					// informed as it already was, not worse off.
 				});
 		};
-		hub.on("DraftUpdated", onDraftUpdated);
-		return () => hub.off("DraftUpdated", onDraftUpdated);
+		return hub.subscribe("draftUpdated", onDraftUpdated).dispose;
 	}, [hub, accountId, draftId]);
 
 	// Standard Gmail/Outlook convention (§13): Ctrl+Enter, or Cmd+Enter on macOS, sends
@@ -715,7 +867,7 @@ export function Compose({
 			if (
 				event.key === "Enter" &&
 				(event.ctrlKey || event.metaKey) &&
-				!(busy || !to || syncConflict)
+				!(busy || (!to && !cc && !bcc) || syncConflict)
 			) {
 				event.preventDefault();
 				void send();
@@ -839,30 +991,30 @@ export function Compose({
 				label="To"
 				value={to}
 				suggestions={contactSuggestions}
-				onChange={setTo}
+				onChange={updateTo}
 			/>
 			<RecipientField
 				id="compose-cc"
 				label="Cc"
 				value={cc}
 				suggestions={contactSuggestions}
-				onChange={setCc}
+				onChange={updateCc}
 			/>
 			<RecipientField
 				id="compose-bcc"
 				label="Bcc"
 				value={bcc}
 				suggestions={contactSuggestions}
-				onChange={setBcc}
+				onChange={updateBcc}
 			/>
 			<TextInput
 				id="compose-subject"
 				labelText="Subject"
 				value={subject}
-				onChange={(event) => setSubject(event.target.value)}
+				onChange={(event) => updateSubject(event.target.value)}
 			/>
 			{editorReady ? (
-				<Editor key={editorRevision} onChange={setBody} initialHtml={body} />
+				<Editor key={editorRevision} onChange={updateBody} initialHtml={body} />
 			) : (
 				<SkeletonText paragraph lineCount={4} />
 			)}
@@ -916,7 +1068,7 @@ export function Compose({
 				<div className={styles.sendSplit}>
 					<Button
 						size="sm"
-						disabled={busy || !to || syncConflict}
+						disabled={busy || (!to && !cc && !bcc) || syncConflict}
 						onClick={() => void send()}
 					>
 						Send
@@ -924,7 +1076,7 @@ export function Compose({
 					<OverflowMenu
 						aria-label="Send later"
 						size="sm"
-						disabled={busy || !to || syncConflict}
+						disabled={busy || (!to && !cc && !bcc) || syncConflict}
 						flipped
 					>
 						<OverflowMenuItem
@@ -995,7 +1147,12 @@ export function Compose({
 						Open in new window
 					</Button>
 				) : null}
-				<Button size="sm" kind="ghost" onClick={onClose}>
+				<Button
+					size="sm"
+					kind="ghost"
+					disabled={busy}
+					onClick={() => void discard()}
+				>
 					Discard
 				</Button>
 			</div>
@@ -1004,16 +1161,14 @@ export function Compose({
 }
 
 /** Splits a comma-separated recipient list, keeping only what looks like an address. */
-function parseAddresses(
-	input: string,
-): { name: string | null; email: string }[] {
+function parseAddresses(input: string): { email: string }[] {
 	return input
 		.split(",")
 		.map((part) => part.trim())
 		.filter((part) => part.includes("@"))
-		.map((email) => ({ name: null, email }));
+		.map((email) => ({ email }));
 }
 
-function formatAddresses(addresses: OpenDraft["to"] | undefined): string {
+function formatAddresses(addresses: { email: string }[] | undefined): string {
 	return addresses?.map((address) => address.email).join(", ") ?? "";
 }

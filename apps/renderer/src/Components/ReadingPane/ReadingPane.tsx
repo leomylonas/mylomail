@@ -1,30 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { HubConnection } from "@microsoft/signalr";
 import { ActionableNotification, Button, SkeletonText } from "@carbon/react";
-import type { MessageInviteDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
-import type {
-	Address,
-	MessageReplyContext,
+import {
+	normalizeMessageBody,
+	normalizeMessageReplyContext,
+	type Address,
+	type MessageBody,
+	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { AttachmentList } from "@mylomail/renderer/Components/AttachmentList/AttachmentList";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/ReadingPane/ReadingPane.module.css";
-
-type MessageInvite = MessageInviteDto;
-
-interface MessageBody {
-	messageId: string;
-	text: string | null;
-	html: string | null;
-	isFetched: boolean;
-	isFailed: boolean;
-}
 
 /**
  * The selected message's body.
@@ -43,7 +35,7 @@ export function ReadingPane({
 	printRequestId,
 	onPrintHandled,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	messageId: string;
 	subject: string;
 	/**
@@ -78,7 +70,8 @@ export function ReadingPane({
 	const consumedPrintRequest = useRef<string | null>(null);
 	const body = useQuery({
 		queryKey: ["body", messageId],
-		queryFn: () => hub.invoke<MessageBody>("GetMessageBody", messageId),
+		queryFn: async (): Promise<MessageBody> =>
+			normalizeMessageBody(await hub.getMessageBody(messageId)),
 		// Content lands after the message does, so an unfetched body is worth asking about
 		// again; a fetched one never changes unless its raw content is replaced. A failed one
 		// never will, having already exhausted its retries server-side (§15) — polling it
@@ -94,8 +87,8 @@ export function ReadingPane({
 	});
 	const context = useQuery({
 		queryKey: ["message-context", messageId],
-		queryFn: () =>
-			hub.invoke<MessageReplyContext>("GetMessageReplyContext", messageId),
+		queryFn: async (): Promise<MessageReplyContext> =>
+			normalizeMessageReplyContext(await hub.getMessageReplyContext(messageId)),
 	});
 	useEffect(() => {
 		if (!body.data?.isFetched) return;
@@ -257,7 +250,7 @@ function Body({
 }: {
 	body: MessageBody;
 	messageId: string;
-	hub: HubConnection;
+	hub: MailHubConnection;
 	senderAddress?: string;
 	onHtmlReadyChange: (ready: boolean) => void;
 }) {
@@ -328,20 +321,22 @@ function InviteBanner({
 	hub,
 	messageId,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	messageId: string;
 }) {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const invite = useQuery({
 		queryKey: ["invite", messageId],
-		queryFn: () =>
-			hub.invoke<MessageInvite | null>("GetMessageInvite", messageId),
+		queryFn: () => hub.getMessageInvite(messageId),
 	});
 
 	const respond = useMutation({
-		mutationFn: (response: InviteResponse) =>
-			hub.invoke("RespondToInvite", invite.data?.eventId, response, null),
+		mutationFn: (response: InviteResponse) => {
+			if (!invite.data?.eventId)
+				throw new Error("The invitation is not ready.");
+			return hub.respondToInvite(invite.data.eventId, response, "");
+		},
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: ["invite", messageId] }),
 		onError: (error: unknown) =>
@@ -352,7 +347,7 @@ function InviteBanner({
 	});
 
 	const acceptUnverifiedReply = useMutation({
-		mutationFn: () => hub.invoke("AcceptUnverifiedInviteReply", messageId),
+		mutationFn: () => hub.acceptUnverifiedInviteReply(messageId),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: ["invite", messageId] });
 			void queryClient.invalidateQueries({ queryKey: ["calendar"] });

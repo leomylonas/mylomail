@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { Button, InlineNotification, TextArea, TextInput } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import type { SendIdentityDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import styles from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager.module.css";
 
@@ -38,7 +38,7 @@ export function SendIdentityManager({
 	hub,
 	accountId,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 }) {
 	const [identities, setIdentities] = useState<SendIdentityDto[] | null>(null);
@@ -46,22 +46,31 @@ export function SendIdentityManager({
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
-	const reload = () =>
-		hub
-			.invoke<SendIdentityDto[]>("GetSendIdentities", accountId)
-			.then(setIdentities)
-			.catch((thrown: unknown) => {
-				// Unlike `run`'s failures (a save/delete the user just triggered), this one
-				// fires from the mount effect below with no action of the user's own to blame
-				// it on — surfacing it the same way keeps a failed initial load from silently
-				// rendering as "this account simply has no identities."
-				setError(thrown instanceof Error ? thrown.message : String(thrown));
-			});
+	const reload = useCallback(
+		() =>
+			hub
+				.getSendIdentities(accountId)
+				.then(setIdentities)
+				.catch((thrown: unknown) => {
+					// Unlike `run`'s failures (a save/delete the user just triggered), this one
+					// fires from the mount effect below with no action of the user's own to blame
+					// it on — surfacing it the same way keeps a failed initial load from silently
+					// rendering as "this account simply has no identities."
+					setError(thrown instanceof Error ? thrown.message : String(thrown));
+				}),
+		[accountId, hub],
+	);
 
 	useEffect(() => {
 		void reload();
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- reload closes over stable hub/accountId props
-	}, [hub, accountId]);
+		const subscription = hub.subscribe(
+			"sendIdentitiesChanged",
+			(changedAccountId: string) => {
+				if (changedAccountId === accountId) void reload();
+			},
+		);
+		return () => subscription.dispose();
+	}, [accountId, hub, reload]);
 
 	const run = async (action: () => Promise<unknown>) => {
 		setBusy(true);
@@ -82,19 +91,12 @@ export function SendIdentityManager({
 		const { id, displayName, emailAddress, signatureHtml } = editing;
 		void run(() =>
 			id
-				? hub.invoke(
-						"UpdateSendIdentity",
-						id,
-						displayName,
-						emailAddress,
-						signatureHtml || null,
-					)
-				: hub.invoke(
-						"AddSendIdentity",
+				? hub.updateSendIdentity(id, displayName, emailAddress, signatureHtml)
+				: hub.addSendIdentity(
 						accountId,
 						displayName,
 						emailAddress,
-						signatureHtml || null,
+						signatureHtml,
 					),
 		);
 	};
@@ -141,9 +143,7 @@ export function SendIdentityManager({
 									kind="ghost"
 									disabled={busy}
 									onClick={() =>
-										void run(() =>
-											hub.invoke("SetDefaultSendIdentity", identity.id),
-										)
+										void run(() => hub.setDefaultSendIdentity(identity.id))
 									}
 								>
 									Make default
@@ -158,9 +158,7 @@ export function SendIdentityManager({
 										if (!confirmDeleteSendIdentity(identity, window.confirm)) {
 											return;
 										}
-										void run(() =>
-											hub.invoke("DeleteSendIdentity", identity.id),
-										);
+										void run(() => hub.deleteSendIdentity(identity.id));
 									}}
 								>
 									Delete

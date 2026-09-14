@@ -294,6 +294,25 @@ export function MessageHtml({
 				sandbox="allow-same-origin"
 				srcDoc={document}
 				onLoad={() => {
+					const frameDocument = frameRef.current?.contentDocument;
+					frameDocument?.addEventListener(
+						"click",
+						(event) => {
+							const anchor = (event.target as Element | null)?.closest(
+								"a[href]",
+							);
+							if (!anchor) return;
+							event.preventDefault();
+							const url = new URL(
+								anchor.getAttribute("href") ?? "",
+								window.location.origin,
+							);
+							if (url.protocol === "http:" || url.protocol === "https:") {
+								window.open(url.toString(), "_blank", "noopener");
+							}
+						},
+						true,
+					);
 					resizeFrame();
 					setLoadedDocument(documentRevision);
 				}}
@@ -304,8 +323,11 @@ export function MessageHtml({
 
 /** Fetches one MIME part. Same-origin, so the launch cookie authenticates it (§9). */
 async function fetchPart(messageId: string, contentId: string): Promise<Blob> {
-	const url = `/messages/${messageId}/parts/${encodeURIComponent(contentId)}`;
-	const response = await fetchApi(url);
+	const response = await fetchApi(`/messages/${messageId}/parts`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ contentId }),
+	});
 	// fetchApi preserves the server's not-found detail and category for the caller.
 	return response.blob();
 }

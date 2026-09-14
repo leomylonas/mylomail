@@ -11,9 +11,9 @@ const iconDataUrl =
 let tray: Tray | undefined;
 
 /**
- * Creates the tray icon once, the first time close-behaviour actually needs it. Left `undefined`
- * for the ordinary `QuitApp` session so nothing extra appears in the system tray for the common
- * case.
+ * Creates the tray icon once whenever minimise-to-tray is enabled. Keeping it visible for
+ * the whole session makes the background-running state discoverable before the first close;
+ * an ordinary `QuitApp` session still creates no tray object.
  *
  * The menu always offers an explicit "Quit" (§8, §13 Epic 10) — minimising to tray must never
  * leave the app with no visible way out.

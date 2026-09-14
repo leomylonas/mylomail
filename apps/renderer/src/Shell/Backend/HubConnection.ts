@@ -7,6 +7,7 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type Store from "react-granular-store";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
 import {
+	hideOptimisticMessages,
 	optimisticMutationIds,
 	settleOptimisticMutation,
 	settleOptimisticMutations,
@@ -18,13 +19,78 @@ import {
 } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import type { WindowState } from "@mylomail/renderer/Shell/WindowScope/WindowStore";
 import type {
+	IMailClient,
+	IMailHub,
+} from "@mylomail/shared-types/SignalR/TypedSignalR.Client/MyloMail.Api.Hubs";
+import {
+	getHubProxyFactory,
+	getReceiverRegister,
+	type Disposable,
+} from "@mylomail/shared-types/SignalR/TypedSignalR.Client";
+import type {
 	MessageSummaryDto,
 	MutationFailureDto,
+	MutationQueuedDto,
 	MutationSettledDto,
 	NotificationDto,
 	SyncProgressDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { SyncProgressKind } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+
+export type MailHubConnection = HubConnection &
+	IMailHub & {
+		subscribe<K extends keyof IMailClient>(
+			event: K,
+			handler: (...args: Parameters<IMailClient[K]>) => void | Promise<void>,
+		): Disposable;
+	};
+
+function createMailHubConnection(connection: HubConnection): MailHubConnection {
+	normalizeHubErrors(connection);
+	const listeners = new Map<
+		keyof IMailClient,
+		Set<(...args: unknown[]) => void | Promise<void>>
+	>();
+	const receiver = new Proxy(
+		{},
+		{
+			get:
+				(_, event: keyof IMailClient) =>
+				(...args: unknown[]) =>
+					Promise.all(
+						[...(listeners.get(event) ?? [])].map((handler) =>
+							handler(...args),
+						),
+					).then(() => undefined),
+		},
+	) as IMailClient;
+	getReceiverRegister("IMailClient").register(connection, receiver);
+	const proxy = getHubProxyFactory("IMailHub").createHubProxy(connection);
+	// TypedSignalR's generated proxy also has an enumerable private `connection` field.
+	// Copying that field onto HubConnection replaces SignalR's underlying HttpConnection
+	// with the HubConnection itself, so start() recursively calls start() and fails in the
+	// Connecting state. Only generated invocation functions belong on the public adapter.
+	const hubMethods = Object.fromEntries(
+		Object.entries(proxy).filter(([, value]) => typeof value === "function"),
+	) as unknown as IMailHub;
+
+	return Object.assign(connection, hubMethods, {
+		subscribe<K extends keyof IMailClient>(
+			event: K,
+			handler: (...args: Parameters<IMailClient[K]>) => void | Promise<void>,
+		): Disposable {
+			const handlers = listeners.get(event) ?? new Set();
+			handlers.add(handler as (...args: unknown[]) => void | Promise<void>);
+			listeners.set(event, handlers);
+			return {
+				dispose: () =>
+					handlers.delete(
+						handler as (...args: unknown[]) => void | Promise<void>,
+					),
+			};
+		},
+	});
+}
 
 /** Query keys, in one place so an event and the query it invalidates cannot drift apart. */
 export const queryKeys = {
@@ -42,6 +108,10 @@ export const queryKeys = {
 		["calendar-events", calendarId, from, to] as const,
 	contacts: (accountId: string, query = "") =>
 		["contacts", accountId, query] as const,
+	drafts: (accountId: string) => ["drafts", accountId] as const,
+	attachmentConstraints: (accountId: string) =>
+		["attachmentConstraints", accountId] as const,
+
 	/**
 	 * Cache-only: written by the `SyncProgress` event below, never fetched (§13 Epic 3).
 	 *
@@ -65,6 +135,68 @@ export const queryKeys = {
 	 */
 	reauthRequestedAccountId: () => ["reauth-requested-account"] as const,
 };
+
+/**
+ * Removes server state that cannot be meaningful after an account disappears, without
+ * disturbing another account a different window may still be viewing.
+ */
+export function removeAccountCaches(
+	queryClient: QueryClient,
+	accountId: string,
+): void {
+	const mailboxIds = new Set(
+		(
+			(queryClient.getQueryData(queryKeys.mailboxes(accountId)) as
+				{ id: string }[] | undefined) ?? []
+		).map((mailbox) => mailbox.id),
+	);
+	const messageIds = new Set<string>();
+
+	for (const query of queryClient.getQueryCache().findAll({
+		queryKey: ["messages"],
+	})) {
+		const mailboxId = query.queryKey[1];
+		if (typeof mailboxId !== "string" || !mailboxIds.has(mailboxId)) continue;
+		collectMessageIds(query.state.data, messageIds);
+	}
+
+	queryClient.removeQueries({ queryKey: queryKeys.mailboxes(accountId) });
+	queryClient.removeQueries({
+		queryKey: queryKeys.accountCapabilities(accountId),
+	});
+	queryClient.removeQueries({ queryKey: ["pending", accountId] });
+	queryClient.removeQueries({ queryKey: ["contacts", accountId] });
+	queryClient.removeQueries({ queryKey: ["calendars", accountId] });
+	queryClient.removeQueries({ queryKey: queryKeys.drafts(accountId) });
+	queryClient.removeQueries({
+		queryKey: queryKeys.attachmentConstraints(accountId),
+	});
+	queryClient.removeQueries({
+		queryKey: ["search", accountId],
+	});
+	queryClient.removeQueries({
+		queryKey: ["messages"],
+		predicate: (query) =>
+			typeof query.queryKey[1] === "string" &&
+			mailboxIds.has(query.queryKey[1]),
+	});
+	for (const messageId of messageIds) {
+		queryClient.removeQueries({ queryKey: ["body", messageId] });
+	}
+}
+
+function collectMessageIds(value: unknown, target: Set<string>): void {
+	if (!value || typeof value !== "object") return;
+	if (Array.isArray(value)) {
+		for (const item of value) collectMessageIds(item, target);
+		return;
+	}
+	const record = value as Record<string, unknown>;
+	if (typeof record.id === "string" && typeof record.accountId === "string") {
+		target.add(record.id);
+	}
+	if (Array.isArray(record.pages)) collectMessageIds(record.pages, target);
+}
 
 /**
  * Message events carry confirmed flags and may also carry the first body-derived IMAP
@@ -140,18 +272,19 @@ export function connectHub(
 	queryClient: QueryClient,
 	notifications: Store<NotificationState>,
 	windowStore: Store<WindowState>,
-): HubConnection {
-	const hub = new HubConnectionBuilder()
-		// Relative: the page is served by the backend, so the handshake carries the httpOnly
-		// launch cookie and no token appears in the URL (§9).
-		.withUrl("/hub")
-		.withAutomaticReconnect()
-		// At Information SignalR logs negotiated URLs.
-		.configureLogging(LogLevel.Warning)
-		.build();
-	normalizeHubErrors(hub);
+): MailHubConnection {
+	const hub = createMailHubConnection(
+		new HubConnectionBuilder()
+			// Relative: the page is served by the backend, so the handshake carries the httpOnly
+			// launch cookie and no token appears in the URL (§9).
+			.withUrl("/hub")
+			.withAutomaticReconnect()
+			// At Information SignalR logs negotiated URLs.
+			.configureLogging(LogLevel.Warning)
+			.build(),
+	);
 
-	hub.on("SyncProgress", (progress: SyncProgressDto) => {
+	hub.subscribe("syncProgress", (progress: SyncProgressDto) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.messages(progress.mailboxId),
 		});
@@ -166,25 +299,49 @@ export function connectHub(
 
 	// Account health contributes to every mailbox's availability as well as the account row,
 	// so both caches move together in every open window.
-	hub.on("AccountStatusChanged", (account: { id: string }) => {
+	hub.subscribe("accountStatusChanged", (account: { id: string }) => {
 		void queryClient.invalidateQueries({ queryKey: ["accounts"] });
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(account.id),
 		});
 	});
 
-	hub.on("MailboxUpdated", (mailbox: { accountId: string }) => {
+	hub.subscribe("accountRemoved", (accountId: string) => {
+		removeAccountCaches(queryClient, accountId);
+		void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+		if (windowStore.getState("selectedAccountId") !== accountId) return;
+		windowStore.setState("selectedAccountId", null);
+		windowStore.setState("selectedMailboxId", null);
+		windowStore.setState("selectedMessageId", null);
+		windowStore.setState("selectedMessageSubject", "");
+		windowStore.setState("selectedMessageSenderAddress", "");
+	});
+
+	// These account-scoped receiver events invalidate only the changed account, preserving
+	// unrelated windows' active calendar and sender-identity caches.
+	hub.subscribe("calendarCollectionChanged", (accountId: string) => {
+		void queryClient.invalidateQueries({
+			queryKey: queryKeys.calendars(accountId),
+		});
+	});
+	hub.subscribe("sendIdentitiesChanged", (accountId: string) => {
+		void queryClient.invalidateQueries({
+			queryKey: ["send-identities", accountId],
+		});
+	});
+
+	hub.subscribe("mailboxUpdated", (mailbox: { accountId: string }) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(mailbox.accountId),
 		});
 	});
 
-	hub.on("MailboxTreeChanged", (accountId: string) => {
+	hub.subscribe("mailboxTreeChanged", (accountId: string) => {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(accountId),
 		});
 	});
-	hub.on("ContactsChanged", (accountId: string) => {
+	hub.subscribe("contactsChanged", (accountId: string) => {
 		void queryClient.invalidateQueries({
 			queryKey: ["contacts", accountId],
 		});
@@ -198,19 +355,34 @@ export function connectHub(
 	// reverting an intent removes its `MessagePendingChanges` row and announces the message,
 	// and only the window that started it learns that from its own mutation call — every
 	// other window would keep rendering the optimistic badge indefinitely (§7, Epic 10).
-	for (const event of ["MessageReceived", "MessageUpdated", "MessageDeleted"]) {
-		hub.on(event, (payload: MessageSummaryDto | string) => {
-			if (event === "MessageUpdated" && typeof payload !== "string")
-				updateMessageSummaryCaches(queryClient, payload);
-			void Promise.all([
-				queryClient.invalidateQueries({ queryKey: ["messages"] }),
-				queryClient.invalidateQueries({ queryKey: ["search"] }),
-				queryClient.invalidateQueries({ queryKey: ["pending"] }),
-			]);
-		});
-	}
+	const invalidateMessageCaches = () => {
+		void Promise.all([
+			queryClient.invalidateQueries({ queryKey: ["messages"] }),
+			queryClient.invalidateQueries({ queryKey: ["search"] }),
+			queryClient.invalidateQueries({ queryKey: ["pending"] }),
+		]);
+	};
+	hub.subscribe("messageReceived", invalidateMessageCaches);
+	hub.subscribe("messageUpdated", (message: MessageSummaryDto) => {
+		updateMessageSummaryCaches(queryClient, message);
+		invalidateMessageCaches();
+	});
+	hub.subscribe("messageDeleted", invalidateMessageCaches);
 
-	hub.on("MessageMutationSettled", (settlement: MutationSettledDto) => {
+	hub.subscribe("messageMutationQueued", (queued: MutationQueuedDto) => {
+		void queryClient.invalidateQueries({
+			queryKey: queryKeys.pending(queued.accountId),
+		});
+		if (queued.sourceMailboxId)
+			hideOptimisticMessages(queryClient, queued.sourceMailboxId, [
+				{
+					messageId: queued.messageId,
+					claimId: queued.mutationItemId,
+				},
+			]);
+	});
+
+	hub.subscribe("messageMutationSettled", (settlement: MutationSettledDto) => {
 		const releaseProjection = () =>
 			settleOptimisticMutation(queryClient, settlement);
 		void Promise.all([
@@ -231,21 +403,21 @@ export function connectHub(
 	// this deliberately only refetches on deletion, not on every MessageReceived/MessageUpdated.
 	// Scoped to the deleted message's own key — MessageDeleted carries a messageId, so there is
 	// no reason to force every other currently-open reading pane to refetch its own body too.
-	hub.on("MessageDeleted", (messageId: string) => {
+	hub.subscribe("messageDeleted", (messageId: string) => {
 		void queryClient.invalidateQueries({ queryKey: ["body", messageId] });
 	});
 
 	// A draft created, saved, deleted, pushed to the server, or materialised locally by sync
 	// (§7) — the event only carries draftId, not accountId, so this invalidates by prefix
 	// like the message events above rather than trying to scope it.
-	hub.on("DraftUpdated", () => {
+	hub.subscribe("draftUpdated", () => {
 		void queryClient.invalidateQueries({ queryKey: ["drafts"] });
 	});
 
 	// One calm offline state rather than per-mailbox error noise (§7, §15) — written
 	// directly rather than invalidated, the same cache-only pattern SyncProgress uses above,
 	// since there is nothing to refetch: the event already carries the new value.
-	hub.on("ConnectivityChanged", (online: boolean) => {
+	hub.subscribe("connectivityChanged", (online: boolean) => {
 		queryClient.setQueryData(queryKeys.connectivity(), online);
 	});
 
@@ -253,11 +425,11 @@ export function connectHub(
 	// changed in some window — every window converges per Epic 10's "all actions reflected
 	// live across all open windows." Panel layout/window bounds are deliberately excluded
 	// upstream (a read-once-at-open default, not something every window syncs to).
-	hub.on("ShellSettingsChanged", () => {
+	hub.subscribe("shellSettingsChanged", () => {
 		void queryClient.invalidateQueries({ queryKey: ["shell-settings"] });
 	});
 
-	hub.on("RemoteContentRulesChanged", () => {
+	hub.subscribe("remoteContentRulesChanged", () => {
 		void queryClient.invalidateQueries({
 			queryKey: ["remote-content-rules"],
 		});
@@ -266,7 +438,7 @@ export function connectHub(
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic
 	// state has already been reverted, so without this the flag springs back with no
 	// explanation and the user is left believing the app is simply unreliable.
-	hub.on("MessageSyncFailed", (failure: MutationFailureDto) => {
+	hub.subscribe("messageSyncFailed", (failure: MutationFailureDto) => {
 		settleOptimisticMutation(queryClient, failure);
 		const presentation = present(
 			failure.category,
@@ -278,33 +450,30 @@ export function connectHub(
 					}
 				: undefined,
 		);
-		// "reauthenticate" and "trust-certificate" both route to the same dialog:
-		// ReauthenticateAccount already has its own internal trust-certificate flow,
-		// triggered when a blank-password retry hits the same rejected certificate — so
-		// there is nothing further to build for the cert case specifically, only a way to
-		// open that dialog for the account this failure actually belongs to (§15).
 		const opensReauthenticate =
 			presentation.action === "reauthenticate" ||
 			presentation.action === "trust-certificate";
-		notify(notifications, {
-			kind: "error",
-			title: presentation.title,
-			detail: presentation.detail,
-			action: presentation.action
-				? {
-						label: opensReauthenticate ? "Reauthenticate" : "Details",
-						run: () => {
-							if (opensReauthenticate) {
-								queryClient.setQueryData(
-									queryKeys.reauthRequestedAccountId(),
-									failure.accountId,
-								);
-							}
-							void queryClient.invalidateQueries({ queryKey: ["messages"] });
-						},
-					}
-				: undefined,
-		});
+		if (!presentation.silent) {
+			notify(notifications, {
+				kind: "error",
+				title: presentation.title,
+				detail: presentation.detail,
+				action: presentation.action
+					? {
+							label: opensReauthenticate ? "Reauthenticate" : "Details",
+							run: () => {
+								if (opensReauthenticate) {
+									queryClient.setQueryData(
+										queryKeys.reauthRequestedAccountId(),
+										failure.accountId,
+									);
+								}
+								void queryClient.invalidateQueries({ queryKey: ["messages"] });
+							},
+						}
+					: undefined,
+			});
+		}
 
 		void queryClient.invalidateQueries({ queryKey: ["pending"] });
 		void queryClient.invalidateQueries({ queryKey: ["messages"] });
@@ -317,20 +486,20 @@ export function connectHub(
 	// prefixes; staleTime: Infinity means none of them ever refetch on their own, so a change
 	// from any one surface — an RSVP, a conflict, an organiser's update arriving via sync —
 	// has to be pushed to all three explicitly, not just the one that triggered it.
-	for (const event of ["CalendarEventUpdated", "CalendarConflictDetected"]) {
-		hub.on(event, () => {
-			void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-			void queryClient.invalidateQueries({
-				queryKey: ["calendar-event-detail"],
-			});
-			void queryClient.invalidateQueries({ queryKey: ["invite"] });
+	const invalidateCalendarEventCaches = () => {
+		void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+		void queryClient.invalidateQueries({
+			queryKey: ["calendar-event-detail"],
 		});
-	}
+		void queryClient.invalidateQueries({ queryKey: ["invite"] });
+	};
+	hub.subscribe("calendarEventUpdated", invalidateCalendarEventCaches);
+	hub.subscribe("calendarConflictDetected", invalidateCalendarEventCaches);
 
 	// Dispatch is the shell's job, not this window's (§13 Epic 9): relay straight to the
 	// preload bridge, and confirm delivery only once the shell has actually shown it — a
 	// crash between these two steps redelivers the same notification rather than losing it.
-	hub.on("NotificationReady", (notification: NotificationDto) => {
+	hub.subscribe("notificationReady", (notification: NotificationDto) => {
 		void window.notifications
 			?.show({
 				id: notification.id,
@@ -338,7 +507,7 @@ export function connectHub(
 				title: notification.title,
 				body: notification.body,
 			})
-			.then(() => hub.invoke("MarkNotificationDelivered", notification.id))
+			.then(() => hub.markNotificationDelivered(notification.id))
 			.catch((error: unknown) => {
 				// Left unmarked-delivered on purpose: per the comment above, that's exactly
 				// what makes the shell redeliver this same notification instead of losing
@@ -358,18 +527,16 @@ export function connectHub(
 		const terminalIds =
 			mutationIds.length === 0
 				? Promise.resolve<string[]>([])
-				: hub
-						.invoke<string[]>("GetTerminalMutationIds", mutationIds)
-						.catch((error: unknown) => {
-							console.error(
-								`optimistic mutation reconciliation failed: ${String(error)}`,
-							);
-							return [];
-						});
+				: hub.getTerminalMutationIds(mutationIds).catch((error: unknown) => {
+						console.error(
+							`optimistic mutation reconciliation failed: ${String(error)}`,
+						);
+						return [];
+					});
 		const accountId = windowStore.getState("selectedAccountId");
 		const mailboxId = windowStore.getState("selectedMailboxId");
 		if (accountId && mailboxId) {
-			void hub.invoke("SetActiveMailbox", accountId, mailboxId);
+			void hub.setActiveMailbox(accountId, mailboxId);
 		}
 		// Keep successful removals hidden until the stale source page has finished refetching.
 		// Clearing first would briefly resurrect its old row before that response replaced it.

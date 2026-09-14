@@ -65,13 +65,15 @@ export async function launchAttachedApp(
 ): Promise<AttachedLaunchedApp> {
 	const fixture = createFixtureEnvironment(environment);
 	const launchToken = randomBytes(32).toString("base64url");
+	const backendEnvironment = { ...fixture.environment };
+	const masterPassword = backendEnvironment.MYLOMAIL_MASTER_PASSWORD;
+	delete backendEnvironment.MYLOMAIL_LAUNCH_TOKEN;
+	delete backendEnvironment.MYLOMAIL_MASTER_PASSWORD;
 	const backend = spawn("dotnet", [backendAssembly], {
-		env: {
-			...fixture.environment,
-			MYLOMAIL_LAUNCH_TOKEN: launchToken,
-		},
-		stdio: ["ignore", "pipe", "pipe"],
+		env: backendEnvironment,
+		stdio: ["pipe", "pipe", "pipe"],
 	});
+	backend.stdin?.end(`${JSON.stringify({ launchToken, masterPassword })}\n`);
 	backend.stderr?.on("data", (chunk: Buffer) => {
 		process.stderr.write(`[attached backend] ${chunk.toString("utf8")}`);
 	});
@@ -111,7 +113,7 @@ const backendAssembly = join(
 export async function launchPackagedApp(
 	environment: Readonly<NodeJS.ProcessEnv> = {},
 ): Promise<LaunchedApp> {
-	const fixture = createFixtureEnvironment(environment);
+	const fixture = createFixtureEnvironment(environment, undefined, false);
 	const { app, window } = await launchElectron(
 		[],
 		fixture.environment,
@@ -134,7 +136,7 @@ export async function launchPackagedAttachedApp(
 	launchToken: string,
 	environment: Readonly<NodeJS.ProcessEnv> = {},
 ): Promise<LaunchedApp> {
-	const fixture = createFixtureEnvironment(environment);
+	const fixture = createFixtureEnvironment(environment, undefined, false);
 	const { app, window } = await launchElectron(
 		[],
 		{
@@ -156,6 +158,7 @@ export async function launchPackagedAttachedApp(
 function createFixtureEnvironment(
 	overrides: Readonly<NodeJS.ProcessEnv>,
 	existingDataDirectory?: string,
+	useLocalRenderer = true,
 ): {
 	dataDirectory: string;
 	environment: Record<string, string>;
@@ -248,8 +251,15 @@ function createFixtureEnvironment(
 		XDG_CONFIG_HOME: configHome,
 		XDG_DATA_HOME: join(root, "share"),
 		MYLOMAIL_MASTER_PASSWORD: "e2e-master-password",
-		MYLOMAIL_RENDERER_PATH: join(repositoryRoot, "apps/renderer/dist"),
 	};
+	if (useLocalRenderer) {
+		inherited.MYLOMAIL_RENDERER_PATH = join(
+			repositoryRoot,
+			"apps/renderer/dist",
+		);
+	} else {
+		delete inherited.MYLOMAIL_RENDERER_PATH;
+	}
 	if (overrides.DBUS_SESSION_BUS_ADDRESS === "") {
 		delete inherited.DBUS_SESSION_BUS_ADDRESS;
 	}

@@ -1,5 +1,10 @@
 import { prepare } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
+import type {
+	AttachmentDto,
+	MessageBodyDto,
+	MessageReplyContextDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 
 export interface Address {
 	name: string | null;
@@ -17,6 +22,27 @@ export interface MessageReplyContext {
 	replyTo: Address[];
 	subject: string;
 	receivedAt: string;
+}
+
+export function normalizeMessageReplyContext(
+	value: MessageReplyContextDto,
+): MessageReplyContext {
+	const addresses = (items: typeof value.from): Address[] =>
+		items.map((address) => ({
+			name: address.name ?? null,
+			email: address.email,
+		}));
+	return {
+		...value,
+		from: addresses(value.from),
+		to: addresses(value.to),
+		cc: addresses(value.cc),
+		replyTo: addresses(value.replyTo),
+		receivedAt:
+			typeof value.receivedAt === "string"
+				? value.receivedAt
+				: value.receivedAt.toISOString(),
+	};
 }
 
 export interface ForwardAttachment {
@@ -110,6 +136,24 @@ export interface MessageBody {
  * Resolves what a reply/forward should actually quote, honestly reflecting whatever
  * `GetMessageBody` is currently able to say — never a silent blank.
  */
+export function normalizeMessageBody(value: MessageBodyDto): MessageBody {
+	return {
+		html: value.html ?? null,
+		text: value.text ?? null,
+		isFetched: value.isFetched,
+		isFailed: value.isFailed,
+	};
+}
+
+export function normalizeForwardAttachments(
+	values: AttachmentDto[],
+): ForwardAttachment[] {
+	return values.map((value) => ({
+		...value,
+		contentId: value.contentId ?? null,
+	}));
+}
+
 export function resolveOriginalHtml(body: MessageBody): string {
 	if (body.isFetched && body.html) return body.html;
 	if (body.isFetched && body.text) {

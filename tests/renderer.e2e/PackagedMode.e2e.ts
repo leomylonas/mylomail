@@ -1,9 +1,16 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { launchPackagedApp } from "@mylomail/renderer-e2e/AppFixture";
 
 test("the packaged shell starts its bundled self-contained backend and renderer", async () => {
 	const { app, window } = await launchPackagedApp();
 	try {
+		const resourcesPath = await app.evaluate(() => process.resourcesPath);
+		const packagedFonts = readdirSync(join(resourcesPath, "Renderer", "assets"))
+			.filter((name) => /^IBMPlex.+\.woff2$/u.test(name))
+			.sort();
+		expect(packagedFonts).toHaveLength(5);
 		await expect(
 			window.getByRole("heading", { name: "Add account" }),
 		).toBeVisible({ timeout: 30_000 });
@@ -25,12 +32,16 @@ test("the packaged shell starts its bundled self-contained backend and renderer"
 			await document.fonts.ready;
 			const assets = performance
 				.getEntriesByType("resource")
-				.map((entry) => entry.name)
-				.filter((name) => /\/assets\/IBMPlex.+\.woff2$/u.test(name));
+				.map((entry) => new URL(entry.name).pathname.split("/").at(-1))
+				.filter(
+					(name): name is string =>
+						name !== undefined && /^IBMPlex.+\.woff2$/u.test(name),
+				)
+				.sort();
 			return { assets, loaded };
 		});
 		expect(fonts.loaded).toEqual([1, 1, 1, 1, 1]);
-		expect(new Set(fonts.assets).size).toBe(5);
+		expect(fonts.assets).toEqual(packagedFonts);
 	} finally {
 		await app.close();
 	}

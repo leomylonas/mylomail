@@ -1,6 +1,17 @@
 import { Menu, MenuItem, MenuItemDivider } from "@carbon/react";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 
+function unavailableAccessibility(action: MenuAction): {
+	"aria-label"?: string;
+	title?: string;
+} {
+	return action.unavailable
+		? {
+				"aria-label": `${action.label}: unavailable. ${action.unavailable}`,
+				title: action.unavailable,
+			}
+		: {};
+}
 /**
  * The conventional message menu (§13).
  *
@@ -32,6 +43,7 @@ export function MessageContextMenu({
 						key={action.label}
 						label={action.label}
 						disabled={Boolean(action.unavailable)}
+						{...unavailableAccessibility(action)}
 					>
 						<Menu label={action.label}>
 							{action.children.map((child) => (
@@ -41,6 +53,7 @@ export function MessageContextMenu({
 									disabled={Boolean(child.unavailable)}
 									kind={child.danger ? "danger" : "default"}
 									onClick={child.run}
+									{...unavailableAccessibility(child)}
 								/>
 							))}
 						</Menu>
@@ -52,6 +65,7 @@ export function MessageContextMenu({
 						disabled={Boolean(action.unavailable)}
 						kind={action.danger ? "danger" : "default"}
 						onClick={action.run}
+						{...unavailableAccessibility(action)}
 					/>
 				),
 			)}

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import type { MessageSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
-import { mergeServerKnownProjection } from "@mylomail/renderer/Shell/Backend/HubConnection";
-
+import {
+	mergeServerKnownProjection,
+	queryKeys,
+	removeAccountCaches,
+} from "@mylomail/renderer/Shell/Backend/HubConnection";
 function summary(
 	overrides: Partial<MessageSummaryDto> = {},
 ): MessageSummaryDto {
@@ -39,5 +43,54 @@ describe("mergeServerKnownProjection", () => {
 
 		expect(merged.snippet).toBe("Body-derived preview");
 		expect(merged.isFlagged).toBe(true);
+	});
+});
+
+describe("removeAccountCaches", () => {
+	it("removes only a removed account's mailbox, message, body, and search state", () => {
+		const queryClient = new QueryClient();
+		queryClient.setQueryData(queryKeys.mailboxes("removed"), [
+			{ id: "old-box" },
+		]);
+		queryClient.setQueryData(queryKeys.mailboxes("retained"), [
+			{ id: "new-box" },
+		]);
+		queryClient.setQueryData(queryKeys.messages("old-box"), [
+			summary({ id: "old-message", accountId: "removed" }),
+		]);
+		queryClient.setQueryData(queryKeys.messages("new-box"), [
+			summary({ id: "new-message", accountId: "retained" }),
+		]);
+		queryClient.setQueryData(["body", "old-message"], { text: "old" });
+		queryClient.setQueryData(["body", "new-message"], { text: "new" });
+		queryClient.setQueryData(queryKeys.search("removed", "invoice", null), [
+			summary({ id: "old-message", accountId: "removed" }),
+		]);
+		queryClient.setQueryData(queryKeys.search("retained", "invoice", null), [
+			summary({ id: "new-message", accountId: "retained" }),
+		]);
+
+		removeAccountCaches(queryClient, "removed");
+
+		expect(
+			queryClient.getQueryData(queryKeys.mailboxes("removed")),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(queryKeys.messages("old-box")),
+		).toBeUndefined();
+		expect(queryClient.getQueryData(["body", "old-message"])).toBeUndefined();
+		expect(
+			queryClient.getQueryData(queryKeys.search("removed", "invoice", null)),
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(queryKeys.mailboxes("retained")),
+		).toBeDefined();
+		expect(
+			queryClient.getQueryData(queryKeys.messages("new-box")),
+		).toBeDefined();
+		expect(queryClient.getQueryData(["body", "new-message"])).toBeDefined();
+		expect(
+			queryClient.getQueryData(queryKeys.search("retained", "invoice", null)),
+		).toBeDefined();
 	});
 });

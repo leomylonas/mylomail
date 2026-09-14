@@ -63,6 +63,12 @@
 	flex-shrink: 0;
 }
 
+.availability {
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+	flex-shrink: 0;
+}
+
 .metrics {
 	display: flex;
 	gap: var(--cds-spacing-03);

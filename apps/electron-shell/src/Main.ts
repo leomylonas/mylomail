@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
+import type { ChildProcess } from "node:child_process";
 import {
 	app,
 	BrowserWindow,
@@ -22,6 +23,8 @@ import {
 	pickExportFolderChannel,
 	printMessageChannel,
 	reportDraftStateChannel,
+	requestComposeCloseChannel,
+	composeCloseReadyChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
 	type BackendConnection,
@@ -51,6 +54,17 @@ const minimumWindowHeight = 480;
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+// Set the runtime name before Electron initialises libnotify, but preserve the session path
+// derived from the executable's original product name. Otherwise fixing notification
+// attribution would silently move cookies and Chromium state to a second profile.
+const userDataPath = app.getPath("userData");
+app.setName("Mylo Mail");
+app.setPath("userData", userDataPath);
+
+// The Linux notification server and StatusNotifier host resolve this stable desktop-file
+// identity to the user-facing Name.
+if (process.platform === "linux") app.setDesktopName("MyloMail");
+
 /**
  * Read once at startup, same as window bounds and the mailto-prompt flag (§13), then kept in
  * sync by `updateCloseBehaviorChannel` when ShellSettings saves a change mid-session.
@@ -73,9 +87,23 @@ let quitting = false;
 const draftWindows = new Map<number, string | null>();
 const mainWindowIds = new Set<number>();
 const notificationReadyWindowIds = new Set<number>();
+// A Linux notification can outlive the callback that created it. Keep its Electron wrapper
+// alive until the OS closes or activates it, or a later click from GNOME's notification
+// centre can lose the listener even though the native card is still visible.
+const activeNativeNotifications = new Set<Notification>();
 let nextWindowSlot = 0;
 const pendingMailtoUris: string[] = [];
 let activeOrigin: string | undefined;
+const detachedComposeWindowIds = new Set<number>();
+const composeCloseTimeoutMs = 3000;
+type ComposeCloseResult = "saved" | "not-saved" | "unavailable";
+interface ComposeCloseRequest {
+	promise: Promise<ComposeCloseResult>;
+	resolve: (result: ComposeCloseResult) => void;
+	timeout: NodeJS.Timeout;
+}
+const composeCloseRequests = new Map<number, ComposeCloseRequest>();
+let startupOwnedChild: ChildProcess | undefined;
 
 /**
  * Acquires the configured backend, then opens the first window.
@@ -118,6 +146,7 @@ export async function startShell(): Promise<void> {
 					waitUntilReady: (launch) => waitForBackendHealth(launch),
 				});
 	const ownedChild = "child" in backend ? backend.child : undefined;
+	startupOwnedChild = ownedChild;
 
 	// The backend's own output, which was piped and then never read — so anything it logged,
 	// including every unhandled error, went into a pipe nobody drained. Forwarded rather than
@@ -162,6 +191,12 @@ export async function startShell(): Promise<void> {
 		}
 		if (ready) notificationReadyWindowIds.add(window.id);
 		else notificationReadyWindowIds.delete(window.id);
+	});
+
+	ipcMain.on(composeCloseReadyChannel, (event, saved: unknown) => {
+		const window = BrowserWindow.fromWebContents(event.sender);
+		if (!window || typeof saved !== "boolean") return;
+		settleComposeCloseRequest(window.id, saved ? "saved" : "not-saved");
 	});
 	ipcMain.handle(
 		openAttachmentChannel,
@@ -226,7 +261,13 @@ export async function startShell(): Promise<void> {
 			title: request.title,
 			body: request.body,
 		});
-		notification.on("click", () => {
+		activeNativeNotifications.add(notification);
+		const release = (): void => {
+			activeNativeNotifications.delete(notification);
+		};
+		notification.once("close", release);
+		notification.once("click", () => {
+			release();
 			const clicked: NotificationClicked = {
 				notificationId: request.id,
 				accountId: request.accountId,
@@ -270,6 +311,8 @@ export async function startShell(): Promise<void> {
 		// The renderer already confirmed the write succeeded, so this trusts the value it
 		// hands back rather than re-fetching.
 		closeBehavior = closeBehaviorFromValue(value);
+		if (closeBehavior === "MinimizeToTray") ensureTray();
+		else destroyTray();
 	});
 
 	// The origin, never the token: this line is diagnostics, and the token is the backend's
@@ -332,6 +375,7 @@ export async function startShell(): Promise<void> {
 	// history per window identity. Persisted globally, read once at startup for the first
 	// window; every later window in this run instead offsets from whichever window opened it.
 	closeBehavior = await loadCloseBehavior(origin);
+	if (closeBehavior === "MinimizeToTray") ensureTray();
 
 	const savedBounds = await loadWindowBounds(origin);
 	const initialMailtoUri = pendingMailtoUris.shift();
@@ -374,12 +418,13 @@ export async function startShell(): Promise<void> {
 		event.preventDefault();
 		if (confirming) return;
 		confirming = true;
-		void confirmQuit(origin).then((proceed) => {
+		void (async () => {
+			if (!(await confirmQuit(origin))) return;
+			if (!(await flushDetachedComposeWindows())) return;
+			confirmedQuit = true;
+			app.quit();
+		})().finally(() => {
 			confirming = false;
-			if (proceed) {
-				confirmedQuit = true;
-				app.quit();
-			}
 		});
 	});
 }
@@ -629,6 +674,10 @@ async function createWindow(
 			sandbox: true,
 		},
 	});
+	const detachedCompose = new URLSearchParams(options?.query).has("compose");
+	if (detachedCompose) detachedComposeWindowIds.add(window.id);
+	let composeCloseDecisionInFlight = false;
+	let composeCloseApproved = false;
 	if (options?.isMain ?? !options?.query) {
 		mainWindowIds.add(window.id);
 	}
@@ -664,6 +713,27 @@ async function createWindow(
 			event.preventDefault();
 			window.hide();
 			ensureTray();
+			return;
+		}
+		if (detachedCompose && !quitting && !composeCloseApproved) {
+			event.preventDefault();
+			if (composeCloseDecisionInFlight) return;
+			composeCloseDecisionInFlight = true;
+			void (async () => {
+				const result = await requestDetachedComposeClose(window);
+				if (
+					result !== "saved" &&
+					(result !== "unavailable" ||
+						!(await confirmUnconfirmedComposeClose(window)))
+				) {
+					return;
+				}
+				if (window.isDestroyed()) return;
+				composeCloseApproved = true;
+				window.close();
+			})().finally(() => {
+				composeCloseDecisionInFlight = false;
+			});
 		}
 	});
 
@@ -673,6 +743,8 @@ async function createWindow(
 		draftWindows.delete(window.id);
 		mainWindowIds.delete(window.id);
 		notificationReadyWindowIds.delete(window.id);
+		detachedComposeWindowIds.delete(window.id);
+		settleComposeCloseRequest(window.id, "unavailable");
 	});
 
 	window.once("ready-to-show", () => window.show());
@@ -682,8 +754,9 @@ async function createWindow(
 	window.webContents.on("did-fail-load", (_e, code, description, url) =>
 		console.error(`load failed ${code} ${description} ${url}`),
 	);
-	window.webContents.on("render-process-gone", (_e, details) => {
+	window.webContents.once("render-process-gone", (_e, details) => {
 		notificationReadyWindowIds.delete(window.id);
+		settleComposeCloseRequest(window.id, "unavailable");
 		console.error(`renderer gone: ${details.reason}`);
 	});
 
@@ -701,6 +774,69 @@ async function createWindow(
 	url.searchParams.set("windowSlot", String(windowSlot));
 	await window.loadURL(url.toString());
 	return window;
+}
+function settleComposeCloseRequest(
+	windowId: number,
+	result: ComposeCloseResult,
+): boolean {
+	const request = composeCloseRequests.get(windowId);
+	if (!request) return false;
+	composeCloseRequests.delete(windowId);
+	clearTimeout(request.timeout);
+	request.resolve(result);
+	return true;
+}
+
+function requestDetachedComposeClose(
+	window: BrowserWindow,
+): Promise<ComposeCloseResult> {
+	const existing = composeCloseRequests.get(window.id);
+	if (existing) return existing.promise;
+	if (window.isDestroyed()) return Promise.resolve("unavailable");
+
+	let resolve!: (result: ComposeCloseResult) => void;
+	const promise = new Promise<ComposeCloseResult>((complete) => {
+		resolve = complete;
+	});
+	const timeout = setTimeout(
+		() => settleComposeCloseRequest(window.id, "unavailable"),
+		composeCloseTimeoutMs,
+	);
+	composeCloseRequests.set(window.id, { promise, resolve, timeout });
+	window.webContents.send(requestComposeCloseChannel);
+	return promise;
+}
+
+async function confirmUnconfirmedComposeClose(
+	window?: BrowserWindow,
+): Promise<boolean> {
+	const options: Electron.MessageBoxOptions = {
+		type: "warning",
+		buttons: ["Close Without Confirming Save", "Keep Open"],
+		defaultId: 1,
+		cancelId: 1,
+		message: "The draft save could not be confirmed.",
+		detail:
+			"The compose window stopped responding before it confirmed the draft was saved. " +
+			"Close only if you accept that recent changes may not have been saved.",
+	};
+	const result =
+		window && !window.isDestroyed()
+			? await dialog.showMessageBox(window, options)
+			: await dialog.showMessageBox(options);
+	return result.response === 0;
+}
+
+async function flushDetachedComposeWindows(): Promise<boolean> {
+	const windows = [...detachedComposeWindowIds]
+		.map((id) => BrowserWindow.fromId(id))
+		.filter((window): window is BrowserWindow =>
+			Boolean(window && !window.isDestroyed()),
+		);
+	const results = await Promise.all(windows.map(requestDetachedComposeClose));
+	if (results.includes("not-saved")) return false;
+	if (!results.includes("unavailable")) return true;
+	return confirmUnconfirmedComposeClose(windows[0]);
 }
 
 async function navigateNotificationClick(
@@ -858,6 +994,7 @@ if (!singleInstance) {
 		.whenReady()
 		.then(startShell)
 		.catch((error: unknown) => {
+			startupOwnedChild?.kill("SIGTERM");
 			console.error("MyloMail could not start:", error);
 			surfaceStartupFailure(dialog, error);
 			app.exit(1);

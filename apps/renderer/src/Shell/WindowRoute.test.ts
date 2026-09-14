@@ -9,13 +9,14 @@ import { parseWindowRoute } from "@mylomail/renderer/Shell/WindowRoute";
 describe("parseWindowRoute", () => {
 	it("carries the sender address for a message route", () => {
 		const route = parseWindowRoute(
-			"?message=m1&subject=Hello&sender=someone%40example.test",
+			"?message=m1&account=a1&subject=Hello&sender=someone%40example.test",
 		);
 		expect(route).toEqual({
 			kind: "message",
 			messageId: "m1",
 			subject: "Hello",
 			senderAddress: "someone@example.test",
+			accountId: "a1",
 		});
 	});
 
@@ -26,6 +27,7 @@ describe("parseWindowRoute", () => {
 			messageId: "m1",
 			subject: "Hello",
 			senderAddress: undefined,
+			accountId: undefined,
 		});
 	});
 

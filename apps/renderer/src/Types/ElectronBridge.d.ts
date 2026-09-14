@@ -24,6 +24,7 @@ declare global {
 			open(query?: string): Promise<void>;
 			reportDraftState(draftId: string | null): Promise<void>;
 			focusDraftIfOpen(draftId: string): Promise<boolean>;
+			onComposeCloseRequest(callback: () => Promise<boolean>): () => void;
 		};
 		dialogs?: {
 			pickExportFolder(): Promise<string | null>;

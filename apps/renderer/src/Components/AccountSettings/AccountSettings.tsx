@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	Button,
 	InlineNotification,
@@ -10,7 +11,7 @@ import {
 	TextInput,
 	Toggle,
 } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
+import type { AccountSettingsDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	CertificateTrustMode,
 	InitialSyncMode,
@@ -48,6 +49,56 @@ export interface AccountSettingsValues {
 	appendToSentOnSend: boolean | null;
 }
 
+function toAccountSettingsDto(
+	values: AccountSettingsValues,
+): AccountSettingsDto {
+	return {
+		id: values.id,
+		displayName: values.displayName,
+		color: values.color,
+		pollIntervalSeconds: values.pollIntervalSeconds,
+		pollingEnabled: values.pollingEnabled,
+		undoSendDelaySeconds: values.undoSendDelaySeconds,
+		notificationsEnabled: values.notificationsEnabled,
+		initialSyncMode: values.initialSyncMode,
+		...(values.initialSyncMode === InitialSyncMode.Full
+			? {}
+			: { initialSyncBoundValue: values.initialSyncBoundValue ?? 3 }),
+		certificateTrustMode: values.certificateTrustMode,
+		...(values.attachmentSizeLimitOverride === null
+			? {}
+			: { attachmentSizeLimitOverride: values.attachmentSizeLimitOverride }),
+		...(values.providerType === ProviderType.Imap &&
+		values.appendToSentOnSend !== null
+			? { appendToSentOnSend: values.appendToSentOnSend }
+			: {}),
+	};
+}
+
+function toAccountSettingsValues(
+	settings: AccountSettingsDto,
+	providerType: ProviderType,
+): AccountSettingsValues {
+	return {
+		id: settings.id,
+		displayName: settings.displayName,
+		color: settings.color,
+		pollIntervalSeconds: settings.pollIntervalSeconds,
+		pollingEnabled: settings.pollingEnabled,
+		undoSendDelaySeconds: settings.undoSendDelaySeconds,
+		notificationsEnabled: settings.notificationsEnabled,
+		initialSyncMode: settings.initialSyncMode,
+		initialSyncBoundValue:
+			settings.initialSyncMode === InitialSyncMode.Full
+				? null
+				: (settings.initialSyncBoundValue ?? null),
+		certificateTrustMode: settings.certificateTrustMode,
+		attachmentSizeLimitOverride: settings.attachmentSizeLimitOverride ?? null,
+		providerType,
+		appendToSentOnSend: settings.appendToSentOnSend ?? null,
+	};
+}
+
 /**
  * The account settings a user owns.
  *
@@ -62,7 +113,7 @@ export function AccountSettings({
 	onClose,
 	onRemoved,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	initial: AccountSettingsValues;
 	/**
 	 * Whether the account is currently being held back after a provider throttling response
@@ -101,11 +152,8 @@ export function AccountSettings({
 		try {
 			// The server clamps the poll interval and undo window and returns what it
 			// applied, so the form shows the value in force rather than the one asked for.
-			const applied = await hub.invoke<AccountSettingsValues>(
-				"UpdateAccount",
-				values,
-			);
-			setValues(applied);
+			const applied = await hub.updateAccount(toAccountSettingsDto(values));
+			setValues(toAccountSettingsValues(applied, values.providerType));
 			setSaved(true);
 		} catch (error) {
 			notify(

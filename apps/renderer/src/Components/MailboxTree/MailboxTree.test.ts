@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	describeMailboxAvailability,
 	describeMailboxCount,
 	mailboxMoveActions,
 	type Mailbox,
@@ -16,6 +17,8 @@ function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 		isCollapsed: false,
 		availability: MailboxAvailability.Usable,
 		coverage: 0,
+		coverageMessagesFetched: 0,
+		coverageEstimatedTotal: null,
 		initialSyncModeOverride: null,
 		initialSyncBoundValueOverride: null,
 		isSynthesized: false,
@@ -62,6 +65,20 @@ describe("mailbox sidebar counts", () => {
 				}),
 			),
 		).toBe("9 total");
+	});
+});
+
+describe("mailbox availability labels", () => {
+	it("maps every availability state to visible text rather than its enum ordinal", () => {
+		expect(describeMailboxAvailability(MailboxAvailability.Usable)).toBe(
+			"Usable",
+		);
+		expect(describeMailboxAvailability(MailboxAvailability.Degraded)).toBe(
+			"Degraded",
+		);
+		expect(describeMailboxAvailability(MailboxAvailability.Unavailable)).toBe(
+			"Unavailable",
+		);
 	});
 });
 

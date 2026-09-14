@@ -41,6 +41,7 @@ function WindowRoot() {
 					messageId={route.messageId}
 					subject={route.subject}
 					senderAddress={route.senderAddress}
+					accountId={route.accountId}
 				/>
 			);
 		case "compose":

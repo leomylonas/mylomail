@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { HubConnection } from "@microsoft/signalr";
-import { connectHub } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import {
+	connectHub,
+	type MailHubConnection,
+} from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 
 export type HubStatus = "connecting" | "connected" | "failed";
 
 /** Opens this window's hub connection for as long as the window lives. */
-export function useHub(): { hub: HubConnection | null; status: HubStatus } {
+export function useHub(): { hub: MailHubConnection | null; status: HubStatus } {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const windowStore = useWindowStore();
-	const [hub, setHub] = useState<HubConnection | null>(null);
+	const [hub, setHub] = useState<MailHubConnection | null>(null);
 	const [status, setStatus] = useState<HubStatus>("connecting");
 
 	useEffect(() => {
@@ -27,7 +29,7 @@ export function useHub(): { hub: HubConnection | null; status: HubStatus } {
 				setStatus("connected");
 			})
 			.catch((error: unknown) => {
-				console.error(`hub connection failed: ${String(error)}`);
+				console.error("hub connection failed:", error);
 				if (!cancelled) setStatus("failed");
 			});
 

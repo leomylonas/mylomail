@@ -75,8 +75,7 @@ export function hideOptimisticMessages(
 			const next = { ...current };
 			for (const claim of claims)
 				next[claim.messageId] = [
-					...(next[claim.messageId] ?? []),
-					claim.claimId,
+					...new Set([...(next[claim.messageId] ?? []), claim.claimId]),
 				];
 			return next;
 		},

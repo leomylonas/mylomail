@@ -1,12 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import {
 	buildForwardSeed,
 	buildReplySeed,
 	copyAttachments,
+	normalizeMessageReplyContext,
+	normalizeForwardAttachments,
+	normalizeMessageBody,
 	resolveOriginalHtml,
-	type ForwardAttachment,
-	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
@@ -30,6 +32,7 @@ export function MessageWindow({
 	messageId,
 	subject,
 	senderAddress,
+	accountId,
 }: {
 	messageId: string;
 	subject: string;
@@ -40,9 +43,12 @@ export function MessageWindow({
 	 * that allow list's whole point of not asking twice.
 	 */
 	senderAddress?: string;
+	accountId?: string;
 }) {
 	const { hub, status } = useHub();
 	const { store: notifications } = useWindowNotifications();
+	const queryClient = useQueryClient();
+	const [accountRemoved, setAccountRemoved] = useState(false);
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
@@ -50,6 +56,23 @@ export function MessageWindow({
 			return (await response.json()) as Account[];
 		},
 	});
+
+	useEffect(() => {
+		if (!hub || !accountId) return;
+		const subscription = hub.subscribe(
+			"accountRemoved",
+			(removedAccountId: string) => {
+				if (removedAccountId !== accountId) return;
+				queryClient.removeQueries({ queryKey: ["body", messageId] });
+				queryClient.removeQueries({
+					queryKey: ["message-context", messageId],
+				});
+				queryClient.removeQueries({ queryKey: ["invite", messageId] });
+				setAccountRemoved(true);
+			},
+		);
+		return () => subscription.dispose();
+	}, [accountId, hub, messageId, queryClient]);
 
 	/**
 	 * Reply/reply-all/forward has no inline `Compose` mounted here to seed — unlike the main
@@ -64,34 +87,40 @@ export function MessageWindow({
 		if (!hub) return;
 		try {
 			const [context, body, attachments] = await Promise.all([
-				hub.invoke<MessageReplyContext>("GetMessageReplyContext", messageId),
-				hub.invoke<{
-					html: string | null;
-					text: string | null;
-					isFetched: boolean;
-					isFailed: boolean;
-				}>("GetMessageBody", messageId),
-				hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", messageId),
+				hub.getMessageReplyContext(messageId),
+				hub.getMessageBody(messageId),
+				hub.getAttachmentMetadata(messageId),
 			]);
 			const account = accounts.data?.find((a) => a.id === context.accountId);
-			const originalHtml = resolveOriginalHtml(body);
+			const originalHtml = resolveOriginalHtml(normalizeMessageBody(body));
+			const normalizedContext = normalizeMessageReplyContext(context);
 			const seed =
 				mode === "forward"
-					? buildForwardSeed(context, originalHtml, attachments)
+					? buildForwardSeed(
+							normalizedContext,
+							originalHtml,
+							normalizeForwardAttachments(attachments),
+						)
 					: buildReplySeed(
 							mode,
-							context,
+							normalizedContext,
 							originalHtml,
 							account?.emailAddress ?? "",
-							attachments,
+							normalizeForwardAttachments(attachments),
 						);
 
-			const saved = await hub.invoke<{ id: string }>("SaveDraft", {
+			const wireAddresses = (addresses: typeof seed.to) =>
+				addresses.map((address) => ({
+					...(address.name ? { name: address.name } : {}),
+					email: address.email,
+				}));
+
+			const saved = await hub.saveDraft({
 				accountId: context.accountId,
-				inReplyToMessageId: seed.inReplyToMessageId,
-				to: seed.to,
-				cc: seed.cc,
-				bcc: seed.bcc,
+				inReplyToMessageId: seed.inReplyToMessageId ?? undefined,
+				to: wireAddresses(seed.to),
+				cc: wireAddresses(seed.cc),
+				bcc: wireAddresses(seed.bcc),
 				subject: seed.subject,
 				bodyHtml: seed.bodyHtml,
 			});
@@ -116,7 +145,7 @@ export function MessageWindow({
 				// show it to the user — left as-is, a retry would create a second orphan on top
 				// of this one, and this one would sit invisible in Drafts forever. Discarding it
 				// keeps a failed "reply" from silently leaving debris behind.
-				await hub.invoke("DeleteDraft", saved.id).catch(() => undefined);
+				await hub.deleteDraft(saved.id).catch(() => undefined);
 				throw error;
 			}
 		} catch {
@@ -154,6 +183,14 @@ export function MessageWindow({
 				]
 			: [],
 	);
+
+	if (accountRemoved) {
+		return (
+			<p className={styles.status} role="status">
+				The account for this message has been removed.
+			</p>
+		);
+	}
 
 	return (
 		<div className={styles.window}>

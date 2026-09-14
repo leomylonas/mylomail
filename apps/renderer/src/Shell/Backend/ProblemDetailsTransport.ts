@@ -88,7 +88,7 @@ export function notificationForError(
 	actions: Partial<
 		Record<NonNullable<ErrorPresentation["action"]>, () => void>
 	> = {},
-): Omit<AppNotification, "id"> {
+): Omit<AppNotification, "id"> | null {
 	const decoded = decodeProblem(error);
 	if (decoded && !(error instanceof MutationTransportError)) {
 		error = new MutationTransportError(decoded, { cause: error });
@@ -102,6 +102,7 @@ export function notificationForError(
 	}
 
 	const { presentation } = error;
+	if (presentation.silent) return null;
 	const run = presentation.action ? actions[presentation.action] : undefined;
 	return {
 		kind: "error",

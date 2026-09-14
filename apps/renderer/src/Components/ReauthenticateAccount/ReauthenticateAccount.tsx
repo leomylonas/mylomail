@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	ActionableNotification,
@@ -6,7 +7,6 @@ import {
 	Modal,
 	PasswordInput,
 } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import {
 	fetchApi,
 	MutationTransportError,
@@ -26,7 +26,7 @@ export function ReauthenticateAccount({
 	onReauthenticated,
 	onClose,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 	onReauthenticated: () => void;
 	onClose: () => void;
@@ -57,8 +57,7 @@ export function ReauthenticateAccount({
 			hostname: string;
 			sha256Fingerprint: string;
 		}) => {
-			await hub.invoke(
-				"TrustCertificate",
+			await hub.trustCertificate(
 				accountId,
 				certificate.hostname,
 				certificate.sha256Fingerprint,

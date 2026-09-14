@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { Button } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -19,13 +19,13 @@ export function AttachmentList({
 	hub,
 	messageId,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	messageId: string;
 }) {
 	const { store: notifications } = useWindowNotifications();
 	const attachments = useQuery({
 		queryKey: ["attachments", messageId],
-		queryFn: () => hub.invoke<Attachment[]>("GetAttachmentMetadata", messageId),
+		queryFn: () => hub.getAttachmentMetadata(messageId),
 	});
 
 	if (attachments.isError)

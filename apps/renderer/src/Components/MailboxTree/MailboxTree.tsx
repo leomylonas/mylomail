@@ -1,6 +1,6 @@
 import { useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { HubConnection } from "@microsoft/signalr";
 import {
 	Modal,
 	NumberInput,
@@ -18,7 +18,7 @@ import {
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import type {
-	MutationEnqueueResultDto,
+	MailboxSummaryDto,
 	SyncProgressDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
@@ -51,6 +51,8 @@ export interface Mailbox {
 	isCollapsed: boolean;
 	availability: MailboxAvailability;
 	coverage: CoverageStatus;
+	coverageMessagesFetched: number;
+	coverageEstimatedTotal: number | null;
 	initialSyncModeOverride: InitialSyncMode | null;
 	initialSyncBoundValueOverride: number | null;
 	/**
@@ -65,6 +67,33 @@ export interface Mailbox {
 	/** A user correction of {@link specialUse} (§13 Epic 2), for when the automatic guess is
 	 * wrong or the server names things this fallback doesn't recognise. */
 	specialUseOverride: SpecialUse | null;
+}
+
+/**
+ * The generated hub contract represents nullable C# values as optional properties. The
+ * sidebar uses explicit nulls for absent values, so its view model is stable regardless of
+ * whether SignalR omits a null property or sends it as null.
+ */
+function normalizeMailbox(mailbox: MailboxSummaryDto): Mailbox {
+	return {
+		id: mailbox.id,
+		parentId: mailbox.parentId ?? null,
+		name: mailbox.name,
+		providerTotalCount: mailbox.providerTotalCount ?? null,
+		providerUnreadCount: mailbox.providerUnreadCount ?? null,
+		localCount: mailbox.localCount,
+		isCollapsed: mailbox.isCollapsed,
+		availability: mailbox.availability,
+		coverage: mailbox.coverage,
+		coverageMessagesFetched: mailbox.coverageMessagesFetched,
+		coverageEstimatedTotal: mailbox.coverageEstimatedTotal ?? null,
+		initialSyncModeOverride: mailbox.initialSyncModeOverride ?? null,
+		initialSyncBoundValueOverride:
+			mailbox.initialSyncBoundValueOverride ?? null,
+		isSynthesized: mailbox.isSynthesized,
+		specialUse: mailbox.specialUse,
+		specialUseOverride: mailbox.specialUseOverride ?? null,
+	};
 }
 
 interface Capabilities {
@@ -82,7 +111,7 @@ export function MailboxTree({
 	hub,
 	accountId,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 }) {
 	const store = useWindowStore();
@@ -119,14 +148,14 @@ export function MailboxTree({
 		}: {
 			name: string;
 			parentId: string | null;
-		}) => hub.invoke("CreateMailbox", accountId, name, parentId),
+		}) => hub.createMailbox(accountId, name, parentId ?? undefined),
 		onSuccess: refresh,
 		onError: reportFailure("The folder could not be created"),
 	});
 
 	const rename = useMutation({
 		mutationFn: ({ id, name }: { id: string; name: string }) =>
-			hub.invoke("RenameMailbox", id, name),
+			hub.renameMailbox(id, name),
 		onSuccess: refresh,
 		onError: reportFailure("The folder could not be renamed"),
 	});
@@ -140,13 +169,7 @@ export function MailboxTree({
 			sourceMailboxId: string;
 			targetMailboxId: string;
 			claims: OptimisticMessageClaim[];
-		}) =>
-			hub.invoke<MutationEnqueueResultDto>(
-				"MoveMessages",
-				accountId,
-				input.messageIds,
-				input.targetMailboxId,
-			),
+		}) => hub.moveMessages(accountId, input.messageIds, input.targetMailboxId),
 		onMutate: (input) =>
 			hideOptimisticMessages(queryClient, input.sourceMailboxId, input.claims),
 		onSuccess: (result, input) => {
@@ -175,7 +198,7 @@ export function MailboxTree({
 
 	const moveMailbox = useMutation({
 		mutationFn: (input: { mailboxId: string; newParentId: string | null }) =>
-			hub.invoke("MoveMailbox", input.mailboxId, input.newParentId),
+			hub.moveMailbox(input.mailboxId, input.newParentId ?? undefined),
 		onSuccess: refresh,
 		onError: reportFailure("The folder could not be moved"),
 	});
@@ -185,10 +208,9 @@ export function MailboxTree({
 			parentId: string | null;
 			orderedMailboxIds: string[];
 		}) =>
-			hub.invoke(
-				"ReorderMailboxes",
+			hub.reorderMailboxes(
 				accountId,
-				input.parentId,
+				input.parentId ?? undefined,
 				input.orderedMailboxIds,
 			),
 		onSuccess: refresh,
@@ -200,7 +222,7 @@ export function MailboxTree({
 	// local flag, the same choice Sidebar's account-level toggle makes for the same reason.
 	const toggleCollapsed = useMutation({
 		mutationFn: (input: { mailboxId: string; collapsed: boolean }) =>
-			hub.invoke("SetMailboxCollapsed", input.mailboxId, input.collapsed),
+			hub.setMailboxCollapsed(input.mailboxId, input.collapsed),
 		onSuccess: refresh,
 	});
 
@@ -210,11 +232,10 @@ export function MailboxTree({
 			mode: InitialSyncMode | null;
 			boundValue: number | null;
 		}) =>
-			hub.invoke(
-				"SetMailboxInitialSyncOverride",
+			hub.setMailboxInitialSyncOverride(
 				input.mailboxId,
-				input.mode,
-				input.boundValue,
+				input.mode ?? undefined,
+				input.boundValue ?? undefined,
 			),
 		onSuccess: refresh,
 		onError: reportFailure("The sync setting could not be saved"),
@@ -222,18 +243,16 @@ export function MailboxTree({
 
 	const setSpecialUseOverride = useMutation({
 		mutationFn: (input: { mailboxId: string; specialUse: SpecialUse | null }) =>
-			hub.invoke(
-				"SetMailboxSpecialUseOverride",
+			hub.setMailboxSpecialUseOverride(
 				input.mailboxId,
-				input.specialUse,
+				input.specialUse ?? undefined,
 			),
 		onSuccess: refresh,
 		onError: reportFailure("The folder role could not be saved"),
 	});
 
 	const remove = useMutation({
-		mutationFn: (mailbox: Mailbox) =>
-			hub.invoke<boolean>("DeleteMailbox", mailbox.id),
+		mutationFn: (mailbox: Mailbox) => hub.deleteMailbox(mailbox.id),
 		onSuccess: async (messagesWentToo, mailbox) => {
 			// Reported after the fact as well as warned about before it, because the provider
 			// is the one that decides and the answer is not the same on every account.
@@ -256,7 +275,8 @@ export function MailboxTree({
 
 	const mailboxes = useQuery({
 		queryKey: queryKeys.mailboxes(accountId),
-		queryFn: () => hub.invoke<Mailbox[]>("GetMailboxes", accountId),
+		queryFn: async () =>
+			(await hub.getMailboxes(accountId)).map(normalizeMailbox),
 	});
 
 	// Fetched alongside the tree rather than when the confirmation opens: a dialog that has to
@@ -264,8 +284,7 @@ export function MailboxTree({
 	// wording or block on the network at the moment the user is deciding.
 	const capabilities = useQuery({
 		queryKey: queryKeys.accountCapabilities(accountId),
-		queryFn: () =>
-			hub.invoke<Capabilities>("GetAccountCapabilities", accountId),
+		queryFn: () => hub.getAccountCapabilities(accountId),
 	});
 
 	if (mailboxes.isPending) return <SkeletonText paragraph lineCount={5} />;
@@ -418,8 +437,11 @@ export function MailboxTree({
 									{mailbox.name}
 								</span>
 								<span className={styles.metrics}>
+									<MailboxAvailabilityStatus
+										availability={mailbox.availability}
+									/>
 									{mailbox.coverage === CoverageStatus.Backfilling ? (
-										<BackfillProgress mailboxId={mailbox.id} />
+										<BackfillProgress mailbox={mailbox} />
 									) : (
 										<IndexingProgress mailboxId={mailbox.id} />
 									)}
@@ -892,28 +914,57 @@ function describeDeletion(capabilities: Capabilities | undefined): string {
  * of a large inbox holds a fraction of it — so where the server tells us, that is what the
  * sidebar shows. Where it cannot, the local count is shown as what it is (§1).
  */
+export function describeMailboxAvailability(
+	availability: MailboxAvailability,
+): string {
+	switch (availability) {
+		case MailboxAvailability.Usable:
+			return "Usable";
+		case MailboxAvailability.Degraded:
+			return "Degraded";
+		case MailboxAvailability.Unavailable:
+			return "Unavailable";
+		default:
+			return "Unavailable";
+	}
+}
+
+function MailboxAvailabilityStatus({
+	availability,
+}: {
+	availability: MailboxAvailability;
+}) {
+	const label = describeMailboxAvailability(availability);
+
+	return (
+		<span className={styles.availability} aria-label={`Availability: ${label}`}>
+			{label}
+		</span>
+	);
+}
+
 /**
  * "Fetched of estimated" while a mailbox is still backfilling (§13 Epic 3).
  *
- * Reads a cache entry `SyncProgress` events write directly, never fetches one itself: there is
- * no request that would ever produce this value on its own, only the push from the hub. Still
- * a real `useQuery` subscription (`enabled: false` only suppresses fetching, not the observer),
- * so this re-renders on every `SyncProgress` event for this mailbox without any prop drilling.
+ * The summary carries the durable last values, so a window opened mid-backfill renders
+ * progress immediately. A live `SyncProgress` cache entry takes precedence once this window
+ * receives one.
  */
-function BackfillProgress({ mailboxId }: { mailboxId: string }) {
+function BackfillProgress({ mailbox }: { mailbox: Mailbox }) {
 	const { data: progress } = useQuery({
-		queryKey: queryKeys.syncProgress(mailboxId, SyncProgressKind.Coverage),
+		queryKey: queryKeys.syncProgress(mailbox.id, SyncProgressKind.Coverage),
 		queryFn: () => undefined as SyncProgressDto | undefined,
 		enabled: false,
 	});
 
-	if (!progress) return <span className={styles.count}>Syncing…</span>;
+	const fetched = progress?.messagesFetched ?? mailbox.coverageMessagesFetched;
+	const estimatedTotal =
+		progress?.estimatedTotal ?? mailbox.coverageEstimatedTotal;
+	if (mailbox.coverage !== CoverageStatus.Backfilling) return null;
 
 	return (
-		<span className={styles.count}>
-			{progress.estimatedTotal
-				? `${progress.messagesFetched} of ${progress.estimatedTotal}`
-				: `${progress.messagesFetched} synced`}
+		<span className={styles.count} aria-label="Coverage">
+			{estimatedTotal ? `${fetched} of ${estimatedTotal}` : `${fetched} synced`}
 		</span>
 	);
 }

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { InlineNotification } from "@carbon/react";
-import type { HubConnection } from "@microsoft/signalr";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 
 /**
@@ -8,10 +8,10 @@ import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
  * every poll cycle a connection stays down (§7, §15). Renders nothing while online or before
  * the first read of connectivity state completes.
  */
-export function ConnectivityBanner({ hub }: { hub: HubConnection }) {
+export function ConnectivityBanner({ hub }: { hub: MailHubConnection }) {
 	const connectivity = useQuery({
 		queryKey: queryKeys.connectivity(),
-		queryFn: () => hub.invoke<boolean>("GetConnectivity"),
+		queryFn: () => hub.getConnectivity(),
 	});
 
 	if (connectivity.data !== false) return null;

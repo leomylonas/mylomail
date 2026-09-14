@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	useInfiniteQuery,
 	useMutation,
@@ -20,7 +21,6 @@ import {
 	type LegacyColumnDef,
 } from "@tanstack/react-table/legacy";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { HubConnection } from "@microsoft/signalr";
 import {
 	ActionableNotification,
 	Button,
@@ -51,14 +51,15 @@ import {
 	buildForwardSeed,
 	buildReplySeed,
 	resolveOriginalHtml,
+	normalizeMessageBody,
+	normalizeForwardAttachments,
+	normalizeMessageReplyContext,
 	type ComposeSeed,
-	type ForwardAttachment,
-	type MessageReplyContext,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
-import type { MutationEnqueueResultDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type { MessageSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { PendingChangeDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Hubs";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import {
@@ -224,16 +225,18 @@ export function MessageList({
 	accountId,
 	ownAddress,
 	mailboxId,
+	selectedMessageId,
 	query,
 	onSelect,
 	onPrint,
 	onCompose,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 	/** This account's own address, so reply-all can exclude replying to yourself (§13). */
 	ownAddress: string;
 	mailboxId: string;
+	selectedMessageId: string | null;
 	query: string;
 	onSelect: (message: { id: string; subject: string; from: string }) => void;
 	/**
@@ -288,8 +291,8 @@ export function MessageList({
 	// from everywhere would be a different question than the one the user asked.
 	const search = useQuery({
 		queryKey: queryKeys.search(accountId, query, mailboxId),
-		queryFn: () =>
-			hub.invoke<MessageSummary[]>("Search", accountId, query, mailboxId),
+		queryFn: async () =>
+			(await hub.search(accountId, query, mailboxId)).map(normalizeMessage),
 		enabled: searching,
 	});
 
@@ -298,12 +301,9 @@ export function MessageList({
 	// render and an ever-growing payload for every account, not just large ones.
 	const listing = useInfiniteQuery({
 		queryKey: queryKeys.messages(mailboxId),
-		queryFn: ({ pageParam }) =>
-			hub.invoke<MessageSummary[]>(
-				"GetMessages",
-				mailboxId,
-				pageParam,
-				messagePageSize,
+		queryFn: async ({ pageParam }) =>
+			(await hub.getMessages(mailboxId, pageParam, messagePageSize)).map(
+				normalizeMessage,
 			),
 		initialPageParam: 0,
 		getNextPageParam: (lastPage, pages) =>
@@ -336,8 +336,10 @@ export function MessageList({
 	const expandedThreadQueries = useQueries({
 		queries: representedExpandedThreadKeys.map((threadId) => ({
 			queryKey: queryKeys.threadMessages(mailboxId, threadId),
-			queryFn: () =>
-				hub.invoke<MessageSummary[]>("GetThreadMessages", mailboxId, threadId),
+			queryFn: async () =>
+				(await hub.getThreadMessages(mailboxId, threadId)).map(
+					normalizeMessage,
+				),
 		})),
 	});
 	const failedThreadQuery = expandedThreadQueries.find(
@@ -349,8 +351,7 @@ export function MessageList({
 	// is in flight (§6).
 	const pending = useQuery({
 		queryKey: queryKeys.pending(accountId),
-		queryFn: () =>
-			hub.invoke<PendingChangeDto[]>("GetPendingSyncState", accountId),
+		queryFn: () => hub.getPendingSyncState(accountId),
 	});
 	const optimisticMembership = useQuery({
 		queryKey: optimisticMessageIdsKey(mailboxId),
@@ -366,9 +367,8 @@ export function MessageList({
 	);
 	const optimisticallyHiddenIds = new Set(optimisticIds);
 
-	// The enqueue itself failing (hub disconnected, validation) is not the same as a later
-	// provider-side failure, which the global MessageSyncFailed handler already surfaces —
-	// without this, a failure of the hub.invoke() call itself failed with no explanation.
+	// The enqueue itself failing (disconnection or validation) differs from a later provider
+	// failure announced by the global MessageSyncFailed receiver, so it needs local feedback.
 	const reportFailure = (title: string) => (error: unknown) =>
 		notify(notifications, notificationForError(error, title));
 
@@ -385,12 +385,11 @@ export function MessageList({
 			isRead: boolean | null;
 			isFlagged: boolean | null;
 		}) =>
-			hub.invoke(
-				"SetFlags",
+			hub.setFlags(
 				accountId,
 				messages.map((message) => message.id),
-				isRead,
-				isFlagged,
+				isRead ?? undefined,
+				isFlagged ?? undefined,
 			),
 		onSettled: () =>
 			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) }),
@@ -399,8 +398,7 @@ export function MessageList({
 
 	const trash = useMutation({
 		mutationFn: (input: MembershipMutationInput) =>
-			hub.invoke<MutationEnqueueResultDto>(
-				"MoveToTrash",
+			hub.moveToTrash(
 				accountId,
 				input.messages.map((message) => message.id),
 			),
@@ -430,8 +428,7 @@ export function MessageList({
 	// provider's own trash still lets the user recover from.
 	const deletePermanently = useMutation({
 		mutationFn: (input: MembershipMutationInput) =>
-			hub.invoke<MutationEnqueueResultDto>(
-				"DeletePermanently",
+			hub.deletePermanently(
 				accountId,
 				input.messages.map((message) => message.id),
 			),
@@ -461,7 +458,7 @@ export function MessageList({
 	// "Move to" submenu costs no extra round trip once the sidebar has already loaded it.
 	const mailboxes = useQuery({
 		queryKey: queryKeys.mailboxes(accountId),
-		queryFn: () => hub.invoke<MailboxOption[]>("GetMailboxes", accountId),
+		queryFn: () => hub.getMailboxes(accountId),
 	});
 	const selectedMailbox = mailboxes.data?.find(
 		(mailbox) => mailbox.id === mailboxId,
@@ -480,8 +477,7 @@ export function MessageList({
 	// trash had no path except drag-and-drop.
 	const moveMessages = useMutation({
 		mutationFn: (input: MoveMutationInput) =>
-			hub.invoke<MutationEnqueueResultDto>(
-				"MoveMessages",
+			hub.moveMessages(
 				accountId,
 				input.messages.map((message) => message.id),
 				input.targetMailboxId,
@@ -580,6 +576,26 @@ export function MessageList({
 		estimateSize: () => rowHeightEstimate,
 		overscan: 8,
 	});
+	const selectedMessageIndex = rows.findIndex(
+		(row) => row.original.id === selectedMessageId,
+	);
+
+	// Selection is normally owned here so ctrl/shift-click can form a multi-selection, while the
+	// reading pane's active message lives in the per-window store. External navigation (notably a
+	// native-notification click) updates only that store, so reconcile the row selection and
+	// viewport when its active message changes rather than leaving the previous visual selection.
+	useEffect(() => {
+		setSelectedIds((current) => {
+			if (selectedMessageId === null)
+				return current.size === 0 ? current : new Set();
+			return current.size === 1 && current.has(selectedMessageId)
+				? current
+				: new Set([selectedMessageId]);
+		});
+		setAnchorIndex(selectedMessageIndex >= 0 ? selectedMessageIndex : null);
+		if (selectedMessageIndex >= 0)
+			virtualizer.scrollToIndex(selectedMessageIndex, { align: "auto" });
+	}, [selectedMessageId, selectedMessageIndex, virtualizer]);
 
 	// A scroll offset from the previous mailbox (or search) means nothing against a completely
 	// different result set — left alone, switching mailboxes deep in a long list leaves the view
@@ -1195,7 +1211,7 @@ export function messageActions(
 	}) => void,
 	mailboxOptions: MailboxOption[],
 	trashUnavailable: string | undefined,
-	hub: HubConnection,
+	hub: MailHubConnection,
 	queryClient: QueryClient,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
 	onCompose: (seed: ComposeSeed) => void,
@@ -1310,29 +1326,24 @@ export function messageActions(
  * `MessageSummary` carries only `from`, not the `to`/`cc`/reply-to a reply actually needs (§13).
  */
 async function replyTo(
-	hub: HubConnection,
+	hub: MailHubConnection,
 	message: MessageSummary,
 	mode: "reply" | "replyAll",
 	ownAddress: string,
 	onCompose: (seed: ComposeSeed) => void,
 ): Promise<void> {
 	const [context, body, attachments] = await Promise.all([
-		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
-		hub.invoke<{
-			html: string | null;
-			text: string | null;
-			isFetched: boolean;
-			isFailed: boolean;
-		}>("GetMessageBody", message.id),
-		hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", message.id),
+		hub.getMessageReplyContext(message.id),
+		hub.getMessageBody(message.id),
+		hub.getAttachmentMetadata(message.id),
 	]);
 	onCompose(
 		buildReplySeed(
 			mode,
-			context,
-			resolveOriginalHtml(body),
+			normalizeMessageReplyContext(context),
+			resolveOriginalHtml(normalizeMessageBody(body)),
 			ownAddress,
-			attachments,
+			normalizeForwardAttachments(attachments),
 		),
 	);
 }
@@ -1342,21 +1353,22 @@ async function replyTo(
  * the new draft by `Compose` itself once it exists, not fetched here (§13).
  */
 async function forward(
-	hub: HubConnection,
+	hub: MailHubConnection,
 	message: MessageSummary,
 	onCompose: (seed: ComposeSeed) => void,
 ): Promise<void> {
 	const [context, body, attachments] = await Promise.all([
-		hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
-		hub.invoke<{
-			html: string | null;
-			text: string | null;
-			isFetched: boolean;
-			isFailed: boolean;
-		}>("GetMessageBody", message.id),
-		hub.invoke<ForwardAttachment[]>("GetAttachmentMetadata", message.id),
+		hub.getMessageReplyContext(message.id),
+		hub.getMessageBody(message.id),
+		hub.getAttachmentMetadata(message.id),
 	]);
-	onCompose(buildForwardSeed(context, resolveOriginalHtml(body), attachments));
+	onCompose(
+		buildForwardSeed(
+			normalizeMessageReplyContext(context),
+			resolveOriginalHtml(normalizeMessageBody(body)),
+			normalizeForwardAttachments(attachments),
+		),
+	);
 }
 
 /**
@@ -1365,7 +1377,7 @@ async function forward(
  * reports ready, so Electron never captures a loading skeleton or a partly resolved body.
  */
 async function printMessage(
-	hub: HubConnection,
+	hub: MailHubConnection,
 	queryClient: QueryClient,
 	message: MessageSummary,
 	onPrint: (message: { id: string; subject: string; from: string }) => void,
@@ -1373,12 +1385,15 @@ async function printMessage(
 	await Promise.all([
 		queryClient.fetchQuery({
 			queryKey: ["body", message.id],
-			queryFn: () => hub.invoke("GetMessageBody", message.id),
+			queryFn: async () =>
+				normalizeMessageBody(await hub.getMessageBody(message.id)),
 		}),
 		queryClient.fetchQuery({
 			queryKey: ["message-context", message.id],
-			queryFn: () =>
-				hub.invoke<MessageReplyContext>("GetMessageReplyContext", message.id),
+			queryFn: async () =>
+				normalizeMessageReplyContext(
+					await hub.getMessageReplyContext(message.id),
+				),
 		}),
 	]);
 	onPrint({ ...message, from: senderAddress(message) });
@@ -1390,10 +1405,10 @@ async function printMessage(
  * Electron's `BrowserWindow` already runs — is for (§13 Export).
  */
 async function saveAsEml(
-	hub: HubConnection,
+	hub: MailHubConnection,
 	message: MessageSummary,
 ): Promise<void> {
-	const base64 = await hub.invoke<string>("SaveMessageAsEml", message.id);
+	const base64 = await hub.saveMessageAsEml(message.id);
 	const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 	const blob = new Blob([bytes], { type: "message/rfc822" });
 	const url = URL.createObjectURL(blob);
@@ -1427,6 +1442,22 @@ export function projectPendingFlags(
 		...message,
 		isRead: desiredRead ?? message.isRead,
 		isFlagged: desiredFlag ?? message.isFlagged,
+	};
+}
+
+function normalizeMessage(message: MessageSummaryDto): MessageSummary {
+	return {
+		...message,
+		from: message.from.map((address) => ({
+			name: address.name ?? null,
+			email: address.email,
+		})),
+		receivedAt:
+			typeof message.receivedAt === "string"
+				? message.receivedAt
+				: message.receivedAt.toISOString(),
+		mutationFailure: message.mutationFailure ?? null,
+		threadId: message.threadId ?? null,
 	};
 }
 

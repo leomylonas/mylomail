@@ -11,6 +11,8 @@ import {
 	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
+	requestComposeCloseChannel,
+	composeCloseReadyChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
@@ -69,6 +71,16 @@ contextBridge.exposeInMainWorld("windows", {
 		ipcRenderer.invoke(reportDraftStateChannel, draftId) as Promise<void>,
 	focusDraftIfOpen: (draftId: string): Promise<boolean> =>
 		ipcRenderer.invoke(focusDraftWindowChannel, draftId) as Promise<boolean>,
+	onComposeCloseRequest: (callback: () => Promise<boolean>): (() => void) => {
+		const handler = () => {
+			void callback().then(
+				(saved) => ipcRenderer.send(composeCloseReadyChannel, saved),
+				() => ipcRenderer.send(composeCloseReadyChannel, false),
+			);
+		};
+		ipcRenderer.on(requestComposeCloseChannel, handler);
+		return () => ipcRenderer.off(requestComposeCloseChannel, handler);
+	},
 });
 
 /**

@@ -72,25 +72,29 @@ describe("problem-details transport", () => {
 		});
 	});
 
-	it.each([
-		[ErrorCategory.Auth, "Sign in again", true],
-		[ErrorCategory.RateLimit, "Slowed down by the provider", false],
-	] as const)(
-		"drives notification behavior from category %s",
-		(category, title, persistent) => {
-			const error = new MutationTransportError({
-				category,
-				detail: "Provider detail",
-				extensions: {},
-			});
+	it("presents authentication failures as persistent reauthentication notifications", () => {
+		const error = new MutationTransportError({
+			category: ErrorCategory.Auth,
+			detail: "Provider detail",
+			extensions: {},
+		});
 
-			expect(notificationForError(error, "fallback")).toMatchObject({
-				title,
-				detail: "Provider detail",
-				persistent,
-			});
-		},
-	);
+		expect(notificationForError(error, "fallback")).toMatchObject({
+			title: "Sign in again",
+			detail: "Provider detail",
+			persistent: true,
+		});
+	});
+
+	it("does not create a notification while a provider rate limit is in effect", () => {
+		const error = new MutationTransportError({
+			category: ErrorCategory.RateLimit,
+			detail: "Provider detail",
+			extensions: {},
+		});
+
+		expect(notificationForError(error, "fallback")).toBeNull();
+	});
 
 	it("classifies a fetch failure as transient network loss", async () => {
 		vi.stubGlobal(

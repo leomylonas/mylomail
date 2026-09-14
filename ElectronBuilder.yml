@@ -27,6 +27,9 @@ linux:
   executableName: mylomail
   category: Network
   synopsis: Private desktop mail and calendar client
+  desktop:
+    entry:
+      Name: Mylo Mail
   target:
     - AppImage
     - deb

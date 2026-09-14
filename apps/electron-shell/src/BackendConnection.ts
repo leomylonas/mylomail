@@ -20,6 +20,8 @@ export const updateCloseBehaviorChannel =
 	"shell-settings:close-behavior-changed";
 export const reportDraftStateChannel = "draft:state-changed";
 export const focusDraftWindowChannel = "draft:focus-if-open";
+export const requestComposeCloseChannel = "draft:request-close";
+export const composeCloseReadyChannel = "draft:close-ready";
 
 /**
  * What the renderer hands the shell to show a native OS notification (§13 Epic 9).

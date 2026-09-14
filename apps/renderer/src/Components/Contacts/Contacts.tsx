@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	ActionableNotification,
 	Button,
@@ -6,11 +7,7 @@ import {
 	TextInput,
 } from "@carbon/react";
 import { useState } from "react";
-import type { HubConnection } from "@microsoft/signalr";
-import type {
-	ContactDto,
-	SaveContactRequest,
-} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type { SaveContactRequest } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 
@@ -29,7 +26,7 @@ export function Contacts({
 	accountId,
 	providerType,
 }: {
-	hub: HubConnection;
+	hub: MailHubConnection;
 	accountId: string;
 	providerType: ProviderType;
 }) {
@@ -41,11 +38,7 @@ export function Contacts({
 	const contacts = useQuery({
 		queryKey: queryKeys.contacts(accountId, query),
 		queryFn: () =>
-			hub.invoke<ContactDto[]>(
-				query ? "SearchContacts" : "GetContacts",
-				accountId,
-				...(query ? [query] : []),
-			),
+			query ? hub.searchContacts(accountId, query) : hub.getContacts(accountId),
 	});
 	const providerSupportsDeletion = providerType !== ProviderType.Gmail;
 
@@ -76,7 +69,7 @@ export function Contacts({
 				.filter(Boolean),
 			expectedRevision: editing.expectedRevision,
 		};
-		void run(() => hub.invoke("SaveContact", request));
+		void run(() => hub.saveContact(request));
 	};
 
 	return (
@@ -157,9 +150,9 @@ export function Contacts({
 							onClick={() => {
 								if (window.confirm(`Delete ${contact.displayName}?`)) {
 									void run(() =>
-										hub.invoke("DeleteContact", {
+										hub.deleteContact({
 											contactId: contact.id,
-											expectedRevision: contact.providerRevision,
+											expectedRevision: contact.providerRevision ?? undefined,
 										}),
 									);
 								}
@@ -179,7 +172,7 @@ export function Contacts({
 										)
 									) {
 										void run(() =>
-											hub.invoke("AbandonAmbiguousContactCreate", contact.id),
+											hub.abandonAmbiguousContactCreate(contact.id),
 										);
 									}
 								}}
@@ -194,9 +187,7 @@ export function Contacts({
 									kind="tertiary"
 									disabled={busy}
 									onClick={() =>
-										void run(() =>
-											hub.invoke("ResolveContactConflict", contact.id, true),
-										)
+										void run(() => hub.resolveContactConflict(contact.id, true))
 									}
 								>
 									Keep mine
@@ -207,7 +198,7 @@ export function Contacts({
 									disabled={busy}
 									onClick={() =>
 										void run(() =>
-											hub.invoke("ResolveContactConflict", contact.id, false),
+											hub.resolveContactConflict(contact.id, false),
 										)
 									}
 								>
