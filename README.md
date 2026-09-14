@@ -47,22 +47,15 @@ the OS-standard per-user data directory.
 
 ## Run the desktop app
 
-Build the renderer and Electron shell:
+Launch the development shell and its backend:
 
 ```bash
-pnpm build:renderer
-pnpm build:shell
+pnpm app
 ```
 
-Then launch Electron with the backend project as its child process:
-
-```bash
-MYLOMAIL_BACKEND_ARGS="run --project server/MyloMail.Api" pnpm app
-```
-
-`pnpm app` runs both build commands before it launches, so the three commands above
-are useful when you want to build explicitly; the launch command alone is sufficient
-for the usual workflow.
+`pnpm app` builds the current Electron bundles, starts the backend project as its
+child process, and launches Electron through a cross-platform Node script. The
+launch command alone is sufficient for the usual workflow.
 
 On first launch, MyloMail uses the native credential store when one is available.
 Otherwise, the shell prompts for a master password. The default data directory is
@@ -112,8 +105,6 @@ Run the real Electron end-to-end suite against the local IMAP capability matrix:
 
 ```bash
 pnpm imap:up
-pnpm build:renderer
-pnpm build:shell
 pnpm e2e
 pnpm imap:down
 ```
@@ -127,8 +118,7 @@ ports, capability tiers, and environment variables.
 ```bash
 pnpm format       # apply repository formatting
 pnpm format:check # check formatting only
-pnpm build:renderer
-pnpm build:shell
+pnpm build:electron
 pnpm package       # build this host's unsigned installers/packages
 pnpm package:smoke # launch the unpacked package through Playwright
 ```

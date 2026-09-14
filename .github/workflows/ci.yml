@@ -22,6 +22,11 @@ jobs:
       - run: dotnet tool restore
       - run: pnpm install --frozen-lockfile
       - run: pnpm generate:types
+      - name: Verify generated types are committed
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain --untracked-files=all -- packages/shared-types/src)"
+      - run: pnpm build:electron
       - run: pnpm check
 
   cross-platform-check:
@@ -44,6 +49,10 @@ jobs:
       - run: dotnet tool restore
       - run: pnpm install --frozen-lockfile
       - run: pnpm generate:types
+      - name: Verify generated types are committed
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain --untracked-files=all -- packages/shared-types/src)"
       - name: Verify complete suite
         if: runner.os == 'Linux'
         run: pnpm exec tsx scripts/RunCICommand.ts pnpm check
