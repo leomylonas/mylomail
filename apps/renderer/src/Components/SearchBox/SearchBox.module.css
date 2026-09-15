@@ -1,4 +1,15 @@
 .box {
-	padding: var(--cds-spacing-03) var(--cds-spacing-05);
-	border-bottom: 1px solid var(--cds-border-subtle);
+	width: 100%;
+	padding-inline: var(--cds-spacing-04);
+}
+
+.search {
+	border-radius: 0.25rem;
+	overflow: hidden;
+}
+
+.search :global(input) {
+	border-bottom: none;
+	background: rgb(255 255 255 / 92%);
+	color: var(--cds-text-primary);
 }

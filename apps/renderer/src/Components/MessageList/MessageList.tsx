@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Attachment, FlagFilled, WarningAltFilled } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	useInfiniteQuery,
@@ -132,7 +133,12 @@ const columnHelper = createColumnHelper<MessageSummary>();
  * constant rather than a per-row measurement, and `measureElement` still corrects it if a row
  * ever does render taller (e.g. a very long wrapped subject).
  */
-const rowHeightEstimate = 64;
+const rowHeightEstimate = 88;
+
+const messageDateFormatter = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+});
 
 /** Messages fetched per `GetMessages` page (§12) — also the signal `hasNextPage` uses: a
  * page shorter than this is the last one. */
@@ -779,7 +785,16 @@ export function MessageList({
 		);
 
 	return (
-		<>
+		<section className={styles.messageList} aria-label="Messages">
+			<header className={styles.listHeader}>
+				<div>
+					<span className={styles.eyebrow}>Mailbox</span>
+					<h2>{selectedMailbox?.name ?? "Messages"}</h2>
+				</div>
+				<span className={styles.resultCount}>
+					{rows.length} {rows.length === 1 ? "message" : "messages"}
+				</span>
+			</header>
 			<div className={styles.toolbar}>
 				<TextInput
 					id="message-list-filter"
@@ -1066,10 +1081,10 @@ export function MessageList({
 												});
 										}}
 									>
-										<span className={styles.cell}>
+										<span className={`${styles.cell} ${styles.senderCell}`}>
 											{describeSender(message)}
 										</span>
-										<span className={styles.cell}>
+										<span className={`${styles.cell} ${styles.subjectCell}`}>
 											{message.subject || "(no subject)"}
 											{threadMode === "collapsed" && threadMessageCount > 1 ? (
 												<span className={styles.sender}>
@@ -1090,8 +1105,10 @@ export function MessageList({
 													)
 												: message.snippet}
 										</span>
-										<span className={styles.cell}>
-											{new Date(message.receivedAt).toLocaleString()}
+										<span className={`${styles.cell} ${styles.dateCell}`}>
+											{messageDateFormatter.format(
+												new Date(message.receivedAt),
+											)}
 										</span>
 										<span className={styles.state}>
 											{read ? "Read" : "Unread"}
@@ -1100,8 +1117,11 @@ export function MessageList({
 											{message.isFlagged ? "Flagged" : "Unflagged"}
 										</span>
 										<span className={styles.indicators}>
+											{message.isFlagged ? (
+												<FlagFilled size={16} aria-hidden="true" />
+											) : null}
 											{message.hasNonInlineAttachments ? (
-												<span aria-hidden="true">📎</span>
+												<Attachment size={16} aria-hidden="true" />
 											) : null}
 											{message.mutationFailure !== null ? (
 												<span
@@ -1111,7 +1131,7 @@ export function MessageList({
 													}
 													title={present(message.mutationFailure, null).title}
 												>
-													⚠️
+													<WarningAltFilled size={16} />
 												</span>
 											) : null}
 										</span>
@@ -1185,7 +1205,7 @@ export function MessageList({
 					)}
 				/>
 			) : null}
-		</>
+		</section>
 	);
 }
 

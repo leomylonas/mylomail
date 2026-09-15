@@ -2,23 +2,21 @@
 
 ## Completed work
 
-- Completed the fifth architecture audit and remediated all seven findings. The scope, findings, fixes, and verification record are in `docs/architecture-audit-fifth-pass.md`.
-- Moved the detached-compose durable-save barrier ahead of last-window minimize-to-tray handling. Tray interception now consumes close approval, so a restored compose must save again on its next close.
-- Distinguished RFC 6578 `DAV:valid-sync-token` rejection from ordinary CalDAV 403 access denial. Only the marker resets the cursor; ordinary denial is a structured `ProviderRejected` account error.
-- Persisted and announced `AuthState.Error` for missing contact-provider configuration across refresh, execution, and reconciliation while preserving Pending/Ambiguous intent semantics.
-- Added a content-unavailable boundary for malformed stored MIME in attachment and inline-part reads, transported as `ProviderRejected`/HTTP 422.
-- Made notification relay safe when the optional native bridge is absent; the durable notification remains pending for a later shell connection.
-- Removed the redundant panel-layout debounce. Completed resizes now enter a serialized main-process IPC write chain, and normal quit drains every observed tail before stopping the backend.
-- Actual Electron testing exposed and fixed `MailHub.GetDrafts` ordering `DateTimeOffset` inside SQLite. Drafts now materialize per account and sort client-side, so detached compose windows can load saved drafts.
-- Added displayless Linux Electron support when a Wayland compositor is explicitly supplied through `WAYLAND_DISPLAY`; normal desktop and existing CI launch behavior is unchanged.
+- Reworked the renderer into a modern Outlook-style desktop hierarchy without changing the frozen shell architecture: branded app bar, global mail search, persistent application rail, contextual mail command bar, and the existing per-window resizable folder/list/reading workspace.
+- Redesigned the folder pane around account sections and compact two-line mailbox rows while retaining persistent collapse/reorder behavior, provider counts, availability warnings, drag/drop, and keyboard/context-menu paths.
+- Redesigned the message list as a dense Outlook-style stacked list with a mailbox heading, compact filters, visible sortable controls, locale-aware dates, unread/selected treatment, and Carbon attachment/flag/failure icons.
+- Restyled the reading pane, compose view, drafts, account settings, app settings, add-account form, calendar, and contacts into one consistent Carbon-token surface. Contacts now has a proper page header, search region, contact cards, status chips, and editor panel.
+- Added `@carbon/icons-react` as a direct renderer dependency and removed emoji-based warning/attachment affordances from the touched surfaces.
+- Preserved the mail command bar while app settings is open because the detached-compose/tray workflow relies on New message remaining reachable there.
 
 ## Verification
 
 - Final `pnpm check`: format, TypeScript, ESLint, Stylelint, build, 697 .NET tests, and 226 Vitest tests passed.
-- Complete actual-Electron suite: 26 workflows passed; the packaged-native attachment workflow remained skipped by its existing environment gate.
-- Focused Electron regressions passed for save-before-tray, save-after-restore, and immediate-close panel-layout persistence. Panel-layout persistence also passed three consecutive repetitions.
-- Initial invariant review found no violation in CalDAV/contact changes. A later review found two close-order gaps in layout draining and reusable compose approval; both were corrected, and a fresh invariant review found no remaining violation.
-- Deep scenarios were not rerun because repository policy reserves `pnpm check:deep` for explicit requests. No synchronous mutation dispatch or cursor/data commit boundary was changed.
+- Actual Electron visual smoke passed at 1440×900 for Mail, Compose, Account settings, Add account, Settings, People, and Calendar; screenshots were inspected and the throwaway smoke spec was removed afterward.
+- Actual Electron minimum-window layout test passed at the enforced 720×480 minimum with no document overflow and all three resizable panels usable.
+- Actual Electron MailFlow, Compose, Calendar empty/editor/invite, and Drafts server-save flows passed. MailFlow covered the sortable/filterable list and keyboard actions against a real IMAP server.
+- Actual Electron CalDAV CRUD and detached-compose multi-window/tray restore regressions passed after the UI command-bar visibility correction.
+- `pnpm check:deep` was not run because repository policy reserves it for explicit requests. This change did not touch persistence, provider, sync, mutation, or reconciliation invariants.
 
 ## External verification still required
 
@@ -27,19 +25,18 @@
 
 ## Next task
 
-- Architecture remediation is complete. Continue targeted visual and exploratory UI testing beyond the now-green end-to-end workflow suite, prioritizing responsive layout, keyboard-only flows, focus restoration, error presentation, and multi-window behavior.
+- UI rework is complete and green. Continue only from concrete product feedback or a named interaction/accessibility issue; do not restructure the frozen per-window shell/store/query boundaries.
 
 ## Required reading
 
 - `AGENTS.md`
-- `docs/architecture-audit-fifth-pass.md`
-- `docs/reviews/invariant-review.md`
+- `docs/architecture.md` §12 and §13
+- `docs/skills/frontend-shell.md`
 - The relevant guide under `docs/skills/` before changing persistence, providers, sync, mutations, fault injection, or the frontend shell.
 
 ## Live risks / decisions
 
-- `AuthState.Error` and `NeedsReauth` pause runtime jobs until explicit account recovery; `CredentialStoreUnavailable` remains retryable because successful provider access self-clears it.
-- Notification retention intentionally outlives delivery. An absent native bridge or failed display leaves the row pending; at-least-once replay and durable-id deduplication remain deliberate.
-- Panel-layout persistence is global-default state. Existing windows keep independent live layouts; only the next window inherits the latest completed resize.
-- Explicit application Quit removes Electron-owned GNOME notifications. Delivered records are not replayed on restart; minimize-to-tray remains the supported path for background notifications and scheduled work.
+- The visual target is modern Outlook's hierarchy and density, implemented with Carbon components/tokens rather than a pixel copy or Microsoft-specific controls.
+- Search remains mailbox/account scoped even though it now occupies the global app-bar position; no query or backend semantics changed.
+- Panel layout remains global-default state with per-window live independence. Existing windows keep their own layout; only a later window inherits the latest completed resize.
 - Gmail expired-history and native RSVP coverage remain conditional on external fixtures rather than nondeterministic substitutes.

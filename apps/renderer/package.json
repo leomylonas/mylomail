@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@carbon/icons-react": "^11.88.0",
     "@carbon/react": "^1.115.0",
     "@ibm/plex": "6.4.1",
     "@leomylonas/json-fetch-client": "^0.0.3",

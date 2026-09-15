@@ -1,16 +1,48 @@
 .settings {
 	display: flex;
 	flex-direction: column;
-	gap: var(--cds-spacing-04);
+	gap: var(--cds-spacing-05);
+	height: 100%;
+	max-width: 42rem;
 	padding: var(--cds-spacing-05);
+	overflow-y: auto;
+	background: var(--cds-background);
+}
+
+.pageHeader {
+	padding-bottom: var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.pageHeader h2 {
+	margin: var(--cds-spacing-02) 0 0;
+	font-size: 1.5rem;
+	font-weight: 400;
+}
+
+.pageHeader p {
+	margin: var(--cds-spacing-02) 0 0;
+	color: var(--cds-text-secondary);
+	font-size: 0.875rem;
+}
+
+.eyebrow {
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
 }
 
 .colorField {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	gap: var(--cds-spacing-03);
-	font-size: 0.75rem;
+	padding: var(--cds-spacing-03);
+	border-bottom: 1px solid var(--cds-border-subtle);
 	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
 }
 
 .colorField input {
@@ -24,14 +56,27 @@
 
 .helper {
 	margin: 0;
-	font-size: 0.75rem;
 	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+	line-height: 1.5;
 }
 
 .dangerZone {
 	display: flex;
 	flex-direction: column;
 	gap: var(--cds-spacing-03);
-	padding-top: var(--cds-spacing-04);
-	border-top: 1px solid var(--cds-border-subtle);
+	padding: var(--cds-spacing-05);
+	border: 1px solid var(--cds-support-error);
+	background: var(--cds-layer);
+}
+
+.dangerZone h4,
+.dangerZone p {
+	margin: 0;
+}
+
+@media (width <= 48rem) {
+	.settings {
+		padding: var(--cds-spacing-04);
+	}
 }

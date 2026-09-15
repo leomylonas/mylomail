@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { WarningAltFilled } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
@@ -67,6 +68,10 @@ export function Sidebar({
 
 	return (
 		<nav className={styles.sidebar} aria-label="Accounts and mailboxes">
+			<div className={styles.paneHeading}>
+				<span className={styles.eyebrow}>Mail</span>
+				<h2>Folders</h2>
+			</div>
 			{accounts.map((account) => {
 				const isCollapsed = account.sidebarCollapsed ?? false;
 				const authWarning =
@@ -134,8 +139,12 @@ export function Sidebar({
 								{account.displayName}
 							</span>
 							{authWarning ? (
-								<span role="img" aria-label={authWarning} title={authWarning}>
-									⚠️
+								<span
+									className={styles.warning}
+									aria-label={authWarning}
+									title={authWarning}
+								>
+									<WarningAltFilled size={16} />
 								</span>
 							) : null}
 						</button>

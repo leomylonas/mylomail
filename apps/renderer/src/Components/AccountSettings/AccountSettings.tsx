@@ -195,6 +195,11 @@ export function AccountSettings({
 
 	return (
 		<div className={styles.settings}>
+			<header className={styles.pageHeader}>
+				<span className={styles.eyebrow}>Account</span>
+				<h2>Account settings</h2>
+				<p>Mail, sync, security, and sending preferences</p>
+			</header>
 			<TextInput
 				id="settings-name"
 				labelText="Account name"

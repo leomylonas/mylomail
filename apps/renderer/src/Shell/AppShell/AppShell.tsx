@@ -27,7 +27,19 @@ import { ReauthenticateAccount } from "@mylomail/renderer/Components/Reauthentic
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
 import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBanner/ConnectivityBanner";
 import { Contacts } from "@mylomail/renderer/Components/Contacts/Contacts";
-import { ActionableNotification, Button } from "@carbon/react";
+import { ActionableNotification, Button, IconButton } from "@carbon/react";
+import {
+	Add,
+	Calendar as CalendarIcon,
+	Email,
+	Folder,
+	Launch,
+	OpenPanelLeft,
+	OpenPanelRight,
+	Settings as SettingsIcon,
+	SettingsAdjust,
+	UserMultiple,
+} from "@carbon/icons-react";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import {
@@ -348,89 +360,155 @@ export function AppShell({
 
 	return (
 		<div className={styles.shell}>
-			<header className={styles.header}>
-				<h1 className={styles.title}>MyloMail</h1>
-				<span className={styles.status}>
-					{describe(status, accounts.data, accounts.isError)}
-				</span>
-				<Button
-					size="sm"
-					disabled={!selectedAccountId}
-					onClick={openComposeShortcut}
-				>
-					New message
-				</Button>
-				<Button
-					size="sm"
+			<header className={styles.appBar}>
+				<div className={styles.brand}>
+					<span className={styles.brandMark} aria-hidden="true">
+						M
+					</span>
+					<h1 className={styles.title}>MyloMail</h1>
+				</div>
+				<div className={styles.globalSearch}>
+					{isMailPane(effectivePane) ? (
+						<SearchBox query={query} onChange={setQuery} />
+					) : (
+						<span className={styles.sectionTitle}>
+							{paneTitle(effectivePane)}
+						</span>
+					)}
+				</div>
+				<div className={styles.appBarActions}>
+					<span className={styles.status}>
+						<span className={styles.statusDot} aria-hidden="true" />
+						{describe(status, accounts.data, accounts.isError)}
+					</span>
+					{window.windows ? (
+						<IconButton
+							className={styles.utilityButton}
+							label="New window"
+							kind="ghost"
+							size="lg"
+							align="bottom-end"
+							onClick={() => void window.windows?.open()}
+						>
+							<Launch size={20} />
+						</IconButton>
+					) : null}
+				</div>
+			</header>
+
+			<nav className={styles.appRail} aria-label="Primary">
+				<IconButton
+					className={styles.railButton}
+					label="Mail"
 					kind="ghost"
-					disabled={!selectedAccountId}
-					onClick={() => setPane("drafts")}
+					size="lg"
+					align="right"
+					isSelected={isMailPane(effectivePane)}
+					onClick={() => setPane("reading")}
 				>
-					Drafts
-				</Button>
-				<Button
-					size="sm"
+					<Email size={20} />
+				</IconButton>
+				<IconButton
+					className={styles.railButton}
+					label="Calendar"
 					kind="ghost"
-					disabled={!selectedAccountId}
-					onClick={() => setPane("settings")}
-				>
-					Account settings
-				</Button>
-				<Button size="sm" kind="ghost" onClick={() => setPane("app-settings")}>
-					Settings
-				</Button>
-				<Button size="sm" kind="ghost" onClick={() => setPane("add-account")}>
-					Add account
-				</Button>
-				<Button
-					size="sm"
-					kind="ghost"
+					size="lg"
+					align="right"
 					disabled={!accounts.data?.length}
+					isSelected={effectivePane === "calendar"}
 					onClick={() => setPane("calendar")}
 				>
-					Calendar
-				</Button>
-				{window.windows ? (
+					<CalendarIcon size={20} />
+				</IconButton>
+				{selectedAccountId && hub ? (
+					<IconButton
+						className={styles.railButton}
+						label="Contacts"
+						kind="ghost"
+						size="lg"
+						align="right"
+						isSelected={effectivePane === "contacts"}
+						onClick={() => setPane("contacts")}
+					>
+						<UserMultiple size={20} />
+					</IconButton>
+				) : null}
+				<IconButton
+					className={styles.railButton}
+					label="Settings"
+					kind="ghost"
+					size="lg"
+					align="right"
+					isSelected={effectivePane === "app-settings"}
+					onClick={() => setPane("app-settings")}
+				>
+					<SettingsIcon size={20} />
+				</IconButton>
+			</nav>
+
+			{isMailPane(effectivePane) || effectivePane === "app-settings" ? (
+				<div className={styles.commandBar} aria-label="Mail commands">
+					<Button
+						size="sm"
+						renderIcon={Email}
+						disabled={!selectedAccountId}
+						onClick={openComposeShortcut}
+					>
+						New message
+					</Button>
 					<Button
 						size="sm"
 						kind="ghost"
-						onClick={() => void window.windows?.open()}
+						renderIcon={Folder}
+						disabled={!selectedAccountId}
+						onClick={() => setPane("drafts")}
 					>
-						New window
+						Drafts
 					</Button>
-				) : null}
-				{selectedAccountId && hub ? (
-					<Button size="sm" kind="ghost" onClick={() => setPane("contacts")}>
-						Contacts
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={SettingsAdjust}
+						disabled={!selectedAccountId}
+						onClick={() => setPane("settings")}
+					>
+						Account settings
 					</Button>
-				) : null}
-				{effectivePane !== "calendar" ? (
-					<>
-						<Button
-							size="sm"
-							kind="ghost"
-							onClick={() =>
-								sidebarRef.current?.isCollapsed()
-									? sidebarRef.current.expand()
-									: sidebarRef.current?.collapse()
-							}
-						>
-							Toggle sidebar
-						</Button>
-						<Button
-							size="sm"
-							kind="ghost"
-							onClick={() =>
-								detailRef.current?.isCollapsed()
-									? detailRef.current.expand()
-									: detailRef.current?.collapse()
-							}
-						>
-							Toggle reading pane
-						</Button>
-					</>
-				) : null}
-			</header>
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={Add}
+						onClick={() => setPane("add-account")}
+					>
+						Add account
+					</Button>
+					<span className={styles.commandDivider} aria-hidden="true" />
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={OpenPanelLeft}
+						onClick={() =>
+							sidebarRef.current?.isCollapsed()
+								? sidebarRef.current.expand()
+								: sidebarRef.current?.collapse()
+						}
+					>
+						Toggle sidebar
+					</Button>
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={OpenPanelRight}
+						onClick={() =>
+							detailRef.current?.isCollapsed()
+								? detailRef.current.expand()
+								: detailRef.current?.collapse()
+						}
+					>
+						Toggle reading pane
+					</Button>
+				</div>
+			) : null}
 
 			<div className={styles.screenOnly}>
 				{hub ? <ConnectivityBanner hub={hub} /> : null}
@@ -516,7 +594,6 @@ export function AppShell({
 					<Separator className={styles.handle} />
 					<Panel id="list" minSize="20">
 						<div className={styles.reading}>
-							<SearchBox query={query} onChange={setQuery} />
 							{hub && selectedAccountId && selectedMailboxId ? (
 								<MessageList
 									hub={hub}
@@ -553,7 +630,10 @@ export function AppShell({
 									}}
 								/>
 							) : (
-								<p style={{ padding: "1rem" }}>Select a mailbox.</p>
+								<div className={styles.listEmpty}>
+									<Folder size={24} aria-hidden="true" />
+									<p>Select a folder to view its messages.</p>
+								</div>
 							)}
 						</div>
 					</Panel>
@@ -604,6 +684,10 @@ export function AppShell({
 						) : null}
 						{hub && selectedAccountId && effectivePane === "drafts" ? (
 							<div className={styles.draftPanel}>
+								<header className={styles.detailHeader}>
+									<span>Mailbox</span>
+									<h2>Drafts</h2>
+								</header>
 								<DraftList
 									hub={hub}
 									accountId={selectedAccountId}
@@ -702,6 +786,13 @@ export function AppShell({
 								}
 							/>
 						) : null}
+						{effectivePane === "reading" && !selectedMessageId ? (
+							<div className={styles.emptyDetail}>
+								<Email size={32} aria-hidden="true" />
+								<h2>No message selected</h2>
+								<p>Choose a message from the list to read it here.</p>
+							</div>
+						) : null}
 						{effectivePane === "add-account" ? (
 							<AddAccount
 								onAdded={() => {
@@ -728,6 +819,17 @@ export function AppShell({
 			) : null}
 		</div>
 	);
+}
+
+function isMailPane(pane: string): boolean {
+	return pane !== "calendar" && pane !== "contacts" && pane !== "app-settings";
+}
+
+function paneTitle(pane: string): string {
+	if (pane === "calendar") return "Calendar";
+	if (pane === "contacts") return "People";
+	if (pane === "app-settings") return "Settings";
+	return "Mail";
 }
 
 /** The settings form's starting values, from the account list the shell already holds. */

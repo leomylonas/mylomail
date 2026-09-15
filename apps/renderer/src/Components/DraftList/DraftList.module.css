@@ -1,11 +1,22 @@
 .drafts {
+	display: grid;
+	gap: var(--cds-spacing-02);
 	margin: 0;
-	padding: 0;
+	padding: var(--cds-spacing-03);
 	list-style: none;
 }
 
 .drafts li {
-	border-bottom: 1px solid var(--cds-border-subtle);
+	border: 1px solid var(--cds-border-subtle);
+	background: var(--cds-background);
+}
+
+.draftButton {
+	display: flex;
+	justify-content: space-between;
+	width: 100%;
+	max-width: none;
+	text-align: left;
 }
 
 .empty {

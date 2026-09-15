@@ -935,6 +935,8 @@ function MailboxAvailabilityStatus({
 	availability: MailboxAvailability;
 }) {
 	const label = describeMailboxAvailability(availability);
+	if (availability === MailboxAvailability.Usable)
+		return <span className={styles.srOnly}>Availability: {label}</span>;
 
 	return (
 		<span className={styles.availability} aria-label={`Availability: ${label}`}>

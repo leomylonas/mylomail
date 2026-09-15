@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { WarningAltFilled } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@carbon/react";
@@ -36,7 +37,11 @@ export function DraftList({
 		<ul className={styles.drafts}>
 			{drafts.data.map((draft) => (
 				<li key={draft.id}>
-					<Button kind="ghost" onClick={() => onOpen(draft)}>
+					<Button
+						className={styles.draftButton}
+						kind="ghost"
+						onClick={() => onOpen(draft)}
+					>
 						{draft.subject || "(No subject)"}
 						{draft.syncConflict ? (
 							<span
@@ -44,8 +49,7 @@ export function DraftList({
 								aria-label="This draft changed on the server — open it to resolve"
 								title="This draft changed on the server — open it to resolve"
 							>
-								{" "}
-								⚠️
+								<WarningAltFilled size={16} />
 							</span>
 						) : null}
 					</Button>

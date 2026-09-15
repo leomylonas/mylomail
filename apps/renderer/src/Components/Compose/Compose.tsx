@@ -910,6 +910,10 @@ export function Compose({
 				void addFiles(event.dataTransfer.files);
 			}}
 		>
+			<header className={styles.composeHeader}>
+				<span className={styles.eyebrow}>Message</span>
+				<h2>{draft ? "Edit draft" : "New message"}</h2>
+			</header>
 			{syncConflict ? (
 				<div className={styles.conflict}>
 					<p>

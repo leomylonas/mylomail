@@ -2,13 +2,46 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--cds-spacing-04);
+	height: 100%;
+	min-height: 0;
 	padding: var(--cds-spacing-05);
+	overflow-y: auto;
+	background: var(--cds-background);
+}
+
+.composeHeader {
+	padding-bottom: var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.composeHeader h2 {
+	margin: var(--cds-spacing-02) 0 0;
+	font-size: 1.5rem;
+	font-weight: 400;
+}
+
+.eyebrow {
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
 }
 
 .actions {
 	display: flex;
-	gap: var(--cds-spacing-03);
+	flex-wrap: wrap;
 	align-items: center;
+	gap: var(--cds-spacing-03);
+}
+
+.compose > .actions:last-child {
+	position: sticky;
+	bottom: calc(var(--cds-spacing-05) * -1);
+	z-index: 1;
+	padding-block: var(--cds-spacing-03);
+	border-top: 1px solid var(--cds-border-subtle);
+	background: var(--cds-background);
 }
 
 .sent {
@@ -16,7 +49,8 @@
 	font-size: 0.75rem;
 }
 
-.sendFailed {
+.sendFailed,
+.forwardCopyError {
 	color: var(--cds-support-error);
 	font-size: 0.75rem;
 }
@@ -25,30 +59,26 @@
 	display: none;
 }
 
-.forwardCopyError {
-	color: var(--cds-support-error);
-	font-size: 0.75rem;
-}
-
 .attachments {
 	margin: 0;
-	padding-left: var(--cds-spacing-05);
+	padding: var(--cds-spacing-03) var(--cds-spacing-04);
+	border: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
+	list-style: none;
 }
 
 .attachments li {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	gap: var(--cds-spacing-03);
 }
 
-/* A flex item's default min-width is auto (content-based) — without this, an overlong filename
- * can force the row wider than its container and push the Remove button out of view (same
- * pitfall passes 127/128 fixed elsewhere). */
 .attachmentName {
+	min-width: 0;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
-	min-width: 0;
 }
 
 .sendSplit {
@@ -58,14 +88,19 @@
 
 .schedulePicker {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: flex-end;
 	gap: var(--cds-spacing-03);
-	padding: var(--cds-spacing-03);
+	padding: var(--cds-spacing-04);
 	border: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
 }
 
 .conflict {
-	color: var(--cds-support-error, #da1e28);
+	padding: var(--cds-spacing-04);
+	border-left: 3px solid var(--cds-support-error);
+	background: var(--cds-notification-background-error);
+	color: var(--cds-text-primary);
 	font-size: 0.875rem;
 }
 
@@ -73,4 +108,10 @@
 	display: flex;
 	gap: var(--cds-spacing-03);
 	margin-top: var(--cds-spacing-02);
+}
+
+@media (width <= 48rem) {
+	.compose {
+		padding: var(--cds-spacing-04);
+	}
 }

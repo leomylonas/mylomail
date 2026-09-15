@@ -18,6 +18,7 @@ export function SearchBox({
 	return (
 		<div className={styles.box}>
 			<Search
+				className={styles.search}
 				size="lg"
 				labelText="Search mail"
 				placeholder="Search mail — try subject:invoice"

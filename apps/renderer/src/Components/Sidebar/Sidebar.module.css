@@ -1,13 +1,35 @@
 .sidebar {
-	overflow-y: auto;
 	height: 100%;
-	padding: var(--cds-spacing-03) 0;
-	border-right: 1px solid var(--cds-border-subtle);
+	overflow-y: auto;
 	background: var(--cds-layer);
 }
 
+.paneHeading {
+	padding: var(--cds-spacing-05) var(--cds-spacing-04) var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.paneHeading h2 {
+	margin: var(--cds-spacing-02) 0 0;
+	font-size: 1.25rem;
+	font-weight: 400;
+	line-height: 1.25;
+}
+
+.eyebrow {
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.section {
+	padding-block: var(--cds-spacing-03);
+}
+
 .section + .section {
-	margin-top: var(--cds-spacing-03);
+	border-top: 1px solid var(--cds-border-subtle);
 }
 
 .header {
@@ -15,46 +37,57 @@
 	align-items: center;
 	gap: var(--cds-spacing-03);
 	width: 100%;
-	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	min-height: 2.5rem;
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
 	border: none;
 	background: none;
 	color: var(--cds-text-primary);
 	font: inherit;
+	font-size: 0.875rem;
 	font-weight: 600;
 	text-align: left;
 	cursor: pointer;
+	transition: background 120ms ease;
 }
 
 .header:hover {
 	background: var(--cds-layer-hover);
 }
 
+.header:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
 .dropTarget {
-	outline: 2px solid var(--cds-interactive, #0f62fe);
+	outline: 2px solid var(--cds-border-interactive);
 	outline-offset: -2px;
 }
 
 .chevron {
 	width: 1em;
 	flex-shrink: 0;
-	color: var(--cds-text-secondary);
+	color: var(--cds-icon-secondary);
 	font-size: 0.7rem;
 }
 
 .swatch {
-	width: 0.6rem;
-	height: 0.6rem;
+	width: 0.625rem;
+	height: 0.625rem;
 	border-radius: 50%;
 	flex-shrink: 0;
+	box-shadow: 0 0 0 1px var(--cds-border-subtle);
 }
 
 .name {
+	min-width: 0;
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
+}
 
-	/* A flex item's default min-width is auto (content-based) — without this, an unbroken-word
-	 * display name can force the row wider than the sidebar regardless of overflow: hidden
-	 * (same pitfall passes 127/128 fixed elsewhere). */
-	min-width: 0;
+.warning {
+	display: flex;
+	flex: 0 0 auto;
+	color: var(--cds-support-warning);
 }
