@@ -334,6 +334,30 @@ public sealed class ContactOperationTests
 	}
 
 	[Fact]
+	public async Task Missing_provider_configuration_pauses_contact_refresh_and_announces_the_account()
+	{
+		await using var harness = await ContactHarness.CreateAsync();
+		harness.Provider.FactoryFailure = new ProviderNotConfiguredException(
+			ProviderType.Gmail,
+			"Providers:Gmail:ClientId/ClientSecret"
+		);
+
+		var repeat = await harness.UsingAsync(provider => provider
+			.GetRequiredService<ContactService>().RefreshAsync(harness.AccountId, default));
+
+		Assert.False(repeat);
+		await harness.UsingAsync(async provider =>
+		{
+			var account = await provider.GetRequiredService<MyloMailDbContext>().Accounts.SingleAsync();
+			Assert.Equal(AuthState.Error, account.AuthState);
+			Assert.Contains("Providers:Gmail:ClientId/ClientSecret", account.LastAuthError);
+		});
+		var announced = Assert.Single(harness.Events.AccountStatuses);
+		Assert.Equal(harness.AccountId, announced.Id);
+		Assert.Equal(AuthState.Error, announced.AuthState);
+	}
+
+	[Fact]
 	public async Task Contact_refresh_honors_the_provider_retry_after()
 	{
 		await using var harness = await ContactHarness.CreateAsync();
@@ -827,8 +851,17 @@ public sealed class ContactOperationTests
 
 		Assert.Equal(0, harness.Provider.CreateCalls);
 		await harness.UsingAsync(async provider =>
-			Assert.Equal(ContactOperationState.Pending, (await provider
-				.GetRequiredService<MyloMailDbContext>().ContactOperations.SingleAsync()).State));
+		{
+			var context = provider.GetRequiredService<MyloMailDbContext>();
+			Assert.Equal(
+				ContactOperationState.Pending,
+				(await context.ContactOperations.SingleAsync()).State
+			);
+			var account = await context.Accounts.SingleAsync();
+			Assert.Equal(AuthState.Error, account.AuthState);
+			Assert.Contains("Providers:Gmail:ClientId/ClientSecret", account.LastAuthError);
+		});
+		Assert.Equal(AuthState.Error, Assert.Single(harness.Events.AccountStatuses).AuthState);
 	}
 
 	[Trait("Category", "FaultInjection")]

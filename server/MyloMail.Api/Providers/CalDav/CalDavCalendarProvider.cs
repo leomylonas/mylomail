@@ -1,5 +1,8 @@
 using System.Net;
+using System.Xml;
+using System.Xml.Linq;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
 
 namespace MyloMail.Api.Providers.CalDav;
@@ -75,13 +78,22 @@ public sealed class CalDavCalendarProvider(
 	/// parsing), falling back to a documented default only when the header is genuinely absent —
 	/// closing the same gap pass 199 fixed for Gmail/Graph, which CalDAV never had wired at all.
 	/// </summary>
-	private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+	private async Task<HttpResponseMessage> SendAsync(
+		HttpRequestMessage request,
+		CancellationToken ct,
+		bool preserveForbidden = false
+	)
 	{
 		var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 		if (response.StatusCode == HttpStatusCode.Unauthorized)
 		{
 			response.Dispose();
 			throw new ProviderAuthenticationException("The CalDAV server rejected these credentials.");
+		}
+		if (response.StatusCode == HttpStatusCode.Forbidden && !preserveForbidden)
+		{
+			response.Dispose();
+			throw AccessDenied();
 		}
 		if ((int)response.StatusCode == 429)
 		{
@@ -99,6 +111,33 @@ public sealed class CalDavCalendarProvider(
 			);
 		}
 		return response;
+	}
+
+	private static ProviderAuthenticationException AccessDenied() =>
+		new(
+			new MutationProblemDetails
+			{
+				Category = ErrorCategory.ProviderRejected,
+				Title = "CalDAV access denied",
+				Detail = "The CalDAV server denied access to this calendar.",
+				Status = StatusCodes.Status403Forbidden,
+				ProviderCode = "403",
+			}
+		);
+
+	private static bool IsInvalidSyncToken(string body)
+	{
+		try
+		{
+			return XDocument
+				.Parse(body)
+				.Descendants(XName.Get("valid-sync-token", "DAV:"))
+				.Any();
+		}
+		catch (XmlException)
+		{
+			return false;
+		}
 	}
 
 	public async Task<IReadOnlyList<CalendarDto>> ListCalendarsAsync(Account account, CancellationToken ct)
@@ -139,10 +178,17 @@ public sealed class CalDavCalendarProvider(
 			"""
 		);
 
-		using var response = await SendAsync(request, ct);
+		using var response = await SendAsync(request, ct, preserveForbidden: cursor is not null);
+		if (cursor is not null && response.StatusCode == HttpStatusCode.Forbidden)
+		{
+			var forbiddenBody = await ReadResponseAsync(response.Content, ct);
+			if (IsInvalidSyncToken(forbiddenBody))
+				throw new ProviderCursorInvalidException("The CalDAV sync-token was rejected (Forbidden).");
+			throw AccessDenied();
+		}
 		if (
 			cursor is not null
-			&& response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed
+			&& response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed
 		)
 		{
 			throw new ProviderCursorInvalidException($"The CalDAV sync-token was rejected ({response.StatusCode}).");

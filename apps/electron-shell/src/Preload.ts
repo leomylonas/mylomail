@@ -7,6 +7,7 @@ import {
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	persistPanelLayoutChannel,
 	printMessageChannel,
 	reportDraftStateChannel,
 	showNotificationChannel,
@@ -106,4 +107,6 @@ contextBridge.exposeInMainWorld("printing", {
 contextBridge.exposeInMainWorld("shellSettings", {
 	closeBehaviorChanged: (value: number): Promise<void> =>
 		ipcRenderer.invoke(updateCloseBehaviorChannel, value) as Promise<void>,
+	savePanelLayout: (panelLayout: string): Promise<void> =>
+		ipcRenderer.invoke(persistPanelLayoutChannel, panelLayout) as Promise<void>,
 });

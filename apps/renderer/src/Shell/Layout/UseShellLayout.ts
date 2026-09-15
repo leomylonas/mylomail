@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 
@@ -9,6 +8,27 @@ export interface PanelLayout {
 }
 
 const defaultLayout: PanelLayout = { sidebar: 20, list: 35, detail: 45 };
+
+async function saveLayout(
+	layout: PanelLayout,
+	onSaveError?: (error: unknown) => void,
+): Promise<void> {
+	try {
+		const panelLayout = JSON.stringify(layout);
+		if (window.shellSettings) {
+			await window.shellSettings.savePanelLayout(panelLayout);
+			return;
+		}
+		await fetchApi("/shell-settings/panel-layout", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ panelLayout }),
+			keepalive: true,
+		});
+	} catch (error) {
+		onSaveError?.(error);
+	}
+}
 
 /**
  * The global default panel layout (§13 Epic 11): read once when this window opens, written
@@ -40,24 +60,11 @@ export function useShellLayout(onSaveError?: (error: unknown) => void): {
 		},
 	});
 
-	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-	useEffect(() => () => clearTimeout(timer.current), []);
-
-	const save = async (layout: PanelLayout) => {
-		try {
-			await fetchApi("/shell-settings/panel-layout", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ panelLayout: JSON.stringify(layout) }),
-			});
-		} catch (error) {
-			onSaveError?.(error);
-		}
-	};
-
 	const onResize = (layout: PanelLayout) => {
-		clearTimeout(timer.current);
-		timer.current = setTimeout(() => void save(layout), 500);
+		// Group.onLayoutChanged fires once after pointer release (and once per completed
+		// keyboard resize), so a second debounce only creates a data-loss window. Dispatch
+		// the final layout immediately; keepalive lets that request complete during teardown.
+		void saveLayout(layout, onSaveError);
 	};
 
 	return {

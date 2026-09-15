@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Providers;
 
@@ -40,6 +41,12 @@ public static class MutationProblemTransport
 			ProviderThrottledException ex => WithRetryAfter(Create(ErrorCategory.RateLimit, ex.Message), ex.RetryAfter),
 			ProviderConflictException ex => Create(ErrorCategory.Conflict, ex.Message),
 			DbUpdateConcurrencyException ex => Create(ErrorCategory.Conflict, ex.Message),
+			MessageContentUnavailableException ex => Create(
+				ErrorCategory.ProviderRejected,
+				ex.Message,
+				StatusCodes.Status422UnprocessableEntity,
+				"Message content unavailable"
+			),
 			ProviderContactRejectedException ex => Create(ErrorCategory.ProviderRejected, ex.Message),
 			ProviderDraftRejectedException ex => Create(ErrorCategory.ProviderRejected, ex.Message),
 			ProviderNotConfiguredException ex => Create(

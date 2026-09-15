@@ -82,15 +82,70 @@ test("window bounds restore and new windows inherit an offset", async () => {
 	}
 });
 
-async function terminateElectron(app: ElectronApplication): Promise<void> {
+test("the final panel resize survives renderer teardown before the debounce", async () => {
+	const launched = await launchAttachedApp();
+	let firstClosed = false;
+	let second: Awaited<ReturnType<typeof launched.restartElectron>> | undefined;
+
+	try {
+		await expect(
+			launched.window.getByRole("button", { name: "Settings", exact: true }),
+		).toBeVisible();
+		const initialSidebarWidth = await launched.window
+			.locator("#sidebar")
+			.evaluate((element) => element.getBoundingClientRect().width);
+		const separator = launched.window.getByRole("separator").first();
+		const bounds = await separator.boundingBox();
+		if (!bounds) throw new Error("The first panel separator is not visible.");
+		await launched.window.mouse.move(
+			bounds.x + bounds.width / 2,
+			bounds.y + bounds.height / 2,
+		);
+		await launched.window.mouse.down();
+		await launched.window.mouse.move(
+			bounds.x + bounds.width / 2 + 120,
+			bounds.y,
+			{
+				steps: 2,
+			},
+		);
+		await launched.window.mouse.up();
+		const resizedSidebarWidth = await launched.window
+			.locator("#sidebar")
+			.evaluate((element) => element.getBoundingClientRect().width);
+		expect(resizedSidebarWidth).toBeGreaterThan(initialSidebarWidth + 40);
+
+		// Quit immediately after pointer release. onLayoutChanged must dispatch that final
+		// completed resize without introducing a deferred window where teardown can drop it.
+		await terminateElectron(launched.app, false);
+		firstClosed = true;
+		second = await launched.restartElectron();
+		await expect
+			.poll(() =>
+				second!.window
+					.locator("#sidebar")
+					.evaluate((element) => element.getBoundingClientRect().width),
+			)
+			.toBeCloseTo(resizedSidebarWidth, 0);
+	} finally {
+		if (!firstClosed) await terminateElectron(launched.app);
+		if (second) await terminateElectron(second.app);
+		await launched.stopBackend();
+	}
+});
+
+async function terminateElectron(
+	app: ElectronApplication,
+	bypassQuitBarriers = true,
+): Promise<void> {
 	const child = app.process();
 	const exited = new Promise<void>((resolve) => {
 		child.once("exit", () => resolve());
 	});
-	await app.evaluate(({ app }) => {
-		app.removeAllListeners("before-quit");
+	await app.evaluate(({ app }, bypass) => {
+		if (bypass) app.removeAllListeners("before-quit");
 		app.quit();
-	});
+	}, bypassQuitBarriers);
 	const graceful = await Promise.race([
 		exited.then(() => true),
 		new Promise<false>((resolve) => setTimeout(() => resolve(false), 3_000)),

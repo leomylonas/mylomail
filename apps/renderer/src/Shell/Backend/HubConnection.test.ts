@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { MessageSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
+	dispatchNativeNotification,
 	mergeServerKnownProjection,
 	queryKeys,
 	removeAccountCaches,
@@ -23,6 +24,26 @@ function summary(
 		...overrides,
 	};
 }
+
+describe("dispatchNativeNotification", () => {
+	it("leaves a durable notification pending when no native bridge exists", () => {
+		const markNotificationDelivered = vi.fn(async () => undefined);
+
+		expect(() =>
+			dispatchNativeNotification(
+				{ markNotificationDelivered },
+				{
+					id: "notification",
+					accountId: "account",
+					title: "New message",
+					body: "You have mail.",
+				},
+				undefined,
+			),
+		).not.toThrow();
+		expect(markNotificationDelivered).not.toHaveBeenCalled();
+	});
+});
 
 describe("mergeServerKnownProjection", () => {
 	it("does not let an older mutation event erase an acquired snippet", () => {

@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Http;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
@@ -153,12 +155,40 @@ public sealed class CalDavCalendarProviderTests
 	public async Task A_rejected_sync_token_is_reported_as_an_invalid_cursor()
 	{
 		var handler = new FakeHandler();
-		handler.Enqueue(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("") });
+		handler.Enqueue(
+			new HttpResponseMessage(HttpStatusCode.Forbidden)
+			{
+				Content = new StringContent(
+					"""<D:error xmlns:D="DAV:"><D:valid-sync-token/></D:error>"""
+				),
+			}
+		);
 		var provider = Provider(handler);
 
 		await Assert.ThrowsAsync<ProviderCursorInvalidException>(
 			() => provider.SyncCalendarAsync(Account(), Calendar(), "stale-token", null, default)
 		);
+	}
+
+	[Fact]
+	public async Task An_ordinary_403_during_sync_is_an_access_denial_not_an_invalid_cursor()
+	{
+		var handler = new FakeHandler();
+		handler.Enqueue(
+			new HttpResponseMessage(HttpStatusCode.Forbidden)
+			{
+				Content = new StringContent("""<D:error xmlns:D="DAV:"/>"""),
+			}
+		);
+		var provider = Provider(handler);
+
+		var thrown = await Assert.ThrowsAsync<ProviderAuthenticationException>(
+			() => provider.SyncCalendarAsync(Account(), Calendar(), "still-valid-token", null, default)
+		);
+
+		Assert.Equal(AuthState.Error, thrown.AccountState);
+		Assert.Equal(ErrorCategory.ProviderRejected, thrown.Problem?.Category);
+		Assert.Equal(StatusCodes.Status403Forbidden, thrown.Problem?.Status);
 	}
 
 	[Fact]

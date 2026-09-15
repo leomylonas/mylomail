@@ -34,6 +34,7 @@ declare global {
 		};
 		shellSettings?: {
 			closeBehaviorChanged(value: number): Promise<void>;
+			savePanelLayout(panelLayout: string): Promise<void>;
 		};
 	}
 }

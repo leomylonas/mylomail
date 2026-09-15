@@ -261,12 +261,38 @@ export function mergeServerKnownProjection(
 	};
 }
 
+export function dispatchNativeNotification(
+	hub: Pick<IMailHub, "markNotificationDelivered">,
+	notification: NotificationDto,
+	bridge: Window["notifications"],
+): void {
+	if (!bridge) {
+		// Browser/attach renderers deliberately have no native bridge. Leave the durable
+		// row pending so a later real shell connection can replay and acknowledge it.
+		return;
+	}
+	void bridge
+		.show({
+			id: notification.id,
+			accountId: notification.accountId,
+			title: notification.title,
+			body: notification.body,
+		})
+		.then(() => hub.markNotificationDelivered(notification.id))
+		.catch((error: unknown) => {
+			// Left unmarked-delivered on purpose: that's exactly what makes the shell
+			// redeliver this notification instead of losing it.
+			console.error(`notification delivery failed: ${String(error)}`);
+		});
+}
+
 /**
  * Opens the hub and points its events at the query cache.
  *
  * SignalR events invalidate and update TanStack Query rather than feeding a second state
  * system: two caches of the same server state would disagree, and the one the UI happened to
  * read would decide what the user saw (§12).
+
  */
 export function connectHub(
 	queryClient: QueryClient,
@@ -500,21 +526,7 @@ export function connectHub(
 	// preload bridge, and confirm delivery only once the shell has actually shown it — a
 	// crash between these two steps redelivers the same notification rather than losing it.
 	hub.subscribe("notificationReady", (notification: NotificationDto) => {
-		void window.notifications
-			?.show({
-				id: notification.id,
-				accountId: notification.accountId,
-				title: notification.title,
-				body: notification.body,
-			})
-			.then(() => hub.markNotificationDelivered(notification.id))
-			.catch((error: unknown) => {
-				// Left unmarked-delivered on purpose: per the comment above, that's exactly
-				// what makes the shell redeliver this same notification instead of losing
-				// it. Logged only so a show/deliver failure doesn't surface as an unhandled
-				// promise rejection with no trace of what happened.
-				console.error(`notification delivery failed: ${String(error)}`);
-			});
+		dispatchNativeNotification(hub, notification, window.notifications);
 	});
 
 	// A reconnect is a full resynchronisation, not just a pending-mutation check. While

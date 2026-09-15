@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MimeKit;
 using MyloMail.Api.Content;
+using MyloMail.Api.Controllers;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Tests.Persistence;
 using Xunit;
@@ -68,6 +71,64 @@ public sealed class AttachmentServiceTests
 				);
 			}
 		}
+	}
+
+	[Fact]
+	public async Task Malformed_stored_MIME_has_one_actionable_content_error_across_read_paths()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var messageId = Guid.NewGuid();
+		var attachmentId = Guid.NewGuid();
+
+		await using var scope = database.CreateScope();
+		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+		var mime = new MimeMessage();
+		MimeEntity nested = new TextPart("plain") { Text = "body" };
+		for (var depth = 0; depth < 33; depth++)
+		{
+			nested = new Multipart("mixed") { nested };
+		}
+		mime.Body = nested;
+		await using var rawStream = new MemoryStream();
+		await mime.WriteToAsync(rawStream);
+
+		var accountId = Guid.NewGuid();
+		context.Accounts.Add(new Account { Id = accountId, DisplayName = "Test" });
+		context.Messages.Add(
+			new Message { Id = messageId, AccountId = accountId, ReceivedAt = DateTimeOffset.UtcNow }
+		);
+		context.MessageRaws.Add(new MessageRaw { MessageId = messageId, Content = rawStream.ToArray() });
+		context.MessageContentStates.Add(
+			new MessageContentState { MessageId = messageId, RawVersion = 1 }
+		);
+		context.Attachments.Add(
+			new Attachment
+			{
+				Id = attachmentId,
+				MessageId = messageId,
+				PartSpecifier = "1",
+				RawVersion = 1,
+				Filename = "report.txt",
+				MimeType = "text/plain",
+				Size = 4,
+			}
+		);
+		await context.SaveChangesAsync();
+
+		var service = scope.ServiceProvider.GetRequiredService<AttachmentService>();
+		var attachmentFailure = await Assert.ThrowsAsync<MessageContentUnavailableException>(
+			() => service.ReadAsync(messageId, attachmentId)
+		);
+		var partController = new MessagePartsController(context);
+		await Assert.ThrowsAsync<MessageContentUnavailableException>(
+			() => partController.Get(messageId, new InlinePartRequest("missing"), default)
+		);
+
+		var problem = MutationProblemTransport.FromException(attachmentFailure);
+		Assert.Equal(ErrorCategory.ProviderRejected, problem.Category);
+		Assert.Equal(StatusCodes.Status422UnprocessableEntity, problem.Status);
+		Assert.Equal("Message content unavailable", problem.Title);
 	}
 
 	[Theory]

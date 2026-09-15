@@ -41,14 +41,30 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 			return this.MutationProblem("This message no longer exists.", statusCode: StatusCodes.Status404NotFound);
 		}
 
-		using var stream = new MemoryStream(raw.Content);
-		var mime = await MimeMessage.LoadAsync(stream, ct);
-		MimeStructureValidator.Validate(mime);
+		MimeMessage mime;
+		try
+		{
+			using var stream = new MemoryStream(raw.Content);
+			mime = await MimeMessage.LoadAsync(stream, ct);
+			MimeStructureValidator.Validate(mime);
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			throw new MessageContentUnavailableException(ex);
+		}
 
 		var wanted = request.ContentId.Trim('<', '>');
-		var part = mime
-			.BodyParts.OfType<MimePart>()
-			.FirstOrDefault(candidate => candidate.ContentId?.Trim('<', '>') == wanted);
+		MimePart? part;
+		try
+		{
+			part = mime
+				.BodyParts.OfType<MimePart>()
+				.FirstOrDefault(candidate => candidate.ContentId?.Trim('<', '>') == wanted);
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			throw new MessageContentUnavailableException(ex);
+		}
 
 		if (part?.Content is null)
 		{
@@ -56,8 +72,16 @@ public class MessagePartsController(MyloMailDbContext context) : ControllerBase
 		}
 
 		var decoded = new MemoryStream();
-		await part.Content.DecodeToAsync(decoded, ct);
-		decoded.Position = 0;
+		try
+		{
+			await part.Content.DecodeToAsync(decoded, ct);
+			decoded.Position = 0;
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			decoded.Dispose();
+			throw new MessageContentUnavailableException(ex);
+		}
 
 		// The declared type, not a sniffed one: this is remote-authored content, and letting
 		// the browser decide what it is invites a part declared as an image being treated as

@@ -283,6 +283,9 @@ async function launchElectron(
 			"--headless",
 			"--disable-gpu",
 			"--no-sandbox",
+			...(process.platform === "linux" && environment.WAYLAND_DISPLAY
+				? ["--ozone-platform=wayland"]
+				: []),
 			...activationArguments,
 		],
 		...(executablePath ? { executablePath } : {}),

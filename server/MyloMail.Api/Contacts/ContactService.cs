@@ -127,8 +127,9 @@ public sealed class ContactService(
 			);
 			throw;
 		}
-		catch (ProviderNotConfiguredException)
+		catch (ProviderNotConfiguredException ex)
 		{
+			await PauseForConfigurationAsync(account, ex);
 			return false;
 		}
 		catch (CredentialStoreUnavailableException ex)
@@ -503,8 +504,9 @@ public sealed class ContactService(
 		{
 			provider = ProviderFor(account);
 		}
-		catch (ProviderNotConfiguredException)
+		catch (ProviderNotConfiguredException ex)
 		{
+			await PauseForConfigurationAsync(account, ex);
 			return;
 		}
 
@@ -685,8 +687,9 @@ public sealed class ContactService(
 			await PauseForAuthenticationAsync(account, ex);
 			return;
 		}
-		catch (ProviderNotConfiguredException)
+		catch (ProviderNotConfiguredException ex)
 		{
+			await PauseForConfigurationAsync(account, ex);
 			return;
 		}
 		catch (OperationCanceledException)
@@ -987,6 +990,19 @@ public sealed class ContactService(
 	private async Task PauseForAuthenticationAsync(Account account, ProviderAuthenticationException exception)
 	{
 		account.AuthState = exception.AccountState;
+		account.LastAuthError = exception.Message;
+		await context.SaveChangesAsync(CancellationToken.None);
+		await Accounts.AccountDtoFactory.AnnounceStatusAsync(
+			context,
+			events,
+			account,
+			CancellationToken.None
+		);
+	}
+
+	private async Task PauseForConfigurationAsync(Account account, ProviderNotConfiguredException exception)
+	{
+		account.AuthState = AuthState.Error;
 		account.LastAuthError = exception.Message;
 		await context.SaveChangesAsync(CancellationToken.None);
 		await Accounts.AccountDtoFactory.AnnounceStatusAsync(

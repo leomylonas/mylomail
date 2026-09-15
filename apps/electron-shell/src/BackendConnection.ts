@@ -18,6 +18,7 @@ export const pickExportFolderChannel = "export:pick-folder";
 export const printMessageChannel = "message:print";
 export const updateCloseBehaviorChannel =
 	"shell-settings:close-behavior-changed";
+export const persistPanelLayoutChannel = "shell-settings:persist-panel-layout";
 export const reportDraftStateChannel = "draft:state-changed";
 export const focusDraftWindowChannel = "draft:focus-if-open";
 export const requestComposeCloseChannel = "draft:request-close";

@@ -21,6 +21,7 @@ import {
 	openAttachmentChannel,
 	openWindowChannel,
 	pickExportFolderChannel,
+	persistPanelLayoutChannel,
 	printMessageChannel,
 	reportDraftStateChannel,
 	requestComposeCloseChannel,
@@ -104,6 +105,7 @@ interface ComposeCloseRequest {
 }
 const composeCloseRequests = new Map<number, ComposeCloseRequest>();
 let startupOwnedChild: ChildProcess | undefined;
+let panelLayoutWrites: Promise<void> = Promise.resolve();
 
 /**
  * Acquires the configured backend, then opens the first window.
@@ -315,6 +317,37 @@ export async function startShell(): Promise<void> {
 		else destroyTray();
 	});
 
+	// Unlike an ordinary renderer fetch, an IPC handler continues after that renderer closes.
+	// Serialising here preserves the user's final completed resize even when several keyboard
+	// resizes arrive quickly and the window is closed immediately afterward.
+	ipcMain.handle(
+		persistPanelLayoutChannel,
+		(_event, panelLayout: unknown): Promise<void> => {
+			if (typeof panelLayout !== "string") {
+				return Promise.reject(
+					new Error("A serialized panel layout is required."),
+				);
+			}
+			const write = panelLayoutWrites.then(async () => {
+				const response = await session.defaultSession.fetch(
+					`${origin}/shell-settings/panel-layout`,
+					{
+						method: "PUT",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ panelLayout }),
+					},
+				);
+				if (!response.ok) {
+					throw new Error(
+						`Panel layout persistence returned ${response.status}.`,
+					);
+				}
+			});
+			panelLayoutWrites = write.catch(() => undefined);
+			return write;
+		},
+	);
+
 	// The origin, never the token: this line is diagnostics, and the token is the backend's
 	// only defence against another local process.
 	console.info(`Backend ready at ${origin}.`);
@@ -421,6 +454,14 @@ export async function startShell(): Promise<void> {
 		void (async () => {
 			if (!(await confirmQuit(origin))) return;
 			if (!(await flushDetachedComposeWindows())) return;
+			// Renderer-originated layout persistence belongs to the main-process chain. A
+			// renderer remains live while quit is prevented, so keep draining if another
+			// completed resize appends a new tail while the prior tail is in flight.
+			while (true) {
+				const observedTail = panelLayoutWrites;
+				await observedTail;
+				if (observedTail === panelLayoutWrites) break;
+			}
 			confirmedQuit = true;
 			app.quit();
 		})().finally(() => {
@@ -705,16 +746,9 @@ async function createWindow(
 	// way. Closing one of several open windows (a popped-out compose window, say) while others
 	// remain is an ordinary close and must behave like one.
 	window.on("close", (event) => {
-		if (
-			closeBehavior === "MinimizeToTray" &&
-			!quitting &&
-			BrowserWindow.getAllWindows().length === 1
-		) {
-			event.preventDefault();
-			window.hide();
-			ensureTray();
-			return;
-		}
+		// A detached compose must cross its durable-save barrier before last-window tray
+		// handling can hide it. The approved close re-enters this handler and may then follow
+		// the configured MinimizeToTray behavior.
 		if (detachedCompose && !quitting && !composeCloseApproved) {
 			event.preventDefault();
 			if (composeCloseDecisionInFlight) return;
@@ -734,6 +768,18 @@ async function createWindow(
 			})().finally(() => {
 				composeCloseDecisionInFlight = false;
 			});
+			return;
+		}
+		if (
+			closeBehavior === "MinimizeToTray" &&
+			!quitting &&
+			BrowserWindow.getAllWindows().length === 1
+		) {
+			event.preventDefault();
+			if (detachedCompose) composeCloseApproved = false;
+			window.hide();
+			ensureTray();
+			return;
 		}
 	});
 

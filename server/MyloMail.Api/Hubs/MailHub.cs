@@ -620,11 +620,11 @@ public class MailHub(
 	public Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId) =>
 		search.SearchAsync(accountId, query, mailboxId);
 
-	public async Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId) =>
-		[
-			.. (await context.Drafts.Where(d => d.AccountId == accountId).OrderByDescending(d => d.SavedAt).ToListAsync())
-				.Select(ToDto),
-		];
+	public async Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId)
+	{
+		var drafts = await context.Drafts.Where(d => d.AccountId == accountId).ToListAsync();
+		return [.. drafts.OrderByDescending(d => d.SavedAt).Select(ToDto)];
+	}
 
 	public async Task<IReadOnlyList<SendIdentityDto>> GetSendIdentities(Guid accountId) =>
 		[

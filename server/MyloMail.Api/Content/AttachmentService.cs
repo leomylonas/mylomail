@@ -32,28 +32,54 @@ public sealed class AttachmentService(MyloMailDbContext context, AttachmentTempD
 			throw new FileNotFoundException("The attachment metadata is stale.");
 		}
 
-		using var rawStream = new MemoryStream(raw.Content);
-		var mime = await MimeMessage.LoadAsync(rawStream, ct);
-		MimeStructureValidator.Validate(mime);
-		var iterator = new MimeIterator(mime);
-		while (iterator.MoveNext())
+		MimeMessage mime;
+		try
 		{
-			if (iterator.PathSpecifier != attachment.PartSpecifier || iterator.Current is not MimePart part)
-			{
-				continue;
-			}
-
-			if (part.Content is null)
-			{
-				throw new FileNotFoundException("The attachment has no content.");
-			}
-
-			using var decoded = new MemoryStream();
-			await part.Content.DecodeToAsync(decoded, ct);
-			return (attachment, decoded.ToArray());
+			using var rawStream = new MemoryStream(raw.Content);
+			mime = await MimeMessage.LoadAsync(rawStream, ct);
+			MimeStructureValidator.Validate(mime);
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			throw new MessageContentUnavailableException(ex);
 		}
 
-		throw new FileNotFoundException("The attachment part is no longer available.");
+		MimePart? matchedPart = null;
+		try
+		{
+			var iterator = new MimeIterator(mime);
+			while (iterator.MoveNext())
+			{
+				if (
+					iterator.PathSpecifier == attachment.PartSpecifier
+					&& iterator.Current is MimePart part
+				)
+				{
+					matchedPart = part;
+					break;
+				}
+			}
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			throw new MessageContentUnavailableException(ex);
+		}
+
+		if (matchedPart?.Content is null)
+		{
+			throw new FileNotFoundException("The attachment part is no longer available.");
+		}
+
+		try
+		{
+			using var decoded = new MemoryStream();
+			await matchedPart.Content.DecodeToAsync(decoded, ct);
+			return (attachment, decoded.ToArray());
+		}
+		catch (Exception ex) when (MessageContentUnavailableException.IsMalformedMime(ex))
+		{
+			throw new MessageContentUnavailableException(ex);
+		}
 	}
 
 	public async Task<string> MaterialiseForOpeningAsync(Guid messageId, Guid attachmentId, CancellationToken ct = default)
@@ -61,6 +87,17 @@ public sealed class AttachmentService(MyloMailDbContext context, AttachmentTempD
 		var (attachment, content) = await ReadAsync(messageId, attachmentId, ct);
 		return await temp.WriteAsync(attachment.Filename, content, ct);
 	}
+}
+
+/// <summary>
+/// Stored provider-authored MIME exists, but its structure or transfer encoding cannot be
+/// decoded safely. This is distinct from a missing content row and from a network failure.
+/// </summary>
+public sealed class MessageContentUnavailableException(Exception inner)
+	: Exception("This message content is malformed and cannot be opened.", inner)
+{
+	internal static bool IsMalformedMime(Exception exception) =>
+		exception is FormatException or InvalidDataException or InvalidOperationException or IOException;
 }
 
 /// <summary>Owns the app-private attachment directory and its startup/shutdown cleanup (§9).</summary>
