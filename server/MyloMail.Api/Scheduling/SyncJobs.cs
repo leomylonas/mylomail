@@ -318,7 +318,11 @@ public sealed class SyncJobs(
 		}
 
 		var account = await context.Accounts.FirstOrDefaultAsync(
-			row => row.Id == accountId && row.IsEnabled && row.AuthState != AuthState.NeedsReauth,
+			row =>
+				row.Id == accountId
+				&& row.IsEnabled
+				&& row.AuthState != AuthState.NeedsReauth
+				&& row.AuthState != AuthState.Error,
 			ct
 		);
 		if (account is null)
@@ -1116,9 +1120,9 @@ public sealed class SyncJobs(
 			return null;
 		}
 
-		if (account.AuthState == AuthState.NeedsReauth)
+		if (account.AuthState is AuthState.NeedsReauth or AuthState.Error)
 		{
-			// Paused until the user reauthenticates. ReauthenticateAccount requeues the work.
+			// Paused until account intervention succeeds. ResumeAccountAsync requeues the work.
 			return null;
 		}
 
@@ -1171,7 +1175,7 @@ public sealed class SyncJobs(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			account.AuthState = AuthState.NeedsReauth;
+			account.AuthState = ex.AccountState;
 			account.LastAuthError = ex.Message;
 			await context.SaveChangesAsync(ct);
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
@@ -1222,7 +1226,12 @@ public sealed class SyncJobs(
 	{
 		var runnable = await context
 			.Accounts.AnyAsync(
-				a => a.Id == accountId && a.IsEnabled && a.PollingEnabled && a.AuthState != AuthState.NeedsReauth,
+				a =>
+					a.Id == accountId
+					&& a.IsEnabled
+					&& a.PollingEnabled
+					&& a.AuthState != AuthState.NeedsReauth
+					&& a.AuthState != AuthState.Error,
 				ct
 			);
 

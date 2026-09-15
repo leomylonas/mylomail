@@ -41,7 +41,7 @@ public sealed class DraftSyncService(
 	public async Task<int> PushAsync(Guid accountId, CancellationToken ct = default)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
-		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
+		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)
 		{
 			return 0;
 		}

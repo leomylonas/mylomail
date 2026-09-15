@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Domain;
@@ -397,4 +400,56 @@ public sealed class NotificationEligibilityTests
 		Assert.Equal("Labelled message", navigation.Subject);
 		Assert.Equal("grace@example.test", navigation.SenderAddress);
 	}
+	[Fact]
+	public async Task A_connected_client_replay_announces_only_pending_notifications()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var pendingId = Guid.NewGuid();
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.NotificationRecords.AddRange(
+				new NotificationRecord
+				{
+					Id = pendingId,
+					AccountId = harness.Account.Id,
+					Kind = NotificationKind.NewMessage,
+					CreatedAt = DateTimeOffset.UnixEpoch,
+				},
+				new NotificationRecord
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.Account.Id,
+					Kind = NotificationKind.NewMessage,
+					CreatedAt = DateTimeOffset.UnixEpoch,
+					DeliveredAt = DateTimeOffset.UnixEpoch,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+		harness.Events.Clear();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var hub = ActivatorUtilities.CreateInstance<MailHub>(scope);
+			hub.Context = new ConnectedHubCallerContext();
+			await hub.OnConnectedAsync();
+		});
+
+		Assert.Equal(pendingId, Assert.Single(harness.Events.Notifications).Id);
+	}
+
+	private sealed class ConnectedHubCallerContext : HubCallerContext
+	{
+		public override string ConnectionId => "notification-replay-test";
+		public override string? UserIdentifier => null;
+		public override ClaimsPrincipal? User => null;
+		public override IDictionary<object, object?> Items { get; } =
+			new Dictionary<object, object?>();
+		public override IFeatureCollection Features { get; } = new FeatureCollection();
+		public override CancellationToken ConnectionAborted => CancellationToken.None;
+
+		public override void Abort() { }
+	}
+
 }

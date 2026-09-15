@@ -525,9 +525,9 @@ public sealed class GraphContactProvider(GraphOAuthAuthenticator oauth, HttpClie
 		{
 			token = (await oauth.AcquireTokenAsync(account, ct)).Token;
 		}
-		catch (MsalException ex) when (!GraphOAuthAuthenticator.IsAdminConsentRequired(ex))
+		catch (MsalException ex)
 		{
-			throw new ProviderAuthenticationException(ex.Message, ex);
+			throw GraphOAuthAuthenticator.TranslateTokenFailure(ex);
 		}
 		using var request = new HttpRequestMessage(method, url);
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

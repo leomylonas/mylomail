@@ -48,6 +48,7 @@ public sealed class SendExecutor(
 			catch (Exception ex) when (
 				ex is not ProviderThrottledException
 				&& ex is not ProviderAuthenticationException
+				&& ex is not ProviderNotConfiguredException
 				&& ex is not CredentialStoreUnavailableException
 				&& !ConnectivityMonitor.IsNetworkFailure(ex)
 			)
@@ -185,16 +186,16 @@ public sealed class SendExecutor(
 			}
 		}
 		catch (Exception ex)
-			when (ex is ProviderThrottledException or ProviderAuthenticationException or CredentialStoreUnavailableException)
+			when (
+				ex is ProviderThrottledException
+					or ProviderAuthenticationException
+					or ProviderNotConfiguredException
+					or CredentialStoreUnavailableException
+			)
 		{
-			// An explicit categorised rejection is an *observed* outcome, not an absent one:
-			// the provider answered, and the answer was no. The message was not sent, so the
-			// item returns to the queue rather than becoming ambiguous — otherwise every
-			// throttled send would leave the user with a message they must go and check the
-			// Sent mailbox for, and undo-send would degrade badly under rate limiting.
-			// CredentialStoreUnavailableException belongs here too even though it isn't a
-			// provider rejection: it fails before providers.For(account) can even build a
-			// client to dial out with, so nothing was dispatched either.
+			// Explicit provider/account gates are definite pre-call outcomes, not evidence
+			// that a send may have happened. Return the item to the queue and close the
+			// attempt; the job layer owns the account gate and any retry policy.
 			item.Status = OutboxStatus.Scheduled;
 			item.LastError = ex.Message;
 

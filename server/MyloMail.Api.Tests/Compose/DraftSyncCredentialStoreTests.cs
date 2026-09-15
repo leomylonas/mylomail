@@ -5,7 +5,9 @@ using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Fakes;
+using MyloMail.Api.Tests.Mutations;
 using MyloMail.Api.Tests.Sync;
 using Xunit;
 
@@ -95,6 +97,87 @@ public sealed class DraftSyncCredentialStoreTests
 		Assert.Null(draft.ProviderDraftId);
 		Assert.Null(draft.PushDispatchedForSavedAt);
 		Assert.Null(draft.PushedAt);
+	}
+
+	[Fact]
+	public async Task Draft_job_records_authentication_failure_and_leaves_the_dirty_draft_resumable()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var identityId = await SeedIdentityAsync(harness);
+		await SeedDraftAsync(harness, identityId);
+		harness.Provider.FailDraftPushWith(new ProviderAuthenticationException("reauthenticate"));
+		harness.Events.Clear();
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<DraftJobs>().PushAsync(harness.Account.Id)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			var draft = await context.Drafts.SingleAsync();
+			Assert.Equal(AuthState.NeedsReauth, account.AuthState);
+			Assert.Null(draft.ProviderDraftId);
+			Assert.Null(draft.PushDispatchedForSavedAt);
+			Assert.Null(draft.PushedAt);
+		});
+		Assert.Equal(
+			AuthState.NeedsReauth,
+			Assert.Single(harness.Events.AccountStatuses).AuthState
+		);
+	}
+
+	[Fact]
+	public async Task Missing_provider_configuration_leaves_an_unclaimed_dirty_draft()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var draftId = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var identity = new SendIdentity
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.AccountId,
+				EmailAddress = "author@example.test",
+				IsDefault = true,
+			};
+			context.SendIdentities.Add(identity);
+			context.Drafts.Add(
+				new Draft
+				{
+					Id = draftId,
+					AccountId = harness.AccountId,
+					SendIdentityId = identity.Id,
+					Subject = "Subject",
+					BodyHtml = "<p>Body</p>",
+					SavedAt = DateTimeOffset.UnixEpoch,
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+		harness.FailNextProviderResolutionWith = new ProviderNotConfiguredException(
+			ProviderType.Gmail,
+			"Providers:Gmail:ClientId"
+		);
+		harness.Events.Clear();
+
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<DraftJobs>().PushAsync(harness.AccountId)
+		);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			var draft = await context.Drafts.SingleAsync(d => d.Id == draftId);
+			Assert.Equal(AuthState.Error, account.AuthState);
+			Assert.Null(draft.ProviderDraftId);
+			Assert.Null(draft.PushDispatchedForSavedAt);
+			Assert.Null(draft.PushedAt);
+		});
+		Assert.Equal(AuthState.Error, Assert.Single(harness.Events.AccountStatuses).AuthState);
 	}
 
 	private static async Task<Guid> SeedIdentityAsync(SyncHarness harness)

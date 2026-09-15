@@ -155,7 +155,7 @@ public sealed class ImapIdleWorker(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			await PauseForAuthenticationAsync(scope.AccountId, ex.Message);
+			await PauseForAuthenticationAsync(scope.AccountId, ex);
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
@@ -179,7 +179,7 @@ public sealed class ImapIdleWorker(
 		}
 	}
 
-	private async Task PauseForAuthenticationAsync(Guid accountId, string message)
+	private async Task PauseForAuthenticationAsync(Guid accountId, ProviderAuthenticationException exception)
 	{
 		await using var scope = scopes.CreateAsyncScope();
 		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
@@ -188,8 +188,8 @@ public sealed class ImapIdleWorker(
 			CancellationToken.None
 		);
 		if (account is null || account.AuthState == AuthState.NeedsReauth) return;
-		account.AuthState = AuthState.NeedsReauth;
-		account.LastAuthError = message;
+		account.AuthState = exception.AccountState;
+		account.LastAuthError = exception.Message;
 		await context.SaveChangesAsync(CancellationToken.None);
 		await Accounts.AccountDtoFactory.AnnounceStatusAsync(
 			context,

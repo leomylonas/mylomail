@@ -2,6 +2,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -39,6 +40,7 @@ public sealed class ExportJobs(
 )
 {
 	private const int BatchSize = 25;
+	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
 	public async Task<Guid> StartAsync(Guid accountId, string destinationPath, CancellationToken ct = default)
 	{
@@ -167,6 +169,34 @@ public sealed class ExportJobs(
 						providerRetryAfter = ex.RetryAfter;
 						gate.Throttle(account.Id, ex.RetryAfter);
 						break;
+					}
+					catch (CredentialStoreUnavailableException ex)
+					{
+						account.AuthState = AuthState.CredentialStoreUnavailable;
+						account.LastAuthError = ex.Message;
+						await context.SaveChangesAsync(ct);
+						await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+						jobs.Schedule<ExportJobs>(
+							next => next.RunBatchAsync(job.Id, default),
+							CredentialStoreRetryDelay
+						);
+						return;
+					}
+					catch (ProviderAuthenticationException ex)
+					{
+						account.AuthState = ex.AccountState;
+						account.LastAuthError = ex.Message;
+						await context.SaveChangesAsync(ct);
+						await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+						return;
+					}
+					catch (ProviderNotConfiguredException ex)
+					{
+						account.AuthState = AuthState.Error;
+						account.LastAuthError = ex.Message;
+						await context.SaveChangesAsync(ct);
+						await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+						return;
 					}
 					catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 					{

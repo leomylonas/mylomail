@@ -326,6 +326,15 @@ public class MailHub(
 	TimeProvider clock
 ) : Hub<IMailClient>, IMailHub
 {
+	public override async Task OnConnectedAsync()
+	{
+		// Startup runs before Kestrel accepts a SignalR connection, so a startup broadcast
+		// cannot recover a notification missed by the renderer. Replay durable pending rows
+		// only after this connection exists; reconnects take the same path.
+		await base.OnConnectedAsync();
+		await notifications.RedispatchAllPendingAsync(Context.ConnectionAborted);
+	}
+
 	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
 		MailboxSummaryDtoFactory.ListAsync(context, accountId);
 

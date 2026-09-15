@@ -22,18 +22,21 @@ public class ProviderThrottledException(TimeSpan retryAfter, string message, Exc
 }
 
 /// <summary>
-/// Authentication failed and will not succeed on retry until the user intervenes.
+/// Provider access cannot proceed until account-level intervention completes.
 /// </summary>
 /// <remarks>
-/// Distinguished from every other failure because the response is the opposite of a retry:
-/// the account is paused and marked <see cref="Domain.AuthState.NeedsReauth"/>. Retrying an
-/// auth failure burns the user's remaining attempts against some providers, and none of them
-/// recover on their own.
+/// Ordinary credential rejection carries <see cref="Domain.AuthState.NeedsReauth"/>.
+/// Structured validation failures such as administrator consent or certificate trust carry
+/// <see cref="Domain.AuthState.Error"/> instead: asking the user to re-enter a valid password
+/// is not the remedy, but the account still must stop retrying in the background.
 /// </remarks>
 public class ProviderAuthenticationException : Exception
 {
 	public ProviderAuthenticationException(string message, Exception? inner = null)
-		: base(message, inner) { }
+		: base(message, inner)
+	{
+		AccountState = Domain.AuthState.NeedsReauth;
+	}
 
 	/// <summary>
 	/// Keeps a provider's actionable rejection intact at asynchronous transport boundaries,
@@ -44,7 +47,12 @@ public class ProviderAuthenticationException : Exception
 		: base(problem.Detail ?? problem.Title ?? "Authentication was rejected.", inner)
 	{
 		Problem = problem;
+		AccountState = problem.Category == ErrorCategory.Auth
+			? Domain.AuthState.NeedsReauth
+			: Domain.AuthState.Error;
 	}
+
+	public Domain.AuthState AccountState { get; }
 
 	public MutationProblemDetails? Problem { get; }
 }

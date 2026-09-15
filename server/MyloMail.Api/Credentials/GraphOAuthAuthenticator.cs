@@ -2,6 +2,7 @@ using Azure.Core;
 using Microsoft.Identity.Client;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
+using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
 
 namespace MyloMail.Api.Credentials;
@@ -58,25 +59,7 @@ public sealed class GraphOAuthAuthenticator
 		}
 		catch (MsalException ex) when (IsAdminConsentRequired(ex))
 		{
-			// Not an authentication failure — the credentials are fine, and sending the
-			// user to re-enter them would ask for something that was never the problem
-			// (§5). Validation, not Auth: the central error mapping shows Detail verbatim
-			// for Validation rather than the Auth category's re-authentication prompt,
-			// which is exactly the wrong UX for "an administrator has to approve this app".
-			var problem = new MutationProblemDetails
-			{
-				Title = "Administrator approval required",
-				Detail =
-					"This Microsoft 365 organisation has restricted user consent. Ask an "
-					+ "administrator to approve MyloMail for your organisation, then try "
-					+ "adding this account again.",
-				Category = ErrorCategory.Validation,
-			};
-			// Distinguishes this from the generic Validation/ProviderRejected case in the
-			// renderer's central mapping (§13), the same way a certificate rejection does via
-			// its own extension fields — see CertificateTrust.Problem.
-			problem.Extensions["adminConsentRequired"] = true;
-			return new AuthResult(false, AuthState.Error, problem);
+			return new AuthResult(false, AuthState.Error, AdminConsentProblem());
 		}
 		catch (MsalException ex)
 		{
@@ -97,6 +80,25 @@ public sealed class GraphOAuthAuthenticator
 	internal static bool IsAdminConsentRequired(MsalException ex) =>
 		ex is MsalServiceException { Message: var message }
 			&& message.Contains("AADSTS90094", StringComparison.Ordinal);
+
+	internal static ProviderAuthenticationException TranslateTokenFailure(MsalException ex) =>
+		IsAdminConsentRequired(ex)
+			? new ProviderAuthenticationException(AdminConsentProblem(), ex)
+			: new ProviderAuthenticationException(ex.Message, ex);
+
+	private static MutationProblemDetails AdminConsentProblem()
+	{
+		var problem = new MutationProblemDetails
+		{
+			Title = "Administrator approval required",
+			Detail =
+				"This Microsoft 365 organisation has restricted user consent. Ask an "
+				+ "administrator to approve MyloMail for your organisation, then try again.",
+			Category = ErrorCategory.Validation,
+		};
+		problem.Extensions["adminConsentRequired"] = true;
+		return problem;
+	}
 
 	public async Task<AccessToken> AcquireTokenAsync(Account account, CancellationToken ct)
 	{

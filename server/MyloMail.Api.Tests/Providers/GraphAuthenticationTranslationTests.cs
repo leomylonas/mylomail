@@ -1,6 +1,7 @@
 using Microsoft.Identity.Client;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Errors;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Graph;
 using Xunit;
@@ -33,15 +34,28 @@ public sealed class GraphAuthenticationTranslationTests
 		);
 	}
 
-	/// <summary>
-	/// <see cref="GraphMailProvider.ClientAsync"/>'s translation deliberately excludes this shape
-	/// (see the catch's own guard and remarks) — translating it would send a background sync
-	/// failure to <c>AuthState.NeedsReauth</c>, exactly the wrong outcome
-	/// <see cref="GraphOAuthAuthenticator.IsAdminConsentRequired"/> exists to prevent
-	/// (the interactive-flow catch reports it as administrator denial only when the tenant returns
-	/// the explicit admin-consent code; ordinary silent consent is user-actionable reauthentication).
-	/// This exercises the shared predicate directly.
-	/// </summary>
+	[Fact]
+	public void Administrator_consent_failure_preserves_structured_validation_state()
+	{
+		var failure = GraphOAuthAuthenticator.TranslateTokenFailure(
+			new MsalServiceException("code", "AADSTS90094: admin consent required")
+		);
+
+		Assert.Equal(AuthState.Error, failure.AccountState);
+		Assert.Equal(ErrorCategory.Validation, failure.Problem?.Category);
+		Assert.Equal(true, failure.Problem?.Extensions["adminConsentRequired"]);
+	}
+
+	[Fact]
+	public void Ordinary_silent_token_failure_requests_reauthentication()
+	{
+		var failure = GraphOAuthAuthenticator.TranslateTokenFailure(
+			new MsalUiRequiredException("no_account", "authenticate again")
+		);
+
+		Assert.Equal(AuthState.NeedsReauth, failure.AccountState);
+		Assert.Null(failure.Problem);
+	}
 	[Theory]
 	[InlineData(UiRequiredExceptionClassification.ConsentRequired, "unrelated", false)]
 	[InlineData(UiRequiredExceptionClassification.None, "unrelated", false)]

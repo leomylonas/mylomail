@@ -115,7 +115,49 @@ public sealed class StartupContentReschedulingTests
 				recorder.Created,
 				job => job.Method.Name == nameof(SyncJobs.ReplayStagedAsync)
 			);
+			Assert.Contains(
+				recorder.Created,
+				job => job.Method.Name == nameof(ContentJobs.FetchNextAsync)
+			);
 			Assert.False(coverage.TryStart(account.Id, mailboxId));
+		});
+	}
+
+	[Fact]
+	public async Task Reauthentication_requeues_a_resumable_export()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var exportId = Guid.NewGuid();
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			account.AuthState = AuthState.NeedsReauth;
+			context.ExportJobs.Add(
+				new ExportJob
+				{
+					Id = exportId,
+					AccountId = account.Id,
+					DestinationPath = Path.GetTempPath(),
+					ManifestJson = "[]",
+					Status = ExportJobStatus.Running,
+				}
+			);
+			await context.SaveChangesAsync();
+
+			var recorder =
+				(RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+			await scope.GetRequiredService<StartupScheduler>().ResumeAccountAsync(account.Id);
+
+			Assert.Contains(
+				recorder.Created,
+				job =>
+					job.Method.Name == nameof(ExportJobs.RunBatchAsync)
+					&& (Guid)job.Args[0]! == exportId
+			);
 		});
 	}
 

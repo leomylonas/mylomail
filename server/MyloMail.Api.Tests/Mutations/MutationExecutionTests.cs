@@ -726,6 +726,42 @@ public sealed class MutationExecutionTests
 		});
 	}
 
+	[Fact]
+	public async Task Missing_provider_configuration_releases_claims_and_stops_the_drain_loop()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		harness.FailNextProviderResolutionWith = new ProviderNotConfiguredException(
+			ProviderType.Gmail,
+			"Providers:Gmail:ClientId"
+		);
+		harness.Events.Clear();
+
+		await harness.UsingAsync(async services =>
+		{
+			var recorder =
+				(RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+
+			await services.GetRequiredService<MutationJobs>().DrainAsync(harness.AccountId);
+
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var item = await context.MutationItems.SingleAsync();
+			Assert.Equal(MutationState.Pending, item.State);
+			Assert.Null(item.LeaseOwner);
+			Assert.DoesNotContain(
+				recorder.Created,
+				job => job.Method.Name == nameof(MutationJobs.DrainAsync)
+			);
+			Assert.Equal(
+				AuthState.Error,
+				(await context.Accounts.SingleAsync(account => account.Id == harness.AccountId)).AuthState
+			);
+		});
+		Assert.Equal(AuthState.Error, Assert.Single(harness.Events.AccountStatuses).AuthState);
+	}
+
 
 	internal static async Task ExecuteAsync(MutationHarness harness)
 	{

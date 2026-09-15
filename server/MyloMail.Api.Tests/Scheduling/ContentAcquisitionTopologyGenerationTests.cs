@@ -122,6 +122,45 @@ public sealed class ContentAcquisitionTopologyGenerationTests
 		await AssertDiscardedAsync(harness, messageId);
 	}
 
+	[Theory]
+	[InlineData(false, AuthState.NeedsReauth)]
+	[InlineData(true, AuthState.Error)]
+	public async Task Account_failure_from_a_stale_fetch_still_pauses_the_account(
+		bool providerNotConfigured,
+		AuthState expectedState
+	)
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (mailboxId, _) = await SeedAsync(harness);
+		Exception failure = providerNotConfigured
+			? new ProviderNotConfiguredException(ProviderType.Gmail, "Providers:Gmail:ClientId")
+			: new ProviderAuthenticationException("reauthenticate");
+		harness.Provider.BeforeFetchRawMessageReturnAsync = async _ =>
+		{
+			await harness.UsingAsync(async scope =>
+			{
+				var context = scope.GetRequiredService<MyloMailDbContext>();
+				var mailbox = await context.Mailboxes.SingleAsync(m => m.Id == mailboxId);
+				mailbox.TopologyGeneration++;
+				await context.SaveChangesAsync();
+			});
+			throw failure;
+		};
+		harness.Events.Clear();
+
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ContentJobs>().FetchNextAsync(harness.Account.Id)
+		);
+
+		var account = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().Accounts.SingleAsync(a =>
+				a.Id == harness.Account.Id
+			)
+		);
+		Assert.Equal(expectedState, account.AuthState);
+		Assert.Equal(expectedState, Assert.Single(harness.Events.AccountStatuses).AuthState);
+	}
+
 	[Fact]
 	public async Task Crash_before_content_commit_rolls_back_and_restart_refetches()
 	{

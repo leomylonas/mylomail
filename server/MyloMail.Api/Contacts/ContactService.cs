@@ -105,7 +105,7 @@ public sealed class ContactService(
 		if (account is null || account.ProviderType == ProviderType.Imap) return false;
 		if (!account.IsEnabled
 			|| !account.PollingEnabled
-			|| account.AuthState == AuthState.NeedsReauth) return false;
+			|| account.AuthState is AuthState.NeedsReauth or AuthState.Error) return false;
 		var providerDelay = providerGate.Delay(accountId);
 		if (providerDelay > TimeSpan.Zero)
 			throw new ProviderThrottledException(providerDelay, "Account is throttled.");
@@ -138,7 +138,7 @@ public sealed class ContactService(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			await PauseForAuthenticationAsync(account, ex.Message);
+			await PauseForAuthenticationAsync(account, ex);
 			return false;
 		}
 		await ClearCredentialStoreUnavailableAsync(account, ct);
@@ -388,7 +388,7 @@ public sealed class ContactService(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			await PauseForAuthenticationAsync(account, ex.Message);
+			await PauseForAuthenticationAsync(account, ex);
 			throw;
 		}
 
@@ -475,7 +475,7 @@ public sealed class ContactService(
 		if (contact is null) return;
 		if (await HasUnsettledPredecessorAsync(operation, ct)) return;
 		var account = await context.Accounts.SingleAsync(a => a.Id == contact.AccountId, ct);
-		if (!account.IsEnabled || account.AuthState == AuthState.NeedsReauth) return;
+		if (!account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error) return;
 		if (account.ProviderType == ProviderType.Imap)
 		{
 			Complete(operation);
@@ -585,7 +585,7 @@ public sealed class ContactService(
 		catch (ProviderAuthenticationException ex)
 		{
 			ResetPending(operation, operation.ExpectedRevision);
-			await PauseForAuthenticationAsync(account, ex.Message);
+			await PauseForAuthenticationAsync(account, ex);
 		}
 		catch (ProviderContactRejectedException)
 		{
@@ -648,7 +648,7 @@ public sealed class ContactService(
 			.SingleOrDefaultAsync(c => c.Id == operation.ContactId, ct);
 		if (contact is null) return;
 		var account = await context.Accounts.SingleAsync(a => a.Id == accountId.Value, ct);
-		if (!account.IsEnabled || account.AuthState == AuthState.NeedsReauth) return;
+		if (!account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error) return;
 		var providerDelay = providerGate.Delay(account.Id);
 		if (providerDelay > TimeSpan.Zero)
 		{
@@ -682,7 +682,7 @@ public sealed class ContactService(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			await PauseForAuthenticationAsync(account, ex.Message);
+			await PauseForAuthenticationAsync(account, ex);
 			return;
 		}
 		catch (ProviderNotConfiguredException)
@@ -984,10 +984,10 @@ public sealed class ContactService(
 			delay ?? TimeSpan.FromMinutes(1)
 		);
 
-	private async Task PauseForAuthenticationAsync(Account account, string message)
+	private async Task PauseForAuthenticationAsync(Account account, ProviderAuthenticationException exception)
 	{
-		account.AuthState = AuthState.NeedsReauth;
-		account.LastAuthError = message;
+		account.AuthState = exception.AccountState;
+		account.LastAuthError = exception.Message;
 		await context.SaveChangesAsync(CancellationToken.None);
 		await Accounts.AccountDtoFactory.AnnounceStatusAsync(
 			context,

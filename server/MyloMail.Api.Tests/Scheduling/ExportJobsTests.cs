@@ -1,6 +1,7 @@
 using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -54,6 +55,36 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Equal(3, job.WrittenCount);
 		Assert.Equal(2, Directory.GetFiles(Path.Combine(destination, "INBOX"), "*.eml").Length);
 		Assert.Single(Directory.GetFiles(Path.Combine(destination, "Sent"), "*.eml"));
+	}
+
+	[Theory]
+	[InlineData(AuthState.NeedsReauth)]
+	[InlineData(AuthState.Error)]
+	public async Task Cached_export_remains_available_while_provider_access_is_paused(
+		AuthState authState
+	)
+	{
+		await SeedAsync(inboxMessages: 1, sentMessages: 0);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			account.AuthState = authState;
+			await context.SaveChangesAsync();
+		});
+
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId)
+		);
+
+		var job = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().ExportJobs.SingleAsync(j => j.Id == exportId)
+		);
+		Assert.Equal(ExportJobStatus.Completed, job.Status);
+		Assert.Equal(1, job.WrittenCount);
 	}
 
 	[Fact]
@@ -221,6 +252,73 @@ public sealed class ExportJobsTests : IAsyncLifetime
 			before.Add(retryAfter).AddSeconds(-1),
 			DateTime.UtcNow.Add(retryAfter).AddSeconds(1)
 		);
+	}
+
+	[Theory]
+	[InlineData(false, AuthState.NeedsReauth)]
+	[InlineData(true, AuthState.Error)]
+	public async Task Account_access_failure_keeps_export_resumable_without_retrying(
+		bool providerNotConfigured,
+		AuthState expectedState
+	)
+	{
+		await SeedUnfetchedAsync();
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		Exception failure = providerNotConfigured
+			? new ProviderNotConfiguredException(ProviderType.Imap, "credential")
+			: new ProviderAuthenticationException("reauthenticate");
+		harness.Provider.FailFetchRawMessageWith(failure);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var recorder =
+				(RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+
+			await scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId);
+
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var export = await context.ExportJobs.SingleAsync(job => job.Id == exportId);
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			Assert.Equal(ExportJobStatus.Running, export.Status);
+			Assert.Equal(0, export.ResumeToken);
+			Assert.Equal(expectedState, account.AuthState);
+			Assert.Empty(recorder.Created);
+		});
+		Assert.Equal(expectedState, Assert.Single(harness.Events.AccountStatuses).AuthState);
+	}
+
+	[Fact]
+	public async Task Credential_store_failure_keeps_export_position_and_schedules_retry()
+	{
+		await SeedUnfetchedAsync();
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+		);
+		harness.Provider.FailFetchRawMessageWith(
+			new CredentialStoreUnavailableException("the keyring is locked")
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var recorder =
+				(RecordingJobClient)scope.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+
+			await scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId);
+
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var export = await context.ExportJobs.SingleAsync(job => job.Id == exportId);
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.Account.Id);
+			Assert.Equal(ExportJobStatus.Running, export.Status);
+			Assert.Equal(0, export.ResumeToken);
+			Assert.Equal(AuthState.CredentialStoreUnavailable, account.AuthState);
+			Assert.IsType<ScheduledState>(Assert.Single(recorder.States));
+		});
 	}
 
 	private async Task<(Guid MailboxId, Guid MessageId)> SeedUnfetchedAsync()

@@ -283,25 +283,12 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			);
 			return new GraphServiceClient(http, authenticationProvider);
 		}
-		// Same gap pass 196/197 fixed for IMAP/SMTP, and this pass just fixed for Gmail:
-		// AcquireTokenAsync throws MsalUiRequiredException when no cached account exists or a
-		// silent token refresh needs interactive consent (a revoked/expired refresh token), but
-		// only GraphOAuthAuthenticator.AuthenticateAsync (the initial account-setup path)
-		// translated an MsalException into a categorised result. Every other Graph operation —
-		// sync, mailboxes, send, drafts, mutations — funnels through this one method, so the raw
-		// exception propagated uncaught past SyncJobs.GuardAsync's specific
-		// ProviderAuthenticationException catch, landing in its generic fallback instead and
-		// silently stopping the poll loop rather than setting AuthState.NeedsReauth (§3, §7).
-		//
-		// Excludes the admin-consent-required shape deliberately: AuthenticateAsync's own
-		// interactive-flow catch treats that as Validation/Error, not an authentication
-		// failure, precisely because re-authenticating can't fix a missing admin grant (§5).
-		// Translating it here too would send a background sync failure to NeedsReauth, the
-		// exact wrong outcome that carve-out exists to prevent — so it is left untranslated
-		// and falls through to the same generic fallback it always did.
-		catch (MsalException ex) when (!GraphOAuthAuthenticator.IsAdminConsentRequired(ex))
+		catch (MsalException ex)
 		{
-			throw new ProviderAuthenticationException(ex.Message, ex);
+			// Every background Graph surface shares the interactive authenticator's
+			// distinction: ordinary token failure needs reauthentication; AADSTS90094 needs
+			// administrator approval and carries structured Validation/Error state.
+			throw GraphOAuthAuthenticator.TranslateTokenFailure(ex);
 		}
 	}
 

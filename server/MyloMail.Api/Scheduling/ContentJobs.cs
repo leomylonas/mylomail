@@ -36,6 +36,7 @@ public sealed class ContentJobs(
 )
 {
 	private const int BatchLimit = 25;
+	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
 	public async Task FetchNextAsync(Guid accountId, CancellationToken ct = default)
 	{
@@ -49,7 +50,7 @@ public sealed class ContentJobs(
 		}
 
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
-		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
+		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)
 		{
 			return;
 		}
@@ -79,6 +80,22 @@ public sealed class ContentJobs(
 			jobs.Schedule<ContentJobs>(job => job.FetchNextAsync(accountId, default), ex.RetryAfter);
 			return;
 		}
+		catch (ProviderAuthenticationException ex)
+		{
+			account.AuthState = ex.AccountState;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			return;
+		}
+		catch (ProviderNotConfiguredException ex)
+		{
+			account.AuthState = AuthState.Error;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			return;
+		}
 		catch (CredentialStoreUnavailableException ex)
 		{
 			// No claim CAS runs ahead of this fetch (unlike MutationJobs/OutboxJobs), so
@@ -89,6 +106,10 @@ public sealed class ContentJobs(
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
 
 			logger.LogWarning("Account {AccountId}'s credential store could not be reached.", accountId);
+			jobs.Schedule<ContentJobs>(
+				job => job.FetchNextAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
 			return;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))

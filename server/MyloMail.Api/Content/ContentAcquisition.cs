@@ -127,26 +127,36 @@ public sealed class ContentAcquisition(
 			);
 			throw;
 		}
+		catch (Exception ex) when (ex is ProviderAuthenticationException or ProviderNotConfiguredException)
+		{
+			// Account access failed before these bytes could be evaluated. This says nothing
+			// about the message's readability, so it must not consume the corruption budget.
+			await RecordFailureAsync(
+				state,
+				issued,
+				messageId,
+				ex,
+				consumeAttempt: false,
+				clearTracker: false,
+				ct
+			);
+			throw;
+		}
 		catch (Credentials.CredentialStoreUnavailableException ex)
 		{
 			// Not evidence the content is unreadable -- nothing about this message was even
 			// attempted, providers.For(account) failed before it could dial out. Left uncounted
 			// against MaxAttempts so a sustained local credential-store outage can never
 			// exhaust the retry budget and mislabel readable content as permanently Failed.
-			if (
-				await RecordFailureAsync(
-					state,
-					issued,
-					messageId,
-					ex,
-					consumeAttempt: false,
-					clearTracker: false,
-					ct
-				)
-			)
-			{
-				return ContentAcquisitionResult.Deferred;
-			}
+			await RecordFailureAsync(
+				state,
+				issued,
+				messageId,
+				ex,
+				consumeAttempt: false,
+				clearTracker: false,
+				ct
+			);
 			logger.LogWarning(ex, "Content fetch for message {MessageId} could not reach the credential store.", messageId);
 			throw;
 		}

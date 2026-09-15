@@ -5,6 +5,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Scheduling;
+using MyloMail.Api.Tests.Fakes;
 using MyloMail.Api.Tests.Mutations;
 using Xunit;
 
@@ -40,6 +41,40 @@ public sealed class AccountStatusAnnouncementTests
 		);
 		Assert.Equal(AuthState.NeedsReauth, account.AuthState);
 		Assert.NotNull(item);
+	}
+
+	[Fact]
+	public async Task Missing_provider_configuration_pauses_the_outbox_worker()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await OutboxTests.SetUndoDelayAsync(harness, 0);
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.FailNextProviderResolutionWith = new ProviderNotConfiguredException(
+			ProviderType.Gmail,
+			"Providers:Gmail:ClientId"
+		);
+		harness.Events.Clear();
+
+		await harness.UsingAsync(async services =>
+		{
+			var recorder =
+				(RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+
+			await services.GetRequiredService<OutboxJobs>().RunAsync(harness.AccountId);
+
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync(a => a.Id == harness.AccountId);
+			var queued = await context.OutboxItems.SingleAsync(o => o.Id == item.Id);
+			Assert.Equal(AuthState.Error, account.AuthState);
+			Assert.Equal(OutboxStatus.Scheduled, queued.Status);
+			Assert.DoesNotContain(
+				recorder.Created,
+				job => job.Method.Name == nameof(OutboxJobs.RunAsync)
+			);
+		});
+		Assert.Equal(AuthState.Error, Assert.Single(harness.Events.AccountStatuses).AuthState);
 	}
 
 	[Fact]

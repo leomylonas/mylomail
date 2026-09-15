@@ -238,6 +238,19 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 	/// Duplicating an already-shown notification is the accepted cost; silently dropping one
 	/// is not (§13 Epic 9).
 	/// </summary>
+	public async Task RedispatchAllPendingAsync(CancellationToken ct = default)
+	{
+		var accountIds = await context
+			.NotificationRecords.Where(record => record.DeliveredAt == null)
+			.Select(record => record.AccountId)
+			.Distinct()
+			.ToListAsync(ct);
+		foreach (var accountId in accountIds)
+		{
+			await RedispatchPendingAsync(accountId, ct);
+		}
+	}
+
 	public async Task RedispatchPendingAsync(Guid accountId, CancellationToken ct = default)
 	{
 		var pending = await context

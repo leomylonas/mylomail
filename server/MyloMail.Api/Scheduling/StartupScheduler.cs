@@ -27,7 +27,6 @@ public sealed class StartupScheduler(
 	SearchIndexer search,
 	MessageIngestor ingestor,
 	PollRegistry polls,
-	Notifications.NotificationService notifications,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
 	IFaultInjector faults,
@@ -73,7 +72,7 @@ public sealed class StartupScheduler(
 		}
 
 		var accounts = await context
-			.Accounts.Where(a => a.IsEnabled && a.AuthState != AuthState.NeedsReauth)
+			.Accounts.Where(a => a.IsEnabled && a.AuthState != AuthState.NeedsReauth && a.AuthState != AuthState.Error)
 			.Select(a => a.Id)
 			.ToListAsync(ct);
 
@@ -122,10 +121,6 @@ public sealed class StartupScheduler(
 			// anything new goes out.
 			jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 
-			if (work.UndeliveredNotificationAccounts.Contains(accountId))
-			{
-				await notifications.RedispatchPendingAsync(accountId, ct);
-			}
 		}
 		foreach (var accountId in accounts)
 			jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
@@ -199,6 +194,10 @@ public sealed class StartupScheduler(
 		}
 		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 		jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
+		// Authentication/configuration failures leave queued content unattempted. Resume its
+		// bounded job immediately; waiting for a later live-sync page could leave cached-out
+		// accounts stalled indefinitely.
+		jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
 		// Reauthentication restores provider access to every durable draft save too. The job
 		// no-ops when none is dirty, which is preferable to leaving a crash-lost dispatch inert.
 		jobs.Enqueue<DraftJobs>(j => j.PushAsync(accountId, default));
@@ -219,6 +218,20 @@ public sealed class StartupScheduler(
 				jobs.Enqueue<ContactJobs>(job => job.ExecuteAsync(operation.Id, default));
 			else
 				jobs.Enqueue<ContactJobs>(job => job.ReconcileAsync(operation.Id, default));
+		}
+		var activeExports = await context
+			.ExportJobs.Where(export =>
+				export.AccountId == accountId
+				&& (
+					export.Status == ExportJobStatus.Running
+					|| export.Status == ExportJobStatus.CancelRequested
+				)
+			)
+			.Select(export => export.Id)
+			.ToListAsync(ct);
+		foreach (var exportId in activeExports)
+		{
+			jobs.Enqueue<ExportJobs>(job => job.RunBatchAsync(exportId, default));
 		}
 	}
 }

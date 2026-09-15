@@ -279,9 +279,9 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			);
 			return new GraphServiceClient(http, authenticationProvider);
 		}
-		catch (MsalException ex) when (!GraphOAuthAuthenticator.IsAdminConsentRequired(ex))
+		catch (MsalException ex)
 		{
-			throw new ProviderAuthenticationException(ex.Message, ex);
+			throw GraphOAuthAuthenticator.TranslateTokenFailure(ex);
 		}
 	}
 

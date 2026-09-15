@@ -58,7 +58,7 @@ public sealed class MutationJobs(
 		}
 
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
-		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
+		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)
 		{
 			return;
 		}
@@ -84,7 +84,15 @@ public sealed class MutationJobs(
 		}
 		catch (ProviderAuthenticationException ex)
 		{
-			account.AuthState = AuthState.NeedsReauth;
+			account.AuthState = ex.AccountState;
+			account.LastAuthError = ex.Message;
+			await context.SaveChangesAsync(ct);
+			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+			return;
+		}
+		catch (ProviderNotConfiguredException ex)
+		{
+			account.AuthState = AuthState.Error;
 			account.LastAuthError = ex.Message;
 			await context.SaveChangesAsync(ct);
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
@@ -173,7 +181,20 @@ public sealed class MutationJobs(
 				// but SaveChangesAsync has nothing queued for it. A fresh, newly-tracked load
 				// is required.
 				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
-				reloaded.AuthState = AuthState.NeedsReauth;
+				reloaded.AuthState = ex.AccountState;
+				reloaded.LastAuthError = ex.Message;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				await ReleaseUnattemptedAsync();
+				return;
+			}
+			catch (ProviderNotConfiguredException ex)
+			{
+				// Provider resolution failed before MutationExecutor could create an attempt.
+				// Release every untouched claim and stop: immediate self-dispatch would reclaim
+				// the same item forever while configuration cannot change inside this process.
+				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+				reloaded.AuthState = AuthState.Error;
 				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);

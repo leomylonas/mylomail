@@ -287,6 +287,31 @@ public sealed class SendCrashWindowTests
 		Assert.Equal(OutboxStatus.Scheduled, reloaded.Status);
 	}
 
+	[Fact]
+	public async Task Missing_provider_configuration_is_a_definite_unsent_outcome()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var item = await OutboxTests.QueueAsync(harness);
+		harness.FailNextProviderResolutionWith = new ProviderNotConfiguredException(
+			ProviderType.Gmail,
+			"Providers:Gmail:ClientId"
+		);
+
+		await Assert.ThrowsAsync<ProviderNotConfiguredException>(() => SendAsync(harness, item.Id));
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var reloaded = await context.OutboxItems.SingleAsync(o => o.Id == item.Id);
+			var attempt = await context.MutationExecutionAttempts.SingleAsync(a =>
+				a.OutboxItemId == item.Id
+			);
+			Assert.Equal(OutboxStatus.Scheduled, reloaded.Status);
+			Assert.Equal(MutationAttemptState.Completed, attempt.State);
+			Assert.NotNull(attempt.ResultPersistedAt);
+		});
+	}
+
 	/// <summary>
 	/// Startup reconciliation must find a send left in flight. With in-memory job storage
 	/// nothing else knows it existed.

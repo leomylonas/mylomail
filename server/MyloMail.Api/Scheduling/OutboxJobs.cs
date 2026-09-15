@@ -19,7 +19,8 @@ public sealed class DraftJobs(
 	DraftSyncService drafts,
 	MyloMailDbContext context,
 	IBackgroundJobClient jobs,
-	ConnectivityMonitor connectivity
+	ConnectivityMonitor connectivity,
+	IHubEvents events
 )
 {
 	public async Task PushAsync(Guid accountId, CancellationToken ct = default)
@@ -40,6 +41,16 @@ public sealed class DraftJobs(
 		catch (ProviderThrottledException ex)
 		{
 			jobs.Schedule<DraftJobs>(job => job.PushAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (ProviderAuthenticationException ex)
+		{
+			await RecordAccountFailureAsync(accountId, ex.AccountState, ex.Message, ct);
+			return;
+		}
+		catch (ProviderNotConfiguredException ex)
+		{
+			await RecordAccountFailureAsync(accountId, AuthState.Error, ex.Message, ct);
 			return;
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
@@ -65,6 +76,25 @@ public sealed class DraftJobs(
 			);
 		}
 	}
+
+	private async Task RecordAccountFailureAsync(
+		Guid accountId,
+		AuthState state,
+		string message,
+		CancellationToken ct
+	)
+	{
+		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
+		if (account is null)
+		{
+			return;
+		}
+		account.AuthState = state;
+		account.LastAuthError = message;
+		await context.SaveChangesAsync(ct);
+		await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, account, ct);
+	}
+
 }
 
 /// <summary>Requests a draft push, so a save reaches the server without waiting for a restart.</summary>
@@ -135,7 +165,7 @@ public sealed class OutboxJobs(
 		}
 
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
-		if (account is null || !account.IsEnabled || account.AuthState == AuthState.NeedsReauth)
+		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)
 		{
 			return;
 		}
@@ -187,7 +217,16 @@ public sealed class OutboxJobs(
 				// SendExecutor already set OutboxStatus.Scheduled and announced it (§7) before
 				// rethrowing — only the account-level signal remains this job's responsibility.
 				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
-				reloaded.AuthState = AuthState.NeedsReauth;
+				reloaded.AuthState = ex.AccountState;
+				reloaded.LastAuthError = ex.Message;
+				await context.SaveChangesAsync(ct);
+				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
+				return;
+			}
+			catch (ProviderNotConfiguredException ex)
+			{
+				var reloaded = await context.Accounts.FirstAsync(a => a.Id == accountId, ct);
+				reloaded.AuthState = AuthState.Error;
 				reloaded.LastAuthError = ex.Message;
 				await context.SaveChangesAsync(ct);
 				await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, reloaded, ct);
