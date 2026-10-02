@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { GlobalTheme, usePrefersDarkScheme } from "@carbon/react";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
@@ -30,5 +31,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 		preference === themePreference.Dark ||
 		(preference === themePreference.System && prefersDark);
 
-	return <GlobalTheme theme={dark ? "g100" : "white"}>{children}</GlobalTheme>;
+	const theme = dark ? "g100" : "white";
+
+	// `GlobalTheme` only feeds Carbon's React context. The design tokens themselves are CSS
+	// custom properties scoped to a `cds--<theme>` class, so without the class on the root
+	// every `var(--cds-*)` in the app — including in portalled menus and native dialogs,
+	// which sit outside any wrapper element — resolves to nothing.
+	useEffect(() => {
+		const root = document.documentElement;
+		// A page is printed on white paper whatever the screen theme: dark tokens would put pale
+		// text on it and, in a dark theme, a dark page background into the PDF.
+		const printing = window.matchMedia("print");
+		const apply = () => {
+			root.classList.remove("cds--white", "cds--g100");
+			root.classList.add(
+				`cds--${printing.matches ? "white" : theme}`,
+				"cds--layer-one",
+			);
+		};
+		apply();
+		printing.addEventListener("change", apply);
+		return () => printing.removeEventListener("change", apply);
+	}, [theme]);
+
+	return <GlobalTheme theme={theme}>{children}</GlobalTheme>;
 }

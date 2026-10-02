@@ -25,7 +25,7 @@
 .validation {
 	margin: 0;
 	color: var(--cds-support-error);
-	font-size: var(--cds-body-compact-01-font-size);
+	font-size: 0.875rem;
 }
 
 .conflict {

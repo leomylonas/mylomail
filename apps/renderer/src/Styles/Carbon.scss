@@ -47,3 +47,42 @@
 	src: url("../../node_modules/@ibm/plex/IBM-Plex-Mono/fonts/complete/woff2/IBMPlexMono-Regular.woff2")
 		format("woff2");
 }
+
+/*
+ * Carbon's reset sets `line-height: 1` on body and leaves it to each Carbon component to
+ * restore its own. Everything hand-built in this renderer inherits it, which stacks lines
+ * of text on top of each other, so a readable default is restored here.
+ */
+body {
+	background: var(--cds-background);
+	color: var(--cds-text-primary);
+	line-height: 1.4;
+}
+
+/*
+ * Carbon publishes its spacing scale as Sass variables only; there are no `--cds-spacing-*`
+ * custom properties in its output. Component styles use these names, and an undefined custom
+ * property silently resolves to nothing, collapsing every gap and padding to zero.
+ */
+:root {
+	--cds-spacing-01: 0.125rem;
+	--cds-spacing-02: 0.25rem;
+	--cds-spacing-03: 0.5rem;
+	--cds-spacing-04: 0.75rem;
+	--cds-spacing-05: 1rem;
+	--cds-spacing-06: 1.5rem;
+	--cds-spacing-07: 2rem;
+	--cds-spacing-08: 2.5rem;
+	--cds-spacing-09: 3rem;
+}
+
+/* Scrollbars are screen furniture; a printed page has no use for them. */
+@media print {
+	* {
+		scrollbar-width: none;
+	}
+
+	::-webkit-scrollbar {
+		display: none;
+	}
+}
