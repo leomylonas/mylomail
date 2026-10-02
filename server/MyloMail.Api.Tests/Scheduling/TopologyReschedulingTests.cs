@@ -313,7 +313,8 @@ public sealed class TopologyReschedulingTests
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			null,
-			account.MaxMessageDownloadMegabytes
+			account.MaxMessageDownloadMegabytes,
+			account.GroupConversations
 		);
 
 	private static Task<List<Job>> CreatedJobsAsync(SyncHarness harness) =>

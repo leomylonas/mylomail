@@ -4,6 +4,7 @@ import {
 	expandedThreadKeysForAccount,
 	messageMatchesColumnFilters,
 	messageMatchesFilter,
+	toServerFilter,
 	sortMessages,
 	type MessageSummary,
 } from "@mylomail/renderer/Components/MessageList/MessageList";
@@ -173,5 +174,48 @@ describe("message columns", () => {
 				"forecast",
 			),
 		).toBe(true);
+	});
+});
+
+describe("toServerFilter", () => {
+	const now = new Date(2026, 8, 12, 15, 30);
+
+	it("sends nothing for an unfiltered list", () => {
+		expect(
+			toServerFilter("  ", { date: "all", read: "all", flag: "all" }, now),
+		).toEqual({
+			text: undefined,
+			receivedFrom: undefined,
+			receivedBefore: undefined,
+			isRead: undefined,
+			isFlagged: undefined,
+		});
+	});
+
+	it("turns the column choices into the reader's local-day bounds and tri-state flags", () => {
+		const filter = toServerFilter(
+			" needle ",
+			{ date: "sevenDays", read: "unread", flag: "flagged" },
+			now,
+		);
+
+		expect(filter.text).toBe("needle");
+		expect(filter.receivedFrom).toBe(new Date(2026, 8, 6).toISOString());
+		expect(filter.receivedBefore).toBe(new Date(2026, 8, 13).toISOString());
+		expect(filter.isRead).toBe(false);
+		expect(filter.isFlagged).toBe(true);
+	});
+
+	it("treats today as the single local day", () => {
+		const filter = toServerFilter(
+			"",
+			{ date: "today", read: "read", flag: "unflagged" },
+			now,
+		);
+
+		expect(filter.receivedFrom).toBe(new Date(2026, 8, 12).toISOString());
+		expect(filter.receivedBefore).toBe(new Date(2026, 8, 13).toISOString());
+		expect(filter.isRead).toBe(true);
+		expect(filter.isFlagged).toBe(false);
 	});
 });

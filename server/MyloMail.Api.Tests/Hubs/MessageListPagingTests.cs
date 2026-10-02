@@ -19,6 +19,8 @@ namespace MyloMail.Api.Tests.Hubs;
 /// </summary>
 public sealed class MessageListPagingTests
 {
+	private static readonly MessageListFilterDto NoFilter = new(null, null, null, null, null);
+
 	[Fact]
 	public async Task Two_pages_are_disjoint_and_together_cover_every_message_in_order()
 	{
@@ -28,8 +30,8 @@ public sealed class MessageListPagingTests
 		var (firstPage, secondPage) = await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			var first = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true);
-			var second = await hub.GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true);
+			var first = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true, NoFilter);
+			var second = await hub.GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true, NoFilter);
 			return (first, second);
 		});
 
@@ -83,7 +85,7 @@ public sealed class MessageListPagingTests
 		var (representative, members) = await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			var page = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true);
+			var page = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true, NoFilter);
 			return (
 				page.Single(message => message.ThreadId == threadId),
 				await hub.GetThreadMessages(mailboxId, threadId)
@@ -101,7 +103,7 @@ public sealed class MessageListPagingTests
 		var mailboxId = await SeedMessagesAsync(harness, count: 10);
 
 		var page = await harness.UsingAsync(services =>
-			services.GetRequiredService<MailHub>().GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true)
+			services.GetRequiredService<MailHub>().GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true, NoFilter)
 		);
 
 		Assert.Empty(page);
@@ -142,7 +144,7 @@ public sealed class MessageListPagingTests
 				var hub = services.GetRequiredService<MailHub>();
 				var all = new List<MessageSummaryDto>();
 				for (var skip = 0; skip < 250; skip += 100)
-					all.AddRange(await hub.GetMessages(mailboxId, skip, 100, field, descending));
+					all.AddRange(await hub.GetMessages(mailboxId, skip, 100, field, descending, NoFilter));
 				return all;
 			});
 
@@ -158,6 +160,53 @@ public sealed class MessageListPagingTests
 		Assert.Equal("Subject 000", bySubject[0].Subject);
 		Assert.Equal("Subject 249", bySubject[^1].Subject);
 		Assert.Equal(bySubject.Select(m => m.Subject).Order(StringComparer.CurrentCultureIgnoreCase), bySubject.Select(m => m.Subject));
+	}
+
+	/// <summary>
+	/// A filter must narrow the whole mailbox, not the pages loaded so far: a match on the
+	/// last page of a long mailbox has to turn up on the first page of the filtered list.
+	/// </summary>
+	[Fact]
+	public async Task Filters_apply_across_the_whole_mailbox_before_paging()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var mailboxId = Guid.NewGuid();
+		var oldUnreadFlagged = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Mailboxes.Add(new Mailbox { Id = mailboxId, AccountId = harness.Account.Id, ProviderMailboxId = "INBOX", Name = "Inbox", SpecialUse = SpecialUse.Inbox });
+			for (var i = 0; i < 250; i++)
+			{
+				var id = i == 0 ? oldUnreadFlagged : Guid.NewGuid();
+				context.Messages.Add(new Message
+				{
+					Id = id,
+					AccountId = harness.Account.Id,
+					Subject = i == 0 ? "Quarterly NEEDLE report" : $"Routine {i}",
+					From = [new Address(i == 0 ? "Claire" : "Other", i == 0 ? "claire@example.test" : "other@example.test")],
+					// The one that matches is the oldest, so it is on the last page unfiltered.
+					ReceivedAt = DateTimeOffset.UnixEpoch.AddHours(i),
+					IsRead = i != 0,
+					IsFlagged = i == 0,
+				});
+				context.MessageMailboxes.Add(new MessageMailbox { Id = Guid.NewGuid(), MessageId = id, MailboxId = mailboxId, ProviderOccurrenceId = id.ToString() });
+			}
+			await context.SaveChangesAsync();
+		});
+
+		async Task<List<Guid>> FirstPageAsync(MessageListFilterDto filter) =>
+			await harness.UsingAsync(async services =>
+				(await services.GetRequiredService<MailHub>().GetMessages(mailboxId, 0, 100, MessageSortField.Date, true, filter)).Select(m => m.Id).ToList());
+
+		Assert.Equal([oldUnreadFlagged], await FirstPageAsync(NoFilter with { Text = "  needle " }));
+		Assert.Equal([oldUnreadFlagged], await FirstPageAsync(NoFilter with { Text = "CLAIRE@example" }));
+		Assert.Equal([oldUnreadFlagged], await FirstPageAsync(NoFilter with { IsRead = false }));
+		Assert.Equal([oldUnreadFlagged], await FirstPageAsync(NoFilter with { IsFlagged = true }));
+		Assert.Equal(100, (await FirstPageAsync(NoFilter with { IsFlagged = false })).Count);
+		Assert.Equal([oldUnreadFlagged], await FirstPageAsync(NoFilter with { ReceivedBefore = DateTimeOffset.UnixEpoch.AddHours(1) }));
+		Assert.Empty(await FirstPageAsync(NoFilter with { ReceivedFrom = DateTimeOffset.UnixEpoch.AddDays(30) }));
+		Assert.Empty(await FirstPageAsync(NoFilter with { Text = "needle", IsRead = true }));
 	}
 
 	private static async Task<Guid> SeedMessagesAsync(SyncHarness harness, int count)

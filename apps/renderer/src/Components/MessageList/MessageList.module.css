@@ -373,6 +373,11 @@
 	color: var(--cds-text-primary);
 }
 
+/* The selection highlight spans the conversation gutter too, to the list's left edge. */
+.virtualRow:has(> .selected) {
+	background: var(--cds-highlight);
+}
+
 .virtualRow:not(.threaded) > .threadPlaceholder {
 	display: none;
 }

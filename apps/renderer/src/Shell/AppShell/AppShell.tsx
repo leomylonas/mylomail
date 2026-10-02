@@ -199,6 +199,25 @@ export function AppShell({
 	// The front door: with nothing set up yet, the form is what the user should see, not an
 	// empty reading pane with no way to get past it. Derived rather than synced via an effect,
 	// so there is no first-render flash of the reading pane before the accounts query settles.
+	function openMessageInNewWindow(message: {
+		id: string;
+		subject: string;
+		from: string;
+	}): void {
+		void window.windows
+			?.open(
+				`message=${message.id}&account=${selectedAccountId}&subject=${encodeURIComponent(
+					message.subject,
+				)}${message.from ? `&sender=${encodeURIComponent(message.from)}` : ""}`,
+			)
+			.catch(() => {
+				notify(notifications, {
+					kind: "error",
+					title: "Could not open in a new window",
+					detail: "The message is still open here instead.",
+				});
+			});
+	}
 	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
 	const connectionProblem = describeConnectionProblem(status, accounts.isError);
 	const showMailChrome =
@@ -615,6 +634,10 @@ export function AppShell({
 									mailboxId={selectedMailboxId}
 									selectedMessageId={selectedMessageId}
 									query={query}
+									groupConversations={
+										selectedAccount?.groupConversations ?? false
+									}
+									onOpenInNewWindow={openMessageInNewWindow}
 									onSelect={(message) => {
 										store.setState("selectedMessageId", message.id);
 										store.setState("selectedMessageSubject", message.subject);
@@ -714,23 +737,11 @@ export function AppShell({
 								onOpenInNewWindow={
 									window.windows
 										? () =>
-												void window.windows
-													?.open(
-														`message=${selectedMessageId}&account=${selectedAccountId}&subject=${encodeURIComponent(
-															selectedMessageSubject,
-														)}${
-															selectedMessageSenderAddress
-																? `&sender=${encodeURIComponent(selectedMessageSenderAddress)}`
-																: ""
-														}`,
-													)
-													.catch(() => {
-														notify(notifications, {
-															kind: "error",
-															title: "Could not open in a new window",
-															detail: "The message is still open here instead.",
-														});
-													})
+												openMessageInNewWindow({
+													id: selectedMessageId,
+													subject: selectedMessageSubject,
+													from: selectedMessageSenderAddress,
+												})
 										: undefined
 								}
 							/>

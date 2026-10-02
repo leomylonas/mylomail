@@ -323,6 +323,7 @@ public sealed class AccountStateBroadcastTests
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			AppendToSentOnSend: null,
-			MaxMessageDownloadMegabytes: 128
+			MaxMessageDownloadMegabytes: 128,
+			GroupConversations: false
 		);
 }

@@ -325,11 +325,17 @@ public sealed class DatabaseBootstrapperTests
 	/// </summary>
 	private static Task AddNewerAccountColumnsAsync(MyloMailDbContext context) =>
 		context.Database.ExecuteSqlRawAsync(
-			"""ALTER TABLE "Accounts" ADD COLUMN "MaxMessageDownloadMegabytes" INTEGER NOT NULL DEFAULT 128;"""
+			"""
+			ALTER TABLE "Accounts" ADD COLUMN "MaxMessageDownloadMegabytes" INTEGER NOT NULL DEFAULT 128;
+			ALTER TABLE "Accounts" ADD COLUMN "GroupConversations" INTEGER NOT NULL DEFAULT 0;
+			"""
 		);
 
 	private static Task DropNewerAccountColumnsAsync(MyloMailDbContext context) =>
 		context.Database.ExecuteSqlRawAsync(
-			"""ALTER TABLE "Accounts" DROP COLUMN "MaxMessageDownloadMegabytes";"""
+			"""
+			ALTER TABLE "Accounts" DROP COLUMN "MaxMessageDownloadMegabytes";
+			ALTER TABLE "Accounts" DROP COLUMN "GroupConversations";
+			"""
 		);
 }

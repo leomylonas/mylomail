@@ -329,7 +329,8 @@ public class AccountsController(
 			account.AttachmentSizeLimitOverride,
 			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
 			gate.Delay(account.Id) > TimeSpan.Zero,
-			account.MaxMessageDownloadMegabytes
+			account.MaxMessageDownloadMegabytes,
+			account.GroupConversations
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>

@@ -96,7 +96,7 @@ public sealed class EmptyMailboxTests
 		{
 			var account = await harness.AccountInScopeAsync(services);
 			var hub = services.GetRequiredService<MailHub>();
-			await hub.UpdateAccount(new AccountSettingsDto(account.Id, account.DisplayName, account.Color, account.PollIntervalSeconds, account.PollingEnabled, account.UndoSendDelaySeconds, account.NotificationsEnabled, account.InitialSyncMode, account.InitialSyncBoundValue, account.CertificateTrustMode, account.AttachmentSizeLimitOverride, null, 256));
+			await hub.UpdateAccount(new AccountSettingsDto(account.Id, account.DisplayName, account.Color, account.PollIntervalSeconds, account.PollingEnabled, account.UndoSendDelaySeconds, account.NotificationsEnabled, account.InitialSyncMode, account.InitialSyncBoundValue, account.CertificateTrustMode, account.AttachmentSizeLimitOverride, null, 256, account.GroupConversations));
 		});
 
 		await harness.UsingAsync(async services =>

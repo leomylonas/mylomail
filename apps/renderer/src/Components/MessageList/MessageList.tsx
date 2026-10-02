@@ -76,6 +76,7 @@ import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/Notifi
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
 import {
 	MessageSortField,
+	type MessageListFilterDto,
 	type MessageSummaryDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { PendingChangeDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Hubs";
@@ -91,7 +92,6 @@ import {
 } from "@mylomail/renderer/Lib/RovingFocus";
 import styles from "@mylomail/renderer/Components/MessageList/MessageList.module.css";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
-import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
 
 export interface MessageSummary {
 	id: string;
@@ -144,6 +144,16 @@ interface MoveMutationInput extends MembershipMutationInput {
 
 const columnHelper = createColumnHelper<MessageSummary>();
 
+/** A value that follows `value` only after it has stopped changing for `delay` ms. */
+function useDebouncedValue<T>(value: T, delay: number): T {
+	const [debounced, setDebounced] = useState(value);
+	useEffect(() => {
+		const timer = setTimeout(() => setDebounced(value), delay);
+		return () => clearTimeout(timer);
+	}, [value, delay]);
+	return debounced;
+}
+
 /**
  * Row height fed to the virtualizer as an estimate (§12). Rows in this list are all the same
  * height — unlike the calendar agenda's day rows, which vary with event count — so this is a
@@ -188,9 +198,11 @@ function formatMessageDate(date: Date, now = new Date()): string {
 const messagePageSize = 100;
 
 /**
- * Matches across the fields the row itself displays, not full-text search: this is a fast,
- * local narrowing of whatever page of messages is already loaded, distinct from the `Search`
- * hub method the search box already triggers server-side (§12, §13 Epic 6).
+ * Matches subject, snippet and sender (name or address), the same fields the server's list filter
+ * uses. The server narrows the whole mailbox before paging; this runs over what it returned as
+ * well, so a message whose read or flag state just changed locally leaves or joins the list at
+ * once instead of waiting for the next fetch. Not full-text search: that is the `Search` hub
+ * method the search box triggers (§12, §13 Epic 6).
  */
 export function messageMatchesFilter(
 	message: MessageSummary,
@@ -201,11 +213,10 @@ export function messageMatchesFilter(
 	return (
 		message.subject.toLocaleLowerCase().includes(needle) ||
 		message.snippet.toLocaleLowerCase().includes(needle) ||
-		describeSender(message).toLocaleLowerCase().includes(needle) ||
-		new Date(message.receivedAt)
-			.toLocaleString()
-			.toLocaleLowerCase()
-			.includes(needle)
+		message.from.some((sender) =>
+			sender.email.toLocaleLowerCase().includes(needle),
+		) ||
+		describeSender(message).toLocaleLowerCase().includes(needle)
 	);
 }
 
@@ -277,6 +288,8 @@ export function MessageList({
 	selectedMessageId,
 	query,
 	onSelect,
+	onOpenInNewWindow,
+	groupConversations,
 	onPrint,
 	onCompose,
 	commandHost,
@@ -289,6 +302,14 @@ export function MessageList({
 	selectedMessageId: string | null;
 	query: string;
 	onSelect: (message: { id: string; subject: string; from: string }) => void;
+	/** Double-clicking a row opens that message in a window of its own. */
+	onOpenInNewWindow: (message: {
+		id: string;
+		subject: string;
+		from: string;
+	}) => void;
+	/** The account's choice to list a message and its replies as one conversation row. */
+	groupConversations: boolean;
 	/**
 	 * Opens the message in the reading pane, the same as {@link onSelect}, but the caller
 	 * additionally switches to it: printing has to go through the reading pane's own sandboxed
@@ -305,7 +326,7 @@ export function MessageList({
 	commandHost: HTMLElement | null;
 }) {
 	const store = useWindowStore();
-	const threadMode = useStoreValue(store, "messageListThreadMode");
+	const threadMode = groupConversations ? "collapsed" : "flat";
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const searching = query.trim().length > 0;
@@ -359,11 +380,20 @@ export function MessageList({
 	// The server orders the whole mailbox before taking each page, so the sort is part of the
 	// query: sorting only what has been loaded would make "oldest first" mean the oldest of the
 	// current window. The previous rows stay on screen while the re-ordered first page loads.
+	// Filters narrow the whole mailbox on the server too, for the same reason as the sort. The
+	// text is debounced so typing does not fetch per keystroke.
+	const debouncedFilterText = useDebouncedValue(filterText, 250);
 	const [primarySort] = sorting;
 	const sortField = sortFieldFor(primarySort?.id);
 	const sortDescending = primarySort ? primarySort.desc : true;
 	const listing = useInfiniteQuery({
-		queryKey: [...queryKeys.messages(mailboxId), sortField, sortDescending],
+		queryKey: [
+			...queryKeys.messages(mailboxId),
+			sortField,
+			sortDescending,
+			debouncedFilterText.trim(),
+			columnFilters,
+		],
 		queryFn: async ({ pageParam }) =>
 			(
 				await hub.getMessages(
@@ -372,6 +402,7 @@ export function MessageList({
 					messagePageSize,
 					sortField,
 					sortDescending,
+					toServerFilter(debouncedFilterText, columnFilters),
 				)
 			).map(normalizeMessage),
 		placeholderData: keepPreviousData,
@@ -1113,18 +1144,6 @@ export function MessageList({
 						<SelectItem value="flagged" text="Flagged" />
 						<SelectItem value="unflagged" text="Unflagged" />
 					</Select>
-					<Button
-						kind="ghost"
-						size="sm"
-						onClick={() =>
-							store.setState(
-								"messageListThreadMode",
-								threadMode === "flat" ? "collapsed" : "flat",
-							)
-						}
-					>
-						{threadMode === "flat" ? "Group conversations" : "Show flat list"}
-					</Button>
 				</div>
 			) : null}
 			{failedThreadQuery ? (
@@ -1308,6 +1327,12 @@ export function MessageList({
 											}
 											setMenu({ x: event.clientX, y: event.clientY, targets });
 										}}
+										onDoubleClick={() =>
+											onOpenInNewWindow({
+												...message,
+												from: senderAddress(message),
+											})
+										}
 										onClick={(event) => {
 											setFocusedIndex(index);
 											if (event.shiftKey && anchorIndex !== null) {
@@ -1762,6 +1787,46 @@ function describeSender(message: MessageSummary): string {
  * Applies the active sort before conversations are collapsed, so a thread's representative
  * determines its position while every expanded member remains beside it.
  */
+/**
+ * The server-side form of the list filters. "Today" and "last 7 days" are the reader's local
+ * calendar days, so the bounds are worked out here and sent as instants.
+ */
+export function toServerFilter(
+	text: string,
+	filters: MessageColumnFilters,
+	now = new Date(),
+): MessageListFilterDto {
+	const days =
+		filters.date === "today"
+			? 1
+			: filters.date === "sevenDays"
+				? 7
+				: filters.date === "thirtyDays"
+					? 30
+					: null;
+	return {
+		text: text.trim() === "" ? undefined : text.trim(),
+		receivedFrom:
+			days === null
+				? undefined
+				: new Date(
+						now.getFullYear(),
+						now.getMonth(),
+						now.getDate() - (days - 1),
+					).toISOString(),
+		receivedBefore:
+			days === null
+				? undefined
+				: new Date(
+						now.getFullYear(),
+						now.getMonth(),
+						now.getDate() + 1,
+					).toISOString(),
+		isRead: filters.read === "all" ? undefined : filters.read === "read",
+		isFlagged: filters.flag === "all" ? undefined : filters.flag === "flagged",
+	};
+}
+
 /** Which server-side ordering a column header maps to; unsorted means newest first. */
 function sortFieldFor(columnId: string | undefined): MessageSortField {
 	switch (columnId) {

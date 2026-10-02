@@ -94,7 +94,7 @@ not the first.
 
 The conformance suite's own names (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
 `GRAPH_CLIENT_ID`, `GRAPH_TENANT_ID`) are accepted as a fallback, so
-`source .dev/provider-test.env` is enough to run the app locally. Configuration wins where
+`pnpm app` loads the registration from `.dev/provider-test.env` itself (only those four names, never the test accounts' passwords), or `source .dev/provider-test.env` before another launch route. Configuration wins where
 both are set.
 
 ### Telemetry (optional)

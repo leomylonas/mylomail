@@ -31,6 +31,7 @@ export interface AccountDto {
   appendToSentOnSend?: boolean;
   isThrottled: boolean;
   maxMessageDownloadMegabytes: number;
+  groupConversations: boolean;
 }
 
 export const AccountDtoSchema = z.object({
@@ -55,4 +56,5 @@ export const AccountDtoSchema = z.object({
   appendToSentOnSend: z.boolean().nullable(),
   isThrottled: z.boolean(),
   maxMessageDownloadMegabytes: z.number(),
+  groupConversations: z.boolean(),
 });

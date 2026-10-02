@@ -46,6 +46,8 @@ export interface AccountSettingsValues {
 	attachmentSizeLimitOverride: number | null;
 	/** Largest message downloaded for this account; larger ones stay on the server. */
 	maxMessageDownloadMegabytes: number;
+	/** List this account's mail as conversations rather than one row per message. */
+	groupConversations: boolean;
 	/** Not itself sent to `UpdateAccount` beyond deciding whether the toggle below renders. */
 	providerType: ProviderType;
 	/** IMAP only; null for every other provider (§15). */
@@ -69,6 +71,7 @@ function toAccountSettingsDto(
 			: { initialSyncBoundValue: values.initialSyncBoundValue ?? 3 }),
 		certificateTrustMode: values.certificateTrustMode,
 		maxMessageDownloadMegabytes: values.maxMessageDownloadMegabytes,
+		groupConversations: values.groupConversations,
 		...(values.attachmentSizeLimitOverride === null
 			? {}
 			: { attachmentSizeLimitOverride: values.attachmentSizeLimitOverride }),
@@ -99,6 +102,7 @@ function toAccountSettingsValues(
 		certificateTrustMode: settings.certificateTrustMode,
 		attachmentSizeLimitOverride: settings.attachmentSizeLimitOverride ?? null,
 		maxMessageDownloadMegabytes: settings.maxMessageDownloadMegabytes,
+		groupConversations: settings.groupConversations,
 		providerType,
 		appendToSentOnSend: settings.appendToSentOnSend ?? null,
 	};
@@ -378,6 +382,16 @@ export function AccountSettings({
 								? Math.round(Number(value) * 1024 * 1024)
 								: null,
 					})
+				}
+			/>
+			<Toggle
+				id="settings-group-conversations"
+				labelText="Group messages into conversations"
+				labelA="Off"
+				labelB="On"
+				toggled={values.groupConversations}
+				onToggle={(checked) =>
+					setValues({ ...values, groupConversations: checked })
 				}
 			/>
 			<NumberInput

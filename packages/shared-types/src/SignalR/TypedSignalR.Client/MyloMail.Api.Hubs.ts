@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSortField, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -17,16 +17,18 @@ export type IMailHub = {
     */
     getMailboxes(accountId: string): Promise<MailboxSummaryDto[]>;
     /**
-    * One page of a mailbox, ordered across the whole mailbox by
-    * (ties broken newest first, then by id, so paging is stable).
+    * One page of a mailbox: filtered by , then ordered across what
+    * remains by  (ties broken newest first, then by id, so paging
+    * is stable). Conversation counts still cover the whole mailbox.
     * @param mailboxId Transpiled from System.Guid
     * @param skip Transpiled from int
     * @param take Transpiled from int
     * @param sortField Transpiled from MyloMail.Api.Contracts.MessageSortField
     * @param descending Transpiled from bool
+    * @param filter Transpiled from MyloMail.Api.Contracts.MessageListFilterDto
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.MessageSummaryDto>>
     */
-    getMessages(mailboxId: string, skip: number, take: number, sortField: MessageSortField, descending: boolean): Promise<MessageSummaryDto[]>;
+    getMessages(mailboxId: string, skip: number, take: number, sortField: MessageSortField, descending: boolean, filter: MessageListFilterDto): Promise<MessageSummaryDto[]>;
     /**
     * @param mailboxId Transpiled from System.Guid
     * @param threadId Transpiled from string

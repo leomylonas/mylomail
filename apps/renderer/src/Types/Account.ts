@@ -22,6 +22,7 @@ export interface Account {
 	sidebarCollapsed?: boolean;
 	attachmentSizeLimitOverride?: number | null;
 	maxMessageDownloadMegabytes?: number;
+	groupConversations?: boolean;
 	certificateTrustMode?: CertificateTrustMode;
 	providerType?: ProviderType;
 	appendToSentOnSend?: boolean | null;

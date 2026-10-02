@@ -355,7 +355,8 @@ internal static class AccountDtoFactory
 			account.AttachmentSizeLimitOverride,
 			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
 			gate is not null && gate.Delay(account.Id) > TimeSpan.Zero,
-			account.MaxMessageDownloadMegabytes
+			account.MaxMessageDownloadMegabytes,
+			account.GroupConversations
 		);
 
 	/// <summary>

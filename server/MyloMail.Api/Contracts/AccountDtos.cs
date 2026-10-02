@@ -50,7 +50,8 @@ public record AccountDto(
 	int? AttachmentSizeLimitOverride,
 	bool? AppendToSentOnSend,
 	bool IsThrottled,
-	int MaxMessageDownloadMegabytes
+	int MaxMessageDownloadMegabytes,
+	bool GroupConversations
 );
 
 /// <summary>

@@ -41,15 +41,17 @@ public interface IMailHub
 	Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId);
 
 	/// <summary>
-	/// One page of a mailbox, ordered across the whole mailbox by <paramref name="sortField"/>
-	/// (ties broken newest first, then by id, so paging is stable).
+	/// One page of a mailbox: filtered by <paramref name="filter"/>, then ordered across what
+	/// remains by <paramref name="sortField"/> (ties broken newest first, then by id, so paging
+	/// is stable). Conversation counts still cover the whole mailbox.
 	/// </summary>
 	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(
 		Guid mailboxId,
 		int skip,
 		int take,
 		MessageSortField sortField,
-		bool descending
+		bool descending,
+		MessageListFilterDto filter
 	);
 
 	Task<IReadOnlyList<MessageSummaryDto>> GetThreadMessages(Guid mailboxId, string threadId);
@@ -384,7 +386,8 @@ public class MailHub(
 		int skip,
 		int take,
 		MessageSortField sortField,
-		bool descending
+		bool descending,
+		MessageListFilterDto filter
 	)
 	{
 		var messages = await context
@@ -397,7 +400,7 @@ public class MailHub(
 		// here specifically because paging calls this same query again for the next page — an
 		// order that reshuffles ties between calls would skip or repeat a message at the page
 		// boundary even though nothing in the mailbox actually changed.
-		var shown = OrderForListing(messages, sortField, descending)
+		var shown = OrderForListing(messages.Where(filter.Matches), sortField, descending)
 			.Skip(skip)
 			.Take(take)
 			.ToList();
@@ -1106,6 +1109,7 @@ public class MailHub(
 			var newDownloadCap = Account.ClampMaxMessageDownloadMegabytes(settings.MaxMessageDownloadMegabytes);
 			downloadCapRaised = newDownloadCap > current.MaxMessageDownloadMegabytes;
 			current.MaxMessageDownloadMegabytes = newDownloadCap;
+			current.GroupConversations = settings.GroupConversations;
 			current.AttachmentSizeLimitOverride =
 				settings.AttachmentSizeLimitOverride is > 0
 					? settings.AttachmentSizeLimitOverride
@@ -1253,6 +1257,7 @@ public class MailHub(
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
 			InitialSyncBoundValue = account.InitialSyncBoundValue,
 			MaxMessageDownloadMegabytes = account.MaxMessageDownloadMegabytes,
+			GroupConversations = account.GroupConversations,
 			AppendToSentOnSend = (account.ProviderConfig as ImapProviderConfig)
 				?.AppendToSentOnSend,
 		};

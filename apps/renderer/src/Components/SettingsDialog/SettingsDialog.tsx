@@ -183,6 +183,7 @@ function toSettings(account: Account): AccountSettingsValues {
 			account.certificateTrustMode ?? CertificateTrustMode.Default,
 		attachmentSizeLimitOverride: account.attachmentSizeLimitOverride ?? null,
 		maxMessageDownloadMegabytes: account.maxMessageDownloadMegabytes ?? 128,
+		groupConversations: account.groupConversations ?? false,
 		providerType: account.providerType ?? ProviderType.Imap,
 		appendToSentOnSend: account.appendToSentOnSend ?? null,
 	};

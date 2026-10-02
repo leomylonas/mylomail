@@ -279,7 +279,8 @@ public record AccountSettingsDto(
 	CertificateTrustMode CertificateTrustMode,
 	int? AttachmentSizeLimitOverride,
 	bool? AppendToSentOnSend,
-	int MaxMessageDownloadMegabytes
+	int MaxMessageDownloadMegabytes,
+	bool GroupConversations
 );
 
 /// <param name="AccountId">

@@ -72,7 +72,7 @@ describe("notification navigation", () => {
 	});
 
 	it("selects the owning account, mailbox, message, subject, and sender together", () => {
-		const store = createWindowStore(null);
+		const store = createWindowStore();
 
 		expect(applyNotificationNavigation(store, ready)).toBe(true);
 
@@ -86,7 +86,7 @@ describe("notification navigation", () => {
 	});
 
 	it("does not apply incomplete staged context as a real selection", () => {
-		const store = createWindowStore(null);
+		const store = createWindowStore();
 		const pending: NotificationNavigationDto = {
 			status: NotificationNavigationStatus.Pending,
 			accountId: "account-a",

@@ -48,6 +48,8 @@ export type AccountDto = {
     isThrottled: boolean;
     /** Transpiled from int */
     maxMessageDownloadMegabytes: number;
+    /** Transpiled from bool */
+    groupConversations: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AddAccountRequest */
@@ -462,6 +464,8 @@ export type AccountSettingsDto = {
     appendToSentOnSend?: boolean;
     /** Transpiled from int */
     maxMessageDownloadMegabytes: number;
+    /** Transpiled from bool */
+    groupConversations: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MutationFailureDto */
@@ -726,6 +730,20 @@ export type SaveCalendarEventRequest = {
     recurrenceDates: (Date | string)[];
     /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
     exceptionDates: (Date | string)[];
+}
+
+/** Transpiled from MyloMail.Api.Contracts.MessageListFilterDto */
+export type MessageListFilterDto = {
+    /** Transpiled from string? */
+    text?: string;
+    /** Transpiled from System.DateTimeOffset */
+    receivedFrom?: (Date | string);
+    /** Transpiled from System.DateTimeOffset */
+    receivedBefore?: (Date | string);
+    /** Transpiled from bool */
+    isRead?: boolean;
+    /** Transpiled from bool */
+    isFlagged?: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageSortField */

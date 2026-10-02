@@ -70,6 +70,12 @@ public class Account
 	/// </summary>
 	public int MaxMessageDownloadMegabytes { get; set; } = DefaultMaxMessageDownloadMegabytes;
 
+	/// <summary>
+	/// List this account's mail as conversations (a message and its replies under one row) rather
+	/// than one row per message. A display preference only, kept per account.
+	/// </summary>
+	public bool GroupConversations { get; set; }
+
 	public const int DefaultMaxMessageDownloadMegabytes = 128;
 	public const int MinMaxMessageDownloadMegabytes = 8;
 
