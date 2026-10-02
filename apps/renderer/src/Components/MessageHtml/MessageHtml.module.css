@@ -1,28 +1,78 @@
+.root {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.printHost {
+	display: none;
+}
+
 .frame {
 	width: 100%;
-	min-height: 20rem;
+	min-height: 0;
+	flex: 1 1 auto;
 	border: none;
 	background: var(--cds-field);
 }
 
 .notice {
-	display: flex;
-	gap: var(--cds-spacing-03);
+	display: grid;
+	flex: 0 0 auto;
+	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
+	gap: var(--cds-spacing-03);
 	margin-bottom: var(--cds-spacing-03);
-	padding: var(--cds-spacing-03);
+	padding: var(--cds-spacing-02) var(--cds-spacing-03) var(--cds-spacing-02)
+		var(--cds-spacing-04);
+	border-left: 3px solid var(--cds-support-warning);
 	background: var(--cds-layer);
 	color: var(--cds-text-secondary);
 	font-size: 0.75rem;
 }
 
+.noticeIcon {
+	color: var(--cds-support-warning);
+}
+
+.noticeText {
+	margin: 0;
+	font-size: 0.75rem;
+	color: var(--cds-text-primary);
+}
+
+/* Element selectors: these are Carbon's buttons, whose own classes are not ours to name. */
+.noticeAction {
+	justify-self: end;
+}
+
+.noticeAction button {
+	block-size: 1.5rem;
+	min-block-size: 1.5rem;
+	padding-block: 0;
+	font-size: 0.75rem;
+	line-height: 1.5rem;
+}
+
+.noticeAction button:first-child {
+	padding-inline: var(--cds-spacing-04);
+}
+
 @media print {
+	.root {
+		display: block;
+	}
+
 	.notice {
 		display: none;
 	}
 
 	.frame {
-		min-height: 0;
-		background: #fff;
+		display: none;
+	}
+
+	.printHost {
+		display: block;
 	}
 }

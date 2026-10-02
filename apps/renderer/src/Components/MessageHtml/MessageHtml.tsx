@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Checkbox } from "@carbon/react";
+import { Button, ComboButton, MenuItem, useTheme } from "@carbon/react";
+import { ViewOff } from "@carbon/icons-react";
+import { applyMessageStyles } from "@mylomail/renderer/Components/MessageHtml/ApplyMessageStyles";
+import { darkModeStyle } from "@mylomail/renderer/Components/MessageHtml/DarkModeStyle";
 import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
 import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
 import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
@@ -90,6 +93,9 @@ const framePolicy = (allowRemote: boolean) =>
 		"frame-src 'none'",
 	].join("; ");
 
+const printStyle =
+	"@media print { html, body { margin: 0 !important; background: #fff !important; color: #000 !important; } img { max-width: 100% !important; height: auto !important; } }";
+
 type InlineResolution = {
 	messageId: string;
 	revision: string;
@@ -102,6 +108,7 @@ export function MessageHtml({
 	messageId,
 	senderAddress,
 	onReadyChange,
+	invertColours = false,
 }: {
 	html: string;
 	messageId: string;
@@ -109,6 +116,8 @@ export function MessageHtml({
 	senderAddress?: string;
 	/** Tracks whether this exact message document is loaded and sized for printing. */
 	onReadyChange?: (ready: boolean) => void;
+	/** A viewing mode the reader switched on for this message; never stored anywhere. */
+	invertColours?: boolean;
 }) {
 	const remoteContentDecision = useRemoteContentDecision(senderAddress);
 	const putRemoteContentRules = usePutRemoteContentRules();
@@ -116,8 +125,12 @@ export function MessageHtml({
 	const allowRemote =
 		remoteContentDecision === "allow" ||
 		(remoteContentDecision !== "block" && allowRemoteOverride);
-	const [alwaysAllowSender, setAlwaysAllowSender] = useState(false);
-	const [alwaysAllowDomain, setAlwaysAllowDomain] = useState(false);
+	const senderDomain = senderAddress?.split("@").at(-1) ?? "";
+	// Loading is always for this message; a rule is saved only when asked for.
+	const loadContent = (rules: RuleInput[]) => {
+		setAllowRemoteOverride(true);
+		if (rules.length > 0) putRemoteContentRules.mutate(rules);
+	};
 	const [inlineResolution, setInlineResolution] = useState<InlineResolution>({
 		messageId: "",
 		revision: "",
@@ -125,6 +138,7 @@ export function MessageHtml({
 		status: "resolving",
 	});
 	const [loadedDocument, setLoadedDocument] = useState<string | null>(null);
+	const printHostRef = useRef<HTMLDivElement>(null);
 	const frameRef = useRef<HTMLIFrameElement>(null);
 
 	const prepared = useMemo(
@@ -185,10 +199,12 @@ export function MessageHtml({
 		currentResolution.html ??
 		(inlineResolution.messageId === messageId ? inlineResolution.html : null) ??
 		prepared.html;
+	const dark = useTheme().theme === "g100";
 	const document = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${framePolicy(
 		allowRemote,
-	)}"></head><body>${renderedHtml}<style>@media print { html, body { margin: 0 !important; background: #fff !important; color: #000 !important; } img { max-width: 100% !important; height: auto !important; } }</style></body></html>`;
-	const documentRevision = `${messageId}\u0000${document}`;
+	)}"></head><body>${renderedHtml}</body></html>`;
+	const extraCss = `${darkModeStyle(renderedHtml, dark, invertColours)}${printStyle}`;
+	const documentRevision = `${messageId}\u0000${dark}\u0000${invertColours}\u0000${document}`;
 	const ready =
 		(currentResolution.status === "resolved" ||
 			currentResolution.status === "failed") &&
@@ -197,92 +213,106 @@ export function MessageHtml({
 		onReadyChange?.(ready);
 	}, [documentRevision, onReadyChange, ready]);
 
-	const resizeFrame = useCallback(() => {
-		const frame = frameRef.current;
-		const frameDocument = frame?.contentDocument;
-		if (!frame || !frameDocument) return;
-
-		// `beforeprint` runs after print media has been selected. Re-measuring there uses
-		// the paper-width layout rather than the wider on-screen pane, so reflowed content
-		// cannot be clipped at the iframe's old screen height.
-		frame.height = "1";
-		const height = Math.max(
-			frameDocument.documentElement.scrollHeight,
-			frameDocument.body?.scrollHeight ?? 0,
+	// Paper cannot show a scrolling frame: a replaced element is never split across pages, so an
+	// iframe taller than a page is clipped to one and its content is lost. For printing the same
+	// sanitised markup is also laid out in a shadow root — in the normal page flow, so it
+	// paginates — and the shadow boundary keeps the message's own CSS away from the app.
+	// Prepared ahead of time, hidden on screen, so its images are loaded when printing begins.
+	const populatedFor = useRef<string | null>(null);
+	const populatePrintCopy = useCallback(() => {
+		const host = printHostRef.current;
+		if (!host || populatedFor.current === renderedHtml) return;
+		const root = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+		root.innerHTML = renderedHtml;
+		applyMessageStyles(
+			root,
+			":host { display: block; background: #fff; color: #000; } img { max-width: 100%; height: auto; }",
 		);
-		if (height > 0) frame.height = String(height);
-	}, []);
-
+		populatedFor.current = renderedHtml;
+	}, [renderedHtml]);
 	useEffect(() => {
-		window.addEventListener("beforeprint", resizeFrame);
-		window.addEventListener("afterprint", resizeFrame);
-		return () => {
-			window.removeEventListener("beforeprint", resizeFrame);
-			window.removeEventListener("afterprint", resizeFrame);
+		// While remote content is blocked the markup holds none, so the copy can be prepared now
+		// and its images are ready when printing starts. Once remote content is allowed, copying
+		// early would fetch every remote image a second time, from the app's own page rather than
+		// the locked-down frame, so it waits for printing itself.
+		if (!allowRemote) populatePrintCopy();
+		const printing = window.matchMedia("print");
+		const onPrint = () => {
+			if (printing.matches) populatePrintCopy();
 		};
-	}, [resizeFrame]);
+		printing.addEventListener("change", onPrint);
+		window.addEventListener("beforeprint", populatePrintCopy);
+		return () => {
+			printing.removeEventListener("change", onPrint);
+			window.removeEventListener("beforeprint", populatePrintCopy);
+		};
+	}, [allowRemote, populatePrintCopy]);
 
 	return (
-		<div data-inline-status={currentResolution.status}>
+		<div className={styles.root} data-inline-status={currentResolution.status}>
 			{prepared.blockedRemoteCount > 0 &&
 			!allowRemote &&
 			remoteContentDecision === "block" ? (
 				<div className={styles.notice}>
-					<span>
+					<ViewOff size={16} className={styles.noticeIcon} aria-hidden="true" />
+					<p className={styles.noticeText}>
 						Remote content is blocked by your sender or domain policy. Change
 						the rule in Settings to load it.
-					</span>
+					</p>
 				</div>
 			) : prepared.blockedRemoteCount > 0 && !allowRemote ? (
 				<div className={styles.notice}>
-					<span>
+					<ViewOff size={16} className={styles.noticeIcon} aria-hidden="true" />
+					<p className={styles.noticeText}>
 						Remote content is blocked. Loading it tells the sender you opened
 						this message.
-					</span>
+					</p>
 					{senderAddress ? (
-						<>
-							<Checkbox
-								id="message-html-always-allow-sender"
-								labelText={`Always allow images from ${senderAddress}`}
-								checked={alwaysAllowSender}
-								onChange={(_, { checked }) => setAlwaysAllowSender(checked)}
+						<ComboButton
+							className={styles.noticeAction}
+							label="Load content"
+							size="sm"
+							tooltipAlignment="top-end"
+							onClick={() => loadContent([])}
+						>
+							<MenuItem
+								label="Trust sender"
+								onClick={() =>
+									loadContent([
+										{
+											scope: RemoteContentRuleScope.Sender,
+											decision: RemoteContentRuleDecision.Allow,
+											value: senderAddress,
+										},
+									])
+								}
 							/>
-							<Checkbox
-								id="message-html-always-allow-domain"
-								labelText={`Always allow images from ${senderAddress.split("@").at(-1)}`}
-								checked={alwaysAllowDomain}
-								onChange={(_, { checked }) => setAlwaysAllowDomain(checked)}
+							<MenuItem
+								label="Trust domain"
+								onClick={() =>
+									loadContent([
+										{
+											scope: RemoteContentRuleScope.Domain,
+											decision: RemoteContentRuleDecision.Allow,
+											value: senderDomain,
+										},
+									])
+								}
 							/>
-						</>
-					) : null}
-					<Button
-						size="sm"
-						kind="tertiary"
-						onClick={() => {
-							setAllowRemoteOverride(true);
-							if (!senderAddress) return;
-							const rules: RuleInput[] = [];
-							if (alwaysAllowSender) {
-								rules.push({
-									scope: RemoteContentRuleScope.Sender,
-									decision: RemoteContentRuleDecision.Allow,
-									value: senderAddress,
-								});
-							}
-							if (alwaysAllowDomain) {
-								rules.push({
-									scope: RemoteContentRuleScope.Domain,
-									decision: RemoteContentRuleDecision.Allow,
-									value: senderAddress.split("@").at(-1) ?? "",
-								});
-							}
-							if (rules.length > 0) putRemoteContentRules.mutate(rules);
-						}}
-					>
-						Load content
-					</Button>
+						</ComboButton>
+					) : (
+						<Button
+							className={styles.noticeAction}
+							size="sm"
+							kind="tertiary"
+							onClick={() => loadContent([])}
+						>
+							Load content
+						</Button>
+					)}
 				</div>
 			) : null}
+			<div ref={printHostRef} className={styles.printHost} aria-hidden="true" />
 			<iframe
 				ref={frameRef}
 				key={documentRevision}
@@ -313,7 +343,7 @@ export function MessageHtml({
 						},
 						true,
 					);
-					resizeFrame();
+					if (frameDocument) applyMessageStyles(frameDocument, extraCss);
 					setLoadedDocument(documentRevision);
 				}}
 			/>
