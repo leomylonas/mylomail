@@ -67,6 +67,7 @@ public sealed class TopologySyncService(
 		var seen = new HashSet<string>(StringComparer.Ordinal);
 		var added = 0;
 		var updated = 0;
+		var countsChanged = new List<Guid>();
 
 		foreach (var dto in reported)
 		{
@@ -92,7 +93,12 @@ public sealed class TopologySyncService(
 				{
 					epoch.Generation = mailbox.TopologyGeneration;
 				}
+				var previousCounts = (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount);
 				Update(mailbox, effectiveDto);
+				if (previousCounts != (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount))
+				{
+					countsChanged.Add(mailbox.Id);
+				}
 				updated++;
 			}
 			else
@@ -196,6 +202,15 @@ public sealed class TopologySyncService(
 		if (added > 0 || removed > 0)
 		{
 			await events.MailboxTreeChangedAsync(account.Id);
+		}
+
+		// The sidebar shows the provider's counts, which this pass has just refreshed. Without an
+		// announcement a count read by another client (or by this one, once its mutation has
+		// landed) stays stale on screen until something unrelated invalidates the mailbox list.
+		// Only mailboxes whose counts actually moved are announced, so an idle poll stays quiet.
+		if (countsChanged.Count > 0 && !availabilityRecovered)
+		{
+			await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, countsChanged, ct);
 		}
 
 		await MessageChangeAnnouncer.AnnounceDeletedAsync(context, events, orphanedMessageIds, ct);
