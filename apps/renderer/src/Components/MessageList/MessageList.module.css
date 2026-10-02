@@ -142,10 +142,6 @@
 	outline-offset: -2px;
 }
 
-.virtualRow:not(.threaded) > .threadPlaceholder {
-	display: none;
-}
-
 .row {
 	position: relative;
 	display: grid;
@@ -351,4 +347,32 @@
 
 .virtualRow:hover .flagButton {
 	opacity: 1;
+}
+
+/* An open conversation: one tinted block, children indented on a guide line under the head. */
+.conversation {
+	background: var(--cds-layer-accent);
+}
+
+.conversationChild > .threadPlaceholder {
+	border-bottom-color: transparent;
+	background: linear-gradient(
+		to right,
+		transparent calc(50% - 1px),
+		var(--cds-border-interactive) calc(50% - 1px),
+		var(--cds-border-interactive) calc(50% + 1px),
+		transparent calc(50% + 1px)
+	);
+}
+
+.conversationChild .row {
+	padding-left: calc(var(--cds-spacing-04) + 1.25rem);
+}
+
+.conversation > .threadToggle {
+	color: var(--cds-text-primary);
+}
+
+.virtualRow:not(.threaded) > .threadPlaceholder {
+	display: none;
 }

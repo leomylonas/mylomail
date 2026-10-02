@@ -3,8 +3,7 @@
 	flex-direction: column;
 	gap: var(--cds-spacing-05);
 	height: 100%;
-	max-width: 42rem;
-	padding: var(--cds-spacing-05);
+	padding: var(--cds-spacing-05) var(--cds-spacing-06);
 	overflow-y: auto;
 	background: var(--cds-background);
 }
@@ -79,4 +78,26 @@
 	.settings {
 		padding: var(--cds-spacing-04);
 	}
+}
+
+/* Always reachable at the foot of the scrolling page, with the confirmation beside the button. */
+.footer {
+	position: sticky;
+	bottom: calc(-1 * var(--cds-spacing-05));
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-04);
+	margin: 0 calc(-1 * var(--cds-spacing-06)) calc(-1 * var(--cds-spacing-05));
+	padding: var(--cds-spacing-04) var(--cds-spacing-06);
+	border-top: 1px solid var(--cds-border-subtle);
+	background: var(--cds-background);
+}
+
+.saved {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--cds-spacing-02);
+	color: var(--cds-support-success);
+	font-size: 0.875rem;
 }

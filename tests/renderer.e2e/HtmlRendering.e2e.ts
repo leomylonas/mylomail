@@ -147,7 +147,7 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 		await expect(
 			window.getByText("Block domain", { exact: true }),
 		).toBeVisible();
-		await window.getByRole("button", { name: "Close", exact: true }).click();
+		await window.getByRole("button", { name: "Close settings" }).click();
 
 		await expect(
 			window.getByText(/blocked by your sender or domain policy/),

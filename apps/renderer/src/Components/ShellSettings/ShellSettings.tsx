@@ -8,10 +8,6 @@ import {
 	RadioButtonGroup,
 	Select,
 	SelectItem,
-	StructuredListBody,
-	StructuredListCell,
-	StructuredListRow,
-	StructuredListWrapper,
 	TextInput,
 } from "@carbon/react";
 import { RemoteContentRuleDtoSchema } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
@@ -48,7 +44,7 @@ const defaultRule: PutRemoteContentRuleRequest = {
  * behaviour, credential-storage visibility, and persisted sender/domain remote-content
  * allow/block rules (§13 Epic 5). Per-account settings live in `AccountSettings`.
  */
-export function ShellSettings({ onClose }: { onClose: () => void }) {
+export function ShellSettings() {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 
@@ -158,8 +154,6 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 
 	return (
 		<div className={styles.settings}>
-			<h3>Settings</h3>
-
 			<section>
 				<h4>Appearance</h4>
 				<RadioButtonGroup
@@ -248,6 +242,7 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 					rule, remote images and tracking pixels stay blocked.
 				</p>
 				<form
+					className={styles.ruleForm}
 					onSubmit={(event) => {
 						event.preventDefault();
 						void ruleForm.handleSubmit();
@@ -337,42 +332,32 @@ export function ShellSettings({ onClose }: { onClose: () => void }) {
 					</ruleForm.Subscribe>
 				</form>
 				{remoteContentRules.data?.length ? (
-					<StructuredListWrapper>
-						<StructuredListBody>
-							{remoteContentRules.data.map((rule) => (
-								<StructuredListRow key={rule.id}>
-									<StructuredListCell>
-										{rule.decision === RemoteContentRuleDecision.Allow
-											? "Allow"
-											: "Block"}{" "}
-										{rule.scope === RemoteContentRuleScope.Sender
-											? "sender"
-											: "domain"}
-									</StructuredListCell>
-									<StructuredListCell>{rule.value}</StructuredListCell>
-									<StructuredListCell>
-										<Button
-											size="sm"
-											kind="ghost"
-											onClick={() => void deleteRule(rule.id)}
-										>
-											Remove
-										</Button>
-									</StructuredListCell>
-								</StructuredListRow>
-							))}
-						</StructuredListBody>
-					</StructuredListWrapper>
+					<ul className={styles.rules} aria-label="Remote content rules">
+						{remoteContentRules.data.map((rule) => (
+							<li key={rule.id} className={styles.rule}>
+								<span className={styles.ruleKind}>
+									{rule.decision === RemoteContentRuleDecision.Allow
+										? "Allow"
+										: "Block"}{" "}
+									{rule.scope === RemoteContentRuleScope.Sender
+										? "sender"
+										: "domain"}
+								</span>
+								<span className={styles.ruleValue}>{rule.value}</span>
+								<Button
+									size="sm"
+									kind="ghost"
+									onClick={() => void deleteRule(rule.id)}
+								>
+									Remove
+								</Button>
+							</li>
+						))}
+					</ul>
 				) : (
 					<p className={styles.empty}>No remote-content rules yet.</p>
 				)}
 			</section>
-
-			<div>
-				<Button size="sm" kind="ghost" onClick={onClose}>
-					Close
-				</Button>
-			</div>
 		</div>
 	);
 }

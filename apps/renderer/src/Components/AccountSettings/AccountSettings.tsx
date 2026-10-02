@@ -11,6 +11,7 @@ import {
 	TextInput,
 	Toggle,
 } from "@carbon/react";
+import { CheckmarkFilled } from "@carbon/icons-react";
 import type { AccountSettingsDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	CertificateTrustMode,
@@ -114,7 +115,6 @@ export function AccountSettings({
 	hub,
 	initial,
 	isThrottled,
-	onClose,
 	onRemoved,
 }: {
 	hub: MailHubConnection;
@@ -129,7 +129,6 @@ export function AccountSettings({
 	 * main mail view.
 	 */
 	isThrottled?: boolean;
-	onClose: () => void;
 	/**
 	 * Called after the account is actually removed server-side, separately from `onClose`:
 	 * the shell needs to know to stop treating this account as selected (and pick another, or
@@ -138,7 +137,12 @@ export function AccountSettings({
 	onRemoved: () => void;
 }) {
 	const [values, setValues] = useState(initial);
-	const [saved, setSaved] = useState(false);
+	// The values last written. "Saved" holds only while the form still matches them, so editing
+	// anything afterwards clears it rather than leaving a stale confirmation next to the button.
+	const [savedValues, setSavedValues] = useState<AccountSettingsValues | null>(
+		null,
+	);
+	const saved = savedValues === values;
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	// Set only when a first, unforced removal attempt reports a still-running export — a
@@ -157,8 +161,12 @@ export function AccountSettings({
 			// The server clamps the poll interval and undo window and returns what it
 			// applied, so the form shows the value in force rather than the one asked for.
 			const applied = await hub.updateAccount(toAccountSettingsDto(values));
-			setValues(toAccountSettingsValues(applied, values.providerType));
-			setSaved(true);
+			const appliedValues = toAccountSettingsValues(
+				applied,
+				values.providerType,
+			);
+			setValues(appliedValues);
+			setSavedValues(appliedValues);
 		} catch (error) {
 			notify(
 				notifications,
@@ -463,7 +471,7 @@ export function AccountSettings({
 					</p>
 				</Modal>
 			) : null}
-			<div>
+			<footer className={styles.footer}>
 				<Button
 					size="sm"
 					disabled={!initialSyncBoundValid}
@@ -471,11 +479,14 @@ export function AccountSettings({
 				>
 					Save
 				</Button>
-				<Button size="sm" kind="ghost" onClick={onClose}>
-					Close
-				</Button>
-				{saved ? <span> Saved.</span> : null}
-			</div>
+				<span className={styles.saved} role="status">
+					{saved ? (
+						<>
+							<CheckmarkFilled size={16} aria-hidden="true" /> Saved.
+						</>
+					) : null}
+				</span>
+			</footer>
 		</div>
 	);
 }

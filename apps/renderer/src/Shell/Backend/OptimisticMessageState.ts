@@ -1,4 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { MailboxSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 
 type OptimisticMessageClaims = Record<string, string[]>;
 
@@ -182,4 +184,36 @@ function removeClaims(
 			])
 			.filter(([, currentClaimIds]) => currentClaimIds.length > 0),
 	);
+}
+
+/**
+ * Shows a mailbox as empty straight away: its unread and total badges drop to zero while the
+ * deletions are still being carried out, rather than staying put until the next sync refreshes
+ * the provider's counts. Counts the provider does not report stay unreported. The next real
+ * summary replaces this either way, so it can never outlive the truth.
+ *
+ * @returns Puts the previous counts back, for when the deletion is refused.
+ */
+export function showMailboxEmptied(
+	queryClient: QueryClient,
+	accountId: string,
+	mailboxId: string,
+): () => void {
+	const key = queryKeys.mailboxes(accountId);
+	const previous = queryClient.getQueryData<MailboxSummaryDto[]>(key);
+	queryClient.setQueryData<MailboxSummaryDto[]>(key, (current) =>
+		current?.map((mailbox) =>
+			mailbox.id === mailboxId
+				? {
+						...mailbox,
+						localCount: 0,
+						providerTotalCount:
+							mailbox.providerTotalCount === undefined ? undefined : 0,
+						providerUnreadCount:
+							mailbox.providerUnreadCount === undefined ? undefined : 0,
+					}
+				: mailbox,
+		),
+	);
+	return () => queryClient.setQueryData(key, previous);
 }

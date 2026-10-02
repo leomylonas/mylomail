@@ -10,6 +10,7 @@ import {
 } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
+	keepPreviousData,
 	useInfiniteQuery,
 	useMutation,
 	useQueries,
@@ -47,6 +48,7 @@ import {
 	acceptOptimisticMessages,
 	createOptimisticMessageClaims,
 	hideOptimisticMessages,
+	showMailboxEmptied,
 	optimisticMessageIds,
 	optimisticMessageIdsKey,
 	restoreOptimisticMessages,
@@ -72,7 +74,10 @@ import {
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
-import type { MessageSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import {
+	MessageSortField,
+	type MessageSummaryDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import type { PendingChangeDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Hubs";
 import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
 import {
@@ -350,12 +355,26 @@ export function MessageList({
 	// Ordinary mailbox listing pages by `skip`/`take` (§12): a mailbox can hold far more than
 	// one page's worth of messages, and loading them all up front would mean a slow initial
 	// render and an ever-growing payload for every account, not just large ones.
+	//
+	// The server orders the whole mailbox before taking each page, so the sort is part of the
+	// query: sorting only what has been loaded would make "oldest first" mean the oldest of the
+	// current window. The previous rows stay on screen while the re-ordered first page loads.
+	const [primarySort] = sorting;
+	const sortField = sortFieldFor(primarySort?.id);
+	const sortDescending = primarySort ? primarySort.desc : true;
 	const listing = useInfiniteQuery({
-		queryKey: queryKeys.messages(mailboxId),
+		queryKey: [...queryKeys.messages(mailboxId), sortField, sortDescending],
 		queryFn: async ({ pageParam }) =>
-			(await hub.getMessages(mailboxId, pageParam, messagePageSize)).map(
-				normalizeMessage,
-			),
+			(
+				await hub.getMessages(
+					mailboxId,
+					pageParam,
+					messagePageSize,
+					sortField,
+					sortDescending,
+				)
+			).map(normalizeMessage),
+		placeholderData: keepPreviousData,
 		initialPageParam: 0,
 		getNextPageParam: (lastPage, pages) =>
 			lastPage.length < messagePageSize
@@ -514,12 +533,17 @@ export function MessageList({
 				sourceMessages.map((message) => message.id),
 			);
 			hideOptimisticMessages(queryClient, mailboxId, claims);
+			const restoreCounts = showMailboxEmptied(
+				queryClient,
+				accountId,
+				mailboxId,
+			);
 			// The open message is one of those being deleted; leave nothing stale in the pane.
 			store.setState("selectedMessageId", null);
 			store.setState("selectedMessageSubject", "");
 			store.setState("selectedMessageSenderAddress", "");
 			setSelectedIds(new Set());
-			return { claims };
+			return { claims, restoreCounts };
 		},
 		onSuccess: (result, _input, context) => {
 			acceptOptimisticMessages(
@@ -539,8 +563,10 @@ export function MessageList({
 				);
 		},
 		onError: (error, _input, context) => {
-			if (context)
+			if (context) {
 				restoreOptimisticMessages(queryClient, mailboxId, context.claims);
+				context.restoreCounts();
+			}
 			reportFailure("The folder could not be emptied")(error);
 		},
 	});
@@ -1190,13 +1216,20 @@ export function MessageList({
 								threadMessageCount > 1 &&
 								threadRepresentativeIds.get(threadKey) === message.id;
 							const isExpanded = expandedThreadKeys.has(threadKey);
+							// An open conversation reads as one block: its first message is the head,
+							// the rest are indented under it on a guide line, all on one tint.
+							const inOpenConversation =
+								threadMode === "collapsed" &&
+								threadMessageCount > 1 &&
+								isExpanded;
+							const isConversationChild = inOpenConversation && !canExpand;
 							return (
 								<div
 									key={item.key}
 									ref={virtualizer.measureElement}
 									data-index={index}
 									role="listitem"
-									className={`${styles.virtualRow} ${threadMode === "collapsed" ? styles.threaded : ""}`}
+									className={`${styles.virtualRow} ${threadMode === "collapsed" ? styles.threaded : ""} ${inOpenConversation ? styles.conversation : ""} ${isConversationChild ? styles.conversationChild : ""}`}
 									style={{ transform: `translateY(${item.start}px)` }}
 								>
 									{canExpand ? (
@@ -1332,11 +1365,10 @@ export function MessageList({
 													className={`${styles.cell} ${styles.subjectCell}`}
 												>
 													{message.subject || "(no subject)"}
-													{threadMode === "collapsed" &&
-													threadMessageCount > 1 ? (
+													{canExpand ? (
 														<span className={styles.sender}>
 															{" "}
-															({threadMessageCount})
+															({threadMessageCount} messages)
 														</span>
 													) : null}
 												</span>
@@ -1730,6 +1762,24 @@ function describeSender(message: MessageSummary): string {
  * Applies the active sort before conversations are collapsed, so a thread's representative
  * determines its position while every expanded member remains beside it.
  */
+/** Which server-side ordering a column header maps to; unsorted means newest first. */
+function sortFieldFor(columnId: string | undefined): MessageSortField {
+	switch (columnId) {
+		case "from":
+			return MessageSortField.From;
+		case "subject":
+			return MessageSortField.Subject;
+		case "snippet":
+			return MessageSortField.Snippet;
+		case "isRead":
+			return MessageSortField.Read;
+		case "isFlagged":
+			return MessageSortField.Flag;
+		default:
+			return MessageSortField.Date;
+	}
+}
+
 export function sortMessages(
 	messages: MessageSummary[],
 	sorting: SortingState,

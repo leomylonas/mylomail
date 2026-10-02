@@ -119,16 +119,13 @@ export function SettingsDialog({
 					</NavItem>
 				</nav>
 				<div className={styles.content}>
-					{section.kind === "general" ? (
-						<ShellSettings onClose={onClose} />
-					) : null}
+					{section.kind === "general" ? <ShellSettings /> : null}
 					{section.kind === "account" && hub && activeAccount ? (
 						<AccountSettings
 							key={activeAccount.id}
 							hub={hub}
 							initial={toSettings(activeAccount)}
 							isThrottled={activeAccount.isThrottled}
-							onClose={onClose}
 							onRemoved={() => {
 								setSection({ kind: "general" });
 								onAccountRemoved(activeAccount.id);

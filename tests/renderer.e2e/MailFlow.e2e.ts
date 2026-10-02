@@ -298,7 +298,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await syncBound.fill("1");
 		await window.getByRole("button", { name: "Save", exact: true }).click();
 		await expect(window.getByText("Saved.", { exact: true })).toBeVisible();
-		await window.getByRole("button", { name: "Close", exact: true }).click();
+		await window.getByRole("button", { name: "Close settings" }).click();
 		await window.getByRole("button", { name: "Settings", exact: true }).click();
 		await window
 			.getByRole("dialog")

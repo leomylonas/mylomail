@@ -56,7 +56,7 @@ test("a composed message is sent and arrives at the server", async () => {
 		await window.getByLabel("Signature (HTML)").fill("<p>Alias signature</p>");
 		await window.getByRole("button", { name: "Add", exact: true }).click();
 		await expect(window.getByText(/Alias <alias@example\.org>/)).toBeVisible();
-		await window.getByRole("button", { name: "Close", exact: true }).click();
+		await window.getByRole("button", { name: "Close settings" }).click();
 
 		await expect(
 			window.getByRole("button", { name: "New message" }),

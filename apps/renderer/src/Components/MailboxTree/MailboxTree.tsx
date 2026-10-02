@@ -23,6 +23,7 @@ import {
 	acceptOptimisticMessages,
 	createOptimisticMessageClaims,
 	hideOptimisticMessages,
+	showMailboxEmptied,
 	restoreOptimisticMessages,
 	type OptimisticMessageClaim,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
@@ -249,6 +250,9 @@ export function MailboxTree({
 
 	const emptyFolder = useMutation({
 		mutationFn: (mailbox: Mailbox) => hub.emptyMailbox(accountId, mailbox.id),
+		onMutate: (mailbox) => ({
+			restoreCounts: showMailboxEmptied(queryClient, accountId, mailbox.id),
+		}),
 		onSuccess: (result, mailbox) => {
 			void queryClient.invalidateQueries({
 				queryKey: queryKeys.messages(mailbox.id),
@@ -263,11 +267,13 @@ export function MailboxTree({
 					detail: `${result.rejectedMessageIds.length} message(s) could not be queued.`,
 				});
 		},
-		onError: (error) =>
+		onError: (error, _mailbox, context) => {
+			context?.restoreCounts();
 			notify(
 				notifications,
 				notificationForError(error, "The folder could not be emptied"),
-			),
+			);
+		},
 	});
 
 	const setSpecialUseOverride = useMutation({
