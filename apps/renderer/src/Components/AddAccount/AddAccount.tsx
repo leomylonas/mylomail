@@ -114,7 +114,9 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				displayName: form.displayName,
 				providerType: form.providerType,
 				emailAddress: form.emailAddress,
-				secret: form.secret,
+				// Only IMAP takes a password; OAuth providers must send none at all.
+				secret:
+					form.providerType === ProviderType.Imap ? form.secret : undefined,
 				imap: {
 					host: form.host,
 					port: form.port,

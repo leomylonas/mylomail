@@ -53,11 +53,11 @@ public class AccountsController(
 	[HttpPost]
 	public async Task<ActionResult<AccountDto>> Add(AddAccountRequest request, CancellationToken ct)
 	{
-		if (request.Secret is not null && request.ProviderType != ProviderType.Imap)
+		if (request.Secret is { Length: > 0 } && request.ProviderType != ProviderType.Imap)
 		{
 			// Gmail and Graph authenticate interactively; there is no password to supply, and
 			// accepting one silently would leave the user believing they had configured
-			// something.
+			// something. An empty string is "no password", which is what the form sends.
 			return this.MutationProblem($"{request.ProviderType} accounts authenticate interactively and take no password.",
 				statusCode: StatusCodes.Status400BadRequest,
 				title: "Unexpected credential");

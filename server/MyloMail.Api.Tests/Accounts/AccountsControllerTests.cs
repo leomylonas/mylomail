@@ -42,6 +42,27 @@ public sealed class AccountsControllerTests
 		AssertProblem(result, StatusCodes.Status400BadRequest);
 	}
 
+	/// <summary>
+	/// The add-account form sends an empty password for Gmail and Microsoft 365. That means "no
+	/// password", and must not be refused as an unexpected credential — it was, so neither
+	/// account type could be added at all. (Validation continues past the credential check; an
+	/// empty address is the next thing refused, which is what proves it got that far.)
+	/// </summary>
+	[Theory]
+	[InlineData(ProviderType.Gmail)]
+	[InlineData(ProviderType.Microsoft365)]
+	public async Task An_empty_password_for_an_oauth_provider_is_not_an_unexpected_credential(ProviderType type)
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(new AddAccountRequest("Test", type, "", "", null), default)
+		);
+
+		var problem = Assert.IsType<ObjectResult>(result.Result);
+		Assert.Equal("Missing email address", Assert.IsType<MutationProblemDetails>(problem.Value).Title);
+	}
+
 	/// <summary>An IMAP account cannot be reached without host, port and user name.</summary>
 	[Fact]
 	public async Task An_imap_account_without_settings_is_rejected()
