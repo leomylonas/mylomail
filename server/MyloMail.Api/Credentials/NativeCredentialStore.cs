@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,7 +10,35 @@ namespace MyloMail.Api.Credentials;
 public sealed class NativeCredentialStore(string dataDirectory) : ICredentialStore
 {
 	private const string Service = "MyloMail";
+
+	/// <summary>
+	/// Encoded credentials already read (or written) by this process. Every provider call asks
+	/// for its account's credential, and with background download that is thousands of reads an
+	/// hour; each one a fresh connection to the OS store, which both prompts a locked store
+	/// repeatedly and hammers a service that has been seen to abort when a client disconnects
+	/// mid-request. The credential is already held in memory for the connection that uses it, so
+	/// holding the encoded form for the process lifetime adds no exposure. Never caches a failure.
+	/// </summary>
+	private static readonly ConcurrentDictionary<(string Directory, Guid AccountId), string> Cache = new();
 	private readonly string windowsDirectory = Path.Combine(dataDirectory, "credentials");
+
+	/// <summary>
+	/// Asks the desktop to unlock the credential store, showing its own prompt. Only the Linux
+	/// Secret Service can be locked independently of the app; Windows and macOS prompt (or not)
+	/// at the point of use, so there is nothing to do ahead of time there.
+	/// </summary>
+	public static async Task UnlockAsync(CancellationToken ct)
+	{
+		if (!OperatingSystem.IsLinux()) return;
+		try
+		{
+			await LinuxSecretServiceCredentialStore.UnlockDefaultCollectionAsync(ct);
+		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			throw new CredentialStoreUnavailableException($"The OS credential store could not be unlocked: {ex.Message}", ex);
+		}
+	}
 
 	public static async Task<bool> IsAvailableAsync(string dataDirectory, CancellationToken ct)
 	{
@@ -51,16 +80,19 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 				Directory.CreateDirectory(windowsDirectory);
 				var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(encoded), null, DataProtectionScope.CurrentUser);
 				await File.WriteAllBytesAsync(Path.Combine(windowsDirectory, accountId.ToString("N")), protectedBytes, ct);
+				Cache[(dataDirectory, accountId)] = encoded;
 				return;
 			}
 
 			if (OperatingSystem.IsMacOS())
 			{
 				MacKeychainCredentialStore.Store(Service, accountId, encoded, ct);
+				Cache[(dataDirectory, accountId)] = encoded;
 				return;
 			}
 
 			await LinuxSecretServiceCredentialStore.StoreAsync(Service, accountId, encoded, ct);
+			Cache[(dataDirectory, accountId)] = encoded;
 		}
 		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
@@ -76,6 +108,8 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 
 	public async Task<CredentialPayload?> RetrieveAsync(Guid accountId, CancellationToken ct)
 	{
+		if (Cache.TryGetValue((dataDirectory, accountId), out var cached)) return Decode(cached);
+
 		string? encoded;
 		try
 		{
@@ -109,13 +143,17 @@ public sealed class NativeCredentialStore(string dataDirectory) : ICredentialSto
 			);
 		}
 
-		return string.IsNullOrWhiteSpace(encoded)
-			? null
-			: JsonSerializer.Deserialize<CredentialPayload>(Convert.FromBase64String(encoded.Trim()));
+		if (string.IsNullOrWhiteSpace(encoded)) return null;
+		Cache[(dataDirectory, accountId)] = encoded;
+		return Decode(encoded);
 	}
+
+	private static CredentialPayload? Decode(string encoded) =>
+		JsonSerializer.Deserialize<CredentialPayload>(Convert.FromBase64String(encoded.Trim()));
 
 	public async Task DeleteAsync(Guid accountId, CancellationToken ct)
 	{
+		Cache.TryRemove((dataDirectory, accountId), out _);
 		try
 		{
 			if (OperatingSystem.IsWindows())

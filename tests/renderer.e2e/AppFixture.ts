@@ -260,7 +260,12 @@ function createFixtureEnvironment(
 	} else {
 		delete inherited.MYLOMAIL_RENDERER_PATH;
 	}
-	if (overrides.DBUS_SESSION_BUS_ADDRESS === "") {
+	// No session bus unless a test supplies one: with it the backend finds the developer's real
+	// Secret Service, stores throwaway test credentials in their login keyring, and every app
+	// shutdown mid-request risks crashing gnome-keyring-daemon, which restarts locked and asks
+	// the person at the keyboard for their password. Without one the backend falls back to the
+	// master-password store this fixture already supplies.
+	if (!overrides.DBUS_SESSION_BUS_ADDRESS) {
 		delete inherited.DBUS_SESSION_BUS_ADDRESS;
 	}
 	const environment: Record<string, string> = {};
