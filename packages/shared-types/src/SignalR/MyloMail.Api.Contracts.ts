@@ -731,8 +731,9 @@ export type SaveCalendarEventRequest = {
 /** Transpiled from MyloMail.Api.Contracts.ProblemKind */
 export enum ProblemKind {
     MessageDownload = 0,
-    MessageRetrying = 1,
-    FolderSync = 2,
+    MessageTooLarge = 1,
+    MessageRetrying = 2,
+    FolderSync = 3,
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ProblemDto */

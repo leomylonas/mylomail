@@ -45,12 +45,17 @@ internal static class ProblemReport
 				var message = messages[state.MessageId];
 				firstFolder.TryGetValue(state.MessageId, out var folder);
 				var sender = message.From.FirstOrDefault();
+				var account = accountsById[message.AccountId];
+				var tooLarge = Content.ContentAcquisition.IsTooLarge(message.SizeEstimate, account);
 				return new ProblemDto(
 					$"message:{state.MessageId}",
-					ProblemKind.MessageDownload,
+					tooLarge ? ProblemKind.MessageTooLarge : ProblemKind.MessageDownload,
 					message.AccountId,
-					"This message could not be downloaded",
-					state.LastError,
+					tooLarge ? "This message is over the download limit" : "This message could not be downloaded",
+					// Worded from the limit in force now, not whatever was recorded when it first failed.
+					tooLarge
+						? Content.ContentAcquisition.TooLargeMessage(message.SizeEstimate!.Value, account.MaxMessageDownloadMegabytes)
+						: state.LastError,
 					folder?.Id,
 					folder?.Name,
 					message.Id,
@@ -59,7 +64,7 @@ internal static class ProblemReport
 					message.ReceivedAt,
 					state.Attempts,
 					// A message above the download cap fails identically every time.
-					CanRetry: !Content.ContentAcquisition.IsTooLarge(message.SizeEstimate, accountsById[message.AccountId])
+					CanRetry: !tooLarge
 				);
 			})
 			.OrderByDescending(problem => problem.ReceivedAt);

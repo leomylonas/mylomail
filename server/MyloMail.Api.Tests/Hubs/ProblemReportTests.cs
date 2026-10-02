@@ -36,6 +36,29 @@ public sealed class ProblemReportTests
 	}
 
 	[Fact]
+	public async Task A_message_over_the_accounts_limit_is_reported_as_too_large_with_the_current_limit_in_its_text()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var messageId = await SeedFailedMessageAsync(harness, "Huge", attempts: 5, error: "Provider content exceeds the 67108864-byte limit.");
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			(await context.Messages.SingleAsync(m => m.Id == messageId)).SizeEstimate = 300L * 1024 * 1024;
+			await context.SaveChangesAsync();
+		});
+
+		var problem = await harness.UsingAsync(async services =>
+			Assert.Single(await services.GetRequiredService<MailHub>().GetProblems()));
+
+		Assert.Equal(ProblemKind.MessageTooLarge, problem.Kind);
+		Assert.False(problem.CanRetry);
+		Assert.Equal(harness.Account.Id, problem.AccountId);
+		Assert.Contains("300 MB", problem.Detail);
+		Assert.Contains("128 MB", problem.Detail);
+		Assert.DoesNotContain("67108864", problem.Detail);
+	}
+
+	[Fact]
 	public async Task A_message_still_waiting_to_download_for_the_first_time_is_not_a_problem()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);

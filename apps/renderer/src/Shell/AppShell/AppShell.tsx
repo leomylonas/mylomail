@@ -748,7 +748,13 @@ export function AppShell({
 				<div className={styles.panels} />
 			)}
 
-			<StatusBar hub={hub} problem={connectionProblem} />
+			<StatusBar
+				hub={hub}
+				problem={connectionProblem}
+				onOpenAccountSettings={(accountId) =>
+					setSettingsSection({ kind: "account", accountId })
+				}
+			/>
 
 			{settingsSection && accounts.data ? (
 				<SettingsDialog

@@ -21,10 +21,13 @@ export function ProblemsDialog({
 	hub,
 	problems,
 	onClose,
+	onOpenAccountSettings,
 }: {
 	hub: MailHubConnection;
 	problems: readonly ProblemDto[];
 	onClose: () => void;
+	/** Opens that account's settings, where the download limit is changed. */
+	onOpenAccountSettings: (accountId: string) => void;
 }) {
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const queryClient = useQueryClient();
@@ -49,6 +52,9 @@ export function ProblemsDialog({
 
 	const downloads = problems.filter(
 		(problem) => problem.kind === ProblemKind.MessageDownload,
+	);
+	const tooLarge = problems.filter(
+		(problem) => problem.kind === ProblemKind.MessageTooLarge,
 	);
 	const folders = problems.filter(
 		(problem) => problem.kind === ProblemKind.FolderSync,
@@ -91,6 +97,50 @@ export function ProblemsDialog({
 									<p className={styles.note}>
 										This is retried automatically on the next sync.
 									</p>
+								</li>
+							))}
+						</ul>
+					</section>
+				) : null}
+
+				{tooLarge.length > 0 ? (
+					<section aria-labelledby="problems-too-large">
+						<h3 id="problems-too-large">
+							Messages over the download limit ({tooLarge.length})
+						</h3>
+						<p className={styles.note}>
+							These stay on the mail server until the limit is raised.
+						</p>
+						<ul className={styles.list}>
+							{tooLarge.map((problem) => (
+								<li key={problem.id} className={styles.item}>
+									<div className={styles.itemHeader}>
+										<p className={styles.title}>
+											{problem.subject || "(no subject)"}
+										</p>
+										<Button
+											size="sm"
+											kind="tertiary"
+											onClick={() => {
+												onClose();
+												onOpenAccountSettings(problem.accountId);
+											}}
+										>
+											Change download limit
+										</Button>
+									</div>
+									<p className={styles.meta}>
+										{[
+											problem.from,
+											problem.mailboxName,
+											problem.receivedAt
+												? new Date(problem.receivedAt).toLocaleString()
+												: null,
+										]
+											.filter(Boolean)
+											.join(" · ")}
+									</p>
+									<p className={styles.detail}>{problem.detail}</p>
 								</li>
 							))}
 						</ul>

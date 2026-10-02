@@ -35,9 +35,11 @@ export interface BackgroundActivity {
 export function StatusBar({
 	hub,
 	problem,
+	onOpenAccountSettings,
 }: {
 	hub: MailHubConnection | null;
 	problem: string | null;
+	onOpenAccountSettings: (accountId: string) => void;
 }) {
 	const queryClient = useQueryClient();
 	const [problemsOpen, setProblemsOpen] = useState(false);
@@ -152,6 +154,7 @@ export function StatusBar({
 					hub={hub}
 					problems={problemList}
 					onClose={() => setProblemsOpen(false)}
+					onOpenAccountSettings={onOpenAccountSettings}
 				/>
 			) : null}
 		</footer>

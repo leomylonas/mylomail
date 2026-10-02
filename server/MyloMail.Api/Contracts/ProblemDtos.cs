@@ -9,6 +9,12 @@ public enum ProblemKind
 	MessageDownload,
 
 	/// <summary>
+	/// A message larger than the account's download limit. Retrying cannot help; raising the
+	/// limit in the account's settings can, so the UI offers that instead.
+	/// </summary>
+	MessageTooLarge,
+
+	/// <summary>
 	/// A message that failed before and is queued to be tried again. Not a problem yet: it
 	/// becomes <see cref="MessageDownload"/> only if it fails again.
 	/// </summary>
