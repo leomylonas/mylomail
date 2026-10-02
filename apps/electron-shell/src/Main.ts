@@ -41,6 +41,7 @@ import { isDangerousAttachment } from "@mylomail/electron-shell/DangerousAttachm
 import { NativeNotificationDispatcher } from "@mylomail/electron-shell/NativeNotificationDispatcher";
 import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationWindowTarget";
 import { printWebContents } from "@mylomail/electron-shell/Print";
+import { relaxRemoteImageHeaders } from "@mylomail/electron-shell/RemoteImagePolicy";
 import { surfaceStartupFailure } from "@mylomail/electron-shell/StartupFailure";
 import {
 	extractMailtoUris,
@@ -168,6 +169,15 @@ export async function startShell(): Promise<void> {
 	const origin =
 		"origin" in backend ? backend.origin : `http://127.0.0.1:${backend.port}`;
 	const connection: BackendConnection = { origin };
+
+	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+		const relaxed = relaxRemoteImageHeaders(
+			details.resourceType,
+			details.url,
+			details.responseHeaders ?? {},
+		);
+		callback(relaxed ? { responseHeaders: relaxed } : {});
+	});
 
 	// Set before any window exists, so the very first document request is authenticated.
 	// httpOnly keeps it out of reach of page script: the renderer authenticates without ever
@@ -706,6 +716,9 @@ async function createWindow(
 		x: bounds?.x,
 		y: bounds?.y,
 		show: false,
+		// The File/Edit/View menu stays out of the way until Alt is pressed (Windows/Linux
+		// convention). Its shortcuts keep working while it is hidden.
+		autoHideMenuBar: true,
 		webPreferences: {
 			preload: join(here, "Preload.cjs"),
 
