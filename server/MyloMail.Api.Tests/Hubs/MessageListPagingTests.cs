@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
@@ -27,8 +28,8 @@ public sealed class MessageListPagingTests
 		var (firstPage, secondPage) = await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			var first = await hub.GetMessages(mailboxId, skip: 0, take: 100);
-			var second = await hub.GetMessages(mailboxId, skip: 100, take: 100);
+			var first = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true);
+			var second = await hub.GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true);
 			return (first, second);
 		});
 
@@ -82,7 +83,7 @@ public sealed class MessageListPagingTests
 		var (representative, members) = await harness.UsingAsync(async services =>
 		{
 			var hub = services.GetRequiredService<MailHub>();
-			var page = await hub.GetMessages(mailboxId, skip: 0, take: 100);
+			var page = await hub.GetMessages(mailboxId, skip: 0, take: 100, MessageSortField.Date, descending: true);
 			return (
 				page.Single(message => message.ThreadId == threadId),
 				await hub.GetThreadMessages(mailboxId, threadId)
@@ -100,10 +101,63 @@ public sealed class MessageListPagingTests
 		var mailboxId = await SeedMessagesAsync(harness, count: 10);
 
 		var page = await harness.UsingAsync(services =>
-			services.GetRequiredService<MailHub>().GetMessages(mailboxId, skip: 100, take: 100)
+			services.GetRequiredService<MailHub>().GetMessages(mailboxId, skip: 100, take: 100, MessageSortField.Date, descending: true)
 		);
 
 		Assert.Empty(page);
+	}
+
+	/// <summary>
+	/// Sorting a list that pages must order the whole mailbox before taking a page. Ordering only
+	/// the pages loaded so far makes "oldest first" mean the oldest of the current window.
+	/// </summary>
+	[Fact]
+	public async Task Sorting_orders_the_whole_mailbox_before_paging()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var mailboxId = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Mailboxes.Add(new Mailbox { Id = mailboxId, AccountId = harness.Account.Id, ProviderMailboxId = "INBOX", Name = "Inbox", SpecialUse = SpecialUse.Inbox });
+			// Stored newest-first by id order is irrelevant; dates are shuffled against subjects.
+			for (var i = 0; i < 250; i++)
+			{
+				var id = Guid.NewGuid();
+				context.Messages.Add(new Message
+				{
+					Id = id,
+					AccountId = harness.Account.Id,
+					Subject = $"Subject {(i * 37) % 250:D3}",
+					ReceivedAt = DateTimeOffset.UnixEpoch.AddHours((i * 91) % 250),
+				});
+				context.MessageMailboxes.Add(new MessageMailbox { Id = Guid.NewGuid(), MessageId = id, MailboxId = mailboxId, ProviderOccurrenceId = id.ToString() });
+			}
+			await context.SaveChangesAsync();
+		});
+
+		async Task<List<MessageSummaryDto>> AllPagesAsync(MessageSortField field, bool descending) =>
+			await harness.UsingAsync(async services =>
+			{
+				var hub = services.GetRequiredService<MailHub>();
+				var all = new List<MessageSummaryDto>();
+				for (var skip = 0; skip < 250; skip += 100)
+					all.AddRange(await hub.GetMessages(mailboxId, skip, 100, field, descending));
+				return all;
+			});
+
+		var oldestFirst = await AllPagesAsync(MessageSortField.Date, descending: false);
+		Assert.Equal(250, oldestFirst.Select(m => m.Id).Distinct().Count());
+		Assert.Equal(DateTimeOffset.UnixEpoch, oldestFirst[0].ReceivedAt);
+		Assert.Equal(oldestFirst.OrderBy(m => m.ReceivedAt).Select(m => m.Id), oldestFirst.Select(m => m.Id));
+
+		var newestFirst = await AllPagesAsync(MessageSortField.Date, descending: true);
+		Assert.Equal(DateTimeOffset.UnixEpoch.AddHours(249), newestFirst[0].ReceivedAt);
+
+		var bySubject = await AllPagesAsync(MessageSortField.Subject, descending: false);
+		Assert.Equal("Subject 000", bySubject[0].Subject);
+		Assert.Equal("Subject 249", bySubject[^1].Subject);
+		Assert.Equal(bySubject.Select(m => m.Subject).Order(StringComparer.CurrentCultureIgnoreCase), bySubject.Select(m => m.Subject));
 	}
 
 	private static async Task<Guid> SeedMessagesAsync(SyncHarness harness, int count)

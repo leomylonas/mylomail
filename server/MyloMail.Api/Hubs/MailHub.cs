@@ -40,7 +40,17 @@ public interface IMailHub
 {
 	Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId);
 
-	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take);
+	/// <summary>
+	/// One page of a mailbox, ordered across the whole mailbox by <paramref name="sortField"/>
+	/// (ties broken newest first, then by id, so paging is stable).
+	/// </summary>
+	Task<IReadOnlyList<MessageSummaryDto>> GetMessages(
+		Guid mailboxId,
+		int skip,
+		int take,
+		MessageSortField sortField,
+		bool descending
+	);
 
 	Task<IReadOnlyList<MessageSummaryDto>> GetThreadMessages(Guid mailboxId, string threadId);
 
@@ -369,7 +379,13 @@ public class MailHub(
 	public Task<IReadOnlyList<MailboxSummaryDto>> GetMailboxes(Guid accountId) =>
 		MailboxSummaryDtoFactory.ListAsync(context, accountId);
 
-	public async Task<IReadOnlyList<MessageSummaryDto>> GetMessages(Guid mailboxId, int skip, int take)
+	public async Task<IReadOnlyList<MessageSummaryDto>> GetMessages(
+		Guid mailboxId,
+		int skip,
+		int take,
+		MessageSortField sortField,
+		bool descending
+	)
 	{
 		var messages = await context
 			.MessageMailboxes.Where(o => o.MailboxId == mailboxId)
@@ -381,9 +397,7 @@ public class MailHub(
 		// here specifically because paging calls this same query again for the next page — an
 		// order that reshuffles ties between calls would skip or repeat a message at the page
 		// boundary even though nothing in the mailbox actually changed.
-		var shown = messages
-			.OrderByDescending(m => m.ReceivedAt)
-			.ThenByDescending(m => m.Id)
+		var shown = OrderForListing(messages, sortField, descending)
 			.Skip(skip)
 			.Take(take)
 			.ToList();
@@ -391,6 +405,42 @@ public class MailHub(
 			.GroupBy(ThreadKey, StringComparer.Ordinal)
 			.ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 		return await ToMessageSummariesAsync(shown, threadCounts);
+	}
+
+	/// <summary>
+	/// The requested field first, in the requested direction; then newest first and by id, in
+	/// every case, so that two messages the field cannot separate still have one fixed order.
+	/// </summary>
+	internal static IEnumerable<Message> OrderForListing(
+		IEnumerable<Message> messages,
+		MessageSortField field,
+		bool descending
+	)
+	{
+		if (field == MessageSortField.Date)
+		{
+			return descending
+				? messages.OrderByDescending(m => m.ReceivedAt).ThenByDescending(m => m.Id)
+				: messages.OrderBy(m => m.ReceivedAt).ThenBy(m => m.Id);
+		}
+
+		static string Text(Message m, MessageSortField f) =>
+			f switch
+			{
+				MessageSortField.From => m.From.Count > 0 ? m.From[0].Name ?? m.From[0].Email : string.Empty,
+				MessageSortField.Subject => m.Subject,
+				_ => m.Snippet,
+			};
+
+		IOrderedEnumerable<Message> primary = field switch
+		{
+			MessageSortField.Read => descending ? messages.OrderByDescending(m => m.IsRead) : messages.OrderBy(m => m.IsRead),
+			MessageSortField.Flag => descending ? messages.OrderByDescending(m => m.IsFlagged) : messages.OrderBy(m => m.IsFlagged),
+			_ => descending
+				? messages.OrderByDescending(m => Text(m, field), StringComparer.CurrentCultureIgnoreCase)
+				: messages.OrderBy(m => Text(m, field), StringComparer.CurrentCultureIgnoreCase),
+		};
+		return primary.ThenByDescending(m => m.ReceivedAt).ThenByDescending(m => m.Id);
 	}
 
 	public async Task<IReadOnlyList<MessageSummaryDto>> GetThreadMessages(

@@ -208,35 +208,23 @@ function updateMessageSummaryCaches(
 	queryClient: QueryClient,
 	message: MessageSummaryDto,
 ): void {
-	queryClient.setQueriesData<InfiniteData<MessageSummaryDto[]>>(
-		{
-			queryKey: ["messages"],
-			predicate: (query) => query.queryKey.length === 2,
-		},
-		(current) =>
-			current && {
-				...current,
-				pages: current.pages.map((page) =>
-					page.map((candidate) =>
-						candidate.id === message.id
-							? mergeServerKnownProjection(candidate, message)
-							: candidate,
-					),
-				),
-			},
-	);
-	queryClient.setQueriesData<MessageSummaryDto[]>(
-		{
-			queryKey: ["messages"],
-			predicate: (query) => query.queryKey.length > 2,
-		},
-		(current) =>
-			current?.map((candidate) =>
-				candidate.id === message.id
-					? mergeServerKnownProjection(candidate, message)
-					: candidate,
-			),
-	);
+	// A mailbox listing is paged (and keyed by its sort order), a conversation is a flat array;
+	// both live under "messages", so they are told apart by the shape of their data rather than
+	// by the length of their key, which the sort order changes.
+	const merge = (candidate: MessageSummaryDto) =>
+		candidate.id === message.id
+			? mergeServerKnownProjection(candidate, message)
+			: candidate;
+	queryClient.setQueriesData<
+		InfiniteData<MessageSummaryDto[]> | MessageSummaryDto[]
+	>({ queryKey: ["messages"] }, (current) => {
+		if (!current) return current;
+		if (Array.isArray(current)) return current.map(merge);
+		return {
+			...current,
+			pages: current.pages.map((page) => page.map(merge)),
+		};
+	});
 	queryClient.setQueriesData<MessageSummaryDto[]>(
 		{ queryKey: ["search"] },
 		(current) =>

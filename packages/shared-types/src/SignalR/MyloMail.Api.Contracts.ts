@@ -728,6 +728,16 @@ export type SaveCalendarEventRequest = {
     exceptionDates: (Date | string)[];
 }
 
+/** Transpiled from MyloMail.Api.Contracts.MessageSortField */
+export enum MessageSortField {
+    Date = 0,
+    From = 1,
+    Subject = 2,
+    Snippet = 3,
+    Read = 4,
+    Flag = 5,
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ProblemKind */
 export enum ProblemKind {
     MessageDownload = 0,
