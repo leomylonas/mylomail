@@ -64,6 +64,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 	)
 	{
 		var candidates = Eligible(account, upserted, m => m.ReceivedAt, notificationBaseline);
+		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
 		if (candidates.Count == 0)
 		{
 			return [];
@@ -151,6 +152,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		var candidates = Eligible(account, upserted, m => m.ReceivedAt, notificationBaseline)
 			.Where(m => m.ProviderStableId is not null)
 			.ToList();
+		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
 		if (candidates.Count == 0)
 		{
 			return [];
@@ -289,6 +291,32 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 
 		record.DeliveredAt = clock.GetUtcNow();
 		await context.SaveChangesAsync(ct);
+	}
+
+	/// <summary>
+	/// Drops mail the account's own identities sent. Nobody needs a notification for their own
+	/// Sent copy, and it is what produced a "new mail" alert titled with the user's own address.
+	/// </summary>
+	private async Task<List<T>> WithoutOwnMailAsync<T>(
+		Account account,
+		List<T> candidates,
+		Func<T, IReadOnlyList<Address>> from,
+		CancellationToken ct
+	)
+	{
+		if (candidates.Count == 0)
+		{
+			return candidates;
+		}
+
+		var own = (await context
+			.SendIdentities.Where(identity => identity.AccountId == account.Id)
+			.Select(identity => identity.EmailAddress)
+			.ToListAsync(ct))
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		return candidates
+			.Where(message => from(message) is not { Count: > 0 } sender || !own.Contains(sender[0].Email))
+			.ToList();
 	}
 
 	private static List<T> Eligible<T>(

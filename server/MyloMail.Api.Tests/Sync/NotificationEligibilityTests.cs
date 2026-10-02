@@ -67,6 +67,41 @@ public sealed class NotificationEligibilityTests
 		Assert.Equal(harness.Account.Id, notification.AccountId);
 	}
 
+	/// <summary>
+	/// Mail the account's own identity sent (its Sent copy) is not new mail. It used to alert with
+	/// the user's own address as the title, which read as the account name rather than a sender.
+	/// </summary>
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task Mail_sent_by_the_accounts_own_identity_never_notifies_but_others_still_do(bool staged)
+	{
+		await using var harness = await SyncHarness.CreateAsync(staged ? ProviderShapes.Gmail : ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		var inbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+		if (!staged)
+		{
+			harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
+			await SyncTests.SyncAsync(harness);
+			await SyncTests.CoverAsync(harness);
+		}
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.SendIdentities.Add(new SendIdentity { Id = Guid.NewGuid(), AccountId = harness.Account.Id, DisplayName = "Me", EmailAddress = "me@example.test", IsDefault = true });
+			await context.SaveChangesAsync();
+		});
+
+		var own = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(1));
+		inbox.Messages[own].From = [new Address(null, "ME@example.test")];
+		var other = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(2));
+		inbox.Messages[other].From = [new Address("Claire", "claire@example.test")];
+		await SyncTests.SyncAsync(harness);
+
+		var notification = Assert.Single(harness.Events.Notifications);
+		Assert.Equal("Claire", notification.Title);
+	}
+
 	[Fact]
 	public async Task A_message_dated_before_the_accounts_notification_epoch_does_not_notify()
 	{
