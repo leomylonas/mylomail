@@ -1,18 +1,57 @@
+/* Compact chips, as a mail client shows them under the headers, rather than a list of rows. */
 .list {
-	border-top: 1px solid var(--cds-border-subtle);
-	margin-top: var(--cds-spacing-05);
-	padding-top: var(--cds-spacing-04);
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	gap: var(--cds-spacing-02);
+	padding-bottom: var(--cds-spacing-03);
 }
 
-.item {
+.chip {
+	display: inline-flex;
+	max-width: 16rem;
+	align-items: stretch;
+	border: 1px solid var(--cds-border-subtle);
+	border-radius: 0.25rem;
+	background: var(--cds-layer);
+	font-size: 0.75rem;
+}
+
+.open,
+.save {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: var(--cds-spacing-03);
+	border: none;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	cursor: pointer;
 }
 
-/* A filename has no length limit worth trusting — truncate rather than let it push the
- * Save/Open buttons out of view or force the panel to scroll horizontally. */
+.open {
+	min-width: 0;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+}
+
+.save {
+	padding: 0 var(--cds-spacing-02);
+	border-left: 1px solid var(--cds-border-subtle);
+	color: var(--cds-icon-secondary);
+}
+
+.open:hover,
+.save:hover {
+	background: var(--cds-layer-hover);
+}
+
+.open:focus-visible,
+.save:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+/* A filename has no length limit worth trusting — truncate rather than widen the chip. */
 .filename {
 	overflow: hidden;
 	min-width: 0;
@@ -20,8 +59,9 @@
 	text-overflow: ellipsis;
 }
 
-.actions {
-	flex-shrink: 0;
+.size {
+	flex: 0 0 auto;
+	color: var(--cds-text-secondary);
 }
 
 .error {
@@ -29,13 +69,19 @@
 }
 
 @media print {
-	.actions {
+	.save {
 		display: none;
+	}
+
+	/* Paper has room; the whole filename belongs on it. */
+	.chip {
+		max-width: none;
 	}
 
 	.filename {
 		overflow: visible;
 		white-space: normal;
+		overflow-wrap: anywhere;
 		text-overflow: clip;
 	}
 }

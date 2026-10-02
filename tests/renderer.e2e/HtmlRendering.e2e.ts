@@ -124,10 +124,8 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 			.toBe(1);
 		await expect(body.locator("#inline")).toHaveAttribute("src", /^blob:/);
 
-		await window
-			.getByText("Always allow images from example.org", { exact: true })
-			.click();
-		await window.getByRole("button", { name: "Load content" }).click();
+		await window.locator(".cds--combo-button__trigger").click();
+		await window.getByRole("menuitem", { name: "Trust domain" }).click();
 		await expect(window.getByText(/Remote content is blocked/)).toBeHidden();
 		await expect.poll(() => remoteRequests).toBe(1);
 

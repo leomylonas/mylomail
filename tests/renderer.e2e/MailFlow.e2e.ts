@@ -58,6 +58,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		).toBeVisible();
 		await expect(inboxMailbox).toContainText("2 unread · 2 total");
 
+		await window.getByRole("button", { name: "Filter and sort" }).click();
 		for (const column of ["From", "Subject", "Snippet", "Date", "Read", "Flag"])
 			await expect(
 				window.getByRole("button", { name: `Sort by ${column}`, exact: true }),
@@ -103,7 +104,9 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await expect(
 			article.getByText("Quarterly forecast details."),
 		).toBeVisible();
-		await expect(article.getByRole("button", { name: "Print" })).toBeHidden();
+		await expect(
+			article.getByRole("button", { name: "Message options" }),
+		).toBeHidden();
 		await window.emulateMedia({ media: "screen" });
 		await app.evaluate(({ BrowserWindow }) => {
 			const webContents = BrowserWindow.getAllWindows()[0]?.webContents;
@@ -121,7 +124,8 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 				callback(true, "");
 			};
 		});
-		const print = article.getByRole("button", { name: "Print" });
+		await article.getByRole("button", { name: "Message options" }).click();
+		const print = window.getByRole("menuitem", { name: "Print" });
 		await expect(print).toBeEnabled();
 		await print.click();
 		await expect
@@ -284,14 +288,22 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		// Existing accounts expose the same initial-sync choice as onboarding. The returned,
 		// normalised values flow through the live account projection, so closing and reopening
 		// the pane proves the choice is persisted rather than only retained in component state.
-		await window.getByRole("button", { name: "Account settings" }).click();
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window
+			.getByRole("dialog")
+			.getByRole("button", { name: "Matrix" })
+			.click();
 		await window.getByText("Last N messages", { exact: true }).click();
 		const syncBound = window.getByLabel("Messages", { exact: true });
 		await syncBound.fill("1");
 		await window.getByRole("button", { name: "Save", exact: true }).click();
 		await expect(window.getByText("Saved.", { exact: true })).toBeVisible();
 		await window.getByRole("button", { name: "Close", exact: true }).click();
-		await window.getByRole("button", { name: "Account settings" }).click();
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window
+			.getByRole("dialog")
+			.getByRole("button", { name: "Matrix" })
+			.click();
 		await expect(window.getByLabel("Last N messages")).toBeChecked();
 		await expect(window.getByLabel("Messages", { exact: true })).toHaveValue(
 			"1",

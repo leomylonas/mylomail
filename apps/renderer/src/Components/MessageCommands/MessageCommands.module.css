@@ -1,0 +1,10 @@
+.divider {
+	width: 1px;
+	height: 1.25rem;
+	margin-inline: var(--cds-spacing-02);
+	background: var(--cds-border-subtle);
+}
+
+button.command {
+	padding-inline: var(--cds-spacing-03) 2.25rem;
+}

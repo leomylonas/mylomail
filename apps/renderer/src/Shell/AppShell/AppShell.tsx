@@ -17,11 +17,6 @@ import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeR
 import { buildMailtoSeed } from "@mylomail/renderer/Components/Compose/ComposeMailto";
 import type { MailtoComposeRequest } from "@mylomail/electron-shell/Mailto";
 import { DraftList } from "@mylomail/renderer/Components/DraftList/DraftList";
-import {
-	AccountSettings,
-	type AccountSettingsValues,
-} from "@mylomail/renderer/Components/AccountSettings/AccountSettings";
-import { ShellSettings } from "@mylomail/renderer/Components/ShellSettings/ShellSettings";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
@@ -29,17 +24,21 @@ import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBa
 import { Contacts } from "@mylomail/renderer/Components/Contacts/Contacts";
 import { ActionableNotification, Button, IconButton } from "@carbon/react";
 import {
-	Add,
 	Calendar as CalendarIcon,
 	Email,
+	EmailNew,
 	Folder,
-	Launch,
 	OpenPanelLeft,
 	OpenPanelRight,
 	Settings as SettingsIcon,
-	SettingsAdjust,
 	UserMultiple,
 } from "@carbon/icons-react";
+import {
+	SettingsDialog,
+	type SettingsSection,
+} from "@mylomail/renderer/Components/SettingsDialog/SettingsDialog";
+import type { Account } from "@mylomail/renderer/Types/Account";
+import { StatusBar } from "@mylomail/renderer/Components/StatusBar/StatusBar";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import {
@@ -62,32 +61,10 @@ import {
 } from "@mylomail/renderer/Shell/NotificationNavigation";
 import {
 	AuthState,
-	CertificateTrustMode,
-	InitialSyncMode,
 	ProviderType,
+	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
-
-interface Account {
-	id: string;
-	displayName: string;
-	emailAddress: string;
-	color: string;
-	pollIntervalSeconds?: number;
-	pollingEnabled?: boolean;
-	undoSendDelaySeconds?: number;
-	notificationsEnabled?: boolean;
-	initialSyncMode?: InitialSyncMode;
-	initialSyncBoundValue?: number | null;
-	authState?: AuthState;
-	lastAuthError?: string | null;
-	sidebarCollapsed?: boolean;
-	attachmentSizeLimitOverride?: number | null;
-	certificateTrustMode?: CertificateTrustMode;
-	providerType?: ProviderType;
-	appendToSentOnSend?: boolean | null;
-	isThrottled?: boolean;
-}
 
 export interface NotificationClick {
 	notificationId: string;
@@ -111,15 +88,11 @@ export function AppShell({
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
 	const [pane, setPane] = useState<
-		| "reading"
-		| "compose"
-		| "settings"
-		| "app-settings"
-		| "drafts"
-		| "add-account"
-		| "calendar"
-		| "contacts"
+		"reading" | "compose" | "calendar" | "contacts"
 	>(initialMailto ? "compose" : "reading");
+	const [settingsSection, setSettingsSection] =
+		useState<SettingsSection | null>(null);
+	const [commandHost, setCommandHost] = useState<HTMLElement | null>(null);
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
@@ -227,6 +200,22 @@ export function AppShell({
 	// empty reading pane with no way to get past it. Derived rather than synced via an effect,
 	// so there is no first-render flash of the reading pane before the accounts query settles.
 	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
+	const connectionProblem = describeConnectionProblem(status, accounts.isError);
+	const showMailChrome =
+		effectivePane === "reading" || effectivePane === "compose";
+	const mailboxes = useQuery({
+		queryKey: queryKeys.mailboxes(selectedAccountId ?? ""),
+		queryFn: () => hub!.getMailboxes(selectedAccountId!),
+		enabled: Boolean(hub && selectedAccountId),
+	});
+	// The provider-mapped Drafts folder (IMAP \Drafts, Graph drafts, Gmail DRAFT), honouring the
+	// user's special-use correction. Its contents are structured `Draft`s, not `Message`s, so
+	// the list column shows them through `DraftList` instead of `MessageList`.
+	const draftsSelected = mailboxes.data?.some(
+		(mailbox) =>
+			mailbox.id === selectedMailboxId &&
+			(mailbox.specialUseOverride ?? mailbox.specialUse) === SpecialUse.Drafts,
+	);
 	const selectedAccount = accounts.data?.find(
 		(a) => a.id === selectedAccountId,
 	);
@@ -368,7 +357,7 @@ export function AppShell({
 					<h1 className={styles.title}>MyloMail</h1>
 				</div>
 				<div className={styles.globalSearch}>
-					{isMailPane(effectivePane) ? (
+					{showMailChrome ? (
 						<SearchBox query={query} onChange={setQuery} />
 					) : (
 						<span className={styles.sectionTitle}>
@@ -377,22 +366,16 @@ export function AppShell({
 					)}
 				</div>
 				<div className={styles.appBarActions}>
-					<span className={styles.status}>
-						<span className={styles.statusDot} aria-hidden="true" />
-						{describe(status, accounts.data, accounts.isError)}
-					</span>
-					{window.windows ? (
-						<IconButton
-							className={styles.utilityButton}
-							label="New window"
-							kind="ghost"
-							size="lg"
-							align="bottom-end"
-							onClick={() => void window.windows?.open()}
-						>
-							<Launch size={20} />
-						</IconButton>
-					) : null}
+					<IconButton
+						className={styles.utilityButton}
+						label="Settings"
+						kind="ghost"
+						size="lg"
+						align="bottom-end"
+						onClick={() => setSettingsSection({ kind: "general" })}
+					>
+						<SettingsIcon size={20} />
+					</IconButton>
 				</div>
 			</header>
 
@@ -403,7 +386,9 @@ export function AppShell({
 					kind="ghost"
 					size="lg"
 					align="right"
-					isSelected={isMailPane(effectivePane)}
+					isSelected={
+						effectivePane !== "calendar" && effectivePane !== "contacts"
+					}
 					onClick={() => setPane("reading")}
 				>
 					<Email size={20} />
@@ -433,80 +418,51 @@ export function AppShell({
 						<UserMultiple size={20} />
 					</IconButton>
 				) : null}
-				<IconButton
-					className={styles.railButton}
-					label="Settings"
-					kind="ghost"
-					size="lg"
-					align="right"
-					isSelected={effectivePane === "app-settings"}
-					onClick={() => setPane("app-settings")}
-				>
-					<SettingsIcon size={20} />
-				</IconButton>
 			</nav>
 
-			{isMailPane(effectivePane) || effectivePane === "app-settings" ? (
-				<div className={styles.commandBar} aria-label="Mail commands">
+			{showMailChrome ? (
+				<div
+					className={styles.commandBar}
+					role="toolbar"
+					aria-label="Mail commands"
+				>
 					<Button
 						size="sm"
-						renderIcon={Email}
+						renderIcon={EmailNew}
 						disabled={!selectedAccountId}
 						onClick={openComposeShortcut}
 					>
 						New message
 					</Button>
-					<Button
-						size="sm"
-						kind="ghost"
-						renderIcon={Folder}
-						disabled={!selectedAccountId}
-						onClick={() => setPane("drafts")}
-					>
-						Drafts
-					</Button>
-					<Button
-						size="sm"
-						kind="ghost"
-						renderIcon={SettingsAdjust}
-						disabled={!selectedAccountId}
-						onClick={() => setPane("settings")}
-					>
-						Account settings
-					</Button>
-					<Button
-						size="sm"
-						kind="ghost"
-						renderIcon={Add}
-						onClick={() => setPane("add-account")}
-					>
-						Add account
-					</Button>
 					<span className={styles.commandDivider} aria-hidden="true" />
-					<Button
-						size="sm"
+					<div className={styles.messageCommands} ref={setCommandHost} />
+					<div className={styles.commandSpacer} />
+					<IconButton
+						label="Toggle sidebar"
 						kind="ghost"
-						renderIcon={OpenPanelLeft}
+						size="sm"
+						align="bottom-end"
 						onClick={() =>
 							sidebarRef.current?.isCollapsed()
 								? sidebarRef.current.expand()
 								: sidebarRef.current?.collapse()
 						}
 					>
-						Toggle sidebar
-					</Button>
-					<Button
-						size="sm"
+						<OpenPanelLeft size={20} />
+					</IconButton>
+					<IconButton
+						label="Toggle reading pane"
 						kind="ghost"
-						renderIcon={OpenPanelRight}
+						size="sm"
+						align="bottom-end"
 						onClick={() =>
 							detailRef.current?.isCollapsed()
 								? detailRef.current.expand()
 								: detailRef.current?.collapse()
 						}
 					>
-						Toggle reading pane
-					</Button>
+						<OpenPanelRight size={20} />
+					</IconButton>
 				</div>
 			) : null}
 
@@ -542,11 +498,39 @@ export function AppShell({
 						lowContrast
 						hideCloseButton
 						inline
+						actionButtonLabel="Unlock keychain"
+						onActionButtonClick={() => {
+							// The backend shows the desktop's own unlock prompt. Accounts
+							// recover on their next scheduled attempt once it is readable.
+							fetchApi("/credential-store/unlock", { method: "POST" }).then(
+								() =>
+									void queryClient.invalidateQueries({
+										queryKey: ["accounts"],
+									}),
+								(error: unknown) =>
+									notify(
+										notifications,
+										notificationForError(
+											error,
+											"The keychain could not be unlocked",
+										),
+									),
+							);
+						}}
 					/>
 				) : null}
 			</div>
 
-			{effectivePane === "contacts" && hub && selectedAccountId ? (
+			{effectivePane === "add-account" ? (
+				<div className={styles.firstRun}>
+					<AddAccount
+						onAdded={() => {
+							void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+							setPane("reading");
+						}}
+					/>
+				</div>
+			) : effectivePane === "contacts" && hub && selectedAccountId ? (
 				<div className={styles.calendarPanel}>
 					<Contacts
 						key={selectedAccountId}
@@ -580,7 +564,9 @@ export function AppShell({
 				>
 					<Panel
 						id="sidebar"
-						minSize="15"
+						// A fixed floor in pixels, not a share of the window: 15% was ~190px at
+						// 1280 wide, far wider than a folder name needs.
+						minSize="100px"
 						collapsible
 						collapsedSize="0"
 						panelRef={sidebarRef}
@@ -594,7 +580,34 @@ export function AppShell({
 					<Separator className={styles.handle} />
 					<Panel id="list" minSize="20">
 						<div className={styles.reading}>
-							{hub && selectedAccountId && selectedMailboxId ? (
+							{hub && selectedAccountId && draftsSelected ? (
+								<DraftList
+									hub={hub}
+									accountId={selectedAccountId}
+									selectedDraftId={
+										effectivePane === "compose" ? (openDraft?.id ?? null) : null
+									}
+									onOpen={(draft) => {
+										void (async () => {
+											const focusedExisting =
+												await window.windows?.focusDraftIfOpen(draft.id);
+											if (focusedExisting) {
+												notify(notifications, {
+													kind: "info",
+													title: "Already open",
+													detail:
+														"This draft is being edited in another window.",
+												});
+												return;
+											}
+
+											setOpenDraft(draft);
+											setComposeSeed(undefined);
+											setPane("compose");
+										})();
+									}}
+								/>
+							) : hub && selectedAccountId && selectedMailboxId ? (
 								<MessageList
 									hub={hub}
 									accountId={selectedAccountId}
@@ -628,6 +641,7 @@ export function AppShell({
 										setComposeSeed(seed);
 										setPane("compose");
 									}}
+									commandHost={commandHost}
 								/>
 							) : (
 								<div className={styles.listEmpty}>
@@ -682,71 +696,6 @@ export function AppShell({
 								}
 							/>
 						) : null}
-						{hub && selectedAccountId && effectivePane === "drafts" ? (
-							<div className={styles.draftPanel}>
-								<header className={styles.detailHeader}>
-									<span>Mailbox</span>
-									<h2>Drafts</h2>
-								</header>
-								<DraftList
-									hub={hub}
-									accountId={selectedAccountId}
-									onOpen={(draft) => {
-										void (async () => {
-											const focusedExisting =
-												await window.windows?.focusDraftIfOpen(draft.id);
-											if (focusedExisting) {
-												notify(notifications, {
-													kind: "info",
-													title: "Already open",
-													detail:
-														"This draft is being edited in another window.",
-												});
-												return;
-											}
-
-											setOpenDraft(draft);
-											setComposeSeed(undefined);
-											setPane("compose");
-										})();
-									}}
-								/>
-							</div>
-						) : null}
-						{hub && selectedAccountId && effectivePane === "settings" ? (
-							<AccountSettings
-								hub={hub}
-								initial={toSettings(accounts.data, selectedAccountId)}
-								isThrottled={
-									accounts.data?.find(
-										(account) => account.id === selectedAccountId,
-									)?.isThrottled
-								}
-								onClose={() => setPane("reading")}
-								onRemoved={() => {
-									if (selectedAccountId) {
-										if (selectedMessageId) {
-											queryClient.removeQueries({
-												queryKey: ["body", selectedMessageId],
-											});
-										}
-										removeAccountCaches(queryClient, selectedAccountId);
-									}
-									store.setState("selectedAccountId", null);
-									store.setState("selectedMailboxId", null);
-									store.setState("selectedMessageId", null);
-									store.setState("selectedMessageSubject", "");
-									store.setState("selectedMessageSenderAddress", "");
-									void queryClient.invalidateQueries({
-										queryKey: ["accounts"],
-									});
-									setPane("reading");
-								}}
-							/>
-						) : null}
-						{effectivePane === "app-settings" ? (
-							<ShellSettings onClose={() => setPane("reading")} />
-						) : null}
 						{hub &&
 						selectedAccountId &&
 						selectedMessageId &&
@@ -788,26 +737,50 @@ export function AppShell({
 						) : null}
 						{effectivePane === "reading" && !selectedMessageId ? (
 							<div className={styles.emptyDetail}>
-								<Email size={32} aria-hidden="true" />
-								<h2>No message selected</h2>
-								<p>Choose a message from the list to read it here.</p>
+								<Email size={64} aria-hidden="true" />
+								<h2>Select an item to read</h2>
+								<p>Nothing is selected</p>
 							</div>
-						) : null}
-						{effectivePane === "add-account" ? (
-							<AddAccount
-								onAdded={() => {
-									void queryClient.invalidateQueries({
-										queryKey: ["accounts"],
-									});
-									setPane("reading");
-								}}
-							/>
 						) : null}
 					</Panel>
 				</Group>
 			) : (
 				<div className={styles.panels} />
 			)}
+
+			<StatusBar hub={hub} problem={connectionProblem} />
+
+			{settingsSection && accounts.data ? (
+				<SettingsDialog
+					hub={hub}
+					accounts={accounts.data}
+					initialSection={settingsSection}
+					onClose={() => setSettingsSection(null)}
+					onAccountAdded={() => {
+						void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+						setPane("reading");
+					}}
+					onAccountRemoved={(accountId) => {
+						if (accountId === selectedAccountId) {
+							if (selectedMessageId) {
+								queryClient.removeQueries({
+									queryKey: ["body", selectedMessageId],
+								});
+							}
+							store.setState("selectedAccountId", null);
+							store.setState("selectedMailboxId", null);
+							store.setState("selectedMessageId", null);
+							store.setState("selectedMessageSubject", "");
+							store.setState("selectedMessageSenderAddress", "");
+						}
+						removeAccountCaches(queryClient, accountId);
+						void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+						if (accounts.data?.every((account) => account.id === accountId))
+							setSettingsSection(null);
+						setPane("reading");
+					}}
+				/>
+			) : null}
 
 			{reauthenticatingAccountId && hub ? (
 				<ReauthenticateAccount
@@ -821,50 +794,20 @@ export function AppShell({
 	);
 }
 
-function isMailPane(pane: string): boolean {
-	return pane !== "calendar" && pane !== "contacts" && pane !== "app-settings";
-}
-
 function paneTitle(pane: string): string {
 	if (pane === "calendar") return "Calendar";
 	if (pane === "contacts") return "People";
-	if (pane === "app-settings") return "Settings";
+	if (pane === "add-account") return "Add account";
 	return "Mail";
 }
 
-/** The settings form's starting values, from the account list the shell already holds. */
-function toSettings(
-	accounts: Account[] | undefined,
-	accountId: string,
-): AccountSettingsValues {
-	const account = accounts?.find((candidate) => candidate.id === accountId);
-
-	return {
-		id: accountId,
-		displayName: account?.displayName ?? "",
-		color: account?.color ?? "",
-		pollIntervalSeconds: account?.pollIntervalSeconds ?? 60,
-		pollingEnabled: account?.pollingEnabled ?? true,
-		undoSendDelaySeconds: account?.undoSendDelaySeconds ?? 0,
-		notificationsEnabled: account?.notificationsEnabled ?? true,
-		initialSyncMode: account?.initialSyncMode ?? InitialSyncMode.Full,
-		initialSyncBoundValue: account?.initialSyncBoundValue ?? null,
-		certificateTrustMode:
-			account?.certificateTrustMode ?? CertificateTrustMode.Default,
-		attachmentSizeLimitOverride: account?.attachmentSizeLimitOverride ?? null,
-		providerType: account?.providerType ?? ProviderType.Imap,
-		appendToSentOnSend: account?.appendToSentOnSend ?? null,
-	};
-}
-
-function describe(
+/** What is wrong with the backend or account list, if anything; nothing when all is well. */
+function describeConnectionProblem(
 	status: string,
-	accounts: Account[] | undefined,
 	accountsErrored: boolean,
-): string {
+): string | null {
 	if (status === "failed") return "Disconnected from the backend.";
 	if (status === "connecting") return "Connecting…";
 	if (accountsErrored) return "Could not load accounts.";
-	if (!accounts?.length) return "No accounts yet.";
-	return accounts[0].emailAddress;
+	return null;
 }

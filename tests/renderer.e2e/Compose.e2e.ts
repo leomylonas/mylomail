@@ -37,7 +37,11 @@ test("a composed message is sent and arrives at the server", async () => {
 	try {
 		await createImapAccount(window, imapPort);
 
-		await window.getByRole("button", { name: "Account settings" }).click();
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window
+			.getByRole("dialog")
+			.getByRole("button", { name: "Matrix" })
+			.click();
 		await window.getByRole("button", { name: "Edit", exact: true }).click();
 		await window
 			.getByLabel("Signature (HTML)")

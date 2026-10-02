@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
-import { Button } from "@carbon/react";
+import { Attachment, Download } from "@carbon/icons-react";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -41,39 +41,39 @@ export function AttachmentList({
 
 	return (
 		<section className={styles.list} aria-label="Attachments">
-			<h3>Attachments</h3>
 			{visible.map((attachment) => (
-				<div className={styles.item} key={attachment.id}>
-					<span className={styles.filename} title={attachment.filename}>
-						{attachment.filename} ({formatSize(attachment.size)})
-					</span>
-					<div className={styles.actions}>
-						<Button
-							size="sm"
-							kind="ghost"
-							onClick={() => download(messageId, attachment)}
-						>
-							Save
-						</Button>
-						<Button
-							size="sm"
-							kind="tertiary"
-							onClick={() =>
-								void open(messageId, attachment).catch((error: unknown) =>
-									notify(
-										notifications,
-										notificationForError(
-											error,
-											"This attachment could not be opened",
-										),
+				<span className={styles.chip} key={attachment.id}>
+					<button
+						type="button"
+						className={styles.open}
+						title={`${attachment.filename} (${formatSize(attachment.size)})`}
+						aria-label={`Open ${attachment.filename}`}
+						onClick={() =>
+							void open(messageId, attachment).catch((error: unknown) =>
+								notify(
+									notifications,
+									notificationForError(
+										error,
+										"This attachment could not be opened",
 									),
-								)
-							}
-						>
-							Open
-						</Button>
-					</div>
-				</div>
+								),
+							)
+						}
+					>
+						<Attachment size={16} aria-hidden="true" />
+						<span className={styles.filename}>{attachment.filename}</span>
+						<span className={styles.size}>{formatSize(attachment.size)}</span>
+					</button>
+					<button
+						type="button"
+						className={styles.save}
+						title="Save"
+						aria-label={`Save ${attachment.filename}`}
+						onClick={() => download(messageId, attachment)}
+					>
+						<Download size={16} aria-hidden="true" />
+					</button>
+				</span>
 			))}
 		</section>
 	);

@@ -27,15 +27,13 @@ test("the main shell remains usable at its minimum window size", async () => {
 		await expect(
 			window.getByRole("button", { name: "Toggle reading pane" }),
 		).toBeVisible();
-		const firstButton = await window
-			.getByRole("button", { name: "New message" })
-			.boundingBox();
+		// The command bar wraps rather than overflowing: the last command stays inside
+		// the viewport at the minimum size.
 		const lastButton = await window
 			.getByRole("button", { name: "Toggle reading pane" })
 			.boundingBox();
-		expect(firstButton).not.toBeNull();
 		expect(lastButton).not.toBeNull();
-		expect(lastButton!.y).toBeGreaterThan(firstButton!.y);
+		expect(lastButton!.x + lastButton!.width).toBeLessThanOrEqual(size[0]);
 
 		const dimensions = await window.evaluate(() => ({
 			viewportWidth: document.documentElement.clientWidth,

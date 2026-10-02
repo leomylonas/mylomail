@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ActionableNotification, Button, SkeletonText } from "@carbon/react";
+import {
+	ActionableNotification,
+	Button,
+	IconButton,
+	SkeletonText,
+} from "@carbon/react";
+import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
+import { MessageSourceDialog } from "@mylomail/renderer/Components/MessageSourceDialog/MessageSourceDialog";
+import {
+	ChevronDown,
+	ChevronUp,
+	OverflowMenuVertical,
+} from "@carbon/icons-react";
+import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { MessageHtml } from "@mylomail/renderer/Components/MessageHtml/MessageHtml";
 import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
@@ -68,6 +81,15 @@ export function ReadingPane({
 		ready: boolean;
 	} | null>(null);
 	const consumedPrintRequest = useRef<string | null>(null);
+	const [sourceOpen, setSourceOpen] = useState(false);
+	// A viewing mode for one message, held only here: tied to the message so switching away
+	// drops it, and written nowhere.
+	const [inverted, setInverted] = useState<string | null>(null);
+	const invertColours = inverted === messageId;
+	const [optionsMenu, setOptionsMenu] = useState<{
+		x: number;
+		y: number;
+	} | null>(null);
 	const body = useQuery({
 		queryKey: ["body", messageId],
 		queryFn: async (): Promise<MessageBody> =>
@@ -85,6 +107,14 @@ export function ReadingPane({
 				? false
 				: 2000,
 	});
+	// Opening a message whose content is still in the background queue moves it to the front.
+	const waitingForContent =
+		body.data !== undefined && !body.data.isFetched && !body.data.isFailed;
+	useEffect(() => {
+		// A hint only: if it is lost, the message is simply fetched in its normal turn.
+		if (waitingForContent)
+			void hub.prioritiseContent([messageId]).catch(() => undefined);
+	}, [hub, messageId, waitingForContent]);
 	const context = useQuery({
 		queryKey: ["message-context", messageId],
 		queryFn: async (): Promise<MessageReplyContext> =>
@@ -158,22 +188,24 @@ export function ReadingPane({
 							</Button>
 						</>
 					) : null}
-					<Button
-						size="sm"
+					<IconButton
+						label="Message options"
 						kind="ghost"
-						disabled={!printable || !window.printing}
-						onClick={() => void printCurrentMessage()}
+						size="sm"
+						align="bottom-end"
+						onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+							const rect = event.currentTarget.getBoundingClientRect();
+							setOptionsMenu({ x: rect.right - 160, y: rect.bottom });
+						}}
 					>
-						Print
-					</Button>
-					{onOpenInNewWindow ? (
-						<Button size="sm" kind="ghost" onClick={onOpenInNewWindow}>
-							Open in new window
-						</Button>
-					) : null}
+						<OverflowMenuVertical size={16} />
+					</IconButton>
 				</div>
 			</div>
 			{context.data ? <MessageHeaders context={context.data} /> : null}
+			{body.data?.isFetched ? (
+				<AttachmentList hub={hub} messageId={messageId} />
+			) : null}
 			{context.isPending ? <SkeletonText lineCount={3} /> : null}
 			{body.isPending ? <SkeletonText paragraph lineCount={4} /> : null}
 			{body.isError || context.isError ? (
@@ -182,12 +214,55 @@ export function ReadingPane({
 				</p>
 			) : null}
 			{body.data ? (
-				<Body
-					body={body.data}
-					messageId={messageId}
+				<div className={styles.content}>
+					<Body
+						body={body.data}
+						messageId={messageId}
+						hub={hub}
+						senderAddress={senderAddress}
+						onHtmlReadyChange={handleHtmlReadyChange}
+						invertColours={invertColours}
+					/>
+				</div>
+			) : null}
+			{optionsMenu ? (
+				<MessageContextMenu
+					open
+					x={optionsMenu.x}
+					y={optionsMenu.y}
+					onClose={() => setOptionsMenu(null)}
+					actions={[
+						...(body.data?.html
+							? [
+									{
+										label: invertColours
+											? "Original colours"
+											: "Invert colours",
+										run: () => setInverted(invertColours ? null : messageId),
+									},
+								]
+							: []),
+						{ label: "View source", run: () => setSourceOpen(true) },
+						{
+							label: "Print",
+							run: () => void printCurrentMessage(),
+							unavailable:
+								!printable || !window.printing
+									? "The message is still loading."
+									: undefined,
+						},
+						...(onOpenInNewWindow
+							? [{ label: "Open in new window", run: onOpenInNewWindow }]
+							: []),
+					]}
+				/>
+			) : null}
+			{sourceOpen ? (
+				<MessageSourceDialog
 					hub={hub}
-					senderAddress={senderAddress}
-					onHtmlReadyChange={handleHtmlReadyChange}
+					messageId={messageId}
+					subject={subject}
+					onClose={() => setSourceOpen(false)}
 				/>
 			) : null}
 		</article>
@@ -195,6 +270,7 @@ export function ReadingPane({
 }
 
 function MessageHeaders({ context }: { context: MessageReplyContext }) {
+	const [expanded, setExpanded] = useState(false);
 	const hasDistinctReplyTo =
 		context.replyTo.length > 0 &&
 		(context.replyTo.length !== context.from.length ||
@@ -203,24 +279,42 @@ function MessageHeaders({ context }: { context: MessageReplyContext }) {
 					address.email.toLowerCase() !==
 					context.from[index]?.email.toLowerCase(),
 			));
+	const [sender] = context.from;
+	const many = context.to.length + context.cc.length > 2;
 	return (
-		<dl className={styles.headers}>
-			<Header name="From" value={formatAddresses(context.from)} />
-			<Header name="To" value={formatAddresses(context.to)} />
-			{context.cc.length > 0 ? (
-				<Header name="Cc" value={formatAddresses(context.cc)} />
+		<div className={styles.headerCard}>
+			<Avatar name={sender ? (sender.name ?? sender.email) : "?"} size="md" />
+			<dl className={`${styles.headers} ${expanded ? styles.expanded : ""}`}>
+				<Header name="From" value={formatAddresses(context.from)} />
+				<Header name="To" value={formatAddresses(context.to)} />
+				{context.cc.length > 0 ? (
+					<Header name="Cc" value={formatAddresses(context.cc)} />
+				) : null}
+				{hasDistinctReplyTo ? (
+					<Header name="Reply-To" value={formatAddresses(context.replyTo)} />
+				) : null}
+				<Header
+					name="Date"
+					value={new Intl.DateTimeFormat(undefined, {
+						dateStyle: "medium",
+						timeStyle: "short",
+					}).format(new Date(context.receivedAt))}
+				/>
+			</dl>
+			{many ? (
+				<button
+					type="button"
+					className={styles.expandButton}
+					aria-expanded={expanded}
+					aria-label={
+						expanded ? "Show fewer recipients" : "Show all recipients"
+					}
+					onClick={() => setExpanded((value) => !value)}
+				>
+					{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+				</button>
 			) : null}
-			{hasDistinctReplyTo ? (
-				<Header name="Reply-To" value={formatAddresses(context.replyTo)} />
-			) : null}
-			<Header
-				name="Date"
-				value={new Intl.DateTimeFormat(undefined, {
-					dateStyle: "full",
-					timeStyle: "short",
-				}).format(new Date(context.receivedAt))}
-			/>
-		</dl>
+		</div>
 	);
 }
 
@@ -247,13 +341,23 @@ function Body({
 	hub,
 	senderAddress,
 	onHtmlReadyChange,
+	invertColours,
 }: {
 	body: MessageBody;
+	invertColours: boolean;
 	messageId: string;
 	hub: MailHubConnection;
 	senderAddress?: string;
 	onHtmlReadyChange: (ready: boolean) => void;
 }) {
+	// Shares the status bar's cached count; only worth asking while this message is waiting.
+	const queue = useQuery({
+		queryKey: ["content-queue"],
+		queryFn: () => hub.getContentQueue(),
+		enabled: !body.isFetched && !body.isFailed,
+	});
+	const queued = (queue.data?.waiting ?? 0) + (queue.data?.fetching ?? 0);
+
 	if (body.isFailed)
 		return (
 			<p className={styles.waiting} role="alert">
@@ -263,7 +367,14 @@ function Body({
 		);
 
 	if (!body.isFetched)
-		return <p className={styles.waiting}>Downloading this message…</p>;
+		return (
+			<p className={styles.waiting} role="status">
+				Downloading this message…
+				{queued > 1
+					? ` ${(queued - 1).toLocaleString()} other messages are queued behind the ones being fetched; this one has been moved to the front.`
+					: ""}
+			</p>
+		);
 
 	// HTML preferred where both exist: it is what the sender composed, and the plain-text
 	// alternative is usually a degraded copy of it.
@@ -281,8 +392,8 @@ function Body({
 					messageId={messageId}
 					senderAddress={senderAddress}
 					onReadyChange={onHtmlReadyChange}
+					invertColours={invertColours}
 				/>
-				<AttachmentList hub={hub} messageId={messageId} />
 			</>
 		);
 
@@ -291,7 +402,6 @@ function Body({
 			<>
 				<InviteBanner hub={hub} messageId={messageId} />
 				<div className={styles.body}>{body.text}</div>
-				<AttachmentList hub={hub} messageId={messageId} />
 			</>
 		);
 
@@ -299,7 +409,6 @@ function Body({
 		<>
 			<InviteBanner hub={hub} messageId={messageId} />
 			<p className={styles.waiting}>This message has no body.</p>
-			<AttachmentList hub={hub} messageId={messageId} />
 		</>
 	);
 }

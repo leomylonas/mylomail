@@ -1,8 +1,20 @@
+/* A column that never scrolls itself: the body below takes the remaining height and is the
+ * one thing that scrolls, so there is a single scrollbar rather than a pane's around a frame's. */
 .pane {
+	display: flex;
 	height: 100%;
-	padding: var(--cds-spacing-06);
-	overflow-y: auto;
+	min-height: 0;
+	flex-direction: column;
+	padding: var(--cds-spacing-04) var(--cds-spacing-06) 0;
+	overflow: hidden;
 	background: var(--cds-background);
+}
+
+.content {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
 }
 
 .subjectRow {
@@ -10,8 +22,7 @@
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: var(--cds-spacing-05);
-	padding-bottom: var(--cds-spacing-05);
-	border-bottom: 1px solid var(--cds-border-subtle);
+	padding-bottom: var(--cds-spacing-04);
 }
 
 .actions {
@@ -26,27 +37,34 @@
 .subject {
 	max-width: 48rem;
 	margin: 0;
-	font-size: 1.5rem;
-	font-weight: 400;
-	line-height: 1.25;
+	font-size: 1.25rem;
+	font-weight: 600;
+	line-height: 1.3;
 	overflow-wrap: anywhere;
+}
+
+.headerCard {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: flex-start;
+	gap: var(--cds-spacing-04);
+	padding-bottom: var(--cds-spacing-03);
 }
 
 .headers {
 	display: grid;
-	max-width: 52rem;
-	gap: var(--cds-spacing-02);
+	min-width: 0;
+	flex: 1 1 auto;
+	gap: 0;
 	margin: 0;
-	padding-block: var(--cds-spacing-05);
-	border-bottom: 1px solid var(--cds-border-subtle);
-	font-size: 0.875rem;
+	font-size: 0.8125rem;
 }
 
 .header {
 	display: grid;
-	grid-template-columns: 4rem minmax(0, 1fr);
+	grid-template-columns: 2.5rem minmax(0, 1fr);
 	gap: var(--cds-spacing-03);
-	line-height: 1.4;
+	line-height: 1.35;
 }
 
 .header dt {
@@ -54,15 +72,44 @@
 	font-weight: 600;
 }
 
+/* One line each until expanded; long recipient lists otherwise push the body down. */
 .header dd {
 	min-width: 0;
 	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.expanded .header dd {
 	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.expandButton {
+	display: flex;
+	padding: var(--cds-spacing-02);
+	border: none;
+	background: none;
+	color: var(--cds-icon-secondary);
+	cursor: pointer;
+}
+
+.expandButton:hover {
+	background: var(--cds-layer-hover);
+	color: var(--cds-text-primary);
+}
+
+.expandButton:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
 }
 
 .body {
-	max-width: 52rem;
-	padding-block: var(--cds-spacing-06);
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding-block: var(--cds-spacing-04);
 	white-space: pre-wrap;
 	line-height: 1.6;
 }
@@ -117,6 +164,18 @@
 }
 
 @media print {
+	.content {
+		display: block;
+	}
+
+	.body {
+		overflow: visible;
+	}
+
+	.expandButton {
+		display: none;
+	}
+
 	.pane {
 		height: auto;
 		overflow: visible;

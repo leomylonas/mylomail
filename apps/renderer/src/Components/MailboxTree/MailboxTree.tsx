@@ -1,4 +1,14 @@
 import { useState } from "react";
+import {
+	Archive,
+	Edit,
+	Email,
+	Folder,
+	SendAlt,
+	TrashCan,
+	WarningAlt,
+	WarningAltFilled,
+} from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -17,16 +27,12 @@ import {
 	type OptimisticMessageClaim,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
-import type {
-	MailboxSummaryDto,
-	SyncProgressDto,
-} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import type { MailboxSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	CoverageStatus,
 	InitialSyncMode,
 	MailboxAvailability,
 	SpecialUse,
-	SyncProgressKind,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
@@ -241,6 +247,29 @@ export function MailboxTree({
 		onError: reportFailure("The sync setting could not be saved"),
 	});
 
+	const emptyFolder = useMutation({
+		mutationFn: (mailbox: Mailbox) => hub.emptyMailbox(accountId, mailbox.id),
+		onSuccess: (result, mailbox) => {
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.messages(mailbox.id),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.mailboxes(accountId),
+			});
+			if (result.rejectedMessageIds.length > 0)
+				notify(notifications, {
+					kind: "error",
+					title: "Some messages could not be deleted",
+					detail: `${result.rejectedMessageIds.length} message(s) could not be queued.`,
+				});
+		},
+		onError: (error) =>
+			notify(
+				notifications,
+				notificationForError(error, "The folder could not be emptied"),
+			),
+	});
+
 	const setSpecialUseOverride = useMutation({
 		mutationFn: (input: { mailboxId: string; specialUse: SpecialUse | null }) =>
 			hub.setMailboxSpecialUseOverride(
@@ -433,22 +462,27 @@ export function MailboxTree({
 									event.dataTransfer.effectAllowed = "move";
 								}}
 							>
+								<span className={styles.icon} aria-hidden="true">
+									<MailboxIcon
+										specialUse={
+											mailbox.specialUseOverride ?? mailbox.specialUse
+										}
+									/>
+								</span>
 								<span className={styles.name} title={mailbox.name}>
 									{mailbox.name}
 								</span>
-								<span className={styles.metrics}>
-									<MailboxAvailabilityStatus
-										availability={mailbox.availability}
-									/>
-									{mailbox.coverage === CoverageStatus.Backfilling ? (
-										<BackfillProgress mailbox={mailbox} />
-									) : (
-										<IndexingProgress mailboxId={mailbox.id} />
-									)}
-									<span className={styles.count}>
-										{describeMailboxCount(mailbox)}
-									</span>
+								<MailboxAvailabilityStatus
+									availability={mailbox.availability}
+								/>
+								<span className={styles.srOnly}>
+									{describeMailboxCount(mailbox)}
 								</span>
+								{mailbox.providerUnreadCount ? (
+									<span className={styles.unreadCount} aria-hidden="true">
+										{mailbox.providerUnreadCount}
+									</span>
+								) : null}
 							</button>
 						</div>
 						{hasChildren && !mailbox.isCollapsed
@@ -481,6 +515,23 @@ export function MailboxTree({
 							run: () => setDialog({ kind: "create", parent: null }),
 						},
 						{ label: "-", run: () => undefined },
+						...(isEmptiable(menu.mailbox)
+							? [
+									{
+										label: `Empty ${menu.mailbox.name}`,
+										danger: true,
+										run: () => {
+											if (
+												window.confirm(
+													`Permanently delete everything in ${menu.mailbox.name}? This cannot be undone.`,
+												)
+											)
+												emptyFolder.mutate(menu.mailbox);
+										},
+									},
+									{ label: "-", run: () => undefined },
+								]
+							: []),
 						{
 							label: "Rename",
 							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
@@ -673,6 +724,12 @@ function SpecialUseOverrideModal({
 			</RadioButtonGroup>
 		</Modal>
 	);
+}
+
+/** Only Trash and Spam can be emptied, by whichever role the user has assigned. */
+function isEmptiable(mailbox: Mailbox): boolean {
+	const role = mailbox.specialUseOverride ?? mailbox.specialUse;
+	return role === SpecialUse.Trash || role === SpecialUse.Junk;
 }
 
 function describeSpecialUse(specialUse: SpecialUse): string {
@@ -939,63 +996,30 @@ function MailboxAvailabilityStatus({
 		return <span className={styles.srOnly}>Availability: {label}</span>;
 
 	return (
-		<span className={styles.availability} aria-label={`Availability: ${label}`}>
-			{label}
+		<span className={styles.availability} title={label}>
+			<WarningAlt size={16} aria-hidden="true" />
+			<span className={styles.srOnly}>Availability: {label}</span>
 		</span>
 	);
 }
 
-/**
- * "Fetched of estimated" while a mailbox is still backfilling (§13 Epic 3).
- *
- * The summary carries the durable last values, so a window opened mid-backfill renders
- * progress immediately. A live `SyncProgress` cache entry takes precedence once this window
- * receives one.
- */
-function BackfillProgress({ mailbox }: { mailbox: Mailbox }) {
-	const { data: progress } = useQuery({
-		queryKey: queryKeys.syncProgress(mailbox.id, SyncProgressKind.Coverage),
-		queryFn: () => undefined as SyncProgressDto | undefined,
-		enabled: false,
-	});
-
-	const fetched = progress?.messagesFetched ?? mailbox.coverageMessagesFetched;
-	const estimatedTotal =
-		progress?.estimatedTotal ?? mailbox.coverageEstimatedTotal;
-	if (mailbox.coverage !== CoverageStatus.Backfilling) return null;
-
-	return (
-		<span className={styles.count} aria-label="Coverage">
-			{estimatedTotal ? `${fetched} of ${estimatedTotal}` : `${fetched} synced`}
-		</span>
-	);
-}
-
-/**
- * "N of M indexed" while content acquisition is still working through this mailbox.
- *
- * A separate indicator from the backfill one, and a separate cache entry, because the two
- * count different things and overlap in time: metadata coverage completes and the mailbox
- * becomes fully usable while bodies are still being fetched for search (§1, §7). Nothing is
- * shown once every held message has content, which is the steady state.
- */
-function IndexingProgress({ mailboxId }: { mailboxId: string }) {
-	const { data: progress } = useQuery({
-		queryKey: queryKeys.syncProgress(mailboxId, SyncProgressKind.Content),
-		queryFn: () => undefined as SyncProgressDto | undefined,
-		enabled: false,
-	});
-
-	const total = progress?.estimatedTotal ?? 0;
-	if (!progress || total === 0 || progress.messagesFetched >= total) {
-		return null;
+function MailboxIcon({ specialUse }: { specialUse: SpecialUse }) {
+	switch (specialUse) {
+		case SpecialUse.Inbox:
+			return <Email size={16} />;
+		case SpecialUse.Sent:
+			return <SendAlt size={16} />;
+		case SpecialUse.Drafts:
+			return <Edit size={16} />;
+		case SpecialUse.Trash:
+			return <TrashCan size={16} />;
+		case SpecialUse.Archive:
+			return <Archive size={16} />;
+		case SpecialUse.Junk:
+			return <WarningAltFilled size={16} />;
+		default:
+			return <Folder size={16} />;
 	}
-
-	return (
-		<span className={styles.count}>
-			{`${progress.messagesFetched} of ${total} indexed`}
-		</span>
-	);
 }
 
 export function describeMailboxCount(mailbox: Mailbox): string {

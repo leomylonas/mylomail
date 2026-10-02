@@ -68,10 +68,6 @@ export function Sidebar({
 
 	return (
 		<nav className={styles.sidebar} aria-label="Accounts and mailboxes">
-			<div className={styles.paneHeading}>
-				<span className={styles.eyebrow}>Mail</span>
-				<h2>Folders</h2>
-			</div>
 			{accounts.map((account) => {
 				const isCollapsed = account.sidebarCollapsed ?? false;
 				const authWarning =

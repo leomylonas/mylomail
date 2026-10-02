@@ -1,5 +1,6 @@
 import { expect, test, type ElectronApplication } from "@playwright/test";
 import { launchAttachedApp } from "@mylomail/renderer-e2e/AppFixture";
+import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
 
 interface WindowBounds {
 	x: number;
@@ -88,9 +89,11 @@ test("the final panel resize survives renderer teardown before the debounce", as
 	let second: Awaited<ReturnType<typeof launched.restartElectron>> | undefined;
 
 	try {
-		await expect(
-			launched.window.getByRole("button", { name: "Settings", exact: true }),
-		).toBeVisible();
+		// Without an account the shell shows the full-page first-run form, not the panels.
+		await createImapAccount(launched.window, 13143);
+		await expect(launched.window.locator("#sidebar")).toBeVisible({
+			timeout: 60_000,
+		});
 		const initialSidebarWidth = await launched.window
 			.locator("#sidebar")
 			.evaluate((element) => element.getBoundingClientRect().width);

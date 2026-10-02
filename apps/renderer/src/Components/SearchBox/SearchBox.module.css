@@ -3,6 +3,8 @@
 	padding-inline: var(--cds-spacing-04);
 }
 
+/* An input set into the bar rather than a bar-height slab. */
+
 .search {
 	border-radius: 0.25rem;
 	overflow: hidden;

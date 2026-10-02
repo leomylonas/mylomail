@@ -1,0 +1,126 @@
+.dialog {
+	width: min(64rem, 94vw);
+	height: min(44rem, 88vh);
+	padding: 0;
+	border: 1px solid var(--cds-border-subtle);
+	border-radius: 0.5rem;
+	overflow: hidden;
+	background: var(--cds-background);
+	color: var(--cds-text-primary);
+	box-shadow: 0 1rem 3rem rgb(0 0 0 / 35%);
+}
+
+.dialog[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+.dialog::backdrop {
+	background: rgb(0 0 0 / 45%);
+}
+
+.header {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--cds-spacing-03) var(--cds-spacing-03) var(--cds-spacing-03)
+		var(--cds-spacing-06);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.header h2 {
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 600;
+}
+
+.layout {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.nav {
+	display: flex;
+	flex: 0 0 14rem;
+	flex-direction: column;
+	padding: var(--cds-spacing-03);
+	overflow-y: auto;
+	border-right: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
+}
+
+.navGroup {
+	padding: var(--cds-spacing-05) var(--cds-spacing-04) var(--cds-spacing-02);
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+.navItem {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-03);
+	min-height: 2.25rem;
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
+	border: none;
+	border-left: 3px solid transparent;
+	border-radius: 0.25rem;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	font-size: 0.875rem;
+	text-align: left;
+	cursor: pointer;
+}
+
+.navItem:hover {
+	background: var(--cds-layer-hover);
+}
+
+.navItem:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+.navItemSelected,
+.navItemSelected:hover {
+	border-left-color: var(--cds-border-interactive);
+	background: var(--cds-layer-selected);
+	font-weight: 600;
+}
+
+.navLabel {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.swatch {
+	width: 0.625rem;
+	height: 0.625rem;
+	flex: 0 0 auto;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px var(--cds-border-subtle);
+}
+
+/*
+ * The pane scrolls, not the page inside it, so the scrollbar sits at the dialog's edge. The
+ * pages cap their own width for a full-width layout, so the cap moves into end padding here.
+ * Doubled class: the page styles are single-class selectors in other modules.
+ */
+.content {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-y: auto;
+}
+
+.content.content > * {
+	width: 100%;
+	max-width: none;
+	height: auto;
+	padding-inline-end: max(var(--cds-spacing-05), calc(100% - 44rem));
+	overflow: visible;
+}

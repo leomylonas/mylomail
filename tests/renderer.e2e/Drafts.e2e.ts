@@ -104,6 +104,7 @@ test("a detached compose saves before tray hide and again after restore", async 
 			.getByText("Keep running in the system tray", { exact: true })
 			.click();
 		await expect(trayOption).toBeChecked();
+		await window.getByRole("button", { name: "Close settings" }).click();
 
 		await window.getByRole("button", { name: "New message" }).click();
 		await window.getByLabel("To", { exact: true }).fill("someone@example.org");

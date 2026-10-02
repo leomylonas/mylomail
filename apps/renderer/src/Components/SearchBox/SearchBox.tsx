@@ -19,7 +19,7 @@ export function SearchBox({
 		<div className={styles.box}>
 			<Search
 				className={styles.search}
-				size="lg"
+				size="sm"
 				labelText="Search mail"
 				placeholder="Search mail — try subject:invoice"
 				value={query}

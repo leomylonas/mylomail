@@ -1,7 +1,7 @@
 .shell {
 	display: grid;
-	grid-template-rows: 3.5rem auto auto minmax(0, 1fr);
-	grid-template-columns: 3.5rem minmax(0, 1fr);
+	grid-template-rows: 3rem auto auto minmax(0, 1fr) auto;
+	grid-template-columns: 3rem minmax(0, 1fr);
 	height: 100vh;
 	overflow: hidden;
 	background: var(--cds-background);
@@ -14,7 +14,7 @@
 	display: grid;
 	grid-row: 1;
 	grid-column: 1 / -1;
-	grid-template-columns: 15rem minmax(18rem, 42rem) minmax(12rem, 1fr);
+	grid-template-columns: 15rem minmax(18rem, 40rem) minmax(12rem, 1fr);
 	align-items: center;
 	background: var(--cds-button-primary, #0f62fe);
 	color: var(--cds-text-on-color, #fff);
@@ -77,28 +77,6 @@
 	background: rgb(255 255 255 / 16%);
 }
 
-.status {
-	display: flex;
-	align-items: center;
-	gap: var(--cds-spacing-03);
-	min-width: 0;
-	overflow: hidden;
-	color: var(--cds-text-on-color, #fff);
-	font-size: 0.75rem;
-	white-space: nowrap;
-	text-overflow: ellipsis;
-	opacity: 0.86;
-}
-
-.statusDot {
-	width: 0.5rem;
-	height: 0.5rem;
-	flex: 0 0 auto;
-	border-radius: 50%;
-	background: var(--cds-support-success);
-	box-shadow: 0 0 0 2px rgb(255 255 255 / 18%);
-}
-
 .appRail {
 	z-index: 1;
 	display: flex;
@@ -107,13 +85,15 @@
 	flex-direction: column;
 	align-items: center;
 	gap: var(--cds-spacing-02);
-	padding-block: var(--cds-spacing-03);
+	padding-block: 0;
 	border-right: 1px solid var(--cds-border-subtle);
-	background: var(--cds-layer);
+	background: var(--cds-layer-accent);
 }
 
+/* Button height equals the command bar's, so the first icon sits level with it. */
 .railButton {
 	width: 3rem;
+	height: 3rem;
 	justify-content: center;
 }
 
@@ -123,20 +103,37 @@
 	grid-column: 2;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--cds-spacing-02);
+	gap: var(--cds-spacing-01);
 	min-width: 0;
 	min-height: 3rem;
 	padding: var(--cds-spacing-02) var(--cds-spacing-04);
 	border-bottom: 1px solid var(--cds-border-subtle);
-	background: var(--cds-layer);
-	box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+	background: var(--cds-background);
+}
+
+.messageCommands {
+	display: contents;
+}
+
+.commandSpacer {
+	flex: 1 1 auto;
 }
 
 .commandDivider {
 	width: 1px;
-	height: 1.5rem;
-	margin-inline: var(--cds-spacing-02);
+	height: 1.25rem;
+	margin-inline: var(--cds-spacing-03);
 	background: var(--cds-border-subtle);
+}
+
+.firstRun {
+	grid-row: 4;
+	grid-column: 2;
+	display: flex;
+	min-height: 0;
+	justify-content: center;
+	overflow: hidden;
+	background: var(--cds-background);
 }
 
 .screenOnly {
@@ -159,7 +156,7 @@
 .handle {
 	position: relative;
 	z-index: 1;
-	width: 3px;
+	width: 1px;
 	background: var(--cds-border-subtle);
 	cursor: col-resize;
 	transition: background 120ms ease;
@@ -174,33 +171,7 @@
 	min-height: 0;
 	height: 100%;
 	overflow-y: auto;
-	background: var(--cds-layer);
-}
-
-.draftPanel {
-	min-height: 0;
-	height: 100%;
-	overflow-y: auto;
-	background: var(--cds-layer);
-}
-
-.detailHeader {
-	padding: var(--cds-spacing-05);
-	border-bottom: 1px solid var(--cds-border-subtle);
-}
-
-.detailHeader span {
-	color: var(--cds-text-secondary);
-	font-size: 0.6875rem;
-	font-weight: 600;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-}
-
-.detailHeader h2 {
-	margin: var(--cds-spacing-02) 0 0;
-	font-size: 1.25rem;
-	font-weight: 400;
+	background: var(--cds-background);
 }
 
 .calendarPanel {
@@ -231,34 +202,33 @@
 }
 
 .emptyDetail {
-	background: var(--cds-background);
+	background: var(--cds-layer);
+}
+
+.emptyDetail svg {
+	color: var(--cds-icon-secondary);
 }
 
 .emptyDetail h2 {
 	margin: var(--cds-spacing-04) 0 0;
 	color: var(--cds-text-primary);
-	font-size: 1.25rem;
-	font-weight: 400;
+	font-size: 0.875rem;
+	font-weight: 600;
+}
+
+.emptyDetail p {
+	font-size: 0.875rem;
 }
 
 @media (width <= 60rem) {
 	.appBar {
 		grid-template-columns: 11rem minmax(14rem, 1fr) minmax(3rem, auto);
 	}
-
-	.status {
-		max-width: 10rem;
-	}
 }
 
 @media (width <= 48rem) {
 	.appBar {
 		grid-template-columns: 9rem minmax(12rem, 1fr) auto;
-	}
-
-	.status {
-		width: 0.5rem;
-		font-size: 0;
 	}
 
 	.commandBar {

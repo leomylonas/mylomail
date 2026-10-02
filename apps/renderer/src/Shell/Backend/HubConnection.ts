@@ -327,6 +327,7 @@ export function connectHub(
 	// so both caches move together in every open window.
 	hub.subscribe("accountStatusChanged", (account: { id: string }) => {
 		void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+		void queryClient.invalidateQueries({ queryKey: ["problems"] });
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(account.id),
 		});
@@ -357,6 +358,7 @@ export function connectHub(
 	});
 
 	hub.subscribe("mailboxUpdated", (mailbox: { accountId: string }) => {
+		void queryClient.invalidateQueries({ queryKey: ["problems"] });
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.mailboxes(mailbox.accountId),
 		});

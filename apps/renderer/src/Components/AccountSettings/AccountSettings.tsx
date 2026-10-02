@@ -43,6 +43,8 @@ export interface AccountSettingsValues {
 	certificateTrustMode: CertificateTrustMode;
 	/** Bytes. Null leaves it unset — the provider's own limit (or "unknown") applies (§15). */
 	attachmentSizeLimitOverride: number | null;
+	/** Largest message downloaded for this account; larger ones stay on the server. */
+	maxMessageDownloadMegabytes: number;
 	/** Not itself sent to `UpdateAccount` beyond deciding whether the toggle below renders. */
 	providerType: ProviderType;
 	/** IMAP only; null for every other provider (§15). */
@@ -65,6 +67,7 @@ function toAccountSettingsDto(
 			? {}
 			: { initialSyncBoundValue: values.initialSyncBoundValue ?? 3 }),
 		certificateTrustMode: values.certificateTrustMode,
+		maxMessageDownloadMegabytes: values.maxMessageDownloadMegabytes,
 		...(values.attachmentSizeLimitOverride === null
 			? {}
 			: { attachmentSizeLimitOverride: values.attachmentSizeLimitOverride }),
@@ -94,6 +97,7 @@ function toAccountSettingsValues(
 				: (settings.initialSyncBoundValue ?? null),
 		certificateTrustMode: settings.certificateTrustMode,
 		attachmentSizeLimitOverride: settings.attachmentSizeLimitOverride ?? null,
+		maxMessageDownloadMegabytes: settings.maxMessageDownloadMegabytes,
 		providerType,
 		appendToSentOnSend: settings.appendToSentOnSend ?? null,
 	};
@@ -365,6 +369,23 @@ export function AccountSettings({
 							Number(value) > 0
 								? Math.round(Number(value) * 1024 * 1024)
 								: null,
+					})
+				}
+			/>
+			<NumberInput
+				id="settings-max-download"
+				label="Largest message to download (MB)"
+				helperText="Bigger messages stay on the mail server and are listed under Problems. Raising this fetches any that were skipped."
+				min={8}
+				max={1024}
+				value={values.maxMessageDownloadMegabytes}
+				onChange={(_, { value }) =>
+					setValues({
+						...values,
+						maxMessageDownloadMegabytes: Math.min(
+							1024,
+							Math.max(8, Math.round(Number(value)) || 128),
+						),
 					})
 				}
 			/>

@@ -1,35 +1,12 @@
 .sidebar {
 	height: 100%;
+	padding-top: var(--cds-spacing-02);
 	overflow-y: auto;
 	background: var(--cds-layer);
 }
 
-.paneHeading {
-	padding: var(--cds-spacing-05) var(--cds-spacing-04) var(--cds-spacing-04);
-	border-bottom: 1px solid var(--cds-border-subtle);
-}
-
-.paneHeading h2 {
-	margin: var(--cds-spacing-02) 0 0;
-	font-size: 1.25rem;
-	font-weight: 400;
-	line-height: 1.25;
-}
-
-.eyebrow {
-	color: var(--cds-text-secondary);
-	font-size: 0.6875rem;
-	font-weight: 600;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-}
-
 .section {
-	padding-block: var(--cds-spacing-03);
-}
-
-.section + .section {
-	border-top: 1px solid var(--cds-border-subtle);
+	padding-block: var(--cds-spacing-02);
 }
 
 .header {
@@ -37,13 +14,13 @@
 	align-items: center;
 	gap: var(--cds-spacing-03);
 	width: 100%;
-	min-height: 2.5rem;
+	min-height: 1.75rem;
 	padding: var(--cds-spacing-02) var(--cds-spacing-04);
 	border: none;
 	background: none;
 	color: var(--cds-text-primary);
 	font: inherit;
-	font-size: 0.875rem;
+	font-size: 0.8125rem;
 	font-weight: 600;
 	text-align: left;
 	cursor: pointer;
