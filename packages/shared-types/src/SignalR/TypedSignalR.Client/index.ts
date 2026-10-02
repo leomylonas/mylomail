@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -140,6 +140,22 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getDrafts = async (accountId: string): Promise<DraftDto[]> => {
         return await this.connection.invoke("GetDrafts", accountId);
+    }
+
+    public readonly getProblems = async (): Promise<ProblemDto[]> => {
+        return await this.connection.invoke("GetProblems");
+    }
+
+    public readonly getContentQueue = async (): Promise<ContentQueueDto> => {
+        return await this.connection.invoke("GetContentQueue");
+    }
+
+    public readonly prioritiseContent = async (messageIds: string[]): Promise<void> => {
+        return await this.connection.invoke("PrioritiseContent", messageIds);
+    }
+
+    public readonly retryFailedDownloads = async (messageIds: string[]): Promise<number> => {
+        return await this.connection.invoke("RetryFailedDownloads", messageIds);
     }
 
     public readonly getSendIdentities = async (accountId: string): Promise<SendIdentityDto[]> => {
@@ -280,6 +296,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly deletePermanently = async (accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("DeletePermanently", accountId, messageIds);
+    }
+
+    public readonly emptyMailbox = async (accountId: string, mailboxId: string): Promise<MutationEnqueueResultDto> => {
+        return await this.connection.invoke("EmptyMailbox", accountId, mailboxId);
     }
 
     public readonly getCalendars = async (accountId: string): Promise<CalendarSummaryDto[]> => {

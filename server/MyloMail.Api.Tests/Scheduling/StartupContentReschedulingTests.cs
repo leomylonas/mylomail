@@ -61,6 +61,32 @@ public sealed class StartupContentReschedulingTests
 		Assert.Contains(created, job => job.Method.Name == nameof(ContentJobs.FetchNextAsync));
 	}
 	[Fact]
+	public async Task Startup_gives_abandoned_downloads_a_fresh_attempt_budget_and_keeps_their_error()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var messageId = Guid.NewGuid();
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			context.Messages.Add(new Message { Id = messageId, AccountId = harness.Account.Id, Subject = "Gave up", ReceivedAt = DateTimeOffset.UnixEpoch });
+			context.MessageContentStates.Add(
+				new MessageContentState { MessageId = messageId, Status = ContentStatus.Failed, Attempts = 9, LastError = "disconnected" }
+			);
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async scope => await scope.GetRequiredService<StartupScheduler>().ScheduleAsync());
+
+		await harness.UsingAsync(async scope =>
+		{
+			var state = await scope.GetRequiredService<MyloMailDbContext>().MessageContentStates.SingleAsync(s => s.MessageId == messageId);
+			Assert.Equal(ContentStatus.Queued, state.Status);
+			Assert.Equal(0, state.Attempts);
+			Assert.Equal("disconnected", state.LastError);
+		});
+	}
+
+	[Fact]
 	public async Task Startup_requeues_durable_staged_history_after_a_crash()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);

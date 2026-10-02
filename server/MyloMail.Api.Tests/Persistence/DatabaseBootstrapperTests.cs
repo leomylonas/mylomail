@@ -69,6 +69,7 @@ public sealed class DatabaseBootstrapperTests
 			await context
 				.GetService<IMigrator>()
 				.MigrateAsync("20260911210000_AddContactSyncCursor");
+			await AddNewerAccountColumnsAsync(context);
 			context.Accounts.Add(
 				new Account
 				{
@@ -91,6 +92,7 @@ public sealed class DatabaseBootstrapperTests
 			await context.Database.ExecuteSqlInterpolatedAsync(
 				$"""UPDATE "Accounts" SET "ProviderConfig" = {legacyConfig} WHERE "Id" = {accountId};"""
 			);
+			await DropNewerAccountColumnsAsync(context);
 		}
 
 		await database.MigrateAsync();
@@ -121,6 +123,7 @@ public sealed class DatabaseBootstrapperTests
 			await context
 				.GetService<IMigrator>()
 				.MigrateAsync("20260911230000_AddResolvedMutationTarget");
+			await AddNewerAccountColumnsAsync(context);
 			context.Accounts.Add(
 				new Account
 				{
@@ -180,6 +183,7 @@ public sealed class DatabaseBootstrapperTests
 				);
 				"""
 			);
+			await DropNewerAccountColumnsAsync(context);
 		}
 
 		await database.MigrateAsync();
@@ -218,6 +222,7 @@ public sealed class DatabaseBootstrapperTests
 			await context
 				.GetService<IMigrator>()
 				.MigrateAsync("20260912000000_ResetLegacyGmailBoundedCoverage");
+			await AddNewerAccountColumnsAsync(context);
 			context.Accounts.Add(
 				new Account
 				{
@@ -249,6 +254,7 @@ public sealed class DatabaseBootstrapperTests
 				}
 			);
 			await context.SaveChangesAsync();
+			await DropNewerAccountColumnsAsync(context);
 		}
 
 		await database.MigrateAsync();
@@ -309,4 +315,21 @@ public sealed class DatabaseBootstrapperTests
 
 		return names;
 	}
+
+	/// <summary>
+	/// The legacy tests above seed an <see cref="Account"/> through the current entity model,
+	/// which writes every column the model has, including ones added by migrations after the
+	/// legacy schema they stop at. Adding such columns for the seed and dropping them before the
+	/// real migration runs lets the model insert while the migration still finds what it expects.
+	/// Extend both lists when a later migration adds an Account column.
+	/// </summary>
+	private static Task AddNewerAccountColumnsAsync(MyloMailDbContext context) =>
+		context.Database.ExecuteSqlRawAsync(
+			"""ALTER TABLE "Accounts" ADD COLUMN "MaxMessageDownloadMegabytes" INTEGER NOT NULL DEFAULT 128;"""
+		);
+
+	private static Task DropNewerAccountColumnsAsync(MyloMailDbContext context) =>
+		context.Database.ExecuteSqlRawAsync(
+			"""ALTER TABLE "Accounts" DROP COLUMN "MaxMessageDownloadMegabytes";"""
+		);
 }

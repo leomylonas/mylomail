@@ -49,7 +49,8 @@ public record AccountDto(
 	CertificateTrustMode CertificateTrustMode,
 	int? AttachmentSizeLimitOverride,
 	bool? AppendToSentOnSend,
-	bool IsThrottled
+	bool IsThrottled,
+	int MaxMessageDownloadMegabytes
 );
 
 /// <summary>

@@ -30,6 +30,7 @@ export interface AccountDto {
   attachmentSizeLimitOverride?: number;
   appendToSentOnSend?: boolean;
   isThrottled: boolean;
+  maxMessageDownloadMegabytes: number;
 }
 
 export const AccountDtoSchema = z.object({
@@ -53,4 +54,5 @@ export const AccountDtoSchema = z.object({
   attachmentSizeLimitOverride: z.number().nullable(),
   appendToSentOnSend: z.boolean().nullable(),
   isThrottled: z.boolean(),
+  maxMessageDownloadMegabytes: z.number(),
 });

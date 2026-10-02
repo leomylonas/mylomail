@@ -76,6 +76,32 @@ public sealed class StartupScheduler(
 			.Select(a => a.Id)
 			.ToListAsync(ct);
 
+		// Downloads given up on by an earlier run were judged under that run's conditions — a
+		// server connection limit, an outage, a since-fixed fault. Each gets a fresh attempt
+		// budget. LastError is kept deliberately: it is what lets the status bar say the message
+		// is being retried, and the message returns to the problems list only if it fails again.
+		// They go to the front of the queue: a handful of messages should be settled in seconds,
+		// not wait behind the whole backlog while the status bar claims to be retrying them.
+		// Messages already queued after an earlier failure are in the same position: nothing was
+		// wrong with them that the backlog should delay settling.
+		var abandoned = await context
+			.MessageContentStates.Where(state =>
+				state.Status == ContentStatus.Failed
+				|| ((state.Status == ContentStatus.Queued || state.Status == ContentStatus.Fetching) && state.LastError != null))
+			.Where(state => !context.Messages.Any(m => m.Id == state.MessageId && m.SizeEstimate > context.Accounts.Where(a => a.Id == m.AccountId).Select(a => a.MaxMessageDownloadMegabytes).FirstOrDefault() * 1024L * 1024L))
+			.Join(context.Messages, state => state.MessageId, message => message.Id, (state, message) => new { message.AccountId, message.Id })
+			.ToListAsync(ct);
+		foreach (var group in abandoned.GroupBy(row => row.AccountId))
+			ContentJobs.Priority.Add(group.Key, group.Select(row => row.Id));
+		// Messages above the download cap are skipped: they fail the same way every time.
+		await context
+			.MessageContentStates.Where(state => state.Status == ContentStatus.Failed)
+			.Where(state => !context.Messages.Any(m => m.Id == state.MessageId && m.SizeEstimate > context.Accounts.Where(a => a.Id == m.AccountId).Select(a => a.MaxMessageDownloadMegabytes).FirstOrDefault() * 1024L * 1024L))
+			.ExecuteUpdateAsync(
+				update => update.SetProperty(state => state.Status, ContentStatus.Queued).SetProperty(state => state.Attempts, 0),
+				ct
+			);
+
 		foreach (var accountId in accounts)
 		{
 			// Topology starts the change-stream loops once it knows the mailboxes. Nothing

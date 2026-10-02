@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -107,6 +107,32 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.DraftDto>>
     */
     getDrafts(accountId: string): Promise<DraftDto[]>;
+    /**
+    * What background work has given up on or is failing at, with the affected messages and the
+    * recorded error text, for the status bar's problems list (§7).
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ProblemDto>>
+    */
+    getProblems(): Promise<ProblemDto[]>;
+    /**
+    * How much message content is downloaded, waiting or downloading across all accounts.
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ContentQueueDto>
+    */
+    getContentQueue(): Promise<ContentQueueDto>;
+    /**
+    * Asks for these messages' content ahead of the background backlog — the one the user just
+    * opened, or the rows on screen. Only messages still waiting are affected; the rest are
+    * ignored. A hint: it changes the order of fetches, nothing else.
+    * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    prioritiseContent(messageIds: string[]): Promise<void>;
+    /**
+    * Puts messages whose download was abandoned back in the queue with a fresh attempt budget.
+    * Returns how many were requeued; a message that is no longer failed is left alone.
+    * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task<int>
+    */
+    retryFailedDownloads(messageIds: string[]): Promise<number>;
     /**
     * This account's send-as identities, default first, for compose's identity picker (§1,
     * §15). Always at least one row — every account has a default identity.
@@ -350,6 +376,17 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
     */
     deletePermanently(accountId: string, messageIds: string[]): Promise<MutationEnqueueResultDto>;
+    /**
+    * Permanently deletes every message in the account's Trash or Spam folder. Refused for any
+    * other folder: emptying is only meaningful where the contents are already discarded, and a
+    * misrouted call must not be able to wipe an Inbox. Each message goes through the same
+    * permanent-delete mutation as a single delete, so ordering, retries and reconciliation are
+    * unchanged; this only enqueues them all (§6).
+    * @param accountId Transpiled from System.Guid
+    * @param mailboxId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>
+    */
+    emptyMailbox(accountId: string, mailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarSummaryDto>>

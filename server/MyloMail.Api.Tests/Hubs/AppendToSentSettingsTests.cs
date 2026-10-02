@@ -84,6 +84,7 @@ public sealed class AppendToSentSettingsTests
 			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
-			appendToSentOnSend
+			appendToSentOnSend,
+			account.MaxMessageDownloadMegabytes
 		);
 }

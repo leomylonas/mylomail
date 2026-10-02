@@ -101,6 +101,102 @@ public sealed class ContentIndexProgressTests
 		Assert.Empty(harness.Events.Progress);
 	}
 
+	/// <summary>
+	/// A message given up on will never be indexed, so it leaves the total: otherwise the
+	/// indicator sits at "N of N+1" for the rest of the session.
+	/// </summary>
+	[Fact]
+	public async Task A_message_given_up_on_leaves_the_indexing_total()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var providerMailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var mailboxId = await SeedMailboxAsync(harness);
+		var good = Guid.NewGuid();
+		var bad = Guid.NewGuid();
+		foreach (var messageId in new[] { good, bad })
+		{
+			var occurrence = harness.Provider.SeedMessage("INBOX", messageId, DateTimeOffset.UnixEpoch);
+			providerMailbox.Messages[occurrence].RawBytes = MimeBytes();
+			await SeedMessageAsync(harness, mailboxId, messageId, occurrence);
+		}
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			(await context.MessageContentStates.SingleAsync(state => state.MessageId == bad)).Attempts =
+				ContentAcquisition.MaxAttempts - 1;
+			await context.SaveChangesAsync();
+		});
+		harness.Provider.FailFetchRawMessageWith(new InvalidOperationException("Unreadable."));
+
+		await Assert.ThrowsAsync<InvalidOperationException>(() => AcquireAsync(harness, bad));
+
+		var afterFailure = Assert.Single(harness.Events.Progress);
+		Assert.Equal(0, afterFailure.MessagesFetched);
+		Assert.Equal(1, afterFailure.EstimatedTotal);
+	}
+
+	/// <summary>
+	/// A message the provider already reported as over the cap can never download, so it is
+	/// settled with an explanation and without a fetch rather than downloaded up to the cap and
+	/// abandoned on every retry.
+	/// </summary>
+	[Fact]
+	public async Task A_message_reported_over_the_size_cap_fails_with_a_reason_and_is_never_fetched()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var providerMailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var mailboxId = await SeedMailboxAsync(harness);
+		var messageId = Guid.NewGuid();
+		var occurrence = harness.Provider.SeedMessage("INBOX", messageId, DateTimeOffset.UnixEpoch);
+		providerMailbox.Messages[occurrence].RawBytes = MimeBytes();
+		await SeedMessageAsync(harness, mailboxId, messageId, occurrence);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			(await context.Messages.SingleAsync(m => m.Id == messageId)).SizeEstimate = 300L * 1024 * 1024;
+			await context.SaveChangesAsync();
+		});
+
+		await AcquireAsync(harness, messageId);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var state = await context.MessageContentStates.SingleAsync(s => s.MessageId == messageId);
+			Assert.Equal(ContentStatus.Failed, state.Status);
+			Assert.Contains("300 MB", state.LastError);
+			Assert.Equal(0, state.Attempts);
+			Assert.False(await context.MessageBodies.AnyAsync(b => b.MessageId == messageId));
+		});
+	}
+
+	[Fact]
+	public async Task The_download_cap_is_the_accounts_own_setting()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var providerMailbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var mailboxId = await SeedMailboxAsync(harness);
+		var messageId = Guid.NewGuid();
+		var occurrence = harness.Provider.SeedMessage("INBOX", messageId, DateTimeOffset.UnixEpoch);
+		providerMailbox.Messages[occurrence].RawBytes = MimeBytes();
+		await SeedMessageAsync(harness, mailboxId, messageId, occurrence);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			(await context.Messages.SingleAsync(m => m.Id == messageId)).SizeEstimate = 200L * 1024 * 1024;
+			(await context.Accounts.SingleAsync()).MaxMessageDownloadMegabytes = 256;
+			await context.SaveChangesAsync();
+		});
+
+		await AcquireAsync(harness, messageId);
+
+		await harness.UsingAsync(async scope =>
+			Assert.Equal(
+				ContentStatus.Indexed,
+				(await scope.GetRequiredService<MyloMailDbContext>().MessageContentStates.SingleAsync(s => s.MessageId == messageId)).Status
+			));
+	}
+
 	private static Task AcquireAsync(SyncHarness harness, Guid messageId) =>
 		harness.UsingAsync(async scope =>
 			await scope

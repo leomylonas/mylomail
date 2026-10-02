@@ -52,7 +52,14 @@ public sealed class ContentAcquisition(
 	/// otherwise be retried by <see cref="Scheduling.ContentJobs"/> forever.
 	/// </summary>
 	internal const int MaxAttempts = 5;
-	internal const int MaximumRawMessageBytes = 64 * 1024 * 1024;
+
+	/// <summary>Start of the error recorded for a message above the account's download cap.</summary>
+	internal const string TooLargePrefix = "This message is ";
+
+	internal static string TooLargeMessage(long bytes, int capMegabytes) =>
+		$"{TooLargePrefix}{bytes / 1024 / 1024} MB, over this account's {capMegabytes} MB download limit (Settings, Account). It is still on the mail server.";
+
+	internal static bool IsTooLarge(long? bytes, Account account) => bytes > account.MaxMessageDownloadBytes;
 
 	/// <summary>Fetches and stores one message's content.</summary>
 	public async Task<ContentAcquisitionResult> AcquireAsync(
@@ -95,6 +102,22 @@ public sealed class ContentAcquisition(
 			return ContentAcquisitionResult.Deferred;
 		}
 
+		// A message the provider already reported as larger than the download cap can never
+		// succeed, so downloading up to the cap just to abort wastes the bandwidth every time it is
+		// retried. Settled without a fetch, with a reason the reader can act on.
+		var reportedSize = await context.Messages
+			.Where(message => message.Id == messageId)
+			.Select(message => message.SizeEstimate)
+			.FirstOrDefaultAsync(ct);
+		if (reportedSize > account.MaxMessageDownloadBytes)
+		{
+			state.Status = ContentStatus.Failed;
+			state.LastError = TooLargeMessage(reportedSize.Value, account.MaxMessageDownloadMegabytes);
+			await context.SaveChangesAsync(ct);
+			await ContentProgressAnnouncer.AnnounceAsync(context, events, messageId, ct);
+			return ContentAcquisitionResult.Deferred;
+		}
+
 		state.Status = ContentStatus.Fetching;
 		state.Attempts++;
 		await context.SaveChangesAsync(ct);
@@ -108,7 +131,7 @@ public sealed class ContentAcquisition(
 					account,
 					new MessageOccurrenceRef(messageId, issued.MailboxId, issued.ProviderOccurrenceId),
 					ct,
-					MaximumRawMessageBytes
+					account.MaxMessageDownloadBytes
 				);
 		}
 		catch (ProviderThrottledException ex)
@@ -313,6 +336,12 @@ public sealed class ContentAcquisition(
 			await context.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 		});
+		// Giving up on a message changes what is still pending, so the indexing indicator has
+		// to hear about it or it stays at its last value.
+		if (!stale && state.Status == ContentStatus.Failed)
+		{
+			await ContentProgressAnnouncer.AnnounceAsync(context, events, messageId, ct);
+		}
 		return stale;
 	}
 

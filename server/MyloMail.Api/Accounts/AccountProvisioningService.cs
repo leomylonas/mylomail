@@ -354,7 +354,8 @@ internal static class AccountDtoFactory
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
-			gate is not null && gate.Delay(account.Id) > TimeSpan.Zero
+			gate is not null && gate.Delay(account.Id) > TimeSpan.Zero,
+			account.MaxMessageDownloadMegabytes
 		);
 
 	/// <summary>

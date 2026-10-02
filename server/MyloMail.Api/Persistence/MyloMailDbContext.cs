@@ -107,6 +107,13 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 			e.HasKey(x => x.Id);
 			e.Property(x => x.ProviderConfig).HasJsonConversion();
 			e.Property(x => x.DisplayName).IsRequired();
+
+			// The store supplies the default when the app leaves the value at it, so a row can
+			// be inserted into a schema that predates the column — which is how the migration
+			// tests build their legacy databases. Any other value is written as given.
+			e.Property(x => x.MaxMessageDownloadMegabytes)
+				.HasDefaultValue(Account.DefaultMaxMessageDownloadMegabytes)
+				.HasSentinel(Account.DefaultMaxMessageDownloadMegabytes);
 		});
 
 		model.Entity<SendIdentity>(e =>

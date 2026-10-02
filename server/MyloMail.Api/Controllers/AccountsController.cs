@@ -328,7 +328,8 @@ public class AccountsController(
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
 			(account.ProviderConfig as ImapProviderConfig)?.AppendToSentOnSend,
-			gate.Delay(account.Id) > TimeSpan.Zero
+			gate.Delay(account.Id) > TimeSpan.Zero,
+			account.MaxMessageDownloadMegabytes
 		);
 
 	private static ProviderConfig? ToProviderConfig(AddAccountRequest request) =>

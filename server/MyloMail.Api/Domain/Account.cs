@@ -61,6 +61,25 @@ public class Account
 	public int? AttachmentSizeLimitOverride { get; set; }
 
 	public CertificateTrustMode CertificateTrustMode { get; set; }
+
+	/// <summary>
+	/// The largest message, in megabytes, this app will download for this account. Messages above
+	/// it stay on the mail server and are reported as problems rather than fetched: each is held
+	/// whole in memory and stored as raw MIME, so the cap bounds both. Purely local; it changes
+	/// nothing at the provider.
+	/// </summary>
+	public int MaxMessageDownloadMegabytes { get; set; } = DefaultMaxMessageDownloadMegabytes;
+
+	public const int DefaultMaxMessageDownloadMegabytes = 128;
+	public const int MinMaxMessageDownloadMegabytes = 8;
+
+	/// <summary>Bounded so the byte count stays inside an `int`, which is what the raw-content reader takes.</summary>
+	public const int MaxMaxMessageDownloadMegabytes = 1024;
+
+	public int MaxMessageDownloadBytes => MaxMessageDownloadMegabytes * 1024 * 1024;
+
+	public static int ClampMaxMessageDownloadMegabytes(int megabytes) =>
+		Math.Clamp(megabytes, MinMaxMessageDownloadMegabytes, MaxMaxMessageDownloadMegabytes);
 }
 
 /// <summary>Non-secret, provider-specific account configuration. Never carries credentials.</summary>

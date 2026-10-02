@@ -46,6 +46,8 @@ export type AccountDto = {
     appendToSentOnSend?: boolean;
     /** Transpiled from bool */
     isThrottled: boolean;
+    /** Transpiled from int */
+    maxMessageDownloadMegabytes: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AddAccountRequest */
@@ -180,6 +182,16 @@ export type DeleteContactRequest = {
     contactId: string;
     /** Transpiled from string? */
     expectedRevision?: string;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.ContentQueueDto */
+export type ContentQueueDto = {
+    /** Transpiled from int */
+    ready: number;
+    /** Transpiled from int */
+    waiting: number;
+    /** Transpiled from int */
+    fetching: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ExportJobDto */
@@ -448,6 +460,8 @@ export type AccountSettingsDto = {
     attachmentSizeLimitOverride?: number;
     /** Transpiled from bool */
     appendToSentOnSend?: boolean;
+    /** Transpiled from int */
+    maxMessageDownloadMegabytes: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MutationFailureDto */
@@ -712,5 +726,42 @@ export type SaveCalendarEventRequest = {
     recurrenceDates: (Date | string)[];
     /** Transpiled from System.Collections.Generic.IReadOnlyList<System.DateTimeOffset> */
     exceptionDates: (Date | string)[];
+}
+
+/** Transpiled from MyloMail.Api.Contracts.ProblemKind */
+export enum ProblemKind {
+    MessageDownload = 0,
+    MessageRetrying = 1,
+    FolderSync = 2,
+}
+
+/** Transpiled from MyloMail.Api.Contracts.ProblemDto */
+export type ProblemDto = {
+    /** Transpiled from string */
+    id: string;
+    /** Transpiled from MyloMail.Api.Contracts.ProblemKind */
+    kind: ProblemKind;
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    title: string;
+    /** Transpiled from string? */
+    detail?: string;
+    /** Transpiled from System.Guid */
+    mailboxId?: string;
+    /** Transpiled from string? */
+    mailboxName?: string;
+    /** Transpiled from System.Guid */
+    messageId?: string;
+    /** Transpiled from string? */
+    subject?: string;
+    /** Transpiled from string? */
+    from?: string;
+    /** Transpiled from System.DateTimeOffset */
+    receivedAt?: (Date | string);
+    /** Transpiled from int */
+    attempts?: number;
+    /** Transpiled from bool */
+    canRetry: boolean;
 }
 

@@ -35,10 +35,38 @@ public sealed class ContentJobs(
 	ILogger<ContentJobs> logger
 )
 {
-	private const int BatchLimit = 25;
 	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
+	/// <summary>
+	/// At most one content chain per account. Every trigger (each coverage page, a settings
+	/// change, startup, a retry) enqueues a chain that then enqueues its own successor, so two
+	/// chains never merge: they run side by side for the rest of the session, fetching the same
+	/// messages at once and opening twice the IMAP connections a server allows. A trigger that
+	/// arrives while a chain is running is folded into it, and the running chain continues once
+	/// more so the work it announced is not missed.
+	/// </summary>
+	internal static readonly SingleFlight Chains = new();
+
+	/// <summary>What to fetch before the backlog; see <see cref="ContentPriority"/>.</summary>
+	internal static readonly ContentPriority Priority = new();
+
 	public async Task FetchNextAsync(Guid accountId, CancellationToken ct = default)
+	{
+		if (!Chains.TryEnter(accountId)) return;
+		try
+		{
+			await RunChainStepAsync(accountId, ct);
+		}
+		finally
+		{
+			if (Chains.Exit(accountId))
+			{
+				jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));
+			}
+		}
+	}
+
+	private async Task RunChainStepAsync(Guid accountId, CancellationToken ct)
 	{
 		var workKey = $"{nameof(ContentJobs)}:{accountId}";
 		if (!connectivity.CanRun(
@@ -132,6 +160,10 @@ public sealed class ContentJobs(
 			// The message is marked Failed by the acquisition itself. One unreadable message
 			// must not stop the queue behind it.
 			logger.LogWarning(ex, "Skipping content for message {MessageId}.", pending.Value);
+			// A message that failed but has attempts left is tried again next, not after the
+			// whole backlog: it would otherwise sit labelled "retrying" until the very end of the
+			// queue. Once its attempts run out it is Failed, which the queue ignores.
+			Priority.Add(accountId, [pending.Value]);
 		}
 
 		if (account.AuthState == AuthState.CredentialStoreUnavailable)
@@ -160,6 +192,9 @@ public sealed class ContentJobs(
 	/// </remarks>
 	private async Task<Guid?> PendingAsync(Guid accountId, CancellationToken ct)
 	{
+		// Only id and date are read: ordering by a DateTimeOffset cannot be done in SQL here, and
+		// a capped read in storage order let a message that had just arrived wait behind the whole
+		// backlog. Newest first, because those are the ones the user is most likely to open.
 		var candidates = await context
 			.Messages.Where(m => m.AccountId == accountId)
 			.Join(
@@ -168,13 +203,12 @@ public sealed class ContentJobs(
 				),
 				m => m.Id,
 				c => c.MessageId,
-				(m, _) => m
+				(m, _) => new { m.Id, m.ReceivedAt }
 			)
-			.Take(BatchLimit)
 			.AsNoTracking()
 			.ToListAsync(ct);
 
-		// Newest first: the messages a user is most likely to open are the ones they can see.
-		return candidates.OrderByDescending(m => m.ReceivedAt).FirstOrDefault()?.Id;
+		var requested = Priority.Next(accountId, candidates.Select(m => m.Id).ToHashSet());
+		return requested ?? candidates.OrderByDescending(m => m.ReceivedAt).FirstOrDefault()?.Id;
 	}
 }

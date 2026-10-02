@@ -261,6 +261,10 @@ public record AccountCapabilitiesDto(Guid AccountId, bool DeletingMailboxDeletes
 /// other provider type; a non-null value from a non-IMAP account is ignored by
 /// <c>MailHub.UpdateAccount</c> rather than accepted with no effect.
 /// </param>
+/// <param name="MaxMessageDownloadMegabytes">
+/// The largest message this app downloads for the account; larger ones stay on the server.
+/// Clamped by <c>MailHub.UpdateAccount</c> to the range <see cref="Account"/> defines.
+/// </param>
 [TranspilationSource]
 public record AccountSettingsDto(
 	Guid Id,
@@ -274,7 +278,8 @@ public record AccountSettingsDto(
 	int? InitialSyncBoundValue,
 	CertificateTrustMode CertificateTrustMode,
 	int? AttachmentSizeLimitOverride,
-	bool? AppendToSentOnSend
+	bool? AppendToSentOnSend,
+	int MaxMessageDownloadMegabytes
 );
 
 /// <param name="AccountId">

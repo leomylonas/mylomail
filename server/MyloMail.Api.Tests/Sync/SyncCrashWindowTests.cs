@@ -508,7 +508,8 @@ public sealed class SyncCrashWindowTests
 			account.InitialSyncBoundValue,
 			account.CertificateTrustMode,
 			account.AttachmentSizeLimitOverride,
-			AppendToSentOnSend: null
+			AppendToSentOnSend: null,
+			MaxMessageDownloadMegabytes: 128
 		);
 
 	private static byte[] DraftMimeBytes()

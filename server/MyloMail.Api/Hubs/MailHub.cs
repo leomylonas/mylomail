@@ -95,6 +95,28 @@ public interface IMailHub
 	Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId);
 
 	/// <summary>
+	/// What background work has given up on or is failing at, with the affected messages and the
+	/// recorded error text, for the status bar's problems list (§7).
+	/// </summary>
+	Task<IReadOnlyList<ProblemDto>> GetProblems();
+
+	/// <summary>How much message content is downloaded, waiting or downloading across all accounts.</summary>
+	Task<ContentQueueDto> GetContentQueue();
+
+	/// <summary>
+	/// Asks for these messages' content ahead of the background backlog — the one the user just
+	/// opened, or the rows on screen. Only messages still waiting are affected; the rest are
+	/// ignored. A hint: it changes the order of fetches, nothing else.
+	/// </summary>
+	Task PrioritiseContent(IReadOnlyList<Guid> messageIds);
+
+	/// <summary>
+	/// Puts messages whose download was abandoned back in the queue with a fresh attempt budget.
+	/// Returns how many were requeued; a message that is no longer failed is left alone.
+	/// </summary>
+	Task<int> RetryFailedDownloads(IReadOnlyList<Guid> messageIds);
+
+	/// <summary>
 	/// This account's send-as identities, default first, for compose's identity picker (§1,
 	/// §15). Always at least one row — every account has a default identity.
 	/// </summary>
@@ -254,6 +276,15 @@ public interface IMailHub
 		Guid accountId,
 		IReadOnlyList<Guid> messageIds
 	);
+
+	/// <summary>
+	/// Permanently deletes every message in the account's Trash or Spam folder. Refused for any
+	/// other folder: emptying is only meaningful where the contents are already discarded, and a
+	/// misrouted call must not be able to wipe an Inbox. Each message goes through the same
+	/// permanent-delete mutation as a single delete, so ordering, retries and reconciliation are
+	/// unchanged; this only enqueues them all (§6).
+	/// </summary>
+	Task<MutationEnqueueResultDto> EmptyMailbox(Guid accountId, Guid mailboxId);
 
 	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
 
@@ -620,6 +651,76 @@ public class MailHub(
 	public Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId) =>
 		search.SearchAsync(accountId, query, mailboxId);
 
+	public async Task<IReadOnlyList<ProblemDto>> GetProblems() =>
+		await ProblemReport.LoadAsync(context);
+
+	public async Task<ContentQueueDto> GetContentQueue()
+	{
+		var counts = await context
+			.MessageContentStates.GroupBy(state => state.Status)
+			.Select(group => new { Status = group.Key, Count = group.Count() })
+			.ToListAsync();
+		int Of(params ContentStatus[] statuses) => counts.Where(c => statuses.Contains(c.Status)).Sum(c => c.Count);
+		return new ContentQueueDto(
+			Of(ContentStatus.Indexed),
+			Of(ContentStatus.NotFetched, ContentStatus.Queued),
+			Of(ContentStatus.Fetching)
+		);
+	}
+
+	public async Task PrioritiseContent(IReadOnlyList<Guid> messageIds)
+	{
+		var waiting = await context
+			.Messages.Where(message => messageIds.Contains(message.Id))
+			.Join(
+				context.MessageContentStates.Where(state =>
+					state.Status == ContentStatus.Queued || state.Status == ContentStatus.Fetching),
+				message => message.Id,
+				state => state.MessageId,
+				(message, _) => new { message.AccountId, message.Id }
+			)
+			.ToListAsync();
+		foreach (var group in waiting.GroupBy(row => row.AccountId))
+		{
+			var accountId = group.Key;
+			// Requested order is kept: the caller lists the most important last, as Add expects.
+			Scheduling.ContentJobs.Priority.Add(accountId, messageIds.Where(group.Select(row => row.Id).ToHashSet().Contains));
+			jobs.Enqueue<Scheduling.ContentJobs>(job => job.FetchNextAsync(accountId, default));
+		}
+	}
+
+	public async Task<int> RetryFailedDownloads(IReadOnlyList<Guid> messageIds)
+	{
+		var states = await context
+			.MessageContentStates.Where(state => messageIds.Contains(state.MessageId) && state.Status == ContentStatus.Failed)
+			.Where(state => !context.Messages.Any(m => m.Id == state.MessageId && m.SizeEstimate > context.Accounts.Where(a => a.Id == m.AccountId).Select(a => a.MaxMessageDownloadMegabytes).FirstOrDefault() * 1024L * 1024L))
+			.ToListAsync();
+		foreach (var state in states)
+		{
+			state.Status = ContentStatus.Queued;
+			state.Attempts = 0;
+		}
+		await context.SaveChangesAsync();
+
+		var retried = states.Select(state => state.MessageId).ToList();
+		var retriedByAccount = await context
+			.Messages.Where(message => retried.Contains(message.Id))
+			.Select(message => new { message.AccountId, message.Id })
+			.ToListAsync();
+		foreach (var group in retriedByAccount.GroupBy(row => row.AccountId))
+			Scheduling.ContentJobs.Priority.Add(group.Key, group.Select(row => row.Id));
+		foreach (var messageId in retried)
+			await ContentProgressAnnouncer.AnnounceAsync(context, events, messageId);
+		var accountIds = await context
+			.Messages.Where(message => retried.Contains(message.Id))
+			.Select(message => message.AccountId)
+			.Distinct()
+			.ToListAsync();
+		foreach (var accountId in accountIds)
+			jobs.Enqueue<Scheduling.ContentJobs>(job => job.FetchNextAsync(accountId, default));
+		return states.Count;
+	}
+
 	public async Task<IReadOnlyList<DraftDto>> GetDrafts(Guid accountId)
 	{
 		var drafts = await context.Drafts.Where(d => d.AccountId == accountId).ToListAsync();
@@ -927,6 +1028,7 @@ public class MailHub(
 		var accountChanged = false;
 		var resumingPolling = false;
 		var coveragePolicyChanged = false;
+		var downloadCapRaised = false;
 		var affectedMailboxIds = new HashSet<Guid>();
 		var strategy = context.Database.CreateExecutionStrategy();
 		await strategy.ExecuteAsync(async () =>
@@ -951,6 +1053,9 @@ public class MailHub(
 			current.InitialSyncMode = settings.InitialSyncMode;
 			current.InitialSyncBoundValue = initialSyncBoundValue;
 			current.CertificateTrustMode = settings.CertificateTrustMode;
+			var newDownloadCap = Account.ClampMaxMessageDownloadMegabytes(settings.MaxMessageDownloadMegabytes);
+			downloadCapRaised = newDownloadCap > current.MaxMessageDownloadMegabytes;
+			current.MaxMessageDownloadMegabytes = newDownloadCap;
 			current.AttachmentSizeLimitOverride =
 				settings.AttachmentSizeLimitOverride is > 0
 					? settings.AttachmentSizeLimitOverride
@@ -1014,6 +1119,33 @@ public class MailHub(
 			throw new InvalidOperationException($"Account '{settings.Id}' does not exist.");
 		}
 
+		// Raising the cap makes previously refused messages eligible. Those that failed only for
+		// being too large go straight back in the queue, ahead of the backlog, instead of waiting
+		// for the next restart to notice.
+		if (downloadCapRaised)
+		{
+			var capBytes = account.MaxMessageDownloadBytes;
+			var refused = await context
+				.MessageContentStates.Where(state =>
+					state.Status == ContentStatus.Failed
+					&& (state.LastError!.StartsWith(Content.ContentAcquisition.TooLargePrefix)
+						|| state.LastError.Contains("byte limit"))
+					&& context.Messages.Any(m => m.Id == state.MessageId && m.AccountId == account.Id
+						&& (m.SizeEstimate == null || m.SizeEstimate <= capBytes)))
+				.ToListAsync();
+			foreach (var state in refused)
+			{
+				state.Status = ContentStatus.Queued;
+				state.Attempts = 0;
+			}
+			if (refused.Count > 0)
+			{
+				await context.SaveChangesAsync();
+				Scheduling.ContentJobs.Priority.Add(account.Id, refused.Select(state => state.MessageId));
+				jobs.Enqueue<Scheduling.ContentJobs>(job => job.FetchNextAsync(account.Id, default));
+			}
+		}
+
 		if (resumingPolling)
 		{
 			// Deliberately no registry-wide reset here. A loop disabled and re-enabled
@@ -1070,6 +1202,7 @@ public class MailHub(
 			PollIntervalSeconds = account.PollIntervalSeconds,
 			UndoSendDelaySeconds = account.UndoSendDelaySeconds,
 			InitialSyncBoundValue = account.InitialSyncBoundValue,
+			MaxMessageDownloadMegabytes = account.MaxMessageDownloadMegabytes,
 			AppendToSentOnSend = (account.ProviderConfig as ImapProviderConfig)
 				?.AppendToSentOnSend,
 		};
@@ -1159,6 +1292,25 @@ public class MailHub(
 
 	public Task<MutationEnqueueResultDto> MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds) =>
 		EnqueueEachWithResultAsync(messageIds, messageId => mutations.MoveToTrashAsync(accountId, messageId));
+
+	public async Task<MutationEnqueueResultDto> EmptyMailbox(Guid accountId, Guid mailboxId)
+	{
+		var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId && m.AccountId == accountId)
+			?? throw new MutationHubException(ErrorCategory.Validation, "This folder no longer exists.");
+		var role = mailbox.SpecialUseOverride ?? mailbox.SpecialUse;
+		if (role is not (SpecialUse.Trash or SpecialUse.Junk))
+			throw new MutationHubException(ErrorCategory.Validation, "Only Trash and Spam can be emptied.");
+
+		var messageIds = await context
+			.MessageMailboxes.Where(occurrence => occurrence.MailboxId == mailboxId)
+			.Select(occurrence => occurrence.MessageId)
+			.Distinct()
+			.ToListAsync();
+		return await EnqueueEachWithResultAsync(
+			messageIds,
+			messageId => mutations.DeletePermanentlyAsync(accountId, messageId)
+		);
+	}
 
 	public Task<MutationEnqueueResultDto> DeletePermanently(
 		Guid accountId,
