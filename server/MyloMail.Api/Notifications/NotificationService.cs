@@ -338,6 +338,14 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 	private static NotificationDto ToDto(NotificationRecord record, string sender, string subject) =>
 		new(record.Id, record.AccountId, record.MessageId, sender, subject);
 
+	/// <summary>
+	/// "Name &lt;address&gt;" so the sender is identifiable at a glance (a display name alone can
+	/// be anyone's), or just the address when the message carries no display name.
+	/// </summary>
 	private static string Sender(IReadOnlyList<Address> from) =>
-		from.Count > 0 ? from[0].Name ?? from[0].Email : "New message";
+		from.Count == 0
+			? "New message"
+			: from[0].Name is { Length: > 0 } name
+				? $"{name} <{from[0].Email}>"
+				: from[0].Email;
 }

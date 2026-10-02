@@ -99,7 +99,7 @@ public sealed class NotificationEligibilityTests
 		await SyncTests.SyncAsync(harness);
 
 		var notification = Assert.Single(harness.Events.Notifications);
-		Assert.Equal("Claire", notification.Title);
+		Assert.Equal("Claire <claire@example.test>", notification.Title);
 	}
 
 	[Fact]
