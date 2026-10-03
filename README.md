@@ -7,7 +7,7 @@ registrations before their account flows can be enabled.
 
 ## Prerequisites
 
-- Node.js 22 (the exact major version is pinned in [`.nvmrc`](.nvmrc))
+- Node.js 24 (the exact major version is pinned in [`.nvmrc`](.nvmrc))
 - pnpm 10, supplied through Corepack
 - .NET SDK 10, selected by [`global.json`](global.json)
 - Docker Compose, only for the local IMAP matrix and end-to-end tests
@@ -25,6 +25,28 @@ pnpm generate:types
 The generated shared types are committed build output for the renderer. Run
 `pnpm generate:types` after backend contract changes; do not edit files in
 `packages/shared-types` by hand.
+
+### Linux: Electron sandbox
+
+Electron's `chrome-sandbox` helper must be root-owned with mode 4755, which a package
+install cannot set. Without it, Chromium aborts at startup with "The SUID sandbox helper
+binary was found, but is not configured correctly". Ubuntu 24.04 and later also block the
+unprivileged user-namespace fallback. Fix the helper once, and again after `pnpm install`
+changes the Electron version, because the path includes it:
+
+```bash
+sudo chown root:root node_modules/.pnpm/electron@*/node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 node_modules/.pnpm/electron@*/node_modules/electron/dist/chrome-sandbox
+```
+
+If the helper is not configured, `pnpm app` prints a warning and launches Electron with
+`--no-sandbox` so development still works. That fallback lives in the development
+launcher only; packaged builds do not use it.
+
+`pnpm app` builds the backend before launching Electron, so a cold compile does not count
+against the shell's 30 second health timeout. If you override `MYLOMAIL_BACKEND_ARGS`,
+that build is skipped and the first launch can still hit the timeout; run
+`dotnet build server/MyloMail.Api` beforehand.
 
 ## Install a release package
 
