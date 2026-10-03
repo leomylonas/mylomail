@@ -94,7 +94,14 @@ public record AddAccountRequest(
 	/// <c>organizations</c>, <c>consumers</c>, a tenant id or a verified domain. Blank means the
 	/// deployment default (<c>common</c>: personal or work, decided by the address).
 	/// </summary>
-	string? MicrosoftTenant = null
+	string? MicrosoftTenant = null,
+	/// <summary>
+	/// Microsoft 365 only: the SMTP address of a shared mailbox to connect instead of the signed-in
+	/// user's own mailbox. The user still signs in as themselves; <see cref="EmailAddress"/> must
+	/// be this same address, because it is the account's default send identity. Blank means an
+	/// ordinary personal account.
+	/// </summary>
+	string? MicrosoftSharedMailbox = null
 );
 
 /// <summary>

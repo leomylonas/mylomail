@@ -110,6 +110,7 @@ public sealed class ProviderMutationBatchingTests
 
 		var result = await GraphMailProvider.DeletePermanentlyBatchAsync(
 			client,
+			GraphMailbox.Personal,
 			refs,
 			CancellationToken.None
 		);
@@ -136,6 +137,7 @@ public sealed class ProviderMutationBatchingTests
 		var exception = await Assert.ThrowsAsync<ProviderThrottledException>(() =>
 			GraphMailProvider.DeletePermanentlyBatchAsync(
 				client,
+				GraphMailbox.Personal,
 				References(),
 				CancellationToken.None
 			)

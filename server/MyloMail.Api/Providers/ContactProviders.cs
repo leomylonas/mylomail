@@ -13,6 +13,15 @@ namespace MyloMail.Api.Providers;
 
 public sealed class LocalContactProvider : IContactProvider
 {
+	/// <summary>
+	/// Accounts whose contacts live only in MyloMail: IMAP has no contact protocol, and a Microsoft
+	/// 365 shared mailbox has no personal contacts of its own — pulling the signed-in user's would
+	/// copy their address book into the shared account. Every contact path (refresh, save, remote
+	/// execution) asks this one predicate.
+	/// </summary>
+	public static bool IsLocalOnly(Account account) =>
+		account.ProviderType == ProviderType.Imap || GraphMailbox.For(account).IsShared;
+
 	private static InvalidOperationException Remote() => new("IMAP contacts are local-only.");
 	public Task<ContactPullResult> PullAsync(Account account, bool useCursor, CancellationToken ct) =>
 		Task.FromResult(new ContactPullResult([], [], null, true));
@@ -336,6 +345,8 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 
 public sealed class GraphContactProvider(GraphOAuthAuthenticator oauth, HttpClient client) : IContactProvider
 {
+	// Personal contacts are always the signed-in user's own. A shared-mailbox account never
+	// reaches this provider (ContactProviderFactory.For → LocalContactProvider), so /me is correct.
 	private const string MeUrl = "https://graph.microsoft.com/v1.0/me";
 	private const string DefaultContactsUrl = $"{MeUrl}/contacts";
 	private const string ContactFields = "id,displayName,emailAddresses,changeKey";
@@ -598,12 +609,14 @@ public sealed class ContactProviderFactory(
 {
 	private readonly IContactProvider local = new LocalContactProvider();
 
-	public IContactProvider For(Account account) => account.ProviderType switch
-	{
-		ProviderType.Gmail => Gmail(account),
-		ProviderType.Microsoft365 => Graph(account),
-		_ => local,
-	};
+	public IContactProvider For(Account account) => LocalContactProvider.IsLocalOnly(account)
+		? local
+		: account.ProviderType switch
+		{
+			ProviderType.Gmail => Gmail(account),
+			ProviderType.Microsoft365 => Graph(account),
+			_ => local,
+		};
 
 	private GooglePeopleContactProvider Gmail(Account account) =>
 		new(

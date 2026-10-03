@@ -23,6 +23,7 @@ export interface AddAccountRequest {
   gmailClientId?: string;
   gmailClientSecret?: string;
   microsoftTenant?: string;
+  microsoftSharedMailbox?: string;
 }
 
 export const AddAccountRequestSchema = z.object({
@@ -38,4 +39,5 @@ export const AddAccountRequestSchema = z.object({
   gmailClientId: z.string().nullable(),
   gmailClientSecret: z.string().nullable(),
   microsoftTenant: z.string().nullable(),
+  microsoftSharedMailbox: z.string().nullable(),
 });

@@ -27,6 +27,10 @@ import {
 	MutationTransportError,
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import styles from "@mylomail/renderer/Components/AddAccount/AddAccount.module.css";
+import {
+	microsoftAddressFields,
+	microsoftAddressReady,
+} from "@mylomail/renderer/Components/AddAccount/SharedMailbox";
 
 interface FormState {
 	displayName: string;
@@ -43,6 +47,12 @@ interface FormState {
 	 */
 	microsoftAudience: "" | "organizations" | "consumers" | "custom";
 	microsoftTenant: string;
+	/**
+	 * A Microsoft 365 shared mailbox: you still sign in as yourself, but the account addresses
+	 * `sharedMailbox`, which then also is the account's email address (see `SharedMailbox.ts`).
+	 */
+	isSharedMailbox: boolean;
+	sharedMailbox: string;
 	host: string;
 	port: number;
 	imapSecurity: MailTransportSecurity;
@@ -86,6 +96,8 @@ const initial: FormState = {
 	gmailClientSecret: "",
 	microsoftAudience: "",
 	microsoftTenant: "",
+	isSharedMailbox: false,
+	sharedMailbox: "",
 	host: "",
 	port: 993,
 	imapSecurity: MailTransportSecurity.TlsOnConnect,
@@ -119,10 +131,14 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 
 	const add = useMutation({
 		mutationFn: async (trustCertificate: boolean) => {
+			const microsoft =
+				form.providerType === ProviderType.Microsoft365
+					? microsoftAddressFields(form)
+					: undefined;
 			const request: AddAccountRequest = {
 				displayName: form.displayName,
 				providerType: form.providerType,
-				emailAddress: form.emailAddress,
+				emailAddress: microsoft?.emailAddress ?? form.emailAddress,
 				// Only IMAP takes a password; OAuth providers must send none at all.
 				secret:
 					form.providerType === ProviderType.Imap ? form.secret : undefined,
@@ -177,6 +193,7 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 						: form.microsoftAudience === "custom"
 							? form.microsoftTenant.trim()
 							: form.microsoftAudience || undefined,
+				microsoftSharedMailbox: microsoft?.microsoftSharedMailbox,
 			};
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
@@ -215,7 +232,9 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 	);
 	const oauthReady = Boolean(
 		form.displayName &&
-		form.emailAddress &&
+		(form.providerType === ProviderType.Microsoft365
+			? microsoftAddressReady(form)
+			: Boolean(form.emailAddress)) &&
 		(form.providerType !== ProviderType.Gmail ||
 			!form.useOwnGoogleClient ||
 			(form.gmailClientId && form.gmailClientSecret)) &&
@@ -257,13 +276,16 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				value={form.displayName}
 				onChange={(event) => set("displayName", event.target.value)}
 			/>
-			<TextInput
-				id="add-account-email"
-				labelText="Email address"
-				type="email"
-				value={form.emailAddress}
-				onChange={(event) => set("emailAddress", event.target.value)}
-			/>
+			{form.providerType === ProviderType.Microsoft365 &&
+			form.isSharedMailbox ? null : (
+				<TextInput
+					id="add-account-email"
+					labelText="Email address"
+					type="email"
+					value={form.emailAddress}
+					onChange={(event) => set("emailAddress", event.target.value)}
+				/>
+			)}
 			{form.providerType === ProviderType.Imap ? (
 				<>
 					<div className={styles.row}>
@@ -575,6 +597,22 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 									onChange={(event) =>
 										set("microsoftTenant", event.target.value)
 									}
+								/>
+							) : null}
+							<Toggle
+								id="add-account-microsoft-shared"
+								labelText="This is a shared mailbox"
+								toggled={form.isSharedMailbox}
+								onToggle={(checked) => set("isSharedMailbox", checked)}
+							/>
+							{form.isSharedMailbox ? (
+								<TextInput
+									id="add-account-microsoft-shared-address"
+									labelText="Shared mailbox address"
+									helperText="You sign in with your own account, which needs Full Access to this mailbox, plus Send As or Send on Behalf to send from it. The app registration needs the delegated Mail.ReadWrite.Shared, Mail.Send.Shared and Calendars.ReadWrite.Shared permissions. Shared mailboxes work with work or school accounts only and have no personal contacts."
+									type="email"
+									value={form.sharedMailbox}
+									onChange={(event) => set("sharedMailbox", event.target.value)}
 								/>
 							) : null}
 						</>

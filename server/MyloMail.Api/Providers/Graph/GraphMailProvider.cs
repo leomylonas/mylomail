@@ -39,8 +39,52 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		DeletingMailboxDeletesMessages = true,
 	};
 
-	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
-		oauth.AuthenticateAsync(account, ct);
+	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	{
+		var result = await oauth.AuthenticateAsync(account, ct);
+		return result.Succeeded && GraphMailbox.For(account).IsShared
+			? await VerifySharedMailboxAsync(account, ct)
+			: result;
+	}
+
+	/// <summary>
+	/// Signing in proves only who the user is. For a shared mailbox, confirm at connect time that
+	/// the signed-in user can actually open it, so a missing Full Access grant, an unconsented
+	/// <c>.Shared</c> permission or a mistyped address is reported while the user is still in the
+	/// add-account form rather than as a paused account afterwards.
+	/// </summary>
+	private async Task<AuthResult> VerifySharedMailboxAsync(Account account, CancellationToken ct)
+	{
+		try
+		{
+			var client = await ClientAsync(account, ct);
+			await ThrottleAwareAsync(() => client.Me.MailFolders["inbox"].GetAsync(
+				configuration => configuration.QueryParameters.Select = ["id"],
+				ct
+			));
+			return new AuthResult(true, AuthState.Connected, null);
+		}
+		catch (ProviderAuthenticationException ex) when (ex.Problem is { } problem)
+		{
+			return new AuthResult(false, AuthState.Error, problem);
+		}
+		catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode is 400 or 404)
+		{
+			return new AuthResult(
+				false,
+				AuthState.Error,
+				new MutationProblemDetails
+				{
+					Category = ErrorCategory.Validation,
+					Title = "Shared mailbox not found",
+					Detail = "Microsoft 365 has no mailbox with that address, or this account cannot see it. "
+						+ "Check the shared mailbox address.",
+					Status = StatusCodes.Status400BadRequest,
+					ProviderCode = ex.ResponseStatusCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+				}
+			);
+		}
+	}
 
 
 	public async Task<int> EstimateMailboxCountAsync(
@@ -276,10 +320,13 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		{
 			await oauth.AcquireTokenAsync(account, ct);
 			var credential = new GraphAccountTokenCredential(oauth, account);
-			var authenticationProvider = CreateAuthenticationProvider(credential);
+			var authenticationProvider = CreateAuthenticationProvider(
+				credential,
+				GraphOAuthAuthenticator.ScopesFor(account)
+			);
 			var http = GraphClientFactory.Create(
 				authenticationProvider,
-				[new GraphImmutableIdHandler()]
+				GraphMailbox.For(account).Handlers()
 			);
 			return new GraphServiceClient(http, authenticationProvider);
 		}
@@ -293,13 +340,14 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 	}
 
 	internal static AzureIdentityAuthenticationProvider CreateAuthenticationProvider(
-		Azure.Core.TokenCredential credential
+		Azure.Core.TokenCredential credential,
+		IReadOnlyList<string>? scopes = null
 	) =>
 		new(
 			credential,
 			allowedHosts: ["graph.microsoft.com"],
 			isCaeEnabled: false,
-			scopes: [.. GraphOAuthAuthenticator.Scopes]
+			scopes: [.. scopes ?? GraphOAuthAuthenticator.Scopes]
 		);
 
 	internal static readonly string[] MessageSelect =

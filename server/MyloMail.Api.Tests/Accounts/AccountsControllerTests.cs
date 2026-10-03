@@ -473,6 +473,115 @@ public sealed class AccountsControllerTests
 		Assert.False(afterClear!.Single(a => a.Id == accountId).IsThrottled);
 	}
 
+	/// <summary>
+	/// A shared mailbox is the target of every Graph request for the account, so a value that is
+	/// not a plain address must never reach the request path.
+	/// </summary>
+	[Theory]
+	[InlineData("support")]
+	[InlineData("support@contoso")]
+	[InlineData("support@contoso.com/../me")]
+	[InlineData("Support <support@contoso.com>")]
+	public async Task A_shared_mailbox_that_is_not_an_email_address_is_rejected(string sharedMailbox)
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest("Shared", ProviderType.Microsoft365, sharedMailbox, null, null, MicrosoftSharedMailbox: sharedMailbox),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+		var problem = Assert.IsType<MutationProblemDetails>(Assert.IsType<ObjectResult>(result.Result).Value);
+		Assert.Equal("Invalid shared mailbox", problem.Title);
+	}
+
+	[Theory]
+	[InlineData(ProviderType.Gmail)]
+	[InlineData(ProviderType.Imap)]
+	public async Task A_shared_mailbox_is_rejected_for_other_providers(ProviderType type)
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest("Shared", type, "support@contoso.com", null, null, MicrosoftSharedMailbox: "support@contoso.com"),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+		var problem = Assert.IsType<MutationProblemDetails>(Assert.IsType<ObjectResult>(result.Result).Value);
+		Assert.Equal("Unexpected shared mailbox", problem.Title);
+	}
+
+	/// <summary>
+	/// The account address is the default send identity; Graph sends from the shared mailbox, so
+	/// any other address would fail every send at the From-identity check.
+	/// </summary>
+	[Fact]
+	public async Task A_shared_mailbox_account_must_use_the_shared_address_as_its_own()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest("Shared", ProviderType.Microsoft365, "me@contoso.com", null, null, MicrosoftSharedMailbox: "support@contoso.com"),
+				default
+			)
+		);
+
+		AssertProblem(result, StatusCodes.Status400BadRequest);
+		var problem = Assert.IsType<MutationProblemDetails>(Assert.IsType<ObjectResult>(result.Result).Value);
+		Assert.Equal("Shared mailbox address mismatch", problem.Title);
+	}
+
+	[Fact]
+	public async Task A_shared_mailbox_is_stored_trimmed_on_the_account_config()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		var result = await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest(
+					"Shared",
+					ProviderType.Microsoft365,
+					"Support@Contoso.com",
+					null,
+					null,
+					MicrosoftSharedMailbox: "  support@contoso.com "
+				),
+				default
+			)
+		);
+
+		Assert.IsType<CreatedAtActionResult>(result.Result);
+		var config = await harness.UsingAsync(async services =>
+			(await services.GetRequiredService<MyloMailDbContext>().Accounts.SingleAsync(a => a.DisplayName == "Shared")).ProviderConfig
+		);
+		Assert.Equal("support@contoso.com", Assert.IsType<Microsoft365ProviderConfig>(config).SharedMailbox);
+	}
+
+	[Fact]
+	public async Task An_ordinary_microsoft_account_has_no_shared_mailbox()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+
+		await harness.UsingAsync(services =>
+			Controller(services).Add(
+				new AddAccountRequest("Mine", ProviderType.Microsoft365, "me@contoso.com", null, null, MicrosoftSharedMailbox: "   "),
+				default
+			)
+		);
+
+		var config = await harness.UsingAsync(async services =>
+			(await services.GetRequiredService<MyloMailDbContext>().Accounts.SingleAsync(a => a.DisplayName == "Mine")).ProviderConfig
+		);
+		Assert.Null(Assert.IsType<Microsoft365ProviderConfig>(config).SharedMailbox);
+	}
+
 	private static readonly ImapAccountSettings ImapSettings = new(
 		"imap.example.org",
 		993,

@@ -36,6 +36,38 @@ public sealed class ContactOperationTests
 		Assert.Equal(1, harness.Provider.CreateCalls);
 	}
 
+	/// <summary>
+	/// A shared mailbox has no personal contacts: saving one stays local, and a refresh never
+	/// reaches the provider — otherwise the signed-in user's own address book would be pulled
+	/// into the shared account.
+	/// </summary>
+	[Fact]
+	public async Task A_shared_mailbox_account_keeps_contacts_local_and_never_pulls()
+	{
+		await using var harness = await ContactHarness.CreateAsync();
+		await harness.UsingAsync(async provider =>
+		{
+			var context = provider.GetRequiredService<MyloMailDbContext>();
+			var account = await context.Accounts.SingleAsync();
+			account.ProviderConfig = new Microsoft365ProviderConfig { SharedMailbox = "support@contoso.com" };
+			await context.SaveChangesAsync();
+		});
+
+		await SaveAsync(harness, null, "Ada Lovelace", "ada@example.test");
+		var refreshed = await harness.UsingAsync(provider =>
+			provider.GetRequiredService<ContactService>().RefreshAsync(harness.AccountId, default));
+
+		Assert.False(refreshed);
+		await harness.UsingAsync(async provider =>
+		{
+			var context = provider.GetRequiredService<MyloMailDbContext>();
+			Assert.Single(await context.Contacts.ToListAsync());
+			Assert.Empty(await context.ContactOperations.ToListAsync());
+		});
+		Assert.Equal(0, harness.Provider.CreateCalls);
+		Assert.Equal(0, harness.Provider.PullCalls);
+	}
+
 	[Fact]
 	public async Task Saving_a_contact_rejects_malformed_email_addresses()
 	{

@@ -22,6 +22,7 @@ public sealed class GraphMutationBatchTests
 		var exception = await Assert.ThrowsAsync<ProviderThrottledException>(() =>
 			GraphMailProvider.SetFlagsBatchAsync(
 				client,
+				GraphMailbox.Personal,
 				References(),
 				new FlagUpdate(true, null),
 				CancellationToken.None
@@ -40,6 +41,7 @@ public sealed class GraphMutationBatchTests
 		var exception = await Assert.ThrowsAsync<ProviderThrottledException>(() =>
 			GraphMailProvider.MoveMessagesBatchAsync(
 				client,
+				GraphMailbox.Personal,
 				References(),
 				target,
 				CancellationToken.None
@@ -55,7 +57,7 @@ public sealed class GraphMutationBatchTests
 		using var client = Client(new GraphBatchHandler(throttled: true));
 
 		var exception = await Assert.ThrowsAsync<ProviderThrottledException>(() =>
-			GraphMailProvider.MoveToTrashBatchAsync(client, References(), CancellationToken.None)
+			GraphMailProvider.MoveToTrashBatchAsync(client, GraphMailbox.Personal, References(), CancellationToken.None)
 		);
 
 		Assert.Equal(TimeSpan.FromSeconds(60), exception.RetryAfter);
@@ -70,6 +72,7 @@ public sealed class GraphMutationBatchTests
 
 		var result = await GraphMailProvider.MoveToTrashBatchAsync(
 			client,
+			GraphMailbox.Personal,
 			[reference],
 			CancellationToken.None
 		);
@@ -102,6 +105,7 @@ public sealed class GraphMutationBatchTests
 		await Assert.ThrowsAsync<ProviderAuthenticationException>(() =>
 			GraphMailProvider.SetFlagsBatchAsync(
 				client,
+				GraphMailbox.Personal,
 				References(),
 				new FlagUpdate(true, null),
 				CancellationToken.None
@@ -119,6 +123,7 @@ public sealed class GraphMutationBatchTests
 		await Assert.ThrowsAsync<HttpRequestException>(() =>
 			GraphMailProvider.SetFlagsBatchAsync(
 				client,
+				GraphMailbox.Personal,
 				References(),
 				new FlagUpdate(true, null),
 				CancellationToken.None
@@ -134,6 +139,7 @@ public sealed class GraphMutationBatchTests
 
 		var result = await GraphMailProvider.SetFlagsBatchAsync(
 			client,
+			GraphMailbox.Personal,
 			[reference],
 			new FlagUpdate(true, null),
 			CancellationToken.None

@@ -501,6 +501,16 @@ has no equivalent range constraint.
 
 Graph delta is folder-scoped, so a move surfaces independently as a removal in the source and an addition in the destination, in either order. Consequently: source removal removes the occurrence and never the canonical `Message`; a canonical message may transiently have zero memberships; destination addition reattaches the same canonical row; and GC must wait long enough that a late destination delta cannot find its row already collected.
 
+### Graph — shared mailboxes
+
+A Microsoft 365 shared mailbox has no sign-in of its own. It is an ordinary `Microsoft365` account whose `Microsoft365ProviderConfig.SharedMailbox` holds the shared address: the user signs in as themselves (the per-account token cache, tenant and MSAL flow are unchanged) and every mail and calendar request addresses `/users/{shared}` instead of `/me`. The account's address, and therefore its default `SendIdentity`, is the shared address, and `AddAccountRequest.MicrosoftSharedMailbox` must equal it.
+
+The target is chosen in one place, `GraphMailbox`, never at a call site. The fluent builders stay written against `client.Me`; the `Users[id]` builder is a separate generated type family, so the choice is applied to the request instead: `GraphSharedMailboxHandler` (installed in the pipeline only for a shared account, after the immutable-id handler) rewrites `/me` to `/users/{shared}` on every request, and `$batch` sub-requests — which never reach the pipeline because their URL is serialised into the batch body — are retargeted by `GraphMailbox.Retarget(RequestInformation)` next to where their `Prefer` header is set. Both produce the URL the generated `Users[id]` builder would. A personal account's pipeline is untouched.
+
+Scopes: a shared account requests `Mail.ReadWrite.Shared`, `Mail.Send.Shared` and `Calendars.ReadWrite.Shared` _instead of_ the plain scopes — each `.Shared` scope covers the user's own mailbox as well as delegated ones — and omits `Contacts.ReadWrite`. They are work-or-school-only delegated permissions, so the Entra app registration must have them consented. A shared account has no remote contact provider (`LocalContactProvider`): the signed-in user's personal contacts are never pulled into it.
+
+Authorisation lives in Exchange, not in MyloMail. Connecting probes the inbox so a missing Full Access grant surfaces in the Add account form. A `403` anywhere on a shared-mailbox request (Full Access missing, `ErrorSendAsDenied`/Send on Behalf missing, `.Shared` permission unconsented) is mapped by the handler to a `ProviderAuthenticationException` carrying a `ProviderRejected` problem — the same shape CalDAV uses for a denied calendar — so no raw Graph exception reaches the UI, and the account pauses in `Error` rather than retrying.
+
 ### IMAP — three capability tiers
 
 | Tier               | New mail        | Flag changes                  | Expunges                            |
@@ -1058,7 +1068,7 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 - **Live per-window state** is independent — resizing one window updates only that window's in-memory layout and writes back to the shared default for future windows; it does not live-sync to other currently-open windows.
 ### Epic 12 — Contacts
 
-- Each account has a local contact projection. Microsoft Graph contacts synchronise two-way when its API is available. Google People contacts synchronise provider creates and updates in both directions, but provider-backed deletion is deliberately unsupported as described below. IMAP accounts use local-only contacts.
+- Each account has a local contact projection. Microsoft Graph contacts synchronise two-way when its API is available. Google People contacts synchronise provider creates and updates in both directions, but provider-backed deletion is deliberately unsupported as described below. IMAP accounts and Microsoft 365 shared-mailbox accounts (which have no personal contacts of their own) use local-only contacts (`LocalContactProvider.IsLocalOnly`).
 - A contact owns one or more normalised email addresses, a display name, a provider identifier when remote-backed, and a provider revision where the API supplies one. Local identity is permanent; provider identifiers are never used as primary keys.
 - Provider contact writes use their revision/ETag as a precondition. A stale write creates a durable conflict: the UI exposes keep-mine or keep-theirs rather than silently merging unrelated edits. An operation that cannot enforce this precondition is not offered merely to claim uniform provider capability.
 - Compose autocompletes all account-local contacts. Contacts discovered from a received or sent message are suggestions only; they never overwrite a user or provider-backed contact.

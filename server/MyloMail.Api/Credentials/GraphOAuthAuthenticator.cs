@@ -4,6 +4,7 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Providers.Graph;
 
 namespace MyloMail.Api.Credentials;
 
@@ -14,6 +15,19 @@ namespace MyloMail.Api.Credentials;
 public sealed class GraphOAuthAuthenticator
 {
 	public static readonly IReadOnlyList<string> Scopes = ["Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"];
+
+	/// <summary>
+	/// Delegated scopes for a shared-mailbox account. Each <c>.Shared</c> scope covers the
+	/// signed-in user's own mailbox as well as every mailbox delegated to them (Microsoft Graph
+	/// permissions reference), so it replaces its plain counterpart rather than adding to it —
+	/// the account never reads the user's personal data. Contacts are absent: a shared account
+	/// has none. <c>.Shared</c> permissions are available to work or school accounts only.
+	/// </summary>
+	public static readonly IReadOnlyList<string> SharedMailboxScopes =
+		["Mail.ReadWrite.Shared", "Mail.Send.Shared", "Calendars.ReadWrite.Shared"];
+
+	public static IReadOnlyList<string> ScopesFor(Account account) =>
+		GraphMailbox.For(account).IsShared ? SharedMailboxScopes : Scopes;
 
 	private readonly ICredentialStore credentials;
 	private readonly IPublicClientApplication application;
@@ -39,7 +53,7 @@ public sealed class GraphOAuthAuthenticator
 			{
 				try
 				{
-					await application.AcquireTokenSilent(Scopes, cachedAccount).ExecuteAsync(ct);
+					await application.AcquireTokenSilent(ScopesFor(account), cachedAccount).ExecuteAsync(ct);
 					return new AuthResult(true, AuthState.Connected, null);
 				}
 				catch (MsalUiRequiredException)
@@ -52,7 +66,7 @@ public sealed class GraphOAuthAuthenticator
 			}
 
 			await application
-				.AcquireTokenInteractive(Scopes)
+				.AcquireTokenInteractive(ScopesFor(account))
 				.WithUseEmbeddedWebView(false)
 				.ExecuteAsync(ct);
 			return new AuthResult(true, AuthState.Connected, null);
@@ -112,7 +126,7 @@ public sealed class GraphOAuthAuthenticator
 			);
 		}
 
-		var result = await application.AcquireTokenSilent(Scopes, cachedAccount).ExecuteAsync(ct);
+		var result = await application.AcquireTokenSilent(ScopesFor(account), cachedAccount).ExecuteAsync(ct);
 		return new AccessToken(result.AccessToken, result.ExpiresOn);
 	}
 

@@ -170,4 +170,13 @@ public sealed class GmailProviderConfig : ProviderConfig
 public sealed class Microsoft365ProviderConfig : ProviderConfig
 {
 	public string? TenantId { get; set; }
+
+	/// <summary>
+	/// The SMTP address of a Microsoft 365 shared mailbox this account addresses instead of the
+	/// signed-in user's own. A shared mailbox has no sign-in of its own: the user authenticates
+	/// as themselves (needing Full Access, and Send As or Send on Behalf to send), and every
+	/// mail and calendar request targets <c>/users/{SharedMailbox}</c> rather than <c>/me</c>.
+	/// Null for an ordinary account. Such an account has no personal contacts.
+	/// </summary>
+	public string? SharedMailbox { get; set; }
 }

@@ -78,6 +78,8 @@ export type AddAccountRequest = {
     gmailClientSecret?: string;
     /** Transpiled from string? */
     microsoftTenant?: string;
+    /** Transpiled from string? */
+    microsoftSharedMailbox?: string;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ReauthenticateAccountRequest */

@@ -10,6 +10,10 @@ provider. Differences that cannot be absorbed surface as capability negotiation.
 
 - **Graph:** every request carries `Prefer: IdType="ImmutableId"`; never construct a bare
   Graph client. Default IDs change on move and corrupt occurrence identity.
+  Build clients with `GraphMailbox.For(account).Handlers()`: a shared-mailbox account is
+  addressed as `/users/{shared}` by that pipeline, and any `$batch` sub-request built from
+  `client.Me…` must go through `PrepareBatchStep` (immutable-id header and retargeting) because
+  batch steps skip the pipeline.
 - **IMAP:** UIDs are folder-scoped and change on move. Store them on `MessageMailbox`, not
   `Message`; use the server’s full folder name and declared hierarchy delimiter.
 - **Gmail:** history is account-scoped, labels are flat, and one message may have many

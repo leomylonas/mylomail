@@ -271,11 +271,13 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		{
 			await oauth.AcquireTokenAsync(account, ct);
 			var credential = new GraphAccountTokenCredential(oauth, account);
-			var authenticationProvider =
-				GraphMailProvider.CreateAuthenticationProvider(credential);
+			var authenticationProvider = GraphMailProvider.CreateAuthenticationProvider(
+				credential,
+				GraphOAuthAuthenticator.ScopesFor(account)
+			);
 			var http = GraphClientFactory.Create(
 				authenticationProvider,
-				[new GraphImmutableIdHandler()]
+				GraphMailbox.For(account).Handlers()
 			);
 			return new GraphServiceClient(http, authenticationProvider);
 		}

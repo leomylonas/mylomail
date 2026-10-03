@@ -92,6 +92,28 @@ public class AccountsController(
 				statusCode: StatusCodes.Status400BadRequest,
 				title: "Invalid Microsoft tenant");
 		}
+		if (request.ProviderType != ProviderType.Microsoft365 && !string.IsNullOrWhiteSpace(request.MicrosoftSharedMailbox))
+		{
+			return this.MutationProblem("A shared mailbox can only be set on a Microsoft 365 account.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Unexpected shared mailbox");
+		}
+		if (request.ProviderType == ProviderType.Microsoft365
+			&& !string.IsNullOrWhiteSpace(request.MicrosoftSharedMailbox)
+			&& !Providers.Graph.GraphMailbox.IsValidSharedMailbox(request.MicrosoftSharedMailbox.Trim()))
+		{
+			return this.MutationProblem("Enter the shared mailbox's email address, such as support@contoso.com.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Invalid shared mailbox");
+		}
+		if (request.ProviderType == ProviderType.Microsoft365
+			&& !string.IsNullOrWhiteSpace(request.MicrosoftSharedMailbox)
+			&& !string.Equals(request.EmailAddress?.Trim(), request.MicrosoftSharedMailbox.Trim(), StringComparison.OrdinalIgnoreCase))
+		{
+			return this.MutationProblem("A shared mailbox account sends as the shared address, so the account address must be the shared mailbox address.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Shared mailbox address mismatch");
+		}
 
 		if (request.ProviderType == ProviderType.Imap && request.Imap is null)
 		{
@@ -361,6 +383,9 @@ public class AccountsController(
 				TenantId = string.IsNullOrWhiteSpace(request.MicrosoftTenant)
 					? null
 					: request.MicrosoftTenant.Trim(),
+				SharedMailbox = string.IsNullOrWhiteSpace(request.MicrosoftSharedMailbox)
+					? null
+					: request.MicrosoftSharedMailbox.Trim(),
 			},
 			ProviderType.Imap when request.Imap is not null => new ImapProviderConfig
 			{

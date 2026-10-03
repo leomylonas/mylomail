@@ -50,11 +50,12 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		return await SetFlagsBatchAsync(client, refs, update, ct);
+		return await SetFlagsBatchAsync(client, GraphMailbox.For(account), refs, update, ct);
 	}
 
 	internal static async Task<BatchResult> SetFlagsBatchAsync(
 		GraphServiceClient client,
+		GraphMailbox mailbox,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		FlagUpdate update,
 		CancellationToken ct
@@ -83,7 +84,7 @@ public sealed partial class GraphMailProvider
 				var request = client.Me.Messages[reference.ProviderOccurrenceId].ToPatchRequestInformation(
 					message
 				);
-				SetImmutableIdPreference(request);
+				PrepareBatchStep(request, mailbox);
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
@@ -118,11 +119,12 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		return await MoveMessagesBatchAsync(client, refs, target, ct);
+		return await MoveMessagesBatchAsync(client, GraphMailbox.For(account), refs, target, ct);
 	}
 
 	internal static async Task<BatchResult> MoveMessagesBatchAsync(
 		GraphServiceClient client,
+		GraphMailbox mailbox,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		DomainMailbox target,
 		CancellationToken ct
@@ -139,7 +141,7 @@ public sealed partial class GraphMailProvider
 				var request = client.Me.Messages[reference.ProviderOccurrenceId].Move.ToPostRequestInformation(
 					new MovePostRequestBody { DestinationId = destinationId }
 				);
-				SetImmutableIdPreference(request);
+				PrepareBatchStep(request, mailbox);
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
@@ -192,11 +194,12 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		return await MoveToTrashBatchAsync(client, refs, ct);
+		return await MoveToTrashBatchAsync(client, GraphMailbox.For(account), refs, ct);
 	}
 
 	internal static async Task<BatchResult> MoveToTrashBatchAsync(
 		GraphServiceClient client,
+		GraphMailbox mailbox,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
 	)
@@ -212,7 +215,7 @@ public sealed partial class GraphMailProvider
 				var request = client.Me.Messages[reference.ProviderOccurrenceId].Move.ToPostRequestInformation(
 					new MovePostRequestBody { DestinationId = TrashFolderId }
 				);
-				SetImmutableIdPreference(request);
+				PrepareBatchStep(request, mailbox);
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
@@ -276,11 +279,12 @@ public sealed partial class GraphMailProvider
 	)
 	{
 		var client = await ClientAsync(account, ct);
-		return await DeletePermanentlyBatchAsync(client, refs, ct);
+		return await DeletePermanentlyBatchAsync(client, GraphMailbox.For(account), refs, ct);
 	}
 
 	internal static async Task<BatchResult> DeletePermanentlyBatchAsync(
 		GraphServiceClient client,
+		GraphMailbox mailbox,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
 	)
@@ -295,7 +299,7 @@ public sealed partial class GraphMailProvider
 				var request = client.Me.Messages[
 					reference.ProviderOccurrenceId
 				].ToDeleteRequestInformation();
-				SetImmutableIdPreference(request);
+				PrepareBatchStep(request, mailbox);
 				steps[await batch.AddBatchRequestStepAsync(request)] = reference;
 			}
 
@@ -346,8 +350,16 @@ public sealed partial class GraphMailProvider
 			[]
 		);
 
-	private static void SetImmutableIdPreference(RequestInformation request) =>
+	/// <summary>
+	/// A <c>$batch</c> sub-request skips the HTTP pipeline, so it must be given by hand what the
+	/// pipeline gives every other request: the immutable-id preference and the mailbox it
+	/// addresses (<see cref="GraphMailbox.Retarget(RequestInformation)"/>).
+	/// </summary>
+	private static void PrepareBatchStep(RequestInformation request, GraphMailbox mailbox)
+	{
 		request.Headers.Add("Prefer", "IdType=\"ImmutableId\"");
+		mailbox.Retarget(request);
+	}
 
 	private static async Task<string> MovedProviderIdAsync(
 		System.Net.Http.HttpResponseMessage response,

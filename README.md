@@ -96,6 +96,13 @@ Providers__Graph__ClientId=...
 Providers__Graph__Authority=... # optional; defaults to the common authority
 ```
 
+A Microsoft 365 shared mailbox is added as a Microsoft 365 account with "This is a
+shared mailbox" switched on: you sign in as yourself (Full Access to the mailbox, and
+Send As or Send on Behalf to send from it). The application registration must have the
+delegated `Mail.ReadWrite.Shared`, `Mail.Send.Shared` and `Calendars.ReadWrite.Shared`
+permissions consented. They are available to work or school accounts only, and a
+shared mailbox has no personal contacts.
+
 ## Development loop
 
 Start the watcher once in a separate terminal. It keeps TypeScript, ESLint, and

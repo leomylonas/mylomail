@@ -102,7 +102,7 @@ public sealed class ContactService(
 	{
 		using var lease = await gate.EnterAsync(accountId, ct);
 		var account = await context.Accounts.SingleOrDefaultAsync(a => a.Id == accountId, ct);
-		if (account is null || account.ProviderType == ProviderType.Imap) return false;
+		if (account is null || LocalContactProvider.IsLocalOnly(account)) return false;
 		if (!account.IsEnabled
 			|| !account.PollingEnabled
 			|| account.AuthState is AuthState.NeedsReauth or AuthState.Error) return false;
@@ -263,7 +263,7 @@ public sealed class ContactService(
 
 		Apply(contact, input.DisplayName, emails);
 		var account = await context.Accounts.SingleAsync(a => a.Id == input.AccountId, ct);
-		if (account.ProviderType == ProviderType.Imap)
+		if (LocalContactProvider.IsLocalOnly(account))
 		{
 			await context.SaveChangesAsync(ct);
 			await events.ContactsChangedAsync(contact.AccountId);
@@ -477,7 +477,7 @@ public sealed class ContactService(
 		if (await HasUnsettledPredecessorAsync(operation, ct)) return;
 		var account = await context.Accounts.SingleAsync(a => a.Id == contact.AccountId, ct);
 		if (!account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error) return;
-		if (account.ProviderType == ProviderType.Imap)
+		if (LocalContactProvider.IsLocalOnly(account))
 		{
 			Complete(operation);
 			await context.SaveChangesAsync(ct);
