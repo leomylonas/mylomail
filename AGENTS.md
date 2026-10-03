@@ -64,7 +64,7 @@ crash-window races visible only under fault injection.
 
 ## Environment
 
-**Node 22.** Pinned in `.nvmrc` and `engines`, and matched by CI. Node 18 is not
+**Node 24.** Pinned in `.nvmrc` and `engines`, and matched by CI. Older majors are not
 supported — Stylelint 17 and other tooling require 20+, and a version mismatch shows up as
 a tool crashing rather than as a clear error.
 
