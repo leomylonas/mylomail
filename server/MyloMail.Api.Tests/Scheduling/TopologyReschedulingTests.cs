@@ -60,7 +60,7 @@ public sealed class TopologyReschedulingTests
 		);
 
 		var created = await CreatedJobsAsync(harness);
-		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync));
+		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.AccountCoveragePageAsync));
 
 		var syntheticId = await harness.UsingAsync(async scope =>
 			await scope.GetRequiredService<MyloMailDbContext>()
@@ -281,11 +281,17 @@ public sealed class TopologyReschedulingTests
 		Assert.True(stillClaimed);
 	}
 
+	/// <summary>
+	/// One owner per account for Gmail, not one per label: its coverage is one account-wide walk,
+	/// and a job per label is the concurrent per-label fetching the walk exists to prevent.
+	/// </summary>
 	[Fact]
-	public async Task Repeated_topology_starters_create_only_one_coverage_owner_per_mailbox()
+	public async Task Repeated_topology_starters_create_only_one_coverage_owner_per_gmail_account()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("RECEIPTS");
+		harness.Provider.AddMailbox("Projects/Client");
 
 		await harness.UsingAsync(async scope =>
 		{
@@ -293,10 +299,30 @@ public sealed class TopologyReschedulingTests
 			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
 		});
 
-		Assert.Single(
-			await CreatedJobsAsync(harness),
-			job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync)
-		);
+		var created = await CreatedJobsAsync(harness);
+		Assert.Single(created, job => job.Method.Name == nameof(SyncJobs.AccountCoveragePageAsync));
+		Assert.DoesNotContain(created, job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync));
+	}
+
+	/// <summary>
+	/// IMAP and Graph keep a walk per mailbox, each owned once.
+	/// </summary>
+	[Fact]
+	public async Task Repeated_topology_starters_create_one_coverage_owner_per_graph_mailbox()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("Archive", SpecialUse.Archive);
+
+		await harness.UsingAsync(async scope =>
+		{
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+			await scope.GetRequiredService<SyncJobs>().TopologyAsync(harness.Account.Id);
+		});
+
+		var created = await CreatedJobsAsync(harness);
+		Assert.Equal(2, created.Count(job => job.Method.Name == nameof(SyncJobs.CoveragePageAsync)));
+		Assert.DoesNotContain(created, job => job.Method.Name == nameof(SyncJobs.AccountCoveragePageAsync));
 	}
 
 	private static AccountSettingsDto AccountSettings(Account account, bool pollingEnabled) =>

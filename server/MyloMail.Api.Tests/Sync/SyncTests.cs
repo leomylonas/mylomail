@@ -418,7 +418,7 @@ public sealed class SyncTests
 	}
 
 	[Fact]
-	public async Task Gmail_message_bound_and_resume_cursor_commit_with_each_coverage_page()
+	public async Task Gmail_message_bound_and_walk_cursor_commit_with_each_account_page()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
@@ -443,22 +443,14 @@ public sealed class SyncTests
 		Assert.True(
 			await harness.UsingAsync(async scope =>
 				await scope.GetRequiredService<CoverageService>()
-					.RunPageAsync(
-						await harness.AccountInScopeAsync(scope),
-						await harness.MailboxAsync(scope, "INBOX"),
-						pageSize: 2
-					)
+					.RunAccountPageAsync(await harness.AccountInScopeAsync(scope), pageSize: 2)
 			)
 		);
 		harness.Faults.ArmAt(FaultPoints.SyncPageAfterApplyBeforeCommit);
 		await Assert.ThrowsAsync<SimulatedCrashException>(() =>
 			harness.UsingAsync(async scope =>
 				await scope.GetRequiredService<CoverageService>()
-					.RunPageAsync(
-						await harness.AccountInScopeAsync(scope),
-						await harness.MailboxAsync(scope, "INBOX"),
-						pageSize: 2
-					)
+					.RunAccountPageAsync(await harness.AccountInScopeAsync(scope), pageSize: 2)
 			)
 		);
 		await harness.RestartAsync();
@@ -466,22 +458,30 @@ public sealed class SyncTests
 		await harness.UsingAsync(async scope =>
 		{
 			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var walk = await context.AccountCoverageStates.SingleAsync();
 			var coverage = await context.MailboxCoverageStates.SingleAsync();
 			Assert.Equal(2, await context.Messages.CountAsync());
+			Assert.Equal(CoverageStatus.Backfilling, walk.Status);
+			Assert.Equal(2, walk.MessagesFetched);
+			Assert.Equal("2", walk.ResumeToken);
+
+			// The mailbox row follows the walk and never holds its cursor.
 			Assert.Equal(2, coverage.MessagesFetched);
-			Assert.Equal("2", coverage.ResumeToken);
+			Assert.Null(coverage.ResumeToken);
 		});
 
 		await CoverAsync(harness, pageSize: 2);
 		await harness.UsingAsync(async scope =>
 		{
 			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var walk = await context.AccountCoverageStates.SingleAsync();
 			var coverage = await context.MailboxCoverageStates.SingleAsync();
 			Assert.Equal(3, await context.Messages.CountAsync());
-			Assert.Equal(3, coverage.MessagesFetched);
-			Assert.Equal(3, coverage.EstimatedTotal);
+			Assert.Equal(3, walk.MessagesFetched);
+			Assert.Equal(3, walk.EstimatedTotal);
+			Assert.Equal(CoverageStatus.Covered, walk.Status);
+			Assert.Null(walk.ResumeToken);
 			Assert.Equal(CoverageStatus.Covered, coverage.Status);
-			Assert.Null(coverage.ResumeToken);
 		});
 	}
 
@@ -535,10 +535,15 @@ public sealed class SyncTests
 		});
 	}
 
+	/// <summary>
+	/// Per-mailbox ranges belong to the providers whose coverage is per-mailbox. Gmail's one
+	/// account-wide walk has nothing to attach one to, and the hub refuses it (see
+	/// <c>Gmail_refuses_a_per_mailbox_sync_range</c>).
+	/// </summary>
 	[Fact]
 	public async Task Changing_a_mailbox_coverage_policy_restarts_its_persisted_walk()
 	{
-		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		for (var index = 0; index < 5; index++)
 		{
@@ -549,7 +554,7 @@ public sealed class SyncTests
 			);
 		}
 		await ReconcileAsync(harness);
-		await SyncAsync(harness);
+
 		await harness.UsingAsync(async scope =>
 			await scope.GetRequiredService<CoverageService>()
 				.RunPageAsync(
@@ -1662,20 +1667,31 @@ public sealed class SyncTests
 				.ReconcileAsync(await harness.AccountInScopeAsync(scope))
 		);
 
+	/// <summary>
+	/// Runs coverage to completion the way the production job would: one account-wide walk for
+	/// Gmail, whichever mailbox is named, and that mailbox's own walk for IMAP and Graph.
+	/// </summary>
 	internal static Task CoverAsync(
 		SyncHarness harness,
 		string providerMailboxId = "INBOX",
 		int pageSize = 200
 	) =>
 		harness.UsingAsync(async scope =>
-			await scope
-				.GetRequiredService<CoverageService>()
-				.RunToCompletionAsync(
-					await harness.AccountInScopeAsync(scope),
-					await harness.MailboxAsync(scope, providerMailboxId),
-					pageSize
-				)
-		);
+		{
+			var coverage = scope.GetRequiredService<CoverageService>();
+			var account = await harness.AccountInScopeAsync(scope);
+			if (CoverageService.IsAccountScoped(account))
+			{
+				await coverage.RunAccountToCompletionAsync(account, pageSize);
+				return;
+			}
+
+			await coverage.RunToCompletionAsync(
+				account,
+				await harness.MailboxAsync(scope, providerMailboxId),
+				pageSize
+			);
+		});
 
 	internal static Task<ChangeStreamOutcome> SyncAsync(SyncHarness harness, string providerMailboxId = "INBOX") =>
 		harness.UsingAsync(async scope =>

@@ -269,11 +269,10 @@ public sealed class AccountStateBroadcastTests
 	[Fact]
 	public async Task Changing_a_mailbox_sync_bound_announces_its_reset_coverage()
 	{
-		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Graph);
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
 		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
 		await SyncTests.ReconcileAsync(harness);
-		await SyncTests.SyncAsync(harness);
 		await SyncTests.CoverAsync(harness);
 		var mailboxId = await harness.UsingAsync(async scope =>
 			(await scope.GetRequiredService<MyloMailDbContext>().Mailboxes.SingleAsync()).Id
@@ -290,6 +289,44 @@ public sealed class AccountStateBroadcastTests
 		Assert.Equal(mailboxId, announced.Id);
 		Assert.Equal(CoverageStatus.NotStarted, announced.Coverage);
 		Assert.Equal(InitialSyncMode.LastNMessages, announced.InitialSyncModeOverride);
+	}
+
+	/// <summary>
+	/// Gmail downloads one account-wide walk, so a range for a single label has nothing to
+	/// attach to. Accepting it would also reset that label's coverage — which the walk owns —
+	/// for no effect, so it is refused and nothing changes.
+	/// </summary>
+	[Fact]
+	public async Task Gmail_refuses_a_per_mailbox_sync_range()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
+		var mailboxId = await harness.UsingAsync(async scope =>
+			(await scope.GetRequiredService<MyloMailDbContext>().Mailboxes.SingleAsync()).Id
+		);
+		harness.Events.Clear();
+
+		await Assert.ThrowsAnyAsync<HubException>(() =>
+			harness.UsingAsync(services =>
+				services
+					.GetRequiredService<MailHub>()
+					.SetMailboxInitialSyncOverride(mailboxId, InitialSyncMode.LastNMessages, 10)
+			)
+		);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var mailbox = await context.Mailboxes.SingleAsync();
+			Assert.Null(mailbox.InitialSyncModeOverride);
+			Assert.Equal(0, mailbox.CoveragePolicyGeneration);
+			Assert.Equal(CoverageStatus.Covered, (await context.MailboxCoverageStates.SingleAsync()).Status);
+		});
+		Assert.Empty(harness.Events.Mailboxes);
 	}
 
 	private static async Task<Guid> AddSecondAccountAsync(SyncHarness harness) =>

@@ -41,6 +41,51 @@ public class MailboxCoverageState
 	public string? LastError { get; set; }
 }
 
+/// <summary>
+/// Historical backfill for a provider whose coverage walk is account-scoped, 1:1 with
+/// <see cref="Account"/> (§1, §3). Gmail only: <c>messages.list</c> without a label filter
+/// walks the whole account once, and every message arrives with its full label set.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>This row owns the walk; the per-mailbox <see cref="MailboxCoverageState"/> rows follow
+/// it.</b> While <see cref="Status"/> is not <see cref="CoverageStatus.Covered"/>, every
+/// provider-backed mailbox that took part in the walk reports the walk's status, and the
+/// walk's <see cref="ResumeToken"/> is the only cursor — a mailbox row never carries one for
+/// it. The token commits in the same transaction as the page it covers and as the mirrored
+/// mailbox rows (§1 "Cursor advancement is transactional").
+/// </para>
+/// <para>
+/// Once the walk is <see cref="CoverageStatus.Covered"/>, a mailbox that is not Covered (a
+/// label created after the walk started) is caught up on its own through the ordinary
+/// per-mailbox path.
+/// </para>
+/// </remarks>
+public class AccountCoverageState
+{
+	public Guid AccountId { get; set; }
+	public CoverageStatus Status { get; set; }
+
+	/// <summary>Messages the walk has consumed, distinct across labels — not a sum over mailboxes.</summary>
+	public int MessagesFetched { get; set; }
+
+	public int? EstimatedTotal { get; set; }
+
+	/// <summary>Persisted every page, in the transaction that ingests the page. Null at the start of a walk.</summary>
+	public string? ResumeToken { get; set; }
+
+	/// <summary>
+	/// Incremented whenever the walk is restarted — an account bound change or a triggered
+	/// resynchronisation. A page fetched under an older generation must not commit its data or
+	/// continuation over the restarted walk (the account-level analogue of
+	/// <see cref="Mailbox.CoveragePolicyGeneration"/>).
+	/// </summary>
+	public int PolicyGeneration { get; set; }
+
+	public DateTimeOffset? StartedAt { get; set; }
+	public string? LastError { get; set; }
+}
+
 [TranspilationSource]
 public enum CoverageStatus
 {

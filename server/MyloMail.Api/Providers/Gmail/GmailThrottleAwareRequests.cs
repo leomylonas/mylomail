@@ -59,17 +59,58 @@ internal static class GmailRequestExtensions
 	// each service is looked up here instead of re-read off the handler chain.
 	private static readonly ConditionalWeakTable<IClientService, GmailThrottleTracker> Trackers = new();
 
+	// Same lookup, for the account whose budget a service's requests are charged to. Only a
+	// GmailService created by GmailMailProvider carries one: the Calendar service shares
+	// ExecuteThrottleAwareAsync but is a different API with its own quota, so it has none and
+	// passes through unmetered.
+	private static readonly ConditionalWeakTable<IClientService, GmailQuotaMeter> Meters = new();
+
+	// The cost of a batch is the sum of what was queued into it, and BatchRequest exposes only a
+	// count, so QueueMetered keeps the running total here.
+	private static readonly ConditionalWeakTable<BatchRequest, StrongBox<int>> BatchUnits = new();
+
 	public static void AttachThrottleTracker(this BaseClientService service, GmailThrottleTracker tracker)
 	{
 		service.HttpClient.MessageHandler.AddUnsuccessfulResponseHandler(tracker);
 		Trackers.Add(service, tracker);
 	}
 
+	/// <summary>
+	/// Charges every request this service executes to <paramref name="budget"/> under
+	/// <paramref name="accountId"/>, so everything the app does for one account shares one
+	/// bucket.
+	/// </summary>
+	public static void AttachQuotaMeter(this BaseClientService service, Guid accountId, GmailRequestBudget budget) =>
+		Meters.AddOrUpdate(service, new GmailQuotaMeter(accountId, budget));
+
+	/// <summary>
+	/// <c>BatchRequest.Queue</c> that also records the call's quota cost, which is charged when
+	/// the batch executes.
+	/// </summary>
+	public static void QueueMetered<TResponse>(
+		this BatchRequest batch,
+		IClientServiceRequest request,
+		BatchRequest.OnResponse<TResponse> callback
+	)
+		where TResponse : class
+	{
+		BatchUnits.GetOrCreateValue(batch).Value += GmailQuotaUnits.For(request);
+		batch.Queue(request, callback);
+	}
+
+	private static Task SpendAsync(IClientService service, int units, CancellationToken ct) =>
+		Meters.TryGetValue(service, out var meter)
+			? meter.Budget.AcquireAsync(meter.AccountId, units, ct)
+			: Task.CompletedTask;
+
 	public static async Task<TResponse> ExecuteThrottleAwareAsync<TResponse>(
 		this IClientServiceRequest<TResponse> request,
 		CancellationToken ct
 	)
 	{
+		// Before the request, never after: the point is to stay under the quota, and waiting is
+		// cancellable, so a shutdown or an abandoned job does not sit in the queue.
+		await SpendAsync(request.Service, GmailQuotaUnits.For(request), ct);
 		try
 		{
 			return await request.ExecuteAsync(ct);
@@ -87,6 +128,16 @@ internal static class GmailRequestExtensions
 		CancellationToken ct
 	)
 	{
+		// A batch is billed as the sum of its calls, not as one request. A batch built without
+		// QueueMetered still pays, at the unlisted default per call, rather than paying nothing.
+		var units = BatchUnits.TryGetValue(request, out var recorded)
+			? recorded.Value
+			: request.Count * GmailQuotaUnits.Unlisted;
+		if (units > 0)
+		{
+			await SpendAsync(service, units, ct);
+		}
+
 		try
 		{
 			await request.ExecuteAsync(ct);

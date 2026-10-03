@@ -962,11 +962,28 @@ public class MailHub(
 		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
 	}
 
+	/// <remarks>
+	/// Refused for Gmail. Its history is downloaded as one account-wide walk (§3), so a range
+	/// for one label has nothing to attach to — and accepting it would reset that label's
+	/// coverage, which the walk owns, for no effect. The account's own range is what applies.
+	/// </remarks>
 	public async Task SetMailboxInitialSyncOverride(Guid mailboxId, InitialSyncMode? mode, int? boundValue)
 	{
 		if (mode is not null and not InitialSyncMode.Full && boundValue is not > 0)
 		{
 			throw new MutationHubException(ErrorCategory.Validation, "A bounded initial sync needs a positive month/message count.");
+		}
+
+		var owner = await context
+			.Accounts.AsNoTracking()
+			.Where(account => context.Mailboxes.Any(mailbox => mailbox.Id == mailboxId && mailbox.AccountId == account.Id))
+			.FirstOrDefaultAsync();
+		if (owner is not null && CoverageService.IsAccountScoped(owner))
+		{
+			throw new MutationHubException(
+				ErrorCategory.Validation,
+				"Gmail downloads mail as one account-wide walk, so its initial sync range is set for the whole account rather than per folder."
+			);
 		}
 
 		var overrideBound = mode is null or InitialSyncMode.Full ? null : boundValue;
@@ -1129,11 +1146,13 @@ public class MailHub(
 			accountChanged |= await context.SaveChangesAsync() > 0;
 			if (attemptPolicyChanged)
 			{
+				// Gmail has no per-mailbox ranges, so the account's range reaches every mailbox.
+				var accountScoped = CoverageService.IsAccountScoped(current);
 				var mailboxIds = await context
 					.Mailboxes.Where(mailbox =>
 						mailbox.AccountId == current.Id
 						&& mailbox.ProviderMailboxId != null
-						&& mailbox.InitialSyncModeOverride == null
+						&& (accountScoped || mailbox.InitialSyncModeOverride == null)
 					)
 					.Select(mailbox => mailbox.Id)
 					.ToListAsync();
@@ -1160,6 +1179,32 @@ public class MailHub(
 							.SetProperty(coverage => coverage.StartedAt, (DateTimeOffset?)null)
 							.SetProperty(coverage => coverage.LastError, (string?)null)
 					);
+				if (accountScoped)
+				{
+					// Gmail's cursor is the account walk's, not any mailbox's: restart it in this
+					// transaction, under a new generation so a page already in flight cannot
+					// commit its position over the restarted walk. The mailbox rows reset above are
+					// the rows that follow it.
+					var restarted = await context
+						.AccountCoverageStates.Where(walk => walk.AccountId == current.Id)
+						.ExecuteUpdateAsync(setters =>
+							setters
+								.SetProperty(walk => walk.Status, CoverageStatus.NotStarted)
+								.SetProperty(walk => walk.MessagesFetched, 0)
+								.SetProperty(walk => walk.EstimatedTotal, (int?)null)
+								.SetProperty(walk => walk.ResumeToken, (string?)null)
+								.SetProperty(walk => walk.StartedAt, (DateTimeOffset?)null)
+								.SetProperty(walk => walk.LastError, (string?)null)
+								.SetProperty(walk => walk.PolicyGeneration, walk => walk.PolicyGeneration + 1)
+						);
+					if (restarted == 0)
+					{
+						context.AccountCoverageStates.Add(
+							new AccountCoverageState { AccountId = current.Id, PolicyGeneration = 1 }
+						);
+						await context.SaveChangesAsync();
+					}
+				}
 				coveragePolicyChanged = true;
 				faults.Reached(FaultPoints.AccountCoveragePolicyAfterApplyBeforeCommit);
 			}
@@ -1217,20 +1262,13 @@ public class MailHub(
 			);
 		}
 
-		// An old-generation coverage page exits rather than scheduling a successor. Start one
-		// replacement per affected provider-backed mailbox only after the new policy and reset
-		// state are durable; messages already materialised remain local while the walk restarts.
+		// An old-generation coverage page exits rather than scheduling a successor. Start the
+		// replacement owner only after the new policy and reset state are durable — one per
+		// affected provider-backed mailbox for IMAP and Graph, one for the whole account for
+		// Gmail. Messages already materialised remain local while the walk restarts.
 		if (coveragePolicyChanged)
 		{
-			foreach (var mailboxId in affectedMailboxIds)
-			{
-				if (coverageLoops.TryStart(account.Id, mailboxId))
-				{
-					jobs.Enqueue<Scheduling.SyncJobs>(job =>
-						job.CoveragePageAsync(account.Id, mailboxId, default)
-					);
-				}
-			}
+			Scheduling.SyncJobs.StartCoverage(coverageLoops, jobs, account, affectedMailboxIds);
 			await MailboxSummaryDtoFactory.AnnounceManyAsync(
 				context,
 				events,

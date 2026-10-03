@@ -95,6 +95,37 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.ToTable("Accounts");
                 });
 
+            modelBuilder.Entity("MyloMail.Api.Domain.AccountCoverageState", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("EstimatedTotal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MessagesFetched")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PolicyGeneration")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResumeToken")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("AccountCoverageStates");
+                });
+
             modelBuilder.Entity("MyloMail.Api.Domain.AccountCredentialCleanup", b =>
                 {
                     b.Property<Guid>("AccountId")
@@ -1491,6 +1522,15 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("StagedChangeEvents");
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.AccountCoverageState", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithOne()
+                        .HasForeignKey("MyloMail.Api.Domain.AccountCoverageState", "AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MyloMail.Api.Domain.AccountTrustedCertificate", b =>

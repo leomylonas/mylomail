@@ -259,13 +259,7 @@ public sealed class SyncJobs(
 		retryBackoff.Reset(workKey);
 
 
-		foreach (var mailboxId in pending)
-		{
-			if (coverageLoops.TryStart(accountId, mailboxId))
-			{
-				jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
-			}
-		}
+		StartCoverage(coverageLoops, jobs, account, pending);
 
 		await StartChangeStreamsAsync(account, ct);
 		await StartIntegrityReconciliationAsync(account, ct);
@@ -549,6 +543,167 @@ public sealed class SyncJobs(
 				jobs.Enqueue<SyncJobs>(j => j.ChangeStreamAsync(account.Id, mailboxId, default));
 			}
 		}
+	}
+
+	/// <summary>
+	/// Starts the coverage owner for pending work: one self-scheduling job per mailbox for IMAP
+	/// and Graph, one per account for Gmail.
+	/// </summary>
+	/// <remarks>
+	/// Every starter — topology, a settings change — goes through here, so how many owners an
+	/// account can have is decided in one place. A Gmail account has exactly one however many
+	/// labels it has, because its coverage is one walk (§3): a job per label would be the
+	/// concurrent per-label fetching this exists to prevent. A second claim on the same key
+	/// finds it held and starts nothing.
+	/// </remarks>
+	internal static void StartCoverage(
+		CoverageRegistry loops,
+		IBackgroundJobClient jobs,
+		Account account,
+		IReadOnlyCollection<Guid> mailboxIds
+	)
+	{
+		var accountId = account.Id;
+		if (CoverageService.IsAccountScoped(account))
+		{
+			if (mailboxIds.Count > 0 && loops.TryStart(accountId, CoverageRegistry.AccountWalkScope))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.AccountCoveragePageAsync(accountId, default));
+			}
+			return;
+		}
+
+		foreach (var mailboxId in mailboxIds)
+		{
+			if (loops.TryStart(accountId, mailboxId))
+			{
+				jobs.Enqueue<SyncJobs>(j => j.CoveragePageAsync(accountId, mailboxId, default));
+			}
+		}
+	}
+
+	/// <summary>
+	/// Runs one page of an account-scoped coverage walk and enqueues its own successor while
+	/// work remains.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The sole coverage owner of its account (see <see cref="StartCoverage"/>): the account-wide
+	/// walk's pages first, then a catch-up for each mailbox the walk did not cover, one page at
+	/// a time. One page per job for the same reason as <see cref="CoveragePageAsync"/> — a long
+	/// backfill resumes at page granularity from the token committed with each page.
+	/// </para>
+	/// <para>
+	/// The content chain is kicked after every page, not only at the end: the walk of a large
+	/// account takes a long time, and bodies — what make mail searchable — would otherwise wait
+	/// for all of it. The chain is single-flight per account, so a kick while one runs is
+	/// folded into it.
+	/// </para>
+	/// </remarks>
+	public async Task AccountCoveragePageAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var owner = CoverageRegistry.AccountWalkScope;
+		var workKey = $"{nameof(AccountCoveragePageAsync)}:{accountId}";
+		if (!connectivity.CanRun(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.AccountCoveragePageAsync(accountId, default))
+			))
+		{
+			return;
+		}
+
+		var account = await RunnableAsync(accountId, ct);
+		if (account is null)
+		{
+			coverageLoops.Stop(accountId, owner);
+			return;
+		}
+
+		if (DeferForThrottle(
+				accountId,
+				delay => jobs.Schedule<SyncJobs>(
+					job => job.AccountCoveragePageAsync(accountId, default),
+					delay
+				)
+			))
+		{
+			return;
+		}
+
+		var fence = await coverage.CaptureFenceAsync(account, ct);
+		bool more;
+		try
+		{
+			more = await GuardAsync(account, () => coverage.RunAccountPageAsync(account, ct: ct), ct);
+		}
+		catch (CoverageBaselinePendingException)
+		{
+			// Keep the sole ownership claim while waiting for the owning stream/topology
+			// restart to establish the new baseline, or for a restarted walk to be re-read.
+			// Releasing here races settings/topology starters and can strand or duplicate the
+			// replacement walk.
+			jobs.Schedule<SyncJobs>(
+				j => j.AccountCoveragePageAsync(accountId, default),
+				TimeSpan.FromSeconds(5)
+			);
+			return;
+		}
+		catch (ProviderThrottledException ex)
+		{
+			jobs.Schedule<SyncJobs>(j => j.AccountCoveragePageAsync(accountId, default), ex.RetryAfter);
+			return;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			await connectivity.PauseAsync(
+				workKey,
+				client => client.Enqueue<SyncJobs>(job => job.AccountCoveragePageAsync(accountId, default))
+			);
+			return;
+		}
+		catch (ProviderAuthenticationException)
+		{
+			coverageLoops.Stop(accountId, owner);
+			return;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			jobs.Schedule<SyncJobs>(
+				job => job.AccountCoveragePageAsync(accountId, default),
+				CredentialStoreRetryDelay
+			);
+			return;
+		}
+		catch (Exception ex) when (ex is not SimulatedCrashException)
+		{
+			await coverage.RecordAccountFailureAsync(accountId, fence, ex, ct);
+			jobs.Schedule<SyncJobs>(
+				job => job.AccountCoveragePageAsync(accountId, default),
+				retryBackoff.Next(workKey)
+			);
+			return;
+		}
+		retryBackoff.Reset(workKey);
+
+		if (!await StillRunnableAsync(accountId, ct))
+		{
+			coverageLoops.Stop(accountId, owner);
+			return;
+		}
+
+		if (more)
+		{
+			jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
+			jobs.Enqueue<SyncJobs>(j => j.AccountCoveragePageAsync(accountId, default));
+			return;
+		}
+		coverageLoops.Stop(accountId, owner);
+
+		await StartChangeStreamsAsync(account, ct);
+
+		// Coverage is done; Gmail's staged history may now be replayable.
+		jobs.Enqueue<SyncJobs>(j => j.ReplayStagedAsync(accountId, default));
+		jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
 	}
 
 	/// <summary>

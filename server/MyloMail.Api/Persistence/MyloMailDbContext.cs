@@ -29,6 +29,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 	public DbSet<MailboxTopologyEpoch> MailboxTopologyEpochs => Set<MailboxTopologyEpoch>();
 	public DbSet<MailboxTopologySyncState> MailboxTopologySyncStates => Set<MailboxTopologySyncState>();
+	public DbSet<AccountCoverageState> AccountCoverageStates => Set<AccountCoverageState>();
 	public DbSet<MailboxCoverageState> MailboxCoverageStates => Set<MailboxCoverageState>();
 	public DbSet<ChangeStreamState> ChangeStreamStates => Set<ChangeStreamState>();
 	public DbSet<IntegrityReconciliationState> IntegrityReconciliationStates => Set<IntegrityReconciliationState>();
@@ -297,6 +298,15 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 			e.HasOne<Account>()
 				.WithOne()
 				.HasForeignKey<MailboxTopologySyncState>(x => x.AccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<AccountCoverageState>(e =>
+		{
+			e.HasKey(x => x.AccountId);
+			e.HasOne<Account>()
+				.WithOne()
+				.HasForeignKey<AccountCoverageState>(x => x.AccountId)
 				.OnDelete(DeleteBehavior.Cascade);
 		});
 

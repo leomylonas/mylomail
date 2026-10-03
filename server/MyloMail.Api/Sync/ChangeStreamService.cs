@@ -800,6 +800,27 @@ public sealed class ChangeStreamService(
 			coverage.MessagesFetched = 0;
 		}
 
+		if (state.MailboxId is null)
+		{
+			// An account-scoped stream is Gmail's, and its backfill is one account-wide walk.
+			// Restarting it bumps the walk's generation, so a page already in flight under the
+			// invalidated baseline cannot commit its position over the new walk.
+			var walk = await context.AccountCoverageStates.FirstOrDefaultAsync(
+				candidate => candidate.AccountId == account.Id,
+				ct
+			);
+			if (walk is not null)
+			{
+				walk.Status = CoverageStatus.NotStarted;
+				walk.ResumeToken = null;
+				walk.MessagesFetched = 0;
+				walk.EstimatedTotal = null;
+				walk.StartedAt = null;
+				walk.LastError = null;
+				walk.PolicyGeneration = checked(walk.PolicyGeneration + 1);
+			}
+		}
+
 		var integrity = await context.IntegrityReconciliationStates.FirstOrDefaultAsync(
 			i => i.MailboxId == mailbox.Id,
 			ct

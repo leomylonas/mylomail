@@ -186,7 +186,16 @@ public sealed class DatabaseBootstrapperTests
 			await DropNewerAccountColumnsAsync(context);
 		}
 
-		await database.MigrateAsync();
+		// Stopped at the migration under test. The later account-wide-walk migration restarts
+		// every mid-backfill Gmail mailbox, which would hide what this one decided about which
+		// legacy cursors were still valid; its own behaviour is covered separately.
+		await using (var migrationScope = database.CreateScope())
+		{
+			await migrationScope
+				.ServiceProvider.GetRequiredService<MyloMailDbContext>()
+				.GetService<IMigrator>()
+				.MigrateAsync("20260912000000_ResetLegacyGmailBoundedCoverage");
+		}
 
 		await using var verificationScope = database.CreateScope();
 		var verificationContext =

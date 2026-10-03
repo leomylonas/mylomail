@@ -22,7 +22,7 @@ namespace MyloMail.Api.Tests.Fakes;
 /// <see cref="ProviderCursorInvalidException"/>.
 /// </para>
 /// </remarks>
-public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
+public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccountBackfillProvider
 {
 	private const int DefaultPageSize = 50;
 
@@ -295,6 +295,115 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider
 			hasMore,
 			bounded.Count
 		);
+	}
+
+	private readonly List<FakeMessage> unlabelled = [];
+
+	/// <summary>
+	/// The canonical messages the account-wide walk has handed out, in order, across every page
+	/// and every walk. A message fetched twice appears twice, so a test can assert that a message
+	/// wearing several labels is fetched once per walk rather than once per label.
+	/// </summary>
+	public List<Guid> AccountWalkMessageIds { get; } = [];
+
+	/// <summary>Pages the account-wide walk has served.</summary>
+	public int AccountWalkPages { get; private set; }
+
+	/// <summary>Caps the page the account-wide walk serves, whatever size it is asked for.</summary>
+	public int? AccountWalkPageLimit { get; set; }
+
+	/// <summary>The server's clock for <c>LastNMonths</c>, so a test can pin what "N months ago" means.</summary>
+	public DateTimeOffset ServerNow { get; set; } = DateTimeOffset.UtcNow;
+
+	/// <summary>
+	/// Places a message on the server with no label at all — archived mail on Gmail, which
+	/// belongs to no mailbox and is reachable only through the account-wide walk.
+	/// </summary>
+	public void SeedMessageWithoutLabels(Guid messageId, DateTimeOffset receivedAt) =>
+		unlabelled.Add(new FakeMessage(messageId, receivedAt) { MessageIdHeader = $"<{messageId:N}@fake.test>" });
+
+	private sealed record WalkMessage(
+		Guid MessageId,
+		DateTimeOffset ReceivedAt,
+		FakeMessage Message,
+		IReadOnlyList<(string ProviderMailboxId, string OccurrenceId)> Memberships
+	);
+
+	public async Task<InitialSyncPage> InitialSyncAccountAsync(
+		Account account,
+		string? resumeToken,
+		InitialSyncMode mode,
+		int? bound,
+		int pageSize,
+		CancellationToken ct
+	)
+	{
+		// One canonical message per FakeMessage.MessageId, however many mailboxes hold it — the
+		// way a Gmail message is one message wearing several labels.
+		var canonical = mailboxes
+			.Values.SelectMany(mailbox =>
+				mailbox.Messages.Select(pair => (mailbox.ProviderMailboxId, OccurrenceId: pair.Key, Message: pair.Value))
+			)
+			.GroupBy(item => item.Message.MessageId)
+			.Select(group => new WalkMessage(
+				group.Key,
+				group.Max(item => item.Message.ReceivedAt),
+				group.First().Message,
+				[.. group.Select(item => (item.ProviderMailboxId, item.OccurrenceId))]
+			))
+			.Concat(
+				unlabelled.Select(message => new WalkMessage(message.MessageId, message.ReceivedAt, message, []))
+			)
+			.OrderByDescending(item => item.ReceivedAt)
+			.ThenBy(item => item.MessageId)
+			.ToList();
+		if (mode == InitialSyncMode.LastNMessages && bound is int count)
+		{
+			canonical = canonical.Take(count).ToList();
+		}
+		if (mode == InitialSyncMode.LastNMonths && bound is int months)
+		{
+			var since = ServerNow.AddMonths(-months);
+			canonical = canonical.Where(item => item.ReceivedAt >= since).ToList();
+		}
+
+		var offset = int.TryParse(resumeToken, out var parsedOffset) ? parsedOffset : 0;
+		var page = canonical.Skip(offset).Take(Math.Min(pageSize, AccountWalkPageLimit ?? pageSize)).ToList();
+		var consumed = offset + page.Count;
+		var hasMore = consumed < canonical.Count;
+		AccountWalkPages++;
+		AccountWalkMessageIds.AddRange(page.Select(item => item.MessageId));
+
+		if (BeforeInitialSyncReturnAsync is not null)
+		{
+			await BeforeInitialSyncReturnAsync();
+		}
+		return new InitialSyncPage(
+			[.. page.Select(ToWalkDto)],
+			hasMore ? consumed.ToString() : null,
+			hasMore,
+			canonical.Count
+		);
+	}
+
+	private MessageDto ToWalkDto(WalkMessage item)
+	{
+		var memberships = item.Memberships;
+		var dto = ToDto(
+			memberships.Count > 0 ? memberships[0].ProviderMailboxId : string.Empty,
+			memberships.Count > 0 ? memberships[0].OccurrenceId : string.Empty,
+			item.Message
+		);
+		return dto with
+		{
+			Occurrences =
+			[
+				.. memberships.Select(membership => new MessageOccurrenceDto(
+					membership.ProviderMailboxId,
+					membership.OccurrenceId
+				)),
+			],
+		};
 	}
 
 	public async Task<SyncResult> SyncMailboxAsync(

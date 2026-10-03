@@ -131,6 +131,23 @@ Folder discovery is **not** a by-product of message sync. Gmail's `history.list`
 
 How much of the user's requested history has been materialised locally. **Bounds are coverage targets, not membership limits**: "last N messages" means actively enumerate at least the newest N for that mailbox. Messages discovered through another mailbox or the account change stream may also appear there — necessarily so under Gmail's canonical label model, where one message legitimately belongs to several mailboxes at once.
 
+#### AccountCoverageState (1:1 with Account, Gmail only)
+
+| Field                               | Notes                                                                                                |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `AccountId`                         | PK/FK — one walk cursor per account is a schema fact, not a convention                               |
+| `Status`                            | `NotStarted`, `Backfilling`, `Covered`, `Failed`                                                     |
+| `MessagesFetched`, `EstimatedTotal` | Distinct messages consumed by the walk — not a sum over mailboxes                                    |
+| `ResumeToken`                       | Persisted every page, in the transaction that ingests it                                             |
+| `PolicyGeneration`                  | Incremented when the walk restarts (a bound change, a triggered resync); fences pages in flight      |
+| `StartedAt`, `LastError`            |                                                                                                      |
+
+Gmail's coverage is **one walk over the account, not one per label** (§3): a message there has a single canonical existence and carries its whole label set, so listing each label separately fetched it once per label it wore. This row owns that walk. While it is not `Covered`, every provider-backed mailbox that took part in the walk reports the walk's status in its own `MailboxCoverageState` row — so `Availability` and `Coverage` keep their per-mailbox meaning in the UI — and **no mailbox row carries a cursor for it**. The walk's token, the ingested page and the mirrored mailbox rows commit in one transaction.
+
+Progress is reported **once**, on one mailbox (the Inbox when it took part, otherwise the first by id); every other participant reports 0 of 0. The status bar adds up every mailbox's figures, and repeating the account's totals on each label would count each message once per label.
+
+Once the walk is `Covered`, a mailbox that is not — a label created after the walk started — is caught up on its own through the ordinary per-mailbox path, one page at a time by the same single owner. That path is also what keeps a label created in another client correct: a membership the live stream could not map (the label was not yet known locally) is restored by the label's own backfill.
+
 #### ChangeStreamState — scope varies by provider
 
 | Field                                                | Notes                                                                       |
@@ -459,13 +476,21 @@ A parallel `IMailProviderFactory` resolves the correct implementation by `Provid
 | Concern                  | Scope      | Gmail                                  | Graph                                         | IMAP                         |
 | ------------------------ | ---------- | -------------------------------------- | --------------------------------------------- | ---------------------------- |
 | Topology                 | account    | `labels.list`                          | `mailFolder` delta                            | `LIST`/`LSUB`                |
-| Coverage/backfill        | mailbox    | `messages.list` per label, soft bounds | bounded materialisation over full enumeration | UID range                    |
+| Coverage/backfill        | **varies** | **account** walk, `messages.list` with no label filter, bounds apply to the whole walk | bounded materialisation over full enumeration | UID range                    |
 | Live change              | **varies** | **account** `historyId`                | mailbox `deltaLink`                           | mailbox UID/MODSEQ           |
 | Integrity reconciliation | mailbox    | on `historyId` expiry                  | on `410 Gone`                                 | on capability gap or cadence |
 
 Topology providers return `MailboxTopologyResult`, not an undifferentiated list. Gmail and IMAP report complete snapshots and no topology cursor. Graph reports a complete recursive baseline on the first pass, then account-scoped root/child deltas with explicit removals and a versioned cursor set. The reconciler never treats an unreported mailbox in a delta as deleted, and it commits the returned cursor atomically with the exact topology changes that cursor covers.
 
 ### Gmail — baseline and backfill
+
+**Gmail backfill is one walk per account.** `messages.list` is called with no `labelIds` filter and `includeSpamTrash=true`, and each listed id is fetched exactly once in `full` format. Label membership is read from the fetched message's `labelIds` and mapped onto the account's existing label mailboxes as `MessageMailbox` occurrences (the provider id stays on the occurrence, never on `Message`). Listing each label separately fetched a message once per label it wore, and one job per label ran them concurrently — that is what exhausted Gmail's per-user quota during initial sync. Exactly one job owns an account's coverage (`CoverageRegistry.AccountWalkScope`), however many labels it has; IMAP and Graph keep an owner per mailbox.
+
+- **A message that maps to no local mailbox is fetched, counted as consumed, and not stored.** Archived mail wears no label, and Gmail has no "All Mail" label nor does the app have an All Mail mailbox. A membership-less `Message` is a tombstone (§6): GC collects it within minutes, after a raw download has been queued for it. History materialises it if it is ever labelled. A label id with no local mailbox (not yet discovered) is dropped from the message; the others stand.
+- **Cursor and page commit together.** The walk's `ResumeToken` (`AccountCoverageState`), the page's ingested state and the mirrored mailbox rows commit in one transaction, and a page is discarded if the walk's `PolicyGeneration`, its resume token, any mailbox's `TopologyGeneration`, or the Gmail baseline changed while it was in flight. A resumed or replayed page is an upsert.
+- **Ordering is unchanged.** `H0` is captured first, history is staged durably while the walk runs, and `CoverageBaselinePendingException` fences a page without a baseline. Staged history replays only once every mailbox is `Covered`; the walk marks its participants `Covered` in the transaction of its final page, so replay can never see `Covered` ahead of the data.
+- **Late labels** (created after the walk started) are not part of it; once it is `Covered`, the same owner catches each up with the ordinary per-mailbox page. A new label on a finished account never restarts the walk.
+- **Request budget.** Every request an account makes — backfill, change stream, content downloads, mutations — is charged to one in-memory per-account token bucket (`GmailRequestBudget`): 10,000 units/min refill, 2,500 burst, using Google's per-method unit table (a batch costs the sum of its calls). Waiting is cancellable. The reactive 403/429 → `ProviderThrottledException` → `AccountGate` path remains the backstop.
 
 The account-wide history stream and per-mailbox backfill can observe the same message in different states, so ordering must be architectural rather than a matter of job timing. Consider: baseline `H0` captured, backfill lists message A in Inbox, another client archives A, history records the `INBOX` removal, backfill then writes its earlier view. Applied naively, the stale backfill write resurrects the Inbox membership.
 
@@ -478,6 +503,10 @@ The alternative — concurrent application with a per-message `historyId` versio
 ### Bound semantics
 
 **Initial sync bounds limit historical backfill, not future synchronisation.** Any message affected by a post-baseline change may enter the local store even if its original date lies outside the bound. A bulk relabel of 50,000 old messages will therefore pull them in. This is coherent and consistent with the no-eviction decision; the alternative is a local store that knowingly misrepresents subsequent server changes.
+
+**For Gmail the bound applies to the one account walk, not to each label.** "Last N messages" is the newest N messages of the account; "last N months" is every message since a date (`after:`). A label with only older mail can therefore have no local messages under a bound — previously each label had its own newest N. The walk lists with `includeSpamTrash`, so Spam and Trash are covered, and counts a message against the bound once however many labels it wears.
+
+**Gmail has no per-mailbox range.** One walk serves every label, so a range for one label has nothing to attach to. The hub refuses `SetMailboxInitialSyncOverride` for Gmail, the walk ignores any override found on a row, and the migration that introduced the walk cleared existing Gmail overrides. An account-level bound change restarts the single walk, in one transaction with every provider-backed mailbox's reset (inherited or not, since none can override), under a new `PolicyGeneration`; IMAP and Graph keep restarting only their inherited mailboxes.
 
 ### Graph — bounded sync does not reduce enumeration cost
 

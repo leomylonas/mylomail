@@ -18,16 +18,27 @@ namespace MyloMail.Api.Providers.Gmail;
 /// <summary>
 /// Gmail's label-based mail API. Gmail history is account-scoped, so callers must persist the
 /// returned <see cref="GmailHistoryCursor"/> once per account rather than inventing a cursor
-/// for each label (§1, §3).
+/// for each label (§1, §3). Historical backfill is account-scoped too
+/// (<see cref="IAccountBackfillProvider"/>); the per-label
+/// <see cref="InitialSyncMailboxAsync"/> remains for labels discovered after that walk.
 /// </summary>
+/// <remarks>
+/// Every request an instance makes is charged to <see cref="GmailRequestBudget"/> under the
+/// account it was built for, so backfill, the change stream, content downloads and mutations
+/// of one account share one quota bucket. The reactive 403/429 translation stays as the
+/// backstop for what pacing cannot see.
+/// </remarks>
 public sealed partial class GmailMailProvider(
 	GmailOAuthAuthenticator oauth,
-	IProviderMailboxResolver mailboxes
-) : IMailProvider
+	IProviderMailboxResolver mailboxes,
+	GmailRequestBudget? budget = null
+) : IMailProvider, IAccountBackfillProvider
 {
 	private const string UserId = "me";
 	private const int SyncPageSize = 100;
 	private const string InitialSyncCursorPrefix = "mylomail-gmail-initial-v1.";
+
+	private readonly GmailRequestBudget requestBudget = budget ?? GmailRequestBudget.Shared;
 
 	public ProviderType Type => ProviderType.Gmail;
 
@@ -137,6 +148,92 @@ public sealed partial class GmailMailProvider(
 		var summaries = page.Messages ?? [];
 		var messages = await MessagesAsync(service, summaries, ct);
 		var continuation = cursor.Advance(page.NextPageToken, summaries.Count);
+		int? estimatedTotal = page.ResultSizeEstimate is long total
+			? checked((int)Math.Min(total, mode == InitialSyncMode.LastNMessages && bound is int count ? count : total))
+			: null;
+		return new InitialSyncPage(
+			messages,
+			continuation.ResumeToken,
+			continuation.HasMore,
+			estimatedTotal
+		);
+	}
+
+	public async Task<InitialSyncPage> InitialSyncAccountAsync(
+		Account account,
+		string? resumeToken,
+		InitialSyncMode mode,
+		int? bound,
+		int pageSize,
+		CancellationToken ct
+	)
+	{
+		var service = await ServiceAsync(account, ct);
+		return await AccountWalkPageAsync(
+			service,
+			resumeToken,
+			mode,
+			bound,
+			pageSize,
+			DateTimeOffset.UtcNow,
+			ct
+		);
+	}
+
+	/// <summary>
+	/// One page of the account-wide walk: <c>messages.list</c> with <b>no label filter</b> and
+	/// <c>includeSpamTrash</c>, then exactly one <c>format=full</c> get per listed id.
+	/// </summary>
+	/// <remarks>
+	/// <para>
+	/// The old shape listed each label separately, so a message wearing INBOX, UNREAD, IMPORTANT
+	/// and a category was fetched four times. Here the list is the account's own message
+	/// sequence, each message is fetched once, and its label membership is read off the fetched
+	/// message's <c>labelIds</c> (<see cref="ToDto"/>) for the caller to map onto its mailboxes.
+	/// A message with no labels (archived mail) comes back with no occurrences.
+	/// </para>
+	/// <para>
+	/// <b>Bounds apply to the walk as a whole.</b> <c>LastNMessages</c> consumes its count
+	/// across pages from the newest listed message regardless of label; <c>LastNMonths</c>
+	/// restricts the list with <c>after:</c>. Either way the coverage target is the account's
+	/// newest messages, not each label's newest.
+	/// </para>
+	/// <para>
+	/// A listed message that is gone by the time it is fetched (deleted between the list and
+	/// the get, which a walk of tens of thousands of messages makes ordinary) is skipped and
+	/// still counted as consumed. Failing the page instead would replay the list, which no
+	/// longer contains it, so skipping loses nothing a replay would have kept.
+	/// </para>
+	/// </remarks>
+	internal static async Task<InitialSyncPage> AccountWalkPageAsync(
+		GmailService service,
+		string? resumeToken,
+		InitialSyncMode mode,
+		int? bound,
+		int pageSize,
+		DateTimeOffset now,
+		CancellationToken ct
+	)
+	{
+		var cursor = InitialSyncCursor.Parse(resumeToken, mode, bound);
+		var request = service.Users.Messages.List(UserId);
+		request.IncludeSpamTrash = true;
+		request.PageToken = cursor.ProviderPageToken;
+		request.MaxResults = cursor.RequestLimit(pageSize);
+		if (mode == InitialSyncMode.LastNMonths && bound is int months)
+		{
+			request.Q = $"after:{now.AddMonths(-months).ToUnixTimeSeconds()}";
+		}
+
+		var page = await request.ExecuteThrottleAwareAsync(ct);
+		var listed = page.Messages ?? [];
+		var messages = await MessagesAsync(
+			service,
+			listed.DistinctBy(summary => summary.Id, StringComparer.Ordinal),
+			ct,
+			skipMissing: true
+		);
+		var continuation = cursor.Advance(page.NextPageToken, listed.Count);
 		int? estimatedTotal = page.ResultSizeEstimate is long total
 			? checked((int)Math.Min(total, mode == InitialSyncMode.LastNMessages && bound is int count ? count : total))
 			: null;
@@ -344,14 +441,7 @@ public sealed partial class GmailMailProvider(
 	{
 		try
 		{
-			var credential = await oauth.AuthorizeAsync(account, ct);
-			var service = new GmailService(new BaseClientService.Initializer
-			{
-				HttpClientInitializer = credential,
-				ApplicationName = "MyloMail",
-			});
-			service.AttachThrottleTracker(new GmailThrottleTracker());
-			return service;
+			return BuildService(account, await oauth.AuthorizeAsync(account, ct));
 		}
 		// Same gap pass 196/197 fixed for IMAP/SMTP: AuthorizeAsync throws this raw when a
 		// refresh token is revoked or expired, but only GmailOAuthAuthenticator.AuthenticateAsync
@@ -366,10 +456,38 @@ public sealed partial class GmailMailProvider(
 		}
 	}
 
+	/// <summary>
+	/// The one place a <see cref="GmailService"/> is constructed, so no request can be made that
+	/// is not charged to the account's <see cref="GmailRequestBudget"/> and not watched for a
+	/// throttling response.
+	/// </summary>
+	internal GmailService BuildService(
+		Account account,
+		Google.Apis.Http.IConfigurableHttpClientInitializer? credential,
+		Google.Apis.Http.IHttpClientFactory? httpClientFactory = null
+	)
+	{
+		var initializer = new BaseClientService.Initializer
+		{
+			HttpClientInitializer = credential,
+			ApplicationName = "MyloMail",
+		};
+		if (httpClientFactory is not null)
+		{
+			initializer.HttpClientFactory = httpClientFactory;
+		}
+
+		var service = new GmailService(initializer);
+		service.AttachThrottleTracker(new GmailThrottleTracker());
+		service.AttachQuotaMeter(account.Id, requestBudget);
+		return service;
+	}
+
 	private static async Task<IReadOnlyList<MessageDto>> MessagesAsync(
 		GmailService service,
 		IEnumerable<GmailMessage> summaries,
-		CancellationToken ct
+		CancellationToken ct,
+		bool skipMissing = false
 	)
 	{
 		var messages = new List<MessageDto>();
@@ -382,7 +500,15 @@ public sealed partial class GmailMailProvider(
 
 			var request = service.Users.Messages.Get(UserId, summary.Id);
 			request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
-			messages.Add(ToDto(await request.ExecuteThrottleAwareAsync(ct)));
+			try
+			{
+				messages.Add(ToDto(await request.ExecuteThrottleAwareAsync(ct)));
+			}
+			catch (GoogleApiException ex)
+				when (skipMissing && ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+			{
+				// Deleted since it was listed; see AccountWalkPageAsync.
+			}
 		}
 
 		return messages;

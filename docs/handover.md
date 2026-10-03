@@ -12,9 +12,10 @@
 
 ## Verification
 
-- `pnpm check`: format, tsc, eslint, stylelint, build, 733 .NET tests, 245 Vitest passed. The .NET test host intermittently dies with "Internal CLR error (0x80131506)"; a rerun passes. Not investigated.
+- `pnpm check`: format, tsc, eslint, stylelint, build, 861 .NET tests, 259 Vitest passed. The .NET test host intermittently dies with "Internal CLR error (0x80131506)"; a rerun passes. Not investigated.
 - Renderer e2e passed except `Locale` and the window-bounds restore test in `WindowBounds`, which fail identically on the tree before this work. Throwaway Electron scripts exercised: invert mode, Empty Trash, auto-advance after Delete and Move, the real Anthropic email with a trusted domain, print-to-PDF of a real multi-page email.
 - Not run: `pnpm check:deep`; the new migration against a copy of the real database; the real GNOME unlock prompt.
+- **Gmail account-wide backfill.** Compiles, `pnpm check` green, `AccountCoverageCrashWindowTests` (7) pass. Invariant broken to prove the scenarios: in `CoverageService.RunWalkPageAsync`, committing `walk.ResumeToken` in its own transaction ahead of `ingestor.IngestAsync` made all 7 crash scenarios fail; `A_crash_after_the_page_is_applied_but_before_it_commits_loses_all_of_it_together` failed for the right reason (cursor `"2"` durable after a crash that must roll it back with the page). Restored; scenarios pass. Not yet broken and re-run: the `PolicyGeneration` fence and the baseline/`TopologyGeneration` checks (see `docs/reviews/gmail-account-backfill.md` for which scenario covers each). Not run against a real Gmail account: the real-API walk, the quota limiter under load, and the migration against a copy of a real database. Known gap: mail with no mapped label (archived mail) is not stored, as before.
 
 ## External verification still required
 
@@ -41,3 +42,4 @@
 - `ContentPriority` and the credential cache are in-memory by design (hints, not recovery state); the durable queue is `MessageContentState`.
 - The legacy migration tests seed through the current model; they add and drop newer `Accounts` columns around the seed (`AddNewerAccountColumnsAsync`) and must be extended when another Account column is added.
 - Gmail expired-history and native RSVP coverage remain conditional on external fixtures.
+- **Gmail account-wide backfill (written without running anything; unverified).** Gmail coverage is one walk per account (`messages.list` with no label filter, `includeSpamTrash`, one `format=full` get per message). Cursor on the new `AccountCoverageState` (migration `AddAccountCoverageState`, hand-written snapshot entry), mailbox rows mirror it, progress reported once on the Inbox row, one owner per account (`CoverageRegistry.AccountWalkScope`, `SyncJobs.StartCoverage`/`AccountCoveragePageAsync`). Late labels are caught up through the per-mailbox path. Per-mailbox ranges are refused for Gmail. Every Gmail request goes through `GmailRequestBudget` (10,000 units/min, burst 2,500). Messages mapping to no local mailbox are fetched, counted and **not stored** (tombstone GC would collect them): confirm this against "do not drop them". Review: `docs/reviews/gmail-account-backfill.md` (self-review only; an independent `reviewer` pass is still owed). `MutationReconciler.ObserveAsync` still walks every label in full on `ReconcileThenRetry` recovery.

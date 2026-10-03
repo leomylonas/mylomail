@@ -97,7 +97,7 @@ public sealed partial class GmailMailProvider
 					?? throw new InvalidOperationException(
 						"Move-to-trash execution requires a resolved local Trash mailbox."
 					);
-				batch.Queue<GmailMessage>(
+				batch.QueueMetered<GmailMessage>(
 					service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId),
 					(content, error, responseIndex, response) =>
 					{
@@ -251,7 +251,7 @@ public sealed partial class GmailMailProvider
 				var reference = group[index];
 				var request = service.Users.Messages.Get(UserId, reference.ProviderOccurrenceId);
 				request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Minimal;
-				batch.Queue<GmailMessage>(
+				batch.QueueMetered<GmailMessage>(
 					request,
 					(content, error, responseIndex, response) =>
 					{
