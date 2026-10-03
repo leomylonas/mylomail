@@ -36,7 +36,7 @@ public sealed class MailProviderFactory(
 		account.ProviderType switch
 		{
 			ProviderType.Gmail => Gmail(account),
-			ProviderType.Microsoft365 => Graph(),
+			ProviderType.Microsoft365 => Graph(account),
 			ProviderType.Imap => Imap(account),
 			_ => throw new ArgumentOutOfRangeException(
 				nameof(account),
@@ -54,7 +54,7 @@ public sealed class MailProviderFactory(
 			mailboxes
 		);
 
-	private GraphMailProvider Graph()
+	private GraphMailProvider Graph(Account account)
 	{
 		var graph = options.Value.Graph;
 		if (!graph.IsConfigured)
@@ -62,7 +62,9 @@ public sealed class MailProviderFactory(
 			throw new ProviderNotConfiguredException(ProviderType.Microsoft365, "Providers:Graph:ClientId");
 		}
 
-		return new GraphMailProvider(new GraphOAuthAuthenticator(credentials, graph.ClientId!, graph.Authority));
+		return new GraphMailProvider(
+			new GraphOAuthAuthenticator(credentials, graph.ClientId!, GraphAuthority.For(account, graph))
+		);
 	}
 
 	/// <summary>

@@ -14,7 +14,6 @@ const registrationNames = [
 	"GMAIL_CLIENT_ID",
 	"GMAIL_CLIENT_SECRET",
 	"GRAPH_CLIENT_ID",
-	"GRAPH_TENANT_ID",
 ];
 if (existsSync(providerEnvironment)) {
 	const before = { ...process.env };

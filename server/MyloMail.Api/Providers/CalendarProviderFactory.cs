@@ -32,7 +32,7 @@ public sealed class CalendarProviderFactory(
 	public ICalendarProvider For(Account account) => account.ProviderType switch
 	{
 		ProviderType.Gmail => Gmail(account),
-		ProviderType.Microsoft365 => Graph(),
+		ProviderType.Microsoft365 => Graph(account),
 		ProviderType.Imap => CalDav(account),
 		_ => throw new ArgumentOutOfRangeException(nameof(account.ProviderType), account.ProviderType, null),
 	};
@@ -45,7 +45,7 @@ public sealed class CalendarProviderFactory(
 			)
 		);
 
-	private GraphCalendarProvider Graph()
+	private GraphCalendarProvider Graph(Account account)
 	{
 		var graph = options.Value.Graph;
 		if (!graph.IsConfigured)
@@ -53,7 +53,9 @@ public sealed class CalendarProviderFactory(
 			throw new ProviderNotConfiguredException(ProviderType.Microsoft365, "Microsoft Graph client registration");
 		}
 
-		return new GraphCalendarProvider(new GraphOAuthAuthenticator(credentials, graph.ClientId!, graph.Authority));
+		return new GraphCalendarProvider(
+			new GraphOAuthAuthenticator(credentials, graph.ClientId!, GraphAuthority.For(account, graph))
+		);
 	}
 
 	private ICalendarProvider CalDav(Account account)

@@ -75,11 +75,6 @@ public static class PersistenceServiceCollectionExtensions
 			options.Gmail.ClientId ??= Environment.GetEnvironmentVariable("GMAIL_CLIENT_ID");
 			options.Gmail.ClientSecret ??= Environment.GetEnvironmentVariable("GMAIL_CLIENT_SECRET");
 			options.Graph.ClientId ??= Environment.GetEnvironmentVariable("GRAPH_CLIENT_ID");
-
-			if (Environment.GetEnvironmentVariable("GRAPH_TENANT_ID") is string tenant && tenant.Length > 0)
-			{
-				options.Graph.Authority = $"https://login.microsoftonline.com/{tenant}";
-			}
 		});
 
 		services.AddHttpClient("google-contacts");

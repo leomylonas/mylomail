@@ -22,6 +22,7 @@ export interface AddAccountRequest {
   initialSyncBoundValue?: number;
   gmailClientId?: string;
   gmailClientSecret?: string;
+  microsoftTenant?: string;
 }
 
 export const AddAccountRequestSchema = z.object({
@@ -36,4 +37,5 @@ export const AddAccountRequestSchema = z.object({
   initialSyncBoundValue: z.number().nullable(),
   gmailClientId: z.string().nullable(),
   gmailClientSecret: z.string().nullable(),
+  microsoftTenant: z.string().nullable(),
 });

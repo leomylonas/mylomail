@@ -93,9 +93,9 @@ reports as `501`, distinct from a rejected credential's `400`. A user can fix th
 not the first.
 
 The conformance suite's own names (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
-`GRAPH_CLIENT_ID`, `GRAPH_TENANT_ID`) are accepted as a fallback, so
-`pnpm app` loads the registration from `.dev/provider-test.env` itself (only those four names, never the test accounts' passwords), or `source .dev/provider-test.env` before another launch route. Configuration wins where
-both are set.
+`GRAPH_CLIENT_ID`) are accepted as a fallback, so
+`pnpm app` loads the registration from `.dev/provider-test.env` itself (only those three names, never the test accounts' passwords), or `source .dev/provider-test.env` before another launch route. Configuration wins where
+both are set. `GRAPH_TENANT_ID` belongs to the conformance test account and is never read by the app. The app's Microsoft sign-in directory is per account (`Microsoft365ProviderConfig.TenantId`, chosen in Add account: automatic, work, personal, or a specific tenant), falling back to `Providers__Graph__Authority`, default `common`.
 
 ### Telemetry (optional)
 

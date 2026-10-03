@@ -78,6 +78,20 @@ public class AccountsController(
 				statusCode: StatusCodes.Status400BadRequest,
 				title: "Incomplete Google OAuth credentials");
 		}
+		if (request.ProviderType != ProviderType.Microsoft365 && !string.IsNullOrWhiteSpace(request.MicrosoftTenant))
+		{
+			return this.MutationProblem("A Microsoft tenant can only be set on a Microsoft 365 account.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Unexpected Microsoft tenant");
+		}
+		if (request.ProviderType == ProviderType.Microsoft365
+			&& !string.IsNullOrWhiteSpace(request.MicrosoftTenant)
+			&& !Providers.Graph.GraphAuthority.IsValidTenant(request.MicrosoftTenant.Trim()))
+		{
+			return this.MutationProblem("Use common, organizations, consumers, a tenant id (GUID) or a verified domain such as contoso.com.",
+				statusCode: StatusCodes.Status400BadRequest,
+				title: "Invalid Microsoft tenant");
+		}
 
 		if (request.ProviderType == ProviderType.Imap && request.Imap is null)
 		{
@@ -341,6 +355,12 @@ public class AccountsController(
 				ClientId = string.IsNullOrWhiteSpace(request.GmailClientId)
 					? null
 					: request.GmailClientId.Trim(),
+			},
+			ProviderType.Microsoft365 => new Microsoft365ProviderConfig
+			{
+				TenantId = string.IsNullOrWhiteSpace(request.MicrosoftTenant)
+					? null
+					: request.MicrosoftTenant.Trim(),
 			},
 			ProviderType.Imap when request.Imap is not null => new ImapProviderConfig
 			{

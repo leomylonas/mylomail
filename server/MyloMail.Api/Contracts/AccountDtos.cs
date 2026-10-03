@@ -88,7 +88,13 @@ public record AddAccountRequest(
 	/// <summary>Optional installed-app OAuth client id supplied by the user for this Gmail account.</summary>
 	string? GmailClientId = null,
 	/// <summary>The matching client secret; stored only in the platform credential store.</summary>
-	string? GmailClientSecret = null
+	string? GmailClientSecret = null,
+	/// <summary>
+	/// Microsoft 365 only: the directory that signs this account in — <c>common</c>,
+	/// <c>organizations</c>, <c>consumers</c>, a tenant id or a verified domain. Blank means the
+	/// deployment default (<c>common</c>: personal or work, decided by the address).
+	/// </summary>
+	string? MicrosoftTenant = null
 );
 
 /// <summary>

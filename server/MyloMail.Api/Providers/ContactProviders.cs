@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Identity.Client;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Providers.Graph;
 
 namespace MyloMail.Api.Providers;
 
@@ -600,7 +601,7 @@ public sealed class ContactProviderFactory(
 	public IContactProvider For(Account account) => account.ProviderType switch
 	{
 		ProviderType.Gmail => Gmail(account),
-		ProviderType.Microsoft365 => Graph(),
+		ProviderType.Microsoft365 => Graph(account),
 		_ => local,
 	};
 
@@ -613,7 +614,7 @@ public sealed class ContactProviderFactory(
 			clients.CreateClient("google-contacts")
 		);
 
-	private GraphContactProvider Graph()
+	private GraphContactProvider Graph(Account account)
 	{
 		var graph = options.Value.Graph;
 		if (!graph.IsConfigured)
@@ -622,7 +623,7 @@ public sealed class ContactProviderFactory(
 				"Providers:Graph:ClientId"
 			);
 		return new GraphContactProvider(
-			new GraphOAuthAuthenticator(credentials, graph.ClientId!, graph.Authority),
+			new GraphOAuthAuthenticator(credentials, graph.ClientId!, GraphAuthority.For(account, graph)),
 			clients.CreateClient("graph-contacts")
 		);
 	}

@@ -36,6 +36,13 @@ interface FormState {
 	useOwnGoogleClient: boolean;
 	gmailClientId: string;
 	gmailClientSecret: string;
+	/**
+	 * Which Microsoft directory signs a Microsoft 365 account in: "" lets the address decide
+	 * (`common`), "custom" names one organisation's tenant in `microsoftTenant`. Per account, so
+	 * a personal account and several work tenants can be connected together.
+	 */
+	microsoftAudience: "" | "organizations" | "consumers" | "custom";
+	microsoftTenant: string;
 	host: string;
 	port: number;
 	imapSecurity: MailTransportSecurity;
@@ -77,6 +84,8 @@ const initial: FormState = {
 	useOwnGoogleClient: false,
 	gmailClientId: "",
 	gmailClientSecret: "",
+	microsoftAudience: "",
+	microsoftTenant: "",
 	host: "",
 	port: 993,
 	imapSecurity: MailTransportSecurity.TlsOnConnect,
@@ -162,6 +171,12 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 					form.providerType === ProviderType.Gmail && form.useOwnGoogleClient
 						? form.gmailClientSecret
 						: undefined,
+				microsoftTenant:
+					form.providerType !== ProviderType.Microsoft365
+						? undefined
+						: form.microsoftAudience === "custom"
+							? form.microsoftTenant.trim()
+							: form.microsoftAudience || undefined,
 			};
 
 			// Same-origin, so the launch cookie authenticates this without a token — the same
@@ -203,7 +218,10 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 		form.emailAddress &&
 		(form.providerType !== ProviderType.Gmail ||
 			!form.useOwnGoogleClient ||
-			(form.gmailClientId && form.gmailClientSecret)),
+			(form.gmailClientId && form.gmailClientSecret)) &&
+		(form.providerType !== ProviderType.Microsoft365 ||
+			form.microsoftAudience !== "custom" ||
+			form.microsoftTenant.trim()),
 	);
 
 	return (
@@ -517,6 +535,47 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 										tokens that expire after about seven days.
 									</p>
 								</>
+							) : null}
+						</>
+					) : null}
+					{form.providerType === ProviderType.Microsoft365 ? (
+						<>
+							<Select
+								id="add-account-microsoft-audience"
+								labelText="Microsoft sign-in"
+								helperText="Personal and work accounts, including different organisations, can be connected side by side."
+								value={form.microsoftAudience}
+								onChange={(event) =>
+									set(
+										"microsoftAudience",
+										event.target.value as FormState["microsoftAudience"],
+									)
+								}
+							>
+								<SelectItem
+									value=""
+									text="Automatic (personal or work, from the email address)"
+								/>
+								<SelectItem
+									value="organizations"
+									text="Work or school account (any organisation)"
+								/>
+								<SelectItem
+									value="consumers"
+									text="Personal Microsoft account"
+								/>
+								<SelectItem value="custom" text="A specific organisation" />
+							</Select>
+							{form.microsoftAudience === "custom" ? (
+								<TextInput
+									id="add-account-microsoft-tenant"
+									labelText="Tenant ID or domain"
+									helperText="For example contoso.com or a directory (tenant) ID."
+									value={form.microsoftTenant}
+									onChange={(event) =>
+										set("microsoftTenant", event.target.value)
+									}
+								/>
 							) : null}
 						</>
 					) : null}
