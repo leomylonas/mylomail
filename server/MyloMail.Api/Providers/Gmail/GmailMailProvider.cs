@@ -58,7 +58,7 @@ public sealed partial class GmailMailProvider(
 		try
 		{
 			var service = await ServiceAsync(account, ct);
-			await service.Users.GetProfile(UserId).ExecuteAsync(ct);
+			await service.Users.GetProfile(UserId).ExecuteThrottleAwareAsync(ct);
 			return authorization;
 		}
 		catch (GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden)

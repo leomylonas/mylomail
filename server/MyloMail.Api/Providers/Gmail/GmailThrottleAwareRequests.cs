@@ -74,7 +74,7 @@ internal static class GmailRequestExtensions
 		{
 			return await request.ExecuteAsync(ct);
 		}
-		catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.TooManyRequests)
+		catch (GoogleApiException ex) when (IsRateLimited(ex))
 		{
 			Trackers.TryGetValue(request.Service, out var tracker);
 			throw Translate(ex, tracker?.LastRetryAfter);
@@ -91,21 +91,33 @@ internal static class GmailRequestExtensions
 		{
 			await request.ExecuteAsync(ct);
 		}
-		catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.TooManyRequests)
+		catch (GoogleApiException ex) when (IsRateLimited(ex))
 		{
 			Trackers.TryGetValue(service, out var tracker);
 			throw Translate(ex, tracker?.LastRetryAfter);
 		}
 		catch (HttpRequestException ex)
-			when (ex.InnerException is GoogleApiException
-			{
-				HttpStatusCode: HttpStatusCode.TooManyRequests,
-			} apiException)
+			when (ex.InnerException is GoogleApiException apiException && IsRateLimited(apiException))
 		{
 			Trackers.TryGetValue(service, out var tracker);
 			throw Translate(apiException, tracker?.LastRetryAfter);
 		}
 	}
+
+	/// <summary>
+	/// Gmail reports per-user quota exhaustion ("Units per minute per user") as HTTP 403 with
+	/// reason <c>rateLimitExceeded</c> or <c>userRateLimitExceeded</c> as often as it does as 429,
+	/// so status alone cannot tell it from a genuine permission failure. Without this, a first
+	/// sync burned each message's download attempts on a quota that clears within a minute.
+	/// </summary>
+	internal static bool IsRateLimited(GoogleApiException ex) => IsRateLimited(ex.HttpStatusCode, ex.Error);
+
+	internal static bool IsRateLimited(HttpStatusCode status, RequestError? error) =>
+		status == HttpStatusCode.TooManyRequests
+		|| (
+			status == HttpStatusCode.Forbidden
+			&& error?.Errors?.Any(e => e.Reason is "rateLimitExceeded" or "userRateLimitExceeded") == true
+		);
 
 	/// <summary>Extracted so a test can exercise the fallback-to-default logic directly, without
 	/// needing a live 429 response to reach it.</summary>

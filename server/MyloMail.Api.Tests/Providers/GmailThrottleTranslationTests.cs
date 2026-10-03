@@ -66,4 +66,32 @@ public sealed class GmailThrottleTranslationTests
 		Assert.Equal(GmailRequestExtensions.DefaultRetryAfter, GmailRequestExtensions.Translate(ex, null).RetryAfter);
 		Assert.Equal(GmailRequestExtensions.DefaultRetryAfter, GmailRequestExtensions.Translate(ex, TimeSpan.Zero).RetryAfter);
 	}
+
+	[Theory]
+	[InlineData("rateLimitExceeded")]
+	[InlineData("userRateLimitExceeded")]
+	public void A_403_carrying_a_rate_limit_reason_is_throttling(string reason)
+	{
+		var ex = new GoogleApiException("gmail", "Quota exceeded for quota metric 'Total Query Cost'")
+		{
+			HttpStatusCode = System.Net.HttpStatusCode.Forbidden,
+			Error = new Google.Apis.Requests.RequestError { Errors = [new Google.Apis.Requests.SingleError { Reason = reason }] },
+		};
+
+		Assert.True(GmailRequestExtensions.IsRateLimited(ex));
+	}
+
+	[Fact]
+	public void A_403_without_a_rate_limit_reason_is_not_throttling()
+	{
+		var denied = new GoogleApiException("gmail", "denied")
+		{
+			HttpStatusCode = System.Net.HttpStatusCode.Forbidden,
+			Error = new Google.Apis.Requests.RequestError { Errors = [new Google.Apis.Requests.SingleError { Reason = "forbidden" }] },
+		};
+		var bare = new GoogleApiException("gmail", "denied") { HttpStatusCode = System.Net.HttpStatusCode.Forbidden };
+
+		Assert.False(GmailRequestExtensions.IsRateLimited(denied));
+		Assert.False(GmailRequestExtensions.IsRateLimited(bare));
+	}
 }

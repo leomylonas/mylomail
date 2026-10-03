@@ -101,7 +101,7 @@ public sealed partial class GmailMailProvider
 					service.Users.Messages.Trash(UserId, reference.ProviderOccurrenceId),
 					(content, error, responseIndex, response) =>
 					{
-						if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+						if (GmailRequestExtensions.IsRateLimited(response.StatusCode, error))
 						{
 							var header = response.Headers.RetryAfter;
 							var itemDelay =
@@ -255,7 +255,7 @@ public sealed partial class GmailMailProvider
 					request,
 					(content, error, responseIndex, response) =>
 					{
-						if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+						if (GmailRequestExtensions.IsRateLimited(response.StatusCode, error))
 						{
 							var header = response.Headers.RetryAfter;
 							var delay =
