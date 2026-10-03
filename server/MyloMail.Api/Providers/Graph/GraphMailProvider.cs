@@ -302,12 +302,11 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			scopes: [.. GraphOAuthAuthenticator.Scopes]
 		);
 
-	private static readonly string[] MessageSelect =
+	internal static readonly string[] MessageSelect =
 	[
 		"id",
 		"parentFolderId",
 		"internetMessageId",
-		"inReplyTo",
 		"conversationId",
 		"from",
 		"toRecipients",
