@@ -1,7 +1,8 @@
 /**
  * A Microsoft 365 shared mailbox is connected by signing in as yourself and addressing the
- * shared mailbox, so the account's own address *is* the shared address. These helpers keep that
- * rule, and the shape check the server enforces, in one testable place.
+ * shared mailbox, so the account's own address *is* the shared address. The form has one email
+ * field for both cases and a switch that says which kind of mailbox it names. These helpers keep
+ * that rule, and the shape check the server enforces, in one testable place.
  */
 
 /** Mirrors `GraphMailbox.IsValidSharedMailbox` on the server: a plain `local@domain.tld`. */
@@ -20,13 +21,12 @@ export function isSharedMailboxAddress(value: string): boolean {
 export interface MicrosoftAddressInput {
 	emailAddress: string;
 	isSharedMailbox: boolean;
-	sharedMailbox: string;
 }
 
 /**
  * The address fields of an add-account request for a Microsoft 365 account. For a shared
- * mailbox the shared address is sent as both `emailAddress` (the account's default send
- * identity) and `microsoftSharedMailbox`; the personal address field is ignored.
+ * mailbox the one address is sent as both `emailAddress` (the account's default send identity)
+ * and `microsoftSharedMailbox`.
  */
 export function microsoftAddressFields(input: MicrosoftAddressInput): {
 	emailAddress: string;
@@ -39,13 +39,13 @@ export function microsoftAddressFields(input: MicrosoftAddressInput): {
 		};
 	}
 
-	const address = input.sharedMailbox.trim();
+	const address = input.emailAddress.trim();
 	return { emailAddress: address, microsoftSharedMailbox: address };
 }
 
 /** Whether the address the account will be created with is usable. */
 export function microsoftAddressReady(input: MicrosoftAddressInput): boolean {
 	return input.isSharedMailbox
-		? isSharedMailboxAddress(input.sharedMailbox)
+		? isSharedMailboxAddress(input.emailAddress)
 		: Boolean(input.emailAddress);
 }

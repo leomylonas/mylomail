@@ -27,12 +27,11 @@ describe("isSharedMailboxAddress", () => {
 });
 
 describe("microsoftAddressFields", () => {
-	it("sends the personal address untouched for an ordinary account", () => {
+	it("sends the address untouched for an ordinary account", () => {
 		expect(
 			microsoftAddressFields({
 				emailAddress: "me@contoso.com",
 				isSharedMailbox: false,
-				sharedMailbox: "support@contoso.com",
 			}),
 		).toEqual({
 			emailAddress: "me@contoso.com",
@@ -40,12 +39,11 @@ describe("microsoftAddressFields", () => {
 		});
 	});
 
-	it("sends the shared address as both the account address and the shared mailbox", () => {
+	it("sends the same trimmed address as both the account address and the shared mailbox", () => {
 		expect(
 			microsoftAddressFields({
-				emailAddress: "me@contoso.com",
+				emailAddress: "  support@contoso.com ",
 				isSharedMailbox: true,
-				sharedMailbox: "  support@contoso.com ",
 			}),
 		).toEqual({
 			emailAddress: "support@contoso.com",
@@ -55,26 +53,20 @@ describe("microsoftAddressFields", () => {
 });
 
 describe("microsoftAddressReady", () => {
-	it("requires a valid shared address, not the personal one, when shared", () => {
-		const shared = { emailAddress: "me@contoso.com", isSharedMailbox: true };
+	it("requires a well-formed address when the mailbox is shared", () => {
+		const shared = { isSharedMailbox: true };
 
-		expect(microsoftAddressReady({ ...shared, sharedMailbox: "" })).toBe(false);
-		expect(microsoftAddressReady({ ...shared, sharedMailbox: "support" })).toBe(
+		expect(microsoftAddressReady({ ...shared, emailAddress: "" })).toBe(false);
+		expect(microsoftAddressReady({ ...shared, emailAddress: "support" })).toBe(
 			false,
 		);
 		expect(
-			microsoftAddressReady({
-				...shared,
-				sharedMailbox: "support@contoso.com",
-			}),
+			microsoftAddressReady({ ...shared, emailAddress: "support@contoso.com" }),
 		).toBe(true);
 	});
 
-	it("requires the personal address, not the shared one, otherwise", () => {
-		const personal = {
-			isSharedMailbox: false,
-			sharedMailbox: "support@contoso.com",
-		};
+	it("accepts any non-empty address otherwise", () => {
+		const personal = { isSharedMailbox: false };
 
 		expect(microsoftAddressReady({ ...personal, emailAddress: "" })).toBe(
 			false,

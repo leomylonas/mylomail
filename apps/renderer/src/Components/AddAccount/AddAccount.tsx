@@ -49,10 +49,9 @@ interface FormState {
 	microsoftTenant: string;
 	/**
 	 * A Microsoft 365 shared mailbox: you still sign in as yourself, but the account addresses
-	 * `sharedMailbox`, which then also is the account's email address (see `SharedMailbox.ts`).
+	 * `emailAddress` as a delegated mailbox instead of your own (see `SharedMailbox.ts`).
 	 */
 	isSharedMailbox: boolean;
-	sharedMailbox: string;
 	host: string;
 	port: number;
 	imapSecurity: MailTransportSecurity;
@@ -97,7 +96,6 @@ const initial: FormState = {
 	microsoftAudience: "",
 	microsoftTenant: "",
 	isSharedMailbox: false,
-	sharedMailbox: "",
 	host: "",
 	port: 993,
 	imapSecurity: MailTransportSecurity.TlsOnConnect,
@@ -276,16 +274,38 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				value={form.displayName}
 				onChange={(event) => set("displayName", event.target.value)}
 			/>
-			{form.providerType === ProviderType.Microsoft365 &&
-			form.isSharedMailbox ? null : (
-				<TextInput
-					id="add-account-email"
-					labelText="Email address"
-					type="email"
-					value={form.emailAddress}
-					onChange={(event) => set("emailAddress", event.target.value)}
-				/>
-			)}
+			<TextInput
+				id="add-account-email"
+				labelText={
+					form.providerType === ProviderType.Microsoft365 &&
+					form.isSharedMailbox
+						? "Shared mailbox address"
+						: "Email address"
+				}
+				type="email"
+				value={form.emailAddress}
+				onChange={(event) => set("emailAddress", event.target.value)}
+			/>
+			{form.providerType === ProviderType.Microsoft365 ? (
+				<>
+					<Toggle
+						id="add-account-microsoft-shared"
+						labelText="This is a shared mailbox"
+						toggled={form.isSharedMailbox}
+						onToggle={(checked) => set("isSharedMailbox", checked)}
+					/>
+					{form.isSharedMailbox ? (
+						<p className={styles.helper}>
+							You sign in with your own account, which needs Full Access to this
+							mailbox, plus Send As or Send on Behalf to send from it. The app
+							registration needs the delegated Mail.ReadWrite.Shared,
+							Mail.Send.Shared and Calendars.ReadWrite.Shared permissions.
+							Shared mailboxes work with work or school accounts only and have
+							no personal contacts.
+						</p>
+					) : null}
+				</>
+			) : null}
 			{form.providerType === ProviderType.Imap ? (
 				<>
 					<div className={styles.row}>
@@ -597,22 +617,6 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 									onChange={(event) =>
 										set("microsoftTenant", event.target.value)
 									}
-								/>
-							) : null}
-							<Toggle
-								id="add-account-microsoft-shared"
-								labelText="This is a shared mailbox"
-								toggled={form.isSharedMailbox}
-								onToggle={(checked) => set("isSharedMailbox", checked)}
-							/>
-							{form.isSharedMailbox ? (
-								<TextInput
-									id="add-account-microsoft-shared-address"
-									labelText="Shared mailbox address"
-									helperText="You sign in with your own account, which needs Full Access to this mailbox, plus Send As or Send on Behalf to send from it. The app registration needs the delegated Mail.ReadWrite.Shared, Mail.Send.Shared and Calendars.ReadWrite.Shared permissions. Shared mailboxes work with work or school accounts only and have no personal contacts."
-									type="email"
-									value={form.sharedMailbox}
-									onChange={(event) => set("sharedMailbox", event.target.value)}
 								/>
 							) : null}
 						</>
