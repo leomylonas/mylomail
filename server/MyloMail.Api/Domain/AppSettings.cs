@@ -24,6 +24,15 @@ public class AppSettings
 	/// <summary>Last-known size and position, inherited by newly opened windows.</summary>
 	public string? WindowBoundsJson { get; set; }
 
+	/// <summary>
+	/// The mailbox the last plain shell window selected, so the next launch opens to it.
+	/// A local UI preference like <c>Mailbox.IsCollapsed</c>, deliberately without a foreign
+	/// key: mailboxes are replaced by topology reconciliation, and a stale id must resolve to
+	/// "nothing remembered" when read (see <c>AppSettingsController.GetLastViewedMailbox</c>)
+	/// instead of blocking the delete or being rewritten by it.
+	/// </summary>
+	public Guid? LastViewedMailboxId { get; set; }
+
 	public ThemePreference Theme { get; set; } = ThemePreference.System;
 
 	/// <summary>Sweeps orphaned temp attachments left by a crash.</summary>

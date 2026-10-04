@@ -399,6 +399,16 @@ export type IMailHub = {
     */
     getCalendars(accountId: string): Promise<CalendarSummaryDto[]>;
     /**
+    * Whether a calendar is left out of the unified calendar view by default (§13 Epic 7).
+    * Purely local, like , but deliberately not
+    * announced: it is the default the next window reads on open, and a window that is
+    * already open keeps its own live choice.
+    * @param calendarId Transpiled from System.Guid
+    * @param hidden Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setCalendarHidden(calendarId: string, hidden: boolean): Promise<void>;
+    /**
     * @param calendarId Transpiled from System.Guid
     * @param from Transpiled from System.DateTimeOffset
     * @param to Transpiled from System.DateTimeOffset

@@ -560,6 +560,8 @@ export type CalendarSummaryDto = {
     colour?: string;
     /** Transpiled from bool */
     isDefault: boolean;
+    /** Transpiled from bool */
+    isHidden: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.CalendarEventSummaryDto */

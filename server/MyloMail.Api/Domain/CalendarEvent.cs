@@ -12,6 +12,14 @@ public class Calendar
 	public bool IsDefault { get; set; }
 
 	/// <summary>
+	/// Excluded from the unified calendar view (§13 Epic 7). A local UI preference only —
+	/// never pushed upstream and never touched by calendar sync, the same as
+	/// <see cref="Account.SidebarCollapsed"/>. Each window reads it once when it opens and
+	/// then keeps its own live choice, so a change here does not move any window already open.
+	/// </summary>
+	public bool IsHidden { get; set; }
+
+	/// <summary>
 	/// Opaque CalDAV sync token for this collection. It advances only in the same transaction
 	/// as the event page it covers; replaying a page is safe, skipping one is not.
 	/// </summary>

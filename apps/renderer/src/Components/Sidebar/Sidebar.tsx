@@ -31,9 +31,12 @@ interface SidebarAccount {
 export function Sidebar({
 	hub,
 	accounts,
+	onMailboxSelected,
 }: {
 	hub: MailHubConnection;
 	accounts: SidebarAccount[];
+	/** Called only for the user's own click on a folder, never when selection is restored. */
+	onMailboxSelected?: (mailboxId: string) => void;
 }) {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
@@ -145,7 +148,11 @@ export function Sidebar({
 							) : null}
 						</button>
 						{isCollapsed ? null : (
-							<MailboxTree hub={hub} accountId={account.id} />
+							<MailboxTree
+								hub={hub}
+								accountId={account.id}
+								onMailboxSelected={onMailboxSelected}
+							/>
 						)}
 					</section>
 				);

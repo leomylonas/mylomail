@@ -6,6 +6,14 @@ import {
 	nextFocusIndex,
 } from "@mylomail/renderer/Lib/RovingFocus";
 import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
+import { eventOverlapsDay } from "@mylomail/renderer/Components/Calendar/CalendarEventDays";
+import {
+	agendaTimeLabel,
+	eventTitle,
+	locationText,
+	titleWithLocation,
+} from "@mylomail/renderer/Components/Calendar/CalendarEventText";
+import { agendaDayIndex } from "@mylomail/renderer/Components/Calendar/CalendarAgenda/CalendarAgendaFocus";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarAgenda/CalendarAgenda.module.css";
 
 export interface AgendaEvent {
@@ -33,11 +41,19 @@ interface AgendaDay {
 export function CalendarAgenda({
 	rangeStart,
 	rangeEnd,
+	focusDate,
+	takeFocus,
+	onFocusTaken,
 	events,
 	onSelectEvent,
 }: {
 	rangeStart: Dayjs;
 	rangeEnd: Dayjs;
+	/** The day the list opens on and marks. Always inside the range. */
+	focusDate: Dayjs;
+	/** Move keyboard focus to the focus day's heading, once, when it has rendered. */
+	takeFocus: boolean;
+	onFocusTaken: () => void;
 	events: AgendaEvent[];
 	onSelectEvent: (eventId: string) => void;
 }) {
@@ -152,6 +168,39 @@ export function CalendarAgenda({
 		focusEventWhenReady(next, focusRequestId.current);
 	}
 
+	// The focus day opens at the top of the list. Entering the agenda (or moving the header's
+	// date) scrolls there; only an explicit request — a day chosen in the month grid — also
+	// moves keyboard focus, so switching views never steals it from the control being used.
+	const focusKey = focusDate.format("YYYY-MM-DD");
+	const focusIndex = agendaDayIndex(rangeStart, focusDate, days.length);
+	const dayHeadings = useRef<Map<number, HTMLElement>>(new Map());
+	useEffect(() => {
+		if (focusIndex >= 0) {
+			virtualizer.scrollToIndex(focusIndex, { align: "start" });
+		}
+	}, [focusKey, focusIndex, virtualizer]);
+
+	useEffect(() => {
+		if (!takeFocus || focusIndex < 0) return;
+
+		let frame = 0;
+		let attemptsRemaining = 8;
+		// The row may not have mounted yet: react-virtual renders the scrolled-to window over the
+		// next frame, the same wait `focusEventWhenReady` has for roving focus.
+		const focusWhenReady = () => {
+			const heading = dayHeadings.current.get(focusIndex);
+			if (heading) {
+				heading.focus({ preventScroll: true });
+				onFocusTaken();
+				return;
+			}
+			attemptsRemaining -= 1;
+			if (attemptsRemaining > 0) frame = requestAnimationFrame(focusWhenReady);
+		};
+		frame = requestAnimationFrame(focusWhenReady);
+		return () => cancelAnimationFrame(frame);
+	}, [takeFocus, focusIndex, onFocusTaken]);
+
 	return (
 		<div ref={parentRef} className={styles.scroller}>
 			<div
@@ -165,14 +214,22 @@ export function CalendarAgenda({
 							key={day.date.toISOString()}
 							ref={virtualizer.measureElement}
 							data-index={item.index}
+							data-focused={item.index === focusIndex}
 							className={styles.dayRow}
 							style={{
 								transform: `translateY(${item.start}px)`,
 							}}
 						>
-							<div className={styles.dayLabel}>
+							<h3
+								ref={(element) => {
+									if (element) dayHeadings.current.set(item.index, element);
+									else dayHeadings.current.delete(item.index);
+								}}
+								tabIndex={-1}
+								className={styles.dayLabel}
+							>
 								{calendarFormatters.agendaDay(day.date.toDate())}
-							</div>
+							</h3>
 							{day.events.length === 0 ? (
 								<p className={styles.empty}>No events.</p>
 							) : (
@@ -205,22 +262,27 @@ export function CalendarAgenda({
 													}}
 												>
 													<span className={styles.time}>
-														{event.isAllDay
-															? "All day"
-															: calendarFormatters.time(new Date(event.start))}
+														{agendaTimeLabel(
+															event,
+															day.date,
+															calendarFormatters,
+														)}
 													</span>
 													<span
 														className={styles.title}
-														title={event.title || "(No title)"}
+														title={titleWithLocation(
+															event.title,
+															event.location,
+														)}
 													>
-														{event.title || "(No title)"}
+														{eventTitle(event.title)}
 													</span>
-													{event.location ? (
+													{locationText(event.location) ? (
 														<span
 															className={styles.location}
-															title={event.location}
+															title={locationText(event.location) ?? undefined}
 														>
-															{event.location}
+															{locationText(event.location)}
 														</span>
 													) : null}
 												</button>
@@ -247,16 +309,11 @@ function buildDays(
 	const end = rangeEnd.endOf("day");
 
 	while (cursor.isBefore(end)) {
-		const dayStart = cursor;
-		const dayEnd = cursor.endOf("day");
+		const day = cursor;
 		days.push({
 			date: cursor,
 			events: events
-				.filter(
-					(event) =>
-						dayjs(event.start).isBefore(dayEnd) &&
-						dayjs(event.end).isAfter(dayStart),
-				)
+				.filter((event) => eventOverlapsDay(event, day))
 				.sort((a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf()),
 		});
 		cursor = cursor.add(1, "day");

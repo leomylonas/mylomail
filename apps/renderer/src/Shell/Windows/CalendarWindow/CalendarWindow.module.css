@@ -1,0 +1,11 @@
+.frame {
+	box-sizing: border-box;
+	height: 100%;
+	padding: var(--cds-spacing-04);
+}
+
+@media (width <= 48rem) {
+	.frame {
+		padding: 0;
+	}
+}

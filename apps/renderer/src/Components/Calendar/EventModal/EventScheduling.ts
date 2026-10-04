@@ -1,4 +1,5 @@
-import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import { toInclusiveEndDateInputValue } from "@mylomail/renderer/Components/Calendar/EventModal/AllDayEventEnd";
 
 const timedInputPattern =
 	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?$/;
@@ -139,4 +140,116 @@ export function recurrenceRuleForPreset(
 		return `FREQ=MONTHLY;BYMONTHDAY=${local.date()}`;
 	}
 	return `FREQ=YEARLY;BYMONTH=${local.month() + 1};BYMONTHDAY=${local.date()}`;
+}
+
+/**
+ * Why a start and end cannot be saved together, or `null` when they can. The end must come
+ * strictly after the start: an event that ends before it begins, or has no length at all, is
+ * rejected whether the two fall on one day or several. (An all-day event's stored end is the
+ * exclusive day after its last day, so a valid one is always after its start.)
+ */
+export function scheduleValidationError(
+	start: string,
+	end: string,
+): string | null {
+	if (!dayjs(start).isValid() || !dayjs(end).isValid()) {
+		return "Start and end must be valid dates.";
+	}
+	return dayjs(end).isAfter(dayjs(start)) ? null : "End must be after start.";
+}
+
+/** The form fields that depend on whether an event is all-day. */
+export interface AllDayFields {
+	isAllDay: boolean;
+	start: string;
+	end: string;
+	startTimeZoneId: string;
+	endTimeZoneId: string;
+	recurrenceDatesText: string;
+	exceptionDatesText: string;
+}
+
+/**
+ * Switches an event between timed and all-day without collapsing it to a single day. Going to
+ * all-day keeps every day from the start's date to the end's (an end exactly at midnight
+ * belongs to the day before); coming back keeps the first and last day, at 09:00 and 10:00 —
+ * a one-day event becomes the same one-hour 09:00 event it always did.
+ */
+export function toggleAllDay<T extends AllDayFields>(
+	values: T,
+	isAllDay: boolean,
+): T {
+	if (isAllDay) {
+		const startDate = toZonedDateTimeInputValue(
+			values.start,
+			values.startTimeZoneId,
+		).slice(0, 10);
+		const endWall = toZonedDateTimeInputValue(values.end, values.endTimeZoneId);
+		const endsAtMidnight = /T00:00(?::00(?:\.000)?)?$/u.test(endWall);
+		const endDate = endsAtMidnight
+			? dayjs.utc(endWall.slice(0, 10)).subtract(1, "day").format("YYYY-MM-DD")
+			: endWall.slice(0, 10);
+		const start = dayjs.utc(startDate).startOf("day");
+		const lastDay = dayjs.utc(endDate < startDate ? startDate : endDate);
+		return {
+			...values,
+			isAllDay: true,
+			start: start.toISOString(),
+			end: lastDay.add(1, "day").startOf("day").toISOString(),
+			recurrenceDatesText: values.recurrenceDatesText.replace(
+				/^(\d{4}-\d{2}-\d{2})T.*$/gmu,
+				"$1",
+			),
+			exceptionDatesText: values.exceptionDatesText.replace(
+				/^(\d{4}-\d{2}-\d{2})T.*$/gmu,
+				"$1",
+			),
+		};
+	}
+
+	const firstDate = dayjs.utc(values.start).format("YYYY-MM-DD");
+	const lastDate = toInclusiveEndDateInputValue(values.end);
+	const start = fromZonedDateTimeInputValue(
+		`${firstDate}T09:00`,
+		values.startTimeZoneId,
+	);
+	return {
+		...values,
+		isAllDay: false,
+		start,
+		end:
+			lastDate > firstDate
+				? fromZonedDateTimeInputValue(`${lastDate}T10:00`, values.endTimeZoneId)
+				: dayjs(start).add(1, "hour").toISOString(),
+		recurrenceDatesText: values.recurrenceDatesText.replace(
+			/^(\d{4}-\d{2}-\d{2})$/gmu,
+			"$1T09:00",
+		),
+		exceptionDatesText: values.exceptionDatesText.replace(
+			/^(\d{4}-\d{2}-\d{2})$/gmu,
+			"$1T09:00",
+		),
+	};
+}
+
+/**
+ * The start and end a new event opens with. A click on a day starts at 09:00; a click on a
+ * time slot starts exactly there; a dragged range keeps its own end. Every case defaults to an
+ * hour long, and a range that does not end after its start falls back to that default.
+ */
+export function newEventRange(
+	date: Dayjs,
+	options: { atTime?: boolean; end?: Dayjs } = {},
+): { start: Dayjs; end: Dayjs } {
+	const start =
+		options.atTime || options.end
+			? date.second(0).millisecond(0)
+			: date.hour(9).minute(0).second(0).millisecond(0);
+	return {
+		start,
+		end:
+			options.end && options.end.isAfter(start)
+				? options.end
+				: start.add(1, "hour"),
+	};
 }

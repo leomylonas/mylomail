@@ -19,6 +19,7 @@ export type WindowRoute =
 			accountId: string | undefined;
 	  }
 	| { kind: "compose"; draftId: string; accountId: string }
+	| { kind: "calendar"; calendarId: string; accountId: string }
 	| {
 			kind: "shell";
 			initialNotification?: { notificationId: string; accountId: string };
@@ -33,6 +34,7 @@ export interface WindowSearch {
 	account?: string;
 	notification?: string;
 	mailto?: string;
+	calendar?: string;
 }
 
 export function parseWindowRoute(search: string): WindowRoute {
@@ -45,6 +47,7 @@ export function parseWindowRoute(search: string): WindowRoute {
 		account: params.get("account") ?? undefined,
 		notification: params.get("notification") ?? undefined,
 		mailto: params.get("mailto") ?? undefined,
+		calendar: params.get("calendar") ?? undefined,
 	});
 }
 
@@ -67,6 +70,13 @@ export function windowRouteFromSearch(search: WindowSearch): WindowRoute {
 		return {
 			kind: "compose",
 			draftId: search.compose,
+			accountId: search.account,
+		};
+	}
+	if (search.calendar && search.account) {
+		return {
+			kind: "calendar",
+			calendarId: search.calendar,
 			accountId: search.account,
 		};
 	}

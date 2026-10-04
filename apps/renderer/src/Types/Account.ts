@@ -11,6 +11,8 @@ export interface Account {
 	displayName: string;
 	emailAddress: string;
 	color: string;
+	/** False once removal has begun; such an account is not shown in the sidebar. */
+	isEnabled?: boolean;
 	pollIntervalSeconds?: number;
 	pollingEnabled?: boolean;
 	undoSendDelaySeconds?: number;

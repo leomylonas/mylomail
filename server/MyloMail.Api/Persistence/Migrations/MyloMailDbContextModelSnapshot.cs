@@ -173,6 +173,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<int>("CloseBehavior")
                         .HasColumnType("INTEGER");
 
+                    b.Property<Guid?>("LastViewedMailboxId")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("MailtoPromptDismissed")
                         .HasColumnType("INTEGER");
 
@@ -249,6 +252,9 @@ namespace MyloMail.Api.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsHidden")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsLocalOnly")

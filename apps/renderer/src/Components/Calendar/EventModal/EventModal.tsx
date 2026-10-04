@@ -30,6 +30,8 @@ import {
 	rezoneInstant,
 	toZonedDateTimeInputValue,
 	recurrenceRuleForPreset,
+	scheduleValidationError,
+	toggleAllDay,
 } from "@mylomail/renderer/Components/Calendar/EventModal/EventScheduling";
 import styles from "@mylomail/renderer/Components/Calendar/EventModal/EventModal.module.css";
 
@@ -742,12 +744,8 @@ function recurrenceValidationError(
 	supportsRecurrenceSets: boolean,
 ): string | null {
 	if (timeError) return timeError;
-	if (!dayjs(values.start).isValid() || !dayjs(values.end).isValid()) {
-		return "Start and end must be valid dates.";
-	}
-	if (dayjs(values.end).isBefore(dayjs(values.start))) {
-		return "End must not be before start.";
-	}
+	const scheduleError = scheduleValidationError(values.start, values.end);
+	if (scheduleError) return scheduleError;
 	if (
 		!supportsRecurrenceSets &&
 		(values.recurrenceDatesText.trim() || values.exceptionDatesText.trim())
@@ -769,51 +767,4 @@ function recurrenceValidationError(
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);
 	}
-}
-
-function toggleAllDay(
-	values: EventFormValues,
-	isAllDay: boolean,
-): EventFormValues {
-	if (isAllDay) {
-		const startDate = toZonedDateTimeInputValue(
-			values.start,
-			values.startTimeZoneId,
-		).slice(0, 10);
-		const start = dayjs.utc(startDate).startOf("day");
-		return {
-			...values,
-			isAllDay: true,
-			start: start.toISOString(),
-			end: start.add(1, "day").toISOString(),
-			recurrenceDatesText: values.recurrenceDatesText.replace(
-				/^(\d{4}-\d{2}-\d{2})T.*$/gmu,
-				"$1",
-			),
-			exceptionDatesText: values.exceptionDatesText.replace(
-				/^(\d{4}-\d{2}-\d{2})T.*$/gmu,
-				"$1",
-			),
-		};
-	}
-
-	const date = dayjs.utc(values.start).format("YYYY-MM-DD");
-	const start = fromZonedDateTimeInputValue(
-		`${date}T09:00`,
-		values.startTimeZoneId,
-	);
-	return {
-		...values,
-		isAllDay: false,
-		start,
-		end: dayjs(start).add(1, "hour").toISOString(),
-		recurrenceDatesText: values.recurrenceDatesText.replace(
-			/^(\d{4}-\d{2}-\d{2})$/gmu,
-			"$1T09:00",
-		),
-		exceptionDatesText: values.exceptionDatesText.replace(
-			/^(\d{4}-\d{2}-\d{2})$/gmu,
-			"$1T09:00",
-		),
-	};
 }

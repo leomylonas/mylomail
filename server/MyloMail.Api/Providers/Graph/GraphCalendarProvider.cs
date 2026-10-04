@@ -43,14 +43,17 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 		{
 			var page = continuation is null
 				? await ThrottleAwareAsync(() => client.Me.Calendars.GetAsync(
-					configuration => configuration.QueryParameters.Select = ["id", "name", "color", "isDefaultCalendar"],
+					configuration => configuration.QueryParameters.Select = ["id", "name", "color", "hexColor", "isDefaultCalendar"],
 					ct
 				))
 				: await ThrottleAwareAsync(() => client.Me.Calendars.WithUrl(continuation).GetAsync(null, ct));
 			calendars.AddRange((page?.Value ?? []).Where(calendar => calendar.Id is not null).Select(calendar => new CalendarDto(
 				calendar.Id!,
 				calendar.Name ?? string.Empty,
-				calendar.Color?.ToString(),
+				// Graph's `hexColor` is the exact colour when it has one (empty for "auto"); the
+				// `color` enum name is only a bucket the client has to map. The renderer
+				// understands both, so the more precise one is stored when present.
+				string.IsNullOrWhiteSpace(calendar.HexColor) ? calendar.Color?.ToString() : calendar.HexColor,
 				calendar.IsDefaultCalendar ?? false
 			)));
 			continuation = page?.OdataNextLink;

@@ -9,6 +9,21 @@ export interface PanelLayout {
 
 const defaultLayout: PanelLayout = { sidebar: 20, list: 35, detail: 45 };
 
+/**
+ * `layout` with a new sidebar share. The list and detail panels split what is left in their
+ * existing ratio, so a view that only shows the sidebar (the calendar) can still write back
+ * a layout whose three panels add up to 100.
+ */
+export function withSidebarWidth(
+	layout: PanelLayout,
+	sidebar: number,
+): PanelLayout {
+	const remaining = 100 - sidebar;
+	const share = layout.list + layout.detail;
+	const list = share > 0 ? (remaining * layout.list) / share : remaining / 2;
+	return { sidebar, list, detail: remaining - list };
+}
+
 async function saveLayout(
 	layout: PanelLayout,
 	onSaveError?: (error: unknown) => void,

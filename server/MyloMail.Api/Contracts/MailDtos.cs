@@ -349,9 +349,12 @@ public record OutboxItemDto(
 	DateTimeOffset? ReconcilingSince
 );
 
-/// <summary>A calendar as the calendar view renders it (§1).</summary>
+/// <summary>
+/// A calendar as the calendar view renders it (§1). <c>IsHidden</c> is the persisted default
+/// for the unified view; a window reads it once and then keeps its own live choice.
+/// </summary>
 [TranspilationSource]
-public record CalendarSummaryDto(Guid Id, Guid AccountId, string Name, string? Colour, bool IsDefault);
+public record CalendarSummaryDto(Guid Id, Guid AccountId, string Name, string? Colour, bool IsDefault, bool IsHidden);
 
 /// <summary>
 /// One event as the calendar grid or agenda view renders it. Attendees and the full

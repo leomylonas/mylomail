@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AppShell } from "@mylomail/renderer/Shell/AppShell/AppShell";
 import { ComposeWindow } from "@mylomail/renderer/Shell/Windows/ComposeWindow/ComposeWindow";
 import { MessageWindow } from "@mylomail/renderer/Shell/Windows/MessageWindow/MessageWindow";
+import { CalendarWindow } from "@mylomail/renderer/Shell/Windows/CalendarWindow/CalendarWindow";
 import { windowRouteFromSearch } from "@mylomail/renderer/Shell/WindowRoute";
 
 const windowSearchSchema = z.object({
@@ -20,6 +21,7 @@ const windowSearchSchema = z.object({
 	account: z.string().optional(),
 	notification: z.string().optional(),
 	mailto: z.string().optional(),
+	calendar: z.string().optional(),
 });
 
 const rootRoute = createRootRoute();
@@ -47,6 +49,13 @@ function WindowRoot() {
 		case "compose":
 			return (
 				<ComposeWindow draftId={route.draftId} accountId={route.accountId} />
+			);
+		case "calendar":
+			return (
+				<CalendarWindow
+					calendarId={route.calendarId}
+					accountId={route.accountId}
+				/>
 			);
 		case "shell":
 			return (

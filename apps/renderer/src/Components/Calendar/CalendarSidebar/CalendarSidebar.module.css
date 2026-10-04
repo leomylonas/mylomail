@@ -1,0 +1,125 @@
+.sidebar {
+	height: 100%;
+	padding-top: var(--cds-spacing-02);
+	overflow-y: auto;
+	background: var(--cds-layer);
+}
+
+.section {
+	padding-block: var(--cds-spacing-02);
+}
+
+.header {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-03);
+	width: 100%;
+	min-height: 1.75rem;
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
+	border: none;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	font-size: 0.8125rem;
+	font-weight: 600;
+	text-align: left;
+	cursor: pointer;
+	transition: background 120ms ease;
+}
+
+.header:hover {
+	background: var(--cds-layer-hover);
+}
+
+.header:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+.chevron {
+	width: 1em;
+	flex-shrink: 0;
+	color: var(--cds-icon-secondary);
+	font-size: 0.7rem;
+}
+
+.accountSwatch {
+	width: 0.625rem;
+	height: 0.625rem;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-shadow: 0 0 0 1px var(--cds-border-subtle);
+}
+
+.tree {
+	padding: 0 var(--cds-spacing-03) var(--cds-spacing-03);
+}
+
+.tree ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	padding-left: var(--cds-spacing-03);
+	border-radius: 0.25rem;
+}
+
+.row:hover {
+	background: var(--cds-layer-hover);
+}
+
+.check {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+}
+
+.item {
+	display: grid;
+	grid-template-columns: 0.75rem minmax(0, 1fr);
+	align-items: center;
+	gap: 0 var(--cds-spacing-03);
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 1.625rem;
+	padding: var(--cds-spacing-01) var(--cds-spacing-04) var(--cds-spacing-01)
+		var(--cds-spacing-02);
+	border: none;
+	border-radius: 0.25rem;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	font-size: 0.8125rem;
+	text-align: left;
+	cursor: pointer;
+}
+
+.item:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+.swatch {
+	width: 0.75rem;
+	height: 0.75rem;
+	border-radius: 0.125rem;
+	box-shadow: 0 0 0 1px var(--cds-border-subtle);
+}
+
+.name {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.empty {
+	margin: 0;
+	padding: var(--cds-spacing-02) var(--cds-spacing-05);
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+}

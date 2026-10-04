@@ -19,6 +19,14 @@ public record UpdatePanelLayoutRequest(string PanelLayout);
 
 public record UpdateWindowBoundsRequest(string WindowBoundsJson);
 
+/// <summary>
+/// The remembered folder, resolved: both ids are null unless the mailbox still exists and its
+/// account is enabled, so a caller never has to reconcile a stale id itself.
+/// </summary>
+public record LastViewedMailboxDto(Guid? AccountId, Guid? MailboxId);
+
+public record UpdateLastViewedMailboxRequest(Guid MailboxId);
+
 public record UpdateMailtoPromptDismissedRequest(bool Dismissed);
 
 public record UpdateCloseBehaviorRequest(CloseBehavior CloseBehavior);

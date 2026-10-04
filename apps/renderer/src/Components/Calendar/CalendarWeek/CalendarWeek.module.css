@@ -1,0 +1,353 @@
+.week {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+	background: var(--cds-layer);
+}
+
+.toolbar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.srOnly {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* --mylomail-hour-height is set inline from the zoom; everything tall derives from it. */
+.scroller {
+	--mylomail-week-columns: 3.5rem repeat(7, minmax(5.5rem, 1fr));
+
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	background: var(--cds-layer);
+}
+
+.grid {
+	min-width: calc(3.5rem + 7 * 5.5rem);
+}
+
+.row,
+.body {
+	display: grid;
+	grid-template-columns: var(--mylomail-week-columns);
+}
+
+/* Day headers and the all-day strip stay put while the hours scroll under them. */
+.head {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	background: var(--cds-layer);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.gutterCell,
+.gutter {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+	background: var(--cds-layer);
+}
+
+.gutterCell {
+	z-index: 4;
+	display: flex;
+	align-items: flex-end;
+	justify-content: flex-end;
+	padding: 0 var(--cds-spacing-02) var(--cds-spacing-02);
+}
+
+.allDayLabel {
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+}
+
+.dayHeader {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--cds-spacing-03);
+	padding: var(--cds-spacing-03) var(--cds-spacing-02);
+	border-left: 1px solid var(--cds-border-subtle);
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+}
+
+.dayNumber {
+	display: grid;
+	width: 1.75rem;
+	height: 1.75rem;
+	place-content: center;
+	border-radius: 50%;
+	color: var(--cds-text-primary);
+	font-size: 1rem;
+}
+
+.dayHeader[data-today="true"] {
+	color: var(--cds-interactive, #0f62fe);
+	font-weight: 600;
+}
+
+.dayHeader[data-today="true"] .dayNumber {
+	background: var(--cds-interactive, #0f62fe);
+	color: var(--cds-text-on-color, #fff);
+}
+
+/*
+ * The strip spans the seven day columns (everything right of the hour gutter): as a grid item
+ * of the header row it would otherwise take only the first free column. Rows are a fixed
+ * comfortable height and the strip is as tall as its rows, so nothing is clipped; past six rows
+ * the rest fold behind the "more" control, and an expanded strip scrolls within a cap.
+ */
+.allDay {
+	display: grid;
+	grid-column: 2 / -1;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	grid-auto-rows: 1.5rem;
+	gap: 2px;
+	max-height: 40vh;
+	padding: 2px;
+	border-left: 1px solid var(--cds-border-subtle);
+	overflow-y: auto;
+}
+
+.allDay:empty {
+	min-height: 1.75rem;
+}
+
+.allDayChip,
+.block {
+	--mylomail-event-color: var(--cds-interactive, #0f62fe);
+	--mylomail-event-text: #fff;
+
+	box-sizing: border-box;
+	border: none;
+	border-radius: 3px;
+	background: var(--mylomail-event-color);
+	box-shadow: 0 0 0 1px var(--cds-layer);
+	color: var(--mylomail-event-text);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.allDayChip {
+	display: block;
+	min-width: 0;
+	padding: 0 var(--cds-spacing-02);
+	overflow: hidden;
+	font-size: 0.75rem;
+	line-height: 1.5rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.chipTitle {
+	font-weight: 600;
+}
+
+.chipLocation {
+	font-weight: 400;
+}
+
+.allDayMore {
+	grid-column: 1 / -1;
+	justify-self: start;
+	padding: 0 var(--cds-spacing-02);
+	border: none;
+	background: none;
+	color: var(--cds-link-primary);
+	font: inherit;
+	font-size: 0.75rem;
+	line-height: 1.5rem;
+	cursor: pointer;
+}
+
+.allDayMore:hover {
+	text-decoration: underline;
+}
+
+.allDayMore:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+.body[data-dragging="true"] {
+	cursor: crosshair;
+}
+
+.gutter {
+	height: calc(var(--mylomail-hour-height) * 24);
+	pointer-events: none;
+}
+
+/* Each label sits centred on its hour line; which hours get one thins out as the scale shrinks. */
+.hourLabel {
+	position: absolute;
+	right: 0;
+	padding-right: var(--cds-spacing-03);
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+	line-height: 1;
+	transform: translateY(-50%);
+}
+
+.column {
+	position: relative;
+	height: calc(var(--mylomail-hour-height) * 24);
+	border-left: 1px solid var(--cds-border-subtle);
+	background-image: linear-gradient(
+		to bottom,
+		var(--cds-border-subtle) 1px,
+		transparent 1px
+	);
+	background-size: 100% var(--mylomail-hour-height);
+	user-select: none;
+}
+
+/* Half-hour and quarter-hour lines appear once there is room, drawn under the hour lines. */
+.column[data-minor="half"] {
+	background-image:
+		linear-gradient(to bottom, var(--cds-border-subtle) 1px, transparent 1px),
+		linear-gradient(to bottom, var(--cds-layer-accent) 1px, transparent 1px);
+	background-size:
+		100% var(--mylomail-hour-height),
+		100% calc(var(--mylomail-hour-height) / 2);
+}
+
+.column[data-minor="quarter"] {
+	background-image:
+		linear-gradient(to bottom, var(--cds-border-subtle) 1px, transparent 1px),
+		linear-gradient(to bottom, var(--cds-layer-accent) 1px, transparent 1px);
+	background-size:
+		100% var(--mylomail-hour-height),
+		100% calc(var(--mylomail-hour-height) / 4);
+}
+
+.column[data-today="true"] {
+	background-color: var(--cds-layer-hover);
+}
+
+/* The slot cursor stands in for the focus ring, so the column itself shows none. */
+.column:focus-visible {
+	outline: none;
+}
+
+.cursor {
+	position: absolute;
+	right: 0;
+	left: 0;
+	z-index: 1;
+	display: none;
+	box-sizing: border-box;
+	border: 2px solid var(--cds-focus);
+	pointer-events: none;
+}
+
+.column:focus-visible .cursor {
+	display: block;
+}
+
+/* A translucent fill with a solid outline: the fill is a pseudo-element so only it fades. */
+.selection {
+	position: absolute;
+	right: 0;
+	left: 0;
+	z-index: 1;
+	box-sizing: border-box;
+	border: 2px solid var(--cds-interactive, #0f62fe);
+	pointer-events: none;
+}
+
+.selection::before {
+	position: absolute;
+	inset: 0;
+	background: var(--cds-interactive, #0f62fe);
+	content: "";
+	opacity: 0.2;
+}
+
+.dragLabel {
+	position: fixed;
+	z-index: 9000;
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	border-radius: 2px;
+	background: var(--cds-background-inverse);
+	color: var(--cds-text-inverse);
+	font-size: 0.75rem;
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+/*
+ * Position and size come from the event's minutes as percentages of the column, so a block
+ * follows the zoom on its own. It never grows past that box (the lane layout assumed it
+ * wouldn't): overflow is clipped, and each line ends in an ellipsis. The 15px lines and 2px
+ * padding are what `blockContent` counts when deciding which lines fit.
+ */
+.block {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	padding: 2px var(--cds-spacing-02);
+	overflow: hidden;
+	font-size: 0.75rem;
+	line-height: 15px;
+}
+
+.blockTitle,
+.blockTime,
+.blockLocation {
+	flex: 0 0 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.blockTitle {
+	font-weight: 600;
+}
+
+.blockTime,
+.blockLocation {
+	font-size: 0.6875rem;
+}
+
+.allDayChip[data-conflict="true"],
+.block[data-conflict="true"] {
+	outline: 2px solid var(--cds-support-error, #da1e28);
+	outline-offset: -2px;
+}
+
+.nowLine {
+	position: absolute;
+	right: 0;
+	left: 0;
+	z-index: 2;
+	height: 2px;
+	background: var(--cds-support-error, #da1e28);
+	pointer-events: none;
+}
+
+.allDayChip:focus-visible,
+.block:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: 1px;
+}

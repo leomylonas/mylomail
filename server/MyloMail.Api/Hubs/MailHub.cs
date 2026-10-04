@@ -300,6 +300,14 @@ public interface IMailHub
 
 	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
 
+	/// <summary>
+	/// Whether a calendar is left out of the unified calendar view by default (§13 Epic 7).
+	/// Purely local, like <see cref="SetAccountSidebarCollapsed"/>, but deliberately not
+	/// announced: it is the default the <i>next</i> window reads on open, and a window that is
+	/// already open keeps its own live choice.
+	/// </summary>
+	Task SetCalendarHidden(Guid calendarId, bool hidden);
+
 	Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(Guid calendarId, DateTimeOffset from, DateTimeOffset to);
 
 	Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request);
@@ -1582,8 +1590,13 @@ public class MailHub(
 	public async Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId) =>
 		await context
 			.Calendars.Where(c => c.AccountId == accountId)
-			.Select(c => new CalendarSummaryDto(c.Id, c.AccountId, c.Name, c.Colour, c.IsDefault))
+			.Select(c => new CalendarSummaryDto(c.Id, c.AccountId, c.Name, c.Colour, c.IsDefault, c.IsHidden))
 			.ToListAsync();
+
+	public async Task SetCalendarHidden(Guid calendarId, bool hidden) =>
+		await context
+			.Calendars.Where(c => c.Id == calendarId)
+			.ExecuteUpdateAsync(setters => setters.SetProperty(c => c.IsHidden, hidden));
 
 	/// <summary>
 	/// Events overlapping <paramref name="from"/>/<paramref name="to"/>, not merely starting

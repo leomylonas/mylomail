@@ -4,6 +4,12 @@ import {
 	calendarFormatters,
 	calendarGridStart,
 } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
+import { readableTextColour } from "@mylomail/renderer/Components/Calendar/CalendarColour";
+import {
+	eventTitle,
+	locationText,
+} from "@mylomail/renderer/Components/Calendar/CalendarEventText";
+import { eventOverlapsDay } from "@mylomail/renderer/Components/Calendar/CalendarEventDays";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarGrid/CalendarGrid.module.css";
 
 export interface GridEvent {
@@ -12,6 +18,8 @@ export interface GridEvent {
 	start: string;
 	end: string;
 	color: string;
+	isAllDay: boolean;
+	location: string | null;
 	syncConflict: boolean;
 }
 
@@ -51,12 +59,16 @@ export function calendarDayFocusTarget(
 export function CalendarGrid({
 	anchor,
 	events,
-	onSelectDay,
+	onFocusDay,
+	onCreateOnDay,
 	onSelectEvent,
 }: {
 	anchor: Dayjs;
 	events: GridEvent[];
-	onSelectDay: (date: Dayjs) => void;
+	/** The day number was chosen: show that day in the agenda. */
+	onFocusDay: (date: Dayjs) => void;
+	/** Empty space in a day was double-clicked: start a new event on it. */
+	onCreateOnDay: (date: Dayjs) => void;
 	onSelectEvent: (eventId: string) => void;
 }) {
 	const gridStart = calendarGridStart(anchor);
@@ -97,18 +109,37 @@ export function CalendarGrid({
 				<div key={week[0].toISOString()} className={styles.row} role="row">
 					{week.map((day, dayIndex) => {
 						const index = weekIndex * 7 + dayIndex;
-						const dayEvents = events.filter((event) => overlapsDay(event, day));
+						const dayEvents = events.filter((event) =>
+							eventOverlapsDay(event, day),
+						);
 						const overflow = dayEvents.length - maxPerCell;
 
 						return (
+							// Double-click is a pointer shortcut for the same action as the
+							// "New event" button; the cell is focusable (-1) only because an
+							// interactive role with a handler must be, not as a tab stop —
+							// the day-number buttons are the roving tab stops.
 							<div
 								key={day.toISOString()}
 								className={styles.day}
 								role="gridcell"
+								tabIndex={-1}
 								aria-colindex={dayIndex + 1}
 								aria-label={calendarFormatters.fullDate(day.toDate())}
 								data-outside-month={day.month() !== anchor.month()}
 								data-today={day.isSame(today, "day")}
+								onDoubleClick={(event) => {
+									// Only the cell's blank space: a chip, the day number and the
+									// "+N more" note each have their own meaning.
+									if (
+										(event.target as HTMLElement).closest(
+											"button, [data-day-control]",
+										)
+									) {
+										return;
+									}
+									onCreateOnDay(day);
+								}}
 							>
 								<button
 									type="button"
@@ -117,7 +148,7 @@ export function CalendarGrid({
 									}}
 									tabIndex={index === focusedDayIndex ? 0 : -1}
 									className={styles.dayNumber}
-									aria-label={`Add an event on ${calendarFormatters.fullDate(day.toDate())}`}
+									aria-label={`Show ${calendarFormatters.fullDate(day.toDate())} in the agenda`}
 									onKeyDown={(event) => {
 										if (
 											![
@@ -135,29 +166,41 @@ export function CalendarGrid({
 									}}
 									onClick={() => {
 										setFocusedDayIndex(index);
-										onSelectDay(day);
+										onFocusDay(day);
 									}}
 								>
 									{calendarFormatters.dayNumber(day.toDate())}
 								</button>
 								<div className={styles.events}>
-									{dayEvents.slice(0, maxPerCell).map((event) => (
-										<button
-											key={event.id}
-											type="button"
-											className={styles.eventChip}
-											style={{
-												["--mylomail-event-color" as string]: event.color,
-											}}
-											data-conflict={event.syncConflict}
-											aria-label={`${event.title || "(No title)"}, ${calendarFormatters.monthDay(day.toDate())}`}
-											onClick={() => onSelectEvent(event.id)}
-										>
-											{event.title || "(No title)"}
-										</button>
-									))}
+									{dayEvents.slice(0, maxPerCell).map((event) => {
+										const title = eventTitle(event.title);
+										const place = locationText(event.location);
+										return (
+											<button
+												key={event.id}
+												type="button"
+												className={styles.eventChip}
+												style={{
+													["--mylomail-event-color" as string]: event.color,
+													["--mylomail-event-text" as string]:
+														readableTextColour(event.color),
+												}}
+												data-conflict={event.syncConflict}
+												title={place ? `${title}\n${place}` : title}
+												aria-label={`${place ? `${title}, ${place}` : title}, ${calendarFormatters.monthDay(day.toDate())}`}
+												onClick={() => onSelectEvent(event.id)}
+											>
+												<span className={styles.chipTitle}>{title}</span>
+												{place ? (
+													<span
+														className={styles.chipLocation}
+													>{` · ${place}`}</span>
+												) : null}
+											</button>
+										);
+									})}
 									{overflow > 0 ? (
-										<span className={styles.overflow}>
+										<span className={styles.overflow} data-day-control>
 											+{calendarFormatters.number(overflow)} more
 										</span>
 									) : null}
@@ -168,13 +211,5 @@ export function CalendarGrid({
 				</div>
 			))}
 		</div>
-	);
-}
-
-function overlapsDay(event: GridEvent, day: Dayjs): boolean {
-	const dayStart = day.startOf("day");
-	const dayEnd = day.endOf("day");
-	return (
-		dayjs(event.start).isBefore(dayEnd) && dayjs(event.end).isAfter(dayStart)
 	);
 }

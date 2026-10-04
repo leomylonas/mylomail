@@ -39,6 +39,19 @@ describe("parseWindowRoute", () => {
 		});
 	});
 
+	it("resolves the calendar route for a window showing one calendar", () => {
+		expect(parseWindowRoute("?calendar=c1&account=a1&windowSlot=2")).toEqual({
+			kind: "calendar",
+			calendarId: "c1",
+			accountId: "a1",
+		});
+	});
+
+	it("needs both the calendar and its account to open a calendar window", () => {
+		expect(parseWindowRoute("?calendar=c1")).toEqual({ kind: "shell" });
+		expect(parseWindowRoute("?account=a1")).toEqual({ kind: "shell" });
+	});
+
 	it("carries a notification click into a newly opened main window", () => {
 		expect(
 			parseWindowRoute("?notification=n1&account=a1&windowSlot=3"),

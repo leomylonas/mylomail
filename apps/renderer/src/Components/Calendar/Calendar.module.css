@@ -4,9 +4,34 @@
 	height: 100%;
 	min-height: 0;
 	overflow: hidden;
-	border: 1px solid var(--cds-border-subtle);
+}
+
+.panels {
+	flex: 1 1 auto;
+	min-height: 0;
 	background: var(--cds-layer);
-	box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+.handle {
+	position: relative;
+	z-index: 1;
+	width: 1px;
+	background: var(--cds-border-subtle);
+	cursor: col-resize;
+	transition: background 120ms ease;
+}
+
+.handle:hover,
+.handle[data-resize-handle-active] {
+	background: var(--cds-border-interactive);
+}
+
+.main {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
 }
 
 .header {
@@ -28,8 +53,15 @@
 	gap: var(--cds-spacing-02);
 }
 
+.actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: var(--cds-spacing-04);
+}
+
 .switcher {
-	width: 12rem;
+	width: 18rem;
 	flex: 0 0 auto;
 }
 
@@ -37,6 +69,17 @@
 	margin: 0 0 0 var(--cds-spacing-03);
 	font-size: 1.25rem;
 	font-weight: 400;
+}
+
+/* The one-calendar window's title: the calendar's colour as the background, with whichever of
+ * light or dark text reads better on it (set inline from the resolved colour). */
+.calendarName {
+	margin: 0 var(--cds-spacing-03) 0 0;
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
+	border-radius: 1rem;
+	font-size: 0.875rem;
+	font-weight: 600;
+	white-space: nowrap;
 }
 
 .body {
@@ -61,16 +104,12 @@
 }
 
 @media (width <= 48rem) {
-	.calendar {
-		border: 0;
-	}
-
 	.header {
 		flex-wrap: wrap;
 		padding-inline: var(--cds-spacing-04);
 	}
 
 	.switcher {
-		width: 10rem;
+		width: 15rem;
 	}
 }

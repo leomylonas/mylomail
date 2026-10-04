@@ -55,6 +55,8 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useShellLayout } from "@mylomail/renderer/Shell/Layout/UseShellLayout";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
+import { chooseInitialMailbox } from "@mylomail/renderer/Shell/LastViewedMailbox/ChooseInitialMailbox";
+import { useLastViewedMailbox } from "@mylomail/renderer/Shell/LastViewedMailbox/UseLastViewedMailbox";
 import {
 	applyNotificationNavigation,
 	waitForNotificationNavigation,
@@ -145,11 +147,65 @@ export function AppShell({
 		},
 	});
 
-	// Selecting the only account is not a decision worth making the user repeat.
+	// A window opened for a purpose shows that purpose, not the remembered folder, and never
+	// overwrites it either.
+	const plainShell = !initialNotification && !initialMailto;
+	const lastViewed = useLastViewedMailbox(plainShell);
+	const restoredAccountId = useRef<string | null>(null);
+	const restoreAttempted = useRef(false);
+
+	// Opening selection. The remembered folder is applied exactly once, and the default below
+	// waits for it: selecting the first account as soon as the accounts arrive would otherwise
+	// win the race against a remembered folder that is still being read.
 	useEffect(() => {
-		if (!selectedAccountId && accounts.data?.length)
+		if (!accounts.data?.length || !lastViewed.settled) return;
+
+		// Read from the store, not the render's closure: this must see the restored selection
+		// when the effect runs again before the component has re-rendered.
+		if (!restoreAttempted.current) {
+			restoreAttempted.current = true;
+			const initial = chooseInitialMailbox({
+				plainShell,
+				remembered: lastViewed.remembered,
+				accounts: accounts.data,
+			});
+			if (initial && !store.getState("selectedAccountId")) {
+				store.setState("selectedAccountId", initial.accountId);
+				store.setState("selectedMailboxId", initial.mailboxId);
+				restoredAccountId.current = initial.accountId;
+				return;
+			}
+		}
+
+		// Selecting the only account is not a decision worth making the user repeat.
+		if (!store.getState("selectedAccountId"))
 			store.setState("selectedAccountId", accounts.data[0].id);
-	}, [accounts.data, selectedAccountId, store]);
+	}, [
+		accounts.data,
+		lastViewed.remembered,
+		lastViewed.settled,
+		plainShell,
+		selectedAccountId,
+		store,
+	]);
+
+	// A remembered folder inside a collapsed account would be selected but out of sight, so
+	// that account is expanded, once, the way the user would have done it by hand.
+	useEffect(() => {
+		const accountId = restoredAccountId.current;
+		if (!hub || !accountId) return;
+		const account = accounts.data?.find(
+			(candidate) => candidate.id === accountId,
+		);
+		if (!account) return;
+
+		restoredAccountId.current = null;
+		if (!account.sidebarCollapsed) return;
+		hub
+			.setAccountSidebarCollapsed(accountId, false)
+			.then(() => queryClient.invalidateQueries({ queryKey: ["accounts"] }))
+			.catch(() => undefined);
+	}, [hub, accounts.data, queryClient]);
 
 	// Local pane state is reset by the same external AccountRemoved event that clears the
 	// window store and account-owned query caches in HubConnection.
@@ -591,7 +647,11 @@ export function AppShell({
 						panelRef={sidebarRef}
 					>
 						{hub && accounts.data?.length ? (
-							<Sidebar hub={hub} accounts={accounts.data} />
+							<Sidebar
+								hub={hub}
+								accounts={accounts.data}
+								onMailboxSelected={lastViewed.remember}
+							/>
 						) : (
 							<div />
 						)}

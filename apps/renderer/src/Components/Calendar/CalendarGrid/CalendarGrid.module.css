@@ -1,10 +1,9 @@
 .grid {
 	display: grid;
-	grid-template-columns: repeat(7, 1fr);
+	grid-template-columns: repeat(7, minmax(0, 1fr));
 	grid-auto-rows: minmax(6rem, 1fr);
 	gap: 1px;
 	background: var(--cds-border-subtle, #e0e0e0);
-	border: 1px solid var(--cds-border-subtle, #e0e0e0);
 	overflow: auto;
 }
 
@@ -26,6 +25,9 @@
 	flex-direction: column;
 	min-height: 0;
 	padding: var(--cds-spacing-02);
+
+	/* A double-click on the blank space creates an event; it should not also select text. */
+	user-select: none;
 }
 
 .day[data-outside-month="true"] {
@@ -60,9 +62,10 @@
 
 .eventChip {
 	--mylomail-event-color: var(--cds-interactive, #0f62fe);
+	--mylomail-event-text: #fff;
 
 	background: var(--mylomail-event-color);
-	color: #fff;
+	color: var(--mylomail-event-text);
 	border: none;
 	border-radius: 3px;
 	padding: 1px var(--cds-spacing-02);
@@ -77,6 +80,15 @@
 .eventChip[data-conflict="true"] {
 	outline: 2px solid var(--cds-support-error, #da1e28);
 	outline-offset: -2px;
+}
+
+/* Title and location share the one ellipsised line; the location is the lighter half. */
+.chipTitle {
+	font-weight: 600;
+}
+
+.chipLocation {
+	font-weight: 400;
 }
 
 .overflow {

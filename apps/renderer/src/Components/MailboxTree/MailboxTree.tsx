@@ -117,9 +117,12 @@ type Dialog =
 export function MailboxTree({
 	hub,
 	accountId,
+	onMailboxSelected,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	/** Called only for the user's own click on a folder, never when selection is restored. */
+	onMailboxSelected?: (mailboxId: string) => void;
 }) {
 	const store = useWindowStore();
 	const queryClient = useQueryClient();
@@ -458,6 +461,7 @@ export function MailboxTree({
 									// account" this tree can assume it already is.
 									store.setState("selectedAccountId", accountId);
 									store.setState("selectedMailboxId", mailbox.id);
+									onMailboxSelected?.(mailbox.id);
 								}}
 								onContextMenu={(event) => {
 									event.preventDefault();

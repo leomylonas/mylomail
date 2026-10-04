@@ -21,6 +21,13 @@ export interface WindowState {
 	 * remote-content allow list) but has no way to ask for one message on its own.
 	 */
 	selectedMessageSenderAddress: string;
+
+	/**
+	 * Calendar id to "left out of the unified calendar view", for the calendars this window has
+	 * seeded or toggled. The server's persisted default is read into it once per calendar and
+	 * after that this window owns the value, so one window's choice never moves another's.
+	 */
+	calendarHidden: Readonly<Record<string, boolean>>;
 }
 
 /**
@@ -38,6 +45,7 @@ export function createWindowStore(): Store<WindowState> {
 		selectedMessageId: null,
 		selectedMessageSubject: "",
 		selectedMessageSenderAddress: "",
+		calendarHidden: {},
 	});
 	return store;
 }
