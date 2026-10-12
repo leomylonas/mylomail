@@ -186,6 +186,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<OutboxJobs>();
 		services.AddScoped<ContentJobs>();
 		services.AddScoped<SnippetJobs>();
+		services.AddSingleton<Content.MessageFrameStore>();
 		services.AddScoped<ExportJobs>();
 		services.AddScoped<TombstoneGcJobs>();
 		services.AddScoped<StartupScheduler>();

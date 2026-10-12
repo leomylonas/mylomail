@@ -1,16 +1,16 @@
 /**
- * Applies a message's own styling, plus the renderer's additions, inside the isolated frame (or,
- * for printing, inside a shadow root that keeps the message's CSS from reaching the app).
+ * Applies a message's own styling, plus the renderer's additions, inside a shadow root that keeps
+ * the message's CSS from reaching the app — used for the print copy.
  *
- * The frame is a `srcdoc` document, which inherits the renderer's `style-src 'self'`. That
- * blocks every `<style>` element and `style=""` attribute parsed from the message's markup, so
- * a message rendered as bare, unstyled HTML. Setting styles through the CSSOM is not covered by
- * that directive, so the message's stylesheets and inline declarations are re-applied that way
- * — which keeps the renderer's policy strict rather than loosening it for message content.
+ * The shadow root lives in the app's own page, whose policy is `style-src 'self'`. That blocks
+ * every `<style>` element and `style=""` attribute parsed from the message's markup, so a message
+ * rendered there as bare, unstyled HTML. Setting styles through the CSSOM is not covered by that
+ * directive, so the message's stylesheets and inline declarations are re-applied that way — which
+ * keeps the app's policy strict rather than loosening it for message content. (The on-screen
+ * frame needs none of this: it is served by the backend under a policy of its own.)
  *
- * Request-making CSS stays governed by the frame's own policy (`default-src 'none'`), which
- * refuses remote `url()` loads until the user allows them; `@import` is ignored by
- * `replaceSync`.
+ * Request-making CSS stays governed by the page's policy, which refuses remote `url()` loads;
+ * `@import` is ignored by `replaceSync`.
  */
 export function applyMessageStyles(
 	scope: Document | ShadowRoot,

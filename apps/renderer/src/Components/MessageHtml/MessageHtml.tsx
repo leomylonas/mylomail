@@ -72,28 +72,14 @@ function usePutRemoteContentRules() {
 }
 
 /**
- * The document policy applied inside the isolated frame.
- *
- * <b>This is the request-layer enforcement §13 requires.</b> Stripping attributes is a parser
- * competing with an attacker; a content policy is the browser refusing to make the request at
- * all, and it covers the routes stripping misses — CSS `url()`, `@import`, `srcset`, SVG
- * references. `default-src 'none'` means anything not named here simply cannot load.
+ * The content policy for the isolated frame is set by the backend on the response that serves it
+ * (`MessageFramesController`), not here: a frame loaded from a URL gets only the policy that
+ * response carries, whereas a `srcdoc` frame inherits the app page's, which forbids inline styles.
+ * <b>That policy is the request-layer enforcement §13 requires.</b> Stripping attributes is a
+ * parser competing with an attacker; a content policy is the browser refusing to make the request
+ * at all, and it covers the routes stripping misses — CSS `url()`, `@import`, `srcset`, SVG
+ * references.
  */
-const framePolicy = (allowRemote: boolean) =>
-	[
-		"default-src 'none'",
-		// Inline images arrive as blobs, fetched by authenticated code. Remote images load
-		// only once the user has asked for them.
-		`img-src blob: data:${allowRemote ? " https: http:" : ""}`,
-		"style-src 'unsafe-inline'",
-		"font-src data:",
-		// No script, ever. Not even from this origin: a message is not code.
-		"script-src 'none'",
-		"form-action 'none'",
-		"base-uri 'none'",
-		"frame-src 'none'",
-	].join("; ");
-
 const printStyle =
 	"@media print { html, body { margin: 0 !important; background: #fff !important; color: #000 !important; } img { max-width: 100% !important; height: auto !important; } }";
 
@@ -201,11 +187,38 @@ export function MessageHtml({
 		(inlineResolution.messageId === messageId ? inlineResolution.html : null) ??
 		prepared.html;
 	const dark = useTheme().theme === "g100";
-	const document = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${framePolicy(
-		allowRemote,
-	)}"></head><body>${renderedHtml}</body></html>`;
 	const extraCss = `${defaultMessageFontCss}${darkModeStyle(renderedHtml, dark, invertColours)}${printStyle}`;
-	const documentRevision = `${messageId}\u0000${dark}\u0000${invertColours}\u0000${document}`;
+	// The app's own rules come after the message's, as they did when they were applied separately,
+	// so a message cannot out-rank the dark-mode or print rules.
+	const document = `<!doctype html><html><head><meta charset="utf-8"></head><body>${renderedHtml}<style>${extraCss}</style></body></html>`;
+	const documentRevision = `${messageId}\u0000${dark}\u0000${invertColours}\u0000${allowRemote}\u0000${document}`;
+	// The document is handed to the backend, which serves it under its own policy at a URL.
+	const [frame, setFrame] = useState<{ revision: string; url: string } | null>(
+		null,
+	);
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const response = await fetchApi("/message-frames", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ document, allowRemote }),
+				});
+				const { id } = (await response.json()) as { id: string };
+				if (!cancelled)
+					setFrame({
+						revision: documentRevision,
+						url: `/message-frames/${encodeURIComponent(id)}`,
+					});
+			} catch {
+				if (!cancelled) setFrame(null);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [document, allowRemote, documentRevision]);
 	const ready =
 		(currentResolution.status === "resolved" ||
 			currentResolution.status === "failed") &&
@@ -314,40 +327,42 @@ export function MessageHtml({
 				</div>
 			) : null}
 			<div ref={printHostRef} className={styles.printHost} aria-hidden="true" />
-			<iframe
-				ref={frameRef}
-				key={documentRevision}
-				className={styles.frame}
-				title="Message body"
-				// Same-origin is required for the authenticated renderer's blob URLs. Scripts,
-				// forms, frames and navigation remain independently forbidden, so message HTML
-				// still has no executable path to the renderer's mail capabilities (§13).
-				sandbox="allow-same-origin"
-				srcDoc={document}
-				onLoad={() => {
-					const frameDocument = frameRef.current?.contentDocument;
-					frameDocument?.addEventListener(
-						"click",
-						(event) => {
-							const anchor = (event.target as Element | null)?.closest(
-								"a[href]",
-							);
-							if (!anchor) return;
-							event.preventDefault();
-							const url = new URL(
-								anchor.getAttribute("href") ?? "",
-								window.location.origin,
-							);
-							if (url.protocol === "http:" || url.protocol === "https:") {
-								window.open(url.toString(), "_blank", "noopener");
-							}
-						},
-						true,
-					);
-					if (frameDocument) applyMessageStyles(frameDocument, extraCss);
-					setLoadedDocument(documentRevision);
-				}}
-			/>
+			{frame?.revision === documentRevision ? (
+				<iframe
+					ref={frameRef}
+					key={documentRevision}
+					className={styles.frame}
+					title="Message body"
+					// Same-origin is required for the authenticated renderer's blob URLs. Scripts,
+					// forms, frames and navigation remain independently forbidden — by this sandbox
+					// and by the policy the backend serves the document under — so message HTML
+					// still has no executable path to the renderer's mail capabilities (§13).
+					sandbox="allow-same-origin"
+					src={frame.url}
+					onLoad={() => {
+						const frameDocument = frameRef.current?.contentDocument;
+						frameDocument?.addEventListener(
+							"click",
+							(event) => {
+								const anchor = (event.target as Element | null)?.closest(
+									"a[href]",
+								);
+								if (!anchor) return;
+								event.preventDefault();
+								const url = new URL(
+									anchor.getAttribute("href") ?? "",
+									window.location.origin,
+								);
+								if (url.protocol === "http:" || url.protocol === "https:") {
+									window.open(url.toString(), "_blank", "noopener");
+								}
+							},
+							true,
+						);
+						setLoadedDocument(documentRevision);
+					}}
+				/>
+			) : null}
 		</div>
 	);
 }

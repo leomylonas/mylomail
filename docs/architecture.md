@@ -106,11 +106,11 @@ IMAP hierarchy is a server-specific string convention, not a portable path. Keep
 
 #### MailboxTopologySyncState (1:1 with Account)
 
-| Field                           | Notes                                                                                   |
-| ------------------------------- | --------------------------------------------------------------------------------------- |
-| `AccountId`                     | PK/FK                                                                                   |
-| `Cursor`                        | Opaque, provider-versioned state; null where the provider offers no topology cursor     |
-| `LastReconciledAt`, `LastError` |                                                                                         |
+| Field                           | Notes                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------- |
+| `AccountId`                     | PK/FK                                                                               |
+| `Cursor`                        | Opaque, provider-versioned state; null where the provider offers no topology cursor |
+| `LastReconciledAt`, `LastError` |                                                                                     |
 
 **Mailbox work carries a topology generation.** `Mailbox.TopologyGeneration` is incremented whenever a mailbox is deleted, recreated or replaced by topology reconciliation. Sync pages, coverage jobs and content fetches carry the generation they were issued under and are discarded if it no longer matches — otherwise a late page from an in-flight sync can resurrect or mutate state belonging to a mailbox that has since been deleted and recreated (an IMAP folder deleted and recreated with the same name, a Graph folder replaced). This is the topology-domain equivalent of the message-mutation staleness protection in §6.
 
@@ -134,14 +134,14 @@ How much of the user's requested history has been materialised locally. **Bounds
 
 #### AccountCoverageState (1:1 with Account, Gmail only)
 
-| Field                               | Notes                                                                                                |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `AccountId`                         | PK/FK — one walk cursor per account is a schema fact, not a convention                               |
-| `Status`                            | `NotStarted`, `Backfilling`, `Covered`, `Failed`                                                     |
-| `MessagesFetched`, `EstimatedTotal` | Distinct messages consumed by the walk — not a sum over mailboxes                                    |
-| `ResumeToken`                       | Persisted every page, in the transaction that ingests it                                             |
-| `PolicyGeneration`                  | Incremented when the walk restarts (a bound change, a triggered resync); fences pages in flight      |
-| `StartedAt`, `LastError`            |                                                                                                      |
+| Field                               | Notes                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `AccountId`                         | PK/FK — one walk cursor per account is a schema fact, not a convention                          |
+| `Status`                            | `NotStarted`, `Backfilling`, `Covered`, `Failed`                                                |
+| `MessagesFetched`, `EstimatedTotal` | Distinct messages consumed by the walk — not a sum over mailboxes                               |
+| `ResumeToken`                       | Persisted every page, in the transaction that ingests it                                        |
+| `PolicyGeneration`                  | Incremented when the walk restarts (a bound change, a triggered resync); fences pages in flight |
+| `StartedAt`, `LastError`            |                                                                                                 |
 
 Gmail's coverage is **one walk over the account, not one per label** (§3): a message there has a single canonical existence and carries its whole label set, so listing each label separately fetched it once per label it wore. This row owns that walk. While it is not `Covered`, every provider-backed mailbox that took part in the walk reports the walk's status in its own `MailboxCoverageState` row — so `Availability` and `Coverage` keep their per-mailbox meaning in the UI — and **no mailbox row carries a cursor for it**. The walk's token, the ingested page and the mirrored mailbox rows commit in one transaction.
 
@@ -204,26 +204,26 @@ Provider-reported counts give honest "showing 2,400 of 18,900" messaging while c
 
 ### Message
 
-| Field                          | Type           | Notes                                                                                                                                                                                                                |
-| ------------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Id`                           | Guid           | **The canonical identity.** Local, permanent, never derived from provider or header data                                                                                                                             |
-| `AccountId`                    | Guid           | Mailbox membership is via `MessageMailbox` (below), not a column here                                                                                                                                                |
-| `ProviderStableId`             | string?        | Gmail message id; Graph **immutable** id (see §2). `null` for IMAP, which has no account-wide stable message identifier                                                                                              |
+| Field                          | Type           | Notes                                                                                                                                                                                                                  |
+| ------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Id`                           | Guid           | **The canonical identity.** Local, permanent, never derived from provider or header data                                                                                                                               |
+| `AccountId`                    | Guid           | Mailbox membership is via `MessageMailbox` (below), not a column here                                                                                                                                                  |
+| `ProviderStableId`             | string?        | Gmail message id; Graph **immutable** id (see §2). `null` for IMAP, which has no account-wide stable message identifier                                                                                                |
 | `MessageIdHeader`              | string?        | RFC 5322 `Message-ID`. **Nullable metadata, not identity** — RFC 5322 states a message SHOULD have one, not MUST, and duplicates occur in practice. Used for reconciliation, reply construction and fallback threading |
 | `InReplyToHeader`              | string?        | Required to construct correct replies (RFC 5322 identification fields)                                                                                                                                                 |
 | `ReferencesHeader`             | string?        | As above; also the basis for fallback threading                                                                                                                                                                        |
 | `ReplyToAddresses`             | Address[]      | **Reply routing uses this, not `From`**, when present                                                                                                                                                                  |
 | `SenderAddress`                | Address?       | RFC 5322 `Sender`, where it differs from `From`                                                                                                                                                                        |
-| `ThreadId`                     | string?        | Effective conversation id: provider-native where offered, otherwise a local RFC-header fallback                                                                                                                       |
+| `ThreadId`                     | string?        | Effective conversation id: provider-native where offered, otherwise a local RFC-header fallback                                                                                                                        |
 | `HasProviderThreadId`          | bool           | Provenance for `ThreadId`; only provider-native ids are exempt from recomputation when header cardinality changes                                                                                                      |
-| `From`/`To`/`Cc`/`Bcc`         | Address[]      | `{Name, Email}`                                                                                                                                                                                                      |
-| `Subject`, `Snippet`           | string         |                                                                                                                                                                                                                      |
-| `ReceivedAt`                   | DateTimeOffset |                                                                                                                                                                                                                      |
-| `IsRead`/`IsFlagged`/`IsDraft` | bool           | **Server-known state**, mutable. Locally desired changes live in `MessagePendingChange` (§6), not here                                                                                                               |
-| `IsAnswered`                   | bool           | **Read-only**, provider-derived where available. Not portably mutable — see §2                                                                                                                                       |
-| `HasNonInlineAttachments`      | bool           | Deliberately _not_ `HasAttachments`: inline signature images are MIME attachments, so a naive flag would show a paperclip on almost every corporate email                                                            |
-| `SizeEstimate`                 | long?          |                                                                                                                                                                                                                      |
-| `RawFetched`                   | bool           | Whether `MessageRaw` has been populated (§1, storage model)                                                                                                                                                          |
+| `From`/`To`/`Cc`/`Bcc`         | Address[]      | `{Name, Email}`                                                                                                                                                                                                        |
+| `Subject`, `Snippet`           | string         |                                                                                                                                                                                                                        |
+| `ReceivedAt`                   | DateTimeOffset |                                                                                                                                                                                                                        |
+| `IsRead`/`IsFlagged`/`IsDraft` | bool           | **Server-known state**, mutable. Locally desired changes live in `MessagePendingChange` (§6), not here                                                                                                                 |
+| `IsAnswered`                   | bool           | **Read-only**, provider-derived where available. Not portably mutable — see §2                                                                                                                                         |
+| `HasNonInlineAttachments`      | bool           | Deliberately _not_ `HasAttachments`: inline signature images are MIME attachments, so a naive flag would show a paperclip on almost every corporate email                                                              |
+| `SizeEstimate`                 | long?          |                                                                                                                                                                                                                        |
+| `RawFetched`                   | bool           | Whether `MessageRaw` has been populated (§1, storage model)                                                                                                                                                            |
 
 **Message identity.** `Message.Id` is canonical and local. Nothing about a message's identity is derived from provider ids or headers, because none of them are dependable across all three providers:
 
@@ -314,20 +314,20 @@ Bodies are **not** fetched only on open. Search must cover mail the user has nev
 
 `CalendarEvent`:
 
-| Field                              | Notes                                                                              |
-| ---------------------------------- | ---------------------------------------------------------------------------------- |
-| `Id`                               | Local canonical identity                                                           |
-| `CalendarId`, `ProviderEventId`    |                                                                                    |
-| `ICalUid`                          | iCalendar `UID` — the cross-system identity used to match invites against events   |
-| `ProviderRevision`                 | ETag / `@odata.etag`, drives conflict detection                                    |
+| Field                              | Notes                                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Id`                               | Local canonical identity                                                                                                                                   |
+| `CalendarId`, `ProviderEventId`    |                                                                                                                                                            |
+| `ICalUid`                          | iCalendar `UID` — the cross-system identity used to match invites against events                                                                           |
+| `ProviderRevision`                 | ETag / `@odata.etag`, drives conflict detection                                                                                                            |
 | `Sequence`                         | iTIP `SEQUENCE`, for invite update ordering where the source exposes it; Graph's native event API does not expose this field and owns RSVP ordering itself |
-| `Title`, `Location`, `Description` |                                                                                    |
-| `Start`, `End`                     | With **separate** `StartTimeZoneId` and `EndTimeZoneId` — they legitimately differ |
-| `IsAllDay`                         |                                                                                    |
-| `Organizer`, `Attendees[]`         | `{Name, Email, Role, ResponseStatus}`                                              |
-| `Status`                           | `Confirmed`, `Tentative`, `Cancelled`                                              |
-| `Reminders[]`                      |                                                                                    |
-| `SyncConflict`                     | Set on precondition failure (§15)                                                  |
+| `Title`, `Location`, `Description` |                                                                                                                                                            |
+| `Start`, `End`                     | With **separate** `StartTimeZoneId` and `EndTimeZoneId` — they legitimately differ                                                                         |
+| `IsAllDay`                         |                                                                                                                                                            |
+| `Organizer`, `Attendees[]`         | `{Name, Email, Role, ResponseStatus}`                                                                                                                      |
+| `Status`                           | `Confirmed`, `Tentative`, `Cancelled`                                                                                                                      |
+| `Reminders[]`                      |                                                                                                                                                            |
+| `SyncConflict`                     | Set on precondition failure (§15)                                                                                                                          |
 
 **Recurrence is a set, not a single rule.** iCalendar recurrence comprises `RRULE` plus `RDATE` and `EXDATE`, with modified and cancelled instances existing as separate objects. Normalising to one `RRULE` string would lose information.
 
@@ -474,12 +474,12 @@ A parallel `IMailProviderFactory` resolves the correct implementation by `Provid
 
 ## 3. Sync Topology
 
-| Concern                  | Scope      | Gmail                                  | Graph                                         | IMAP                         |
-| ------------------------ | ---------- | -------------------------------------- | --------------------------------------------- | ---------------------------- |
-| Topology                 | account    | `labels.list`                          | `mailFolder` delta                            | `LIST`/`LSUB`                |
+| Concern                  | Scope      | Gmail                                                                                  | Graph                                         | IMAP                         |
+| ------------------------ | ---------- | -------------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------- |
+| Topology                 | account    | `labels.list`                                                                          | `mailFolder` delta                            | `LIST`/`LSUB`                |
 | Coverage/backfill        | **varies** | **account** walk, `messages.list` with no label filter, bounds apply to the whole walk | bounded materialisation over full enumeration | UID range                    |
-| Live change              | **varies** | **account** `historyId`                | mailbox `deltaLink`                           | mailbox UID/MODSEQ           |
-| Integrity reconciliation | mailbox    | on `historyId` expiry                  | on `410 Gone`                                 | on capability gap or cadence |
+| Live change              | **varies** | **account** `historyId`                                                                | mailbox `deltaLink`                           | mailbox UID/MODSEQ           |
+| Integrity reconciliation | mailbox    | on `historyId` expiry                                                                  | on `410 Gone`                                 | on capability gap or cadence |
 
 Topology providers return `MailboxTopologyResult`, not an undifferentiated list. Gmail and IMAP report complete snapshots and no topology cursor. Graph reports a complete recursive baseline on the first pass, then account-scoped root/child deltas with explicit removals and a versioned cursor set. The reconciler never treats an unreported mailbox in a delta as deleted, and it commits the returned cursor atomically with the exact topology changes that cursor covers.
 
@@ -1023,7 +1023,7 @@ No MVP/phased cut — built continuously, kanban-style, epic by epic.
 - Open a message, read plain text or rendered HTML body.
 - Inline images render correctly via `cid:` resolution.
 - **Attachments open via the OS default file handler** (`shell.openPath` on a temp-written copy, with sensible temp-file cleanup) — not an in-app viewer.
-- **HTML isolation is a hard security requirement**, and the most security-sensitive surface in the app — the renderer also holds the capability to invoke mail mutations. Required: `contextIsolation` on, Electron sandboxing, a strict CSP, navigation and window-open interception, scripts/forms/iframes stripped, DOMPurify sanitisation, and message content rendered in an isolated document context.
+- **HTML isolation is a hard security requirement**, and the most security-sensitive surface in the app — the renderer also holds the capability to invoke mail mutations. Required: `contextIsolation` on, Electron sandboxing, a strict CSP, navigation and window-open interception, scripts/forms/iframes stripped, DOMPurify sanitisation, and message content rendered in an isolated document context. The on-screen message document is served by the backend (`POST /message-frames`, `GET /message-frames/{id}`, `MessageFramesController`) under a content policy of its own — inline styles allowed, no scripts, forms or base URLs, remote images only when the user allowed them — in a sandboxed same-origin iframe, so it does not inherit the app page's stricter policy.
 - **Remote content blocked by default**, with a clear prompt to load and a per-sender/domain allow/block list. **Enforced at the request layer, not merely by removing `<img src>`** — CSS `url()`, `srcset`, SVG and `<style>@import` all trigger requests too.
 - **Inline images are fetched through authenticated client code and rewritten to `blob:` URLs.** An `<img src>` request cannot carry a bearer token via SignalR's access token factory, and the launch token must never appear in a query string.
 - Outlook-style sortable/filterable message list columns (sender, subject, snippet, date, read/flag state).
@@ -1108,6 +1108,7 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 - **Global persisted default** panel layout (via react-granular-store + local persistence through the preload bridge) — read once as the initial layout for any newly opened window.
 - **Live per-window state** is independent — resizing one window updates only that window's in-memory layout and writes back to the shared default for future windows; it does not live-sync to other currently-open windows.
 - **Last viewed folder** — the mail view reopens on the folder the user last clicked. It is stored in `AppSettings.LastViewedMailboxId` rather than renderer storage, because the backend binds an OS-assigned port and the renderer origin (and so `localStorage`) changes on every launch. A plain main shell window reads it once when it opens and applies it only after the account list has loaded, so default selection cannot beat it; if the mailbox is gone or its account is disabled the window silently falls back to the default. Only folder clicks in a plain shell window write it (with several open, the last click wins as the stored value and no open window's own selection moves); windows opened for a purpose (message, compose, calendar, notification navigation, mailto) neither apply nor write it, and switching to the calendar or contacts view leaves it unchanged. Like the panel layout it is not broadcast.
+
 ### Epic 12 — Contacts
 
 - Each account has a local contact projection. Microsoft Graph contacts synchronise two-way when its API is available. Google People contacts synchronise provider creates and updates in both directions, but provider-backed deletion is deliberately unsupported as described below. IMAP accounts and Microsoft 365 shared-mailbox accounts (which have no personal contacts of their own) use local-only contacts (`LocalContactProvider.IsLocalOnly`).
@@ -1136,7 +1137,6 @@ in Google.
 
 - Polling remains the authoritative recovery path. IMAP IDLE only wakes the existing durable change-stream job; it never advances a cursor or commits observations itself.
 - The Inbox and currently active mailbox hold bounded IDLE sessions. Their server notifications are hints: reconnects, disconnects, and missed notifications are safe because polling still reconciles the stream.
-
 
 ### Standing conventions (not epics — applied continuously)
 
