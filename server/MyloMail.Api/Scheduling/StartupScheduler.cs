@@ -84,6 +84,13 @@ public sealed class StartupScheduler(
 				ct
 			);
 
+		if (settings.SnippetBackfillVersion < SnippetJobs.CurrentVersion)
+		{
+			// Background, after startup has finished: it reads every IMAP body once and must not
+			// hold the launch up.
+			jobs.Enqueue<SnippetJobs>(job => job.RebuildAsync(default));
+		}
+
 		var accounts = await context
 			.Accounts.Where(a => a.IsEnabled && a.AuthState != AuthState.NeedsReauth && a.AuthState != AuthState.Error)
 			.Select(a => a.Id)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, ComboButton, MenuItem, useTheme } from "@carbon/react";
 import { ViewOff } from "@carbon/icons-react";
+import { defaultMessageFontCss } from "@mylomail/renderer/Components/MessageHtml/DefaultMessageFont";
 import { applyMessageStyles } from "@mylomail/renderer/Components/MessageHtml/ApplyMessageStyles";
 import { darkModeStyle } from "@mylomail/renderer/Components/MessageHtml/DarkModeStyle";
 import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
@@ -203,7 +204,7 @@ export function MessageHtml({
 	const document = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${framePolicy(
 		allowRemote,
 	)}"></head><body>${renderedHtml}</body></html>`;
-	const extraCss = `${darkModeStyle(renderedHtml, dark, invertColours)}${printStyle}`;
+	const extraCss = `${defaultMessageFontCss}${darkModeStyle(renderedHtml, dark, invertColours)}${printStyle}`;
 	const documentRevision = `${messageId}\u0000${dark}\u0000${invertColours}\u0000${document}`;
 	const ready =
 		(currentResolution.status === "resolved" ||

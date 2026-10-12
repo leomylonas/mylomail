@@ -185,6 +185,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<string>("PanelLayout")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("SnippetBackfillVersion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Theme")
                         .HasColumnType("INTEGER");
 

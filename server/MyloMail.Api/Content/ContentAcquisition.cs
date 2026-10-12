@@ -482,39 +482,7 @@ public sealed class ContentAcquisition(
 	/// tag-stripping approach already used for a plain-text send alternative
 	/// (<c>ImapMailProvider.Send.cs</c>'s own <c>ToPlainText</c>).
 	/// </summary>
-	internal static string ComputeSnippet(string? text, string? html)
-	{
-		const int maxLength = 200;
-		// An empty (not just null) plain-text part is a real MIME shape - a stub first
-		// alternative alongside the real HTML-only content - so falling back on
-		// IsNullOrEmpty, not a bare null check, actually reaches the HTML body in that case.
-		var source = string.IsNullOrEmpty(text)
-			? (html is null ? null : System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " "))
-			: text;
-		if (string.IsNullOrWhiteSpace(source))
-		{
-			return string.Empty;
-		}
-
-		var collapsed = string.Join(
-			' ',
-			source.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
-		);
-		if (collapsed.Length <= maxLength)
-		{
-			return collapsed;
-		}
-
-		// A raw code-unit slice can land inside a surrogate pair (an emoji, say); back off one
-		// character rather than leave an unpaired low surrogate that renders as a replacement
-		// character or corrupts the string downstream.
-		var cut = maxLength;
-		if (char.IsHighSurrogate(collapsed[cut - 1]))
-		{
-			cut--;
-		}
-		return collapsed[..cut];
-	}
+	internal static string ComputeSnippet(string? text, string? html) => SnippetBuilder.Build(text, html);
 
 	private async Task UpsertRawAsync(Guid messageId, byte[] rawBytes, CancellationToken ct)
 	{

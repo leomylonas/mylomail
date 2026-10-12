@@ -39,6 +39,10 @@ public class AppSettings
 	public bool AttachmentTempCleanupOnStartup { get; set; } = true;
 	/// <summary>Durable completion marker for the restart-safe conversation-id upgrade.</summary>
 	public int MessageThreadBackfillVersion { get; set; }
+
+	/// <summary>Durable completion marker for rebuilding locally computed previews with the current
+	/// <c>SnippetBuilder</c>; bumped when the builder changes in a way existing previews should follow.</summary>
+	public int SnippetBackfillVersion { get; set; }
 }
 
 public enum CloseBehavior
