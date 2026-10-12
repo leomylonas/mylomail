@@ -172,12 +172,13 @@ public sealed class GmailAccountWalkTests
 	[Fact]
 	public async Task Full_history_neither_limits_the_count_nor_restricts_the_date()
 	{
-		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])], next: "p2", estimate: 9000);
+		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])], next: "p2", estimate: 201).WithProfileTotal(9000);
 
 		var page = await Walk(server, null, InitialSyncMode.Full, null, 200);
 
 		Assert.True(page.HasMore);
 		Assert.Equal("p2", page.ResumeToken);
+		// The account's own message count, not the list's rough estimate.
 		Assert.Equal(9000, page.EstimatedTotal);
 		Assert.Null(Assert.Single(server.Lists)["q"]);
 	}
@@ -185,11 +186,32 @@ public sealed class GmailAccountWalkTests
 	[Fact]
 	public async Task A_count_bound_caps_the_estimated_total_at_the_bound()
 	{
-		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])], next: "p2", estimate: 9000);
+		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])], next: "p2", estimate: 9000).WithProfileTotal(9000);
 
 		var page = await Walk(server, null, InitialSyncMode.LastNMessages, 100, 200);
 
 		Assert.Equal(100, page.EstimatedTotal);
+	}
+
+	[Fact]
+	public async Task A_date_bound_keeps_the_lists_estimate_because_the_profile_cannot_count_a_date_range()
+	{
+		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])], estimate: 40).WithProfileTotal(9000);
+
+		var page = await Walk(server, null, InitialSyncMode.LastNMonths, 3, 200);
+
+		Assert.Equal(40, page.EstimatedTotal);
+		Assert.Equal(0, server.ProfileCalls);
+	}
+
+	[Fact]
+	public async Task A_count_bound_larger_than_the_account_is_capped_at_the_account()
+	{
+		var server = new WalkServer().Page(null, [new("m1", ["INBOX"])]).WithProfileTotal(50);
+
+		var page = await Walk(server, null, InitialSyncMode.LastNMessages, 500, 200);
+
+		Assert.Equal(50, page.EstimatedTotal);
 	}
 
 	private static async Task<InitialSyncPage> Walk(
@@ -231,6 +253,14 @@ public sealed class GmailAccountWalkTests
 		public List<NameValueCollection> Lists { get; } = [];
 		public List<string> Fetched { get; } = [];
 		public List<string?> FetchFormats { get; } = [];
+		public int ProfileCalls { get; private set; }
+		public long ProfileTotal { get; set; } = 3;
+
+		public WalkServer WithProfileTotal(long total)
+		{
+			ProfileTotal = total;
+			return this;
+		}
 
 		public WalkServer Page(string? token, Listed[] messages, string? next = null, long estimate = 3)
 		{
@@ -283,6 +313,14 @@ public sealed class GmailAccountWalkTests
 							resultSizeEstimate = estimate,
 						}
 					)
+				);
+			}
+
+			if (uri.AbsolutePath == "/gmail/v1/users/me/profile")
+			{
+				ProfileCalls++;
+				return Task.FromResult(
+					Json(HttpStatusCode.OK, new { emailAddress = "me@example.test", messagesTotal = ProfileTotal, historyId = "100" })
 				);
 			}
 

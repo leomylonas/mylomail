@@ -256,7 +256,15 @@ public sealed partial class GmailMailProvider(
 			skipMissing: true
 		);
 		var continuation = cursor.Advance(page.NextPageToken, listed.Count);
-		int? estimatedTotal = page.ResultSizeEstimate is long total
+		// messages.list's resultSizeEstimate is only a rough guide — on a real account it was 201 for
+		// a walk of tens of thousands — so the total comes from the profile, which counts every
+		// message in the mailbox (spam and trash included, as the walk lists them). A date bound
+		// has no such count, so it keeps the list's estimate.
+		long? accountTotal = mode == InitialSyncMode.LastNMonths
+			? null
+			: (await service.Users.GetProfile(UserId).ExecuteThrottleAwareAsync(ct)).MessagesTotal;
+		var knownTotal = accountTotal ?? page.ResultSizeEstimate;
+		int? estimatedTotal = knownTotal is long total
 			? checked((int)Math.Min(total, mode == InitialSyncMode.LastNMessages && bound is int count ? count : total))
 			: null;
 		return new InitialSyncPage(
