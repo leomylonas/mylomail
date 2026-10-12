@@ -386,6 +386,45 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 		);
 	}
 
+	public int RecentListCalls { get; private set; }
+
+	private IEnumerable<WalkMessage> WalkMessagesNewestFirst() =>
+		mailboxes
+			.Values.SelectMany(mailbox =>
+				mailbox.Messages.Select(pair => (mailbox.ProviderMailboxId, OccurrenceId: pair.Key, Message: pair.Value))
+			)
+			.GroupBy(item => item.Message.MessageId)
+			.Select(group => new WalkMessage(
+				group.Key,
+				group.Max(item => item.Message.ReceivedAt),
+				group.First().Message,
+				[.. group.Select(item => (item.ProviderMailboxId, item.OccurrenceId))]
+			))
+			.Concat(unlabelled.Select(message => new WalkMessage(message.MessageId, message.ReceivedAt, message, [])))
+			.OrderByDescending(item => item.ReceivedAt)
+			.ThenBy(item => item.MessageId);
+
+	public Task<IReadOnlyList<string>> ListRecentMessageIdsAsync(Account account, int count, CancellationToken ct)
+	{
+		RecentListCalls++;
+		return Task.FromResult<IReadOnlyList<string>>(
+			[.. WalkMessagesNewestFirst().Take(count).Select(item => ToWalkDto(item).ProviderStableId!)]
+		);
+	}
+
+	public Task<IReadOnlyList<MessageDto>> GetMessagesAsync(
+		Account account,
+		IReadOnlyList<string> providerStableIds,
+		CancellationToken ct
+	) =>
+		Task.FromResult<IReadOnlyList<MessageDto>>(
+			[
+				.. WalkMessagesNewestFirst()
+					.Select(ToWalkDto)
+					.Where(dto => dto.ProviderStableId is not null && providerStableIds.Contains(dto.ProviderStableId)),
+			]
+		);
+
 	private MessageDto ToWalkDto(WalkMessage item)
 	{
 		var memberships = item.Memberships;

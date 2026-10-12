@@ -50,6 +50,16 @@ public sealed class AccountGate(TimeProvider clock)
 		}
 	}
 
+	/// <summary>Every account currently held back, with how long remains.</summary>
+	public IReadOnlyList<(Guid AccountId, TimeSpan Remaining)> Active()
+	{
+		var now = clock.GetUtcNow();
+		lock (guard)
+		{
+			return [.. allowedFrom.Where(pair => pair.Value > now).Select(pair => (pair.Key, pair.Value - now))];
+		}
+	}
+
 	public void Clear(Guid accountId)
 	{
 		lock (guard)

@@ -81,3 +81,8 @@
 .progress::-webkit-progress-value {
 	background: var(--cds-interactive);
 }
+
+.throttle {
+	font-style: italic;
+	opacity: 0.85;
+}

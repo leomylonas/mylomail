@@ -806,3 +806,15 @@ export type ProblemDto = {
     canRetry: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.ThrottleStatusDto */
+export type ThrottleStatusDto = {
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    accountName: string;
+    /** Transpiled from MyloMail.Api.Domain.ProviderType */
+    provider: ProviderType;
+    /** Transpiled from int */
+    retryAfterSeconds: number;
+}
+

@@ -503,6 +503,119 @@ public sealed class CoverageService(
 		return more || pending.Count > 1;
 	}
 
+	/// <summary>How many of the newest messages a recent-mail catch-up looks at.</summary>
+	internal const int RecentCatchUpCount = 50;
+
+	/// <summary>The shortest gap between two recent-mail catch-ups for one account.</summary>
+	internal static readonly TimeSpan RecentCatchUpInterval = TimeSpan.FromMinutes(1);
+
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTimeOffset> LastRecentCatchUp = new();
+
+	/// <summary>
+	/// While Gmail's account walk is still running, brings in the newest mail that is not held
+	/// locally yet, so a long backfill does not hide what arrived after it began.
+	/// </summary>
+	/// <remarks>
+	/// Live history is staged unapplied until the walk finishes (§3), which on a large account
+	/// means new mail is invisible for the whole backfill. This is not concurrent application of
+	/// that history: it lists the newest messages, fetches only those with no local row, and
+	/// ingests them the way a walk page is. It is one more early observation, and the ordering
+	/// guarantee is unchanged — every staged event still replays, in order, after the walk, so a
+	/// change to one of these messages made after it was fetched is applied then, and a stale
+	/// walk page that lands over it is corrected by the same replay. Nothing is deleted or
+	/// relabelled here, and no cursor moves, so a crash costs only a repeat. A message that
+	/// is already local is never refetched: its changes arrive through history.
+	/// </remarks>
+	public async Task<int> RunRecentCatchUpAsync(Account account, CancellationToken ct = default)
+	{
+		if (!IsAccountScoped(account)
+			|| await WalkCoveredAsync(account.Id, ct)
+			|| !await HasGmailBaselineAsync(account.Id, ct)
+			|| providers.For(account) is not IAccountBackfillProvider provider)
+		{
+			return 0;
+		}
+
+		var now = clock.GetUtcNow();
+		if (LastRecentCatchUp.TryGetValue(account.Id, out var last) && now - last < RecentCatchUpInterval)
+		{
+			return 0;
+		}
+
+		LastRecentCatchUp[account.Id] = now;
+		var listed = await provider.ListRecentMessageIdsAsync(account, RecentCatchUpCount, ct);
+		var known = (
+			await context
+				.Messages.Where(message => message.AccountId == account.Id && listed.Contains(message.ProviderStableId!))
+				.Select(message => message.ProviderStableId!)
+				.ToListAsync(ct)
+		).ToHashSet(StringComparer.Ordinal);
+		var missing = listed.Where(id => !known.Contains(id)).ToList();
+		if (missing.Count == 0)
+		{
+			return 0;
+		}
+
+		var generations = GenerationSnapshot.Capture((await MailboxesByProviderIdAsync(account, ct)).Values);
+		var fetched = await provider.GetMessagesAsync(account, missing, ct);
+		if (fetched.Count == 0)
+		{
+			return 0;
+		}
+
+		IngestResult ingested = null!;
+		var strategy = context.Database.CreateExecutionStrategy();
+		await strategy.ExecuteAsync(async () =>
+		{
+			await using var transaction = await context.Database.BeginTransactionAsync(ct);
+			if (!await context.Accounts.AnyAsync(a => a.Id == account.Id && a.IsEnabled, ct)
+				|| await WalkCoveredAsync(account.Id, ct)
+				|| !await HasGmailBaselineAsync(account.Id, ct))
+			{
+				// Account removed, or the walk finished and replay owns this now.
+				ingested = null!;
+				return;
+			}
+
+			var current = await MailboxesByProviderIdAsync(account, ct);
+			if (current.Values.Any(mailbox => !generations.StillCurrent(mailbox.ProviderMailboxId, mailbox)))
+			{
+				ingested = null!;
+				return;
+			}
+
+			var materialisable = fetched
+				.Where(message => message.Occurrences.Any(o => current.ContainsKey(o.ProviderMailboxId)))
+				.ToList();
+			ingested = await ingestor.IngestAsync(account, materialisable, current, generations, ct);
+			var resolved = ingested
+				.Created.Concat(ingested.Updated)
+				.Where(m => m.ProviderStableId is not null)
+				.ToDictionary(m => m.ProviderStableId!, m => m.Id);
+			await notifications.BackfillMessageIdsAsync(account.Id, resolved, ct);
+			await context.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+		});
+
+		if (ingested is null)
+		{
+			return 0;
+		}
+
+		foreach (var message in ingested.Created)
+		{
+			await events.MessageReceivedAsync(MessageEventMapper.ToSummary(message));
+		}
+
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, ingested.CountedMailboxIds, ct);
+		logger.LogInformation(
+			"Recent-mail catch-up for account {AccountId}: {Count} message(s) newer than the walk brought in.",
+			account.Id,
+			ingested.Created.Count
+		);
+		return ingested.Created.Count;
+	}
+
 	private async Task<bool> RunWalkPageAsync(Account account, int pageSize, CancellationToken ct)
 	{
 		if (!await HasGmailBaselineAsync(account.Id, ct))

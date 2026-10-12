@@ -95,6 +95,54 @@ public sealed class AccountCoverageJobTests
 		});
 	}
 
+	/// <summary>
+	/// Live history is staged until the walk finishes, so mail that arrives during a long backfill
+	/// would be invisible for all of it. The catch-up brings in only what is newer than the walk
+	/// and not local yet, and leaves the walk where it was.
+	/// </summary>
+	[Fact]
+	public async Task Mail_that_arrives_during_the_walk_is_brought_in_without_ending_or_restarting_it()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AccountWalkPageLimit = 1;
+		for (var index = 0; index < 3; index++)
+		{
+			harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(index));
+		}
+		await Prepare(harness);
+		await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMail.Api.Sync.CoverageService>().RunAccountPageAsync(harness.Account));
+		var newest = Guid.NewGuid();
+		harness.Provider.SeedMessage("INBOX", newest, DateTimeOffset.UnixEpoch.AddDays(1));
+		var pagesBefore = harness.Provider.AccountWalkPages;
+
+		var brought = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMail.Api.Sync.CoverageService>().RunRecentCatchUpAsync(harness.Account));
+
+		// The newest message plus the two the one-message walk page had not reached yet: all are
+		// within the newest few and missing locally.
+		Assert.Equal(3, brought);
+		Assert.Equal(pagesBefore, harness.Provider.AccountWalkPages);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			Assert.True(await context.Messages.AnyAsync(m => m.ProviderStableId == $"message-{newest}"));
+			var walk = await context.AccountCoverageStates.SingleAsync();
+			Assert.Equal(CoverageStatus.Backfilling, walk.Status);
+			Assert.NotNull(walk.ResumeToken);
+		});
+
+		// Rate-limited: asking again straight away costs the provider nothing.
+		var listsBefore = harness.Provider.RecentListCalls;
+		Assert.Equal(
+			0,
+			await harness.UsingAsync(scope =>
+				scope.GetRequiredService<MyloMail.Api.Sync.CoverageService>().RunRecentCatchUpAsync(harness.Account))
+		);
+		Assert.Equal(listsBefore, harness.Provider.RecentListCalls);
+	}
+
 	[Fact]
 	public async Task A_covered_account_has_nothing_to_start()
 	{

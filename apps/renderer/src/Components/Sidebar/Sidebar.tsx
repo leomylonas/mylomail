@@ -153,7 +153,12 @@ export function Sidebar({
 			`[data-mailbox-id="${revealId}"]`,
 		);
 		if (!element) return;
-		element.scrollIntoView({ block: "center" });
+		// Scrolls the sidebar only: scrollIntoView also scrolls every ancestor, which moved the
+		// whole app up inside the window.
+		const nav = navRef.current!;
+		const offset =
+			element.getBoundingClientRect().top - nav.getBoundingClientRect().top;
+		nav.scrollTop += offset - nav.clientHeight / 2;
 		setRevealId(null);
 		// Re-runs as the tree's data and the accounts' expand state arrive.
 	}, [revealId, treeVersion]);

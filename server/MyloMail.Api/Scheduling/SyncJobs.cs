@@ -634,7 +634,15 @@ public sealed class SyncJobs(
 		bool more;
 		try
 		{
-			more = await GuardAsync(account, () => coverage.RunAccountPageAsync(account, ct: ct), ct);
+			more = await GuardAsync(
+				account,
+				async () =>
+				{
+					await RecentCatchUpAsync(account, ct);
+					return await coverage.RunAccountPageAsync(account, ct: ct);
+				},
+				ct
+			);
 		}
 		catch (CoverageBaselinePendingException)
 		{
@@ -704,6 +712,31 @@ public sealed class SyncJobs(
 		// Coverage is done; Gmail's staged history may now be replayable.
 		jobs.Enqueue<SyncJobs>(j => j.ReplayStagedAsync(accountId, default));
 		jobs.Enqueue<ContentJobs>(j => j.FetchNextAsync(accountId, default));
+	}
+
+	/// <summary>
+	/// Best effort: mail newer than a running Gmail walk is a convenience, and failing it must not
+	/// fail the walk page. Throttling, authentication and offline conditions still propagate so
+	/// the walk's own handling pauses everything together.
+	/// </summary>
+	private async Task RecentCatchUpAsync(Account account, CancellationToken ct)
+	{
+		try
+		{
+			await coverage.RunRecentCatchUpAsync(account, ct);
+		}
+		catch (Exception ex) when (ex is not (
+			ProviderThrottledException
+			or ProviderAuthenticationException
+			or ProviderNotConfiguredException
+			or Credentials.CredentialStoreUnavailableException
+			or OperationCanceledException
+			or SimulatedCrashException
+			or CoverageBaselinePendingException)
+			&& !ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			logger.LogWarning(ex, "Recent-mail catch-up for account {AccountId} failed.", account.Id);
+		}
 	}
 
 	/// <summary>

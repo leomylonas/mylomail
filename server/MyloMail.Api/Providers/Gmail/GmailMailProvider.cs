@@ -180,6 +180,28 @@ public sealed partial class GmailMailProvider(
 		);
 	}
 
+	public async Task<IReadOnlyList<string>> ListRecentMessageIdsAsync(Account account, int count, CancellationToken ct)
+	{
+		var service = await ServiceAsync(account, ct);
+		var request = service.Users.Messages.List(UserId);
+		request.IncludeSpamTrash = true;
+		request.MaxResults = count;
+		var page = await request.ExecuteThrottleAwareAsync(ct);
+		return [.. (page.Messages ?? []).Select(message => message.Id).OfType<string>()];
+	}
+
+	public async Task<IReadOnlyList<MessageDto>> GetMessagesAsync(
+		Account account,
+		IReadOnlyList<string> providerStableIds,
+		CancellationToken ct
+	) =>
+		await MessagesAsync(
+			await ServiceAsync(account, ct),
+			providerStableIds.Select(id => new GmailMessage { Id = id }),
+			ct,
+			skipMissing: true
+		);
+
 	/// <summary>
 	/// One page of the account-wide walk: <c>messages.list</c> with <b>no label filter</b> and
 	/// <c>includeSpamTrash</c>, then exactly one <c>format=full</c> get per listed id.

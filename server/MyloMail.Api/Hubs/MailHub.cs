@@ -115,6 +115,9 @@ public interface IMailHub
 	/// <summary>How much message content is downloaded, waiting or downloading across all accounts.</summary>
 	Task<ContentQueueDto> GetContentQueue();
 
+	/// <summary>Accounts a provider is currently rate-limiting, for a quiet status-bar notice.</summary>
+	Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts();
+
 	/// <summary>
 	/// Asks for these messages' content ahead of the background backlog — the one the user just
 	/// opened, or the rows on screen. Only messages still waiting are affected; the rest are
@@ -722,6 +725,36 @@ public class MailHub(
 
 	public async Task<IReadOnlyList<ProblemDto>> GetProblems() =>
 		await ProblemReport.LoadAsync(context);
+
+	public async Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts()
+	{
+		var active = gate.Active();
+		if (active.Count == 0)
+		{
+			return [];
+		}
+
+		var ids = active.Select(entry => entry.AccountId).ToList();
+		var accounts = await context
+			.Accounts.AsNoTracking()
+			.Where(account => ids.Contains(account.Id))
+			.Select(account => new { account.Id, account.DisplayName, account.ProviderType })
+			.ToListAsync();
+		return
+		[
+			.. active.Join(
+				accounts,
+				entry => entry.AccountId,
+				account => account.Id,
+				(entry, account) => new ThrottleStatusDto(
+					account.Id,
+					account.DisplayName,
+					account.ProviderType,
+					(int)Math.Ceiling(entry.Remaining.TotalSeconds)
+				)
+			),
+		];
+	}
 
 	public async Task<ContentQueueDto> GetContentQueue()
 	{

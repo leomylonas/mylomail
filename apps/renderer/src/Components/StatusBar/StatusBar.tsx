@@ -63,6 +63,15 @@ export function StatusBar({
 				? 3_000
 				: 15_000,
 	});
+	// Provider rate limits are informational and clear on their own, so they are a muted note in
+	// the activity area rather than an entry in the problems list. Polled while one is active so
+	// the countdown and its disappearance are both seen.
+	const throttled = useQuery({
+		queryKey: ["throttled-accounts"],
+		queryFn: () => hub!.getThrottledAccounts(),
+		enabled: hub !== null,
+		refetchInterval: (query) => (query.state.data?.length ? 3_000 : 10_000),
+	});
 	const pendingContent =
 		(queue.data?.waiting ?? 0) + (queue.data?.fetching ?? 0);
 	const totalContent = pendingContent + (queue.data?.ready ?? 0);
@@ -125,13 +134,29 @@ export function StatusBar({
 						queued)
 					</span>
 				) : null}
+				{throttled.data?.length ? (
+					<span
+						className={styles.throttle}
+						title="The provider asked MyloMail to slow down. Nothing is wrong: syncing resumes by itself when the wait ends."
+					>
+						Paused by {throttled.data.map((t) => t.accountName).join(", ")}{" "}
+						(rate limit
+						{throttled.data.length === 1
+							? `, about ${throttled.data[0]!.retryAfterSeconds}s`
+							: ""}
+						)
+					</span>
+				) : null}
 				{retrying > 0 ? (
 					<span>
 						Retrying {retrying} failed{" "}
 						{retrying === 1 ? "download" : "downloads"}
 					</span>
 				) : null}
-				{!activity.syncing && pendingContent === 0 && retrying === 0 ? (
+				{!activity.syncing &&
+				pendingContent === 0 &&
+				retrying === 0 &&
+				!throttled.data?.length ? (
 					<span className={styles.idle}>Up to date</span>
 				) : null}
 			</div>

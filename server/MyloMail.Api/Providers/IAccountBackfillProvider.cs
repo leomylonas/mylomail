@@ -35,4 +35,21 @@ public interface IAccountBackfillProvider
 		int pageSize,
 		CancellationToken ct
 	);
+
+	/// <summary>
+	/// The ids of the account's newest messages, newest first, whatever labels they wear (archived
+	/// and spam included). Cheap — one list call — so it can be asked often while a long backfill
+	/// runs, to find mail that arrived after the walk began.
+	/// </summary>
+	Task<IReadOnlyList<string>> ListRecentMessageIdsAsync(Account account, int count, CancellationToken ct);
+
+	/// <summary>
+	/// Fetches the named messages in full, in the same shape the walk returns them. An id that no
+	/// longer exists is omitted.
+	/// </summary>
+	Task<IReadOnlyList<MessageDto>> GetMessagesAsync(
+		Account account,
+		IReadOnlyList<string> providerStableIds,
+		CancellationToken ct
+	);
 }
