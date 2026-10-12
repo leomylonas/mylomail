@@ -49,6 +49,14 @@ public class Mailbox
 	/// only while <see cref="IsPinned"/>; local UI preference, never written by sync.</summary>
 	public int PinnedSortOrder { get; set; }
 
+	/// <summary>
+	/// Kept out of the sidebar tree (with everything beneath it) and listed under "Hidden folders"
+	/// instead, for a folder the user never wants to see — a provider's bookkeeping folders, say.
+	/// Local UI preference only: never written by sync, never pushed upstream, and the folder syncs
+	/// and notifies exactly as before.
+	/// </summary>
+	public bool IsHidden { get; set; }
+
 	public InitialSyncMode? InitialSyncModeOverride { get; set; }
 	public int? InitialSyncBoundValueOverride { get; set; }
 

@@ -51,7 +51,8 @@ public record MailboxSummaryDto(
 	SpecialUse? SpecialUseOverride,
 	bool IsPinned,
 	int PinnedSortOrder,
-	int UnreadCount
+	int UnreadCount,
+	bool IsHidden
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>

@@ -857,6 +857,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<bool>("IsCollapsed")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsPinned")
                         .HasColumnType("INTEGER");
 

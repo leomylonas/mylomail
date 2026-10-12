@@ -346,6 +346,8 @@ export type MailboxSummaryDto = {
     pinnedSortOrder: number;
     /** Transpiled from int */
     unreadCount: number;
+    /** Transpiled from bool */
+    isHidden: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageSummaryDto */

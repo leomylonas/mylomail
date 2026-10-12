@@ -314,6 +314,14 @@ export type IMailHub = {
     */
     setMailboxPinned(mailboxId: string, pinned: boolean): Promise<void>;
     /**
+    * Hides a folder from the sidebar tree, or shows it again — purely local, the same as
+    * . The folder keeps syncing and notifying.
+    * @param mailboxId Transpiled from System.Guid
+    * @param hidden Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setMailboxHidden(mailboxId: string, hidden: boolean): Promise<void>;
+    /**
     * Drag-reorder of the pinned list, which spans accounts (so unlike
     * it has no parent). Ids that are not pinned are ignored.
     * @param orderedMailboxIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>

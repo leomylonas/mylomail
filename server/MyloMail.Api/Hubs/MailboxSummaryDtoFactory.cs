@@ -180,7 +180,8 @@ internal static class MailboxSummaryDtoFactory
 							row.Mailbox.UnreadAtProviderCount,
 							serverKnownUnread.GetValueOrDefault(row.Mailbox.Id),
 							pendingUnreadDelta.GetValueOrDefault(row.Mailbox.Id)
-						)
+						),
+						row.Mailbox.IsHidden
 					);
 				}),
 		];

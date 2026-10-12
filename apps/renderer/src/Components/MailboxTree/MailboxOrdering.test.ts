@@ -19,6 +19,7 @@ function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 		unreadCount: 0,
 		localCount: 0,
 		isCollapsed: false,
+		isHidden: false,
 		isPinned: false,
 		pinnedSortOrder: 0,
 		availability: MailboxAvailability.Usable,

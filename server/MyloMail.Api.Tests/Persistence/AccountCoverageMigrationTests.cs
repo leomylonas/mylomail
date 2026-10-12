@@ -223,6 +223,7 @@ public sealed class AccountCoverageMigrationTests
 			ALTER TABLE "Mailboxes" ADD COLUMN "IsPinned" INTEGER NOT NULL DEFAULT 0;
 			ALTER TABLE "Mailboxes" ADD COLUMN "PinnedSortOrder" INTEGER NOT NULL DEFAULT 0;
 			ALTER TABLE "Mailboxes" ADD COLUMN "UnreadAtProviderCount" INTEGER NULL;
+			ALTER TABLE "Mailboxes" ADD COLUMN "IsHidden" INTEGER NOT NULL DEFAULT 0;
 			"""
 		);
 		await seed(context);
@@ -231,6 +232,7 @@ public sealed class AccountCoverageMigrationTests
 			ALTER TABLE "Mailboxes" DROP COLUMN "IsPinned";
 			ALTER TABLE "Mailboxes" DROP COLUMN "PinnedSortOrder";
 			ALTER TABLE "Mailboxes" DROP COLUMN "UnreadAtProviderCount";
+			ALTER TABLE "Mailboxes" DROP COLUMN "IsHidden";
 			"""
 		);
 	}

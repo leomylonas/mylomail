@@ -60,6 +60,8 @@ export interface Mailbox {
 	unreadCount: number;
 	localCount: number;
 	isCollapsed: boolean;
+	/** Kept out of the tree, with everything beneath it, and listed under "Hidden folders". */
+	isHidden: boolean;
 	/** Pinned to the top of the sidebar, across accounts. */
 	isPinned: boolean;
 	/** Position in the cross-account pinned list; meaningful only while pinned. */
@@ -98,6 +100,7 @@ function normalizeMailbox(mailbox: MailboxSummaryDto): Mailbox {
 		unreadCount: mailbox.unreadCount,
 		localCount: mailbox.localCount,
 		isCollapsed: mailbox.isCollapsed,
+		isHidden: mailbox.isHidden,
 		isPinned: mailbox.isPinned,
 		pinnedSortOrder: mailbox.pinnedSortOrder,
 		availability: mailbox.availability,
@@ -154,6 +157,7 @@ export function MailboxTree({
 	} | null>(null);
 	const [dialog, setDialog] = useState<Dialog | null>(null);
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
+	const [showHidden, setShowHidden] = useState(false);
 
 	const close = () => setDialog(null);
 	const refresh = () => {
@@ -275,6 +279,13 @@ export function MailboxTree({
 		onError: reportFailure("The folder could not be pinned"),
 	});
 
+	const setHidden = useMutation({
+		mutationFn: (input: { mailboxId: string; hidden: boolean }) =>
+			hub.setMailboxHidden(input.mailboxId, input.hidden),
+		onSuccess: refresh,
+		onError: reportFailure("The folder could not be hidden"),
+	});
+
 	const setSyncOverride = useMutation({
 		mutationFn: (input: {
 			mailboxId: string;
@@ -361,9 +372,15 @@ export function MailboxTree({
 	if (mailboxes.isPending) return <SkeletonText paragraph lineCount={5} />;
 	if (mailboxes.isError) return <p>Could not load mailboxes.</p>;
 
-	const children = (parentId: string | null) =>
+	// A hidden folder takes its subtree with it, so the visible tree stops at the first hidden
+	// folder and the "Hidden folders" list shows each such subtree whole.
+	const children = (parentId: string | null, inHidden: boolean) =>
 		mailboxes.data
-			.filter((mailbox) => (mailbox.parentId ?? null) === parentId)
+			.filter(
+				(mailbox) =>
+					(mailbox.parentId ?? null) === parentId &&
+					(inHidden || !mailbox.isHidden),
+			)
 			// System folders first; Array.sort is stable so user folders keep server order.
 			.sort((a, b) => systemRank(a) - systemRank(b));
 
@@ -428,7 +445,7 @@ export function MailboxTree({
 
 		if ((dragged.parentId ?? null) === (target.parentId ?? null)) {
 			// Same parent: a reorder, dropped mailbox lands immediately before the target.
-			const siblingIds = children(target.parentId ?? null)
+			const siblingIds = children(target.parentId ?? null, true)
 				.map((m) => m.id)
 				.filter((id) => id !== draggedMailboxId);
 			siblingIds.splice(siblingIds.indexOf(target.id), 0, draggedMailboxId);
@@ -444,10 +461,23 @@ export function MailboxTree({
 		}
 	};
 
-	const renderLevel = (parentId: string | null, depth: number) => (
+	const hiddenRoots = mailboxes.data
+		.filter(
+			(mailbox) =>
+				mailbox.isHidden &&
+				!isUnderHidden(mailboxes.data, mailbox.parentId ?? null),
+		)
+		.sort((a, b) => systemRank(a) - systemRank(b));
+
+	const renderLevel = (
+		parentId: string | null,
+		depth: number,
+		inHidden = false,
+		roots?: Mailbox[],
+	) => (
 		<ul>
-			{children(parentId).map((mailbox) => {
-				const hasChildren = children(mailbox.id).length > 0;
+			{(roots ?? children(parentId, inHidden)).map((mailbox) => {
+				const hasChildren = children(mailbox.id, inHidden).length > 0;
 				return (
 					<li key={mailbox.id}>
 						<div
@@ -538,7 +568,7 @@ export function MailboxTree({
 							</button>
 						</div>
 						{hasChildren && !mailbox.isCollapsed
-							? renderLevel(mailbox.id, depth + 1)
+							? renderLevel(mailbox.id, depth + 1, inHidden)
 							: null}
 					</li>
 				);
@@ -550,6 +580,20 @@ export function MailboxTree({
 		<>
 			<nav className={styles.tree} aria-label="Mailboxes">
 				{renderLevel(null, 0)}
+				{hiddenRoots.length > 0 ? (
+					<div className={styles.hiddenSection}>
+						<button
+							type="button"
+							className={styles.hiddenToggle}
+							aria-expanded={showHidden}
+							onClick={() => setShowHidden((shown) => !shown)}
+						>
+							{showHidden ? "Hide" : "Show"} hidden folders (
+							{hiddenRoots.length})
+						</button>
+						{showHidden ? renderLevel(null, 0, true, hiddenRoots) : null}
+					</div>
+				) : null}
 			</nav>
 			{menu ? (
 				<MessageContextMenu
@@ -598,6 +642,16 @@ export function MailboxTree({
 								setPinned.mutate({
 									mailboxId: menu.mailbox.id,
 									pinned: !menu.mailbox.isPinned,
+								}),
+						},
+						{
+							label: menu.mailbox.isHidden
+								? "Show in folder list"
+								: "Hide folder",
+							run: () =>
+								setHidden.mutate({
+									mailboxId: menu.mailbox.id,
+									hidden: !menu.mailbox.isHidden,
 								}),
 						},
 						{ label: "-", run: () => undefined },
@@ -919,6 +973,21 @@ function isDescendantOf(
 	let current: Mailbox | undefined = candidate;
 	while (current) {
 		if (current.id === ancestorId) return true;
+		current = mailboxes.find((m) => m.id === current!.parentId);
+	}
+	return false;
+}
+
+/** Whether a folder, or any folder above it, is hidden — the folder is then off the visible tree. */
+export function isUnderHidden(
+	mailboxes: Mailbox[],
+	folderId: string | null,
+): boolean {
+	const seen = new Set<string>();
+	let current = mailboxes.find((m) => m.id === folderId);
+	while (current && !seen.has(current.id)) {
+		if (current.isHidden) return true;
+		seen.add(current.id);
 		current = mailboxes.find((m) => m.id === current!.parentId);
 	}
 	return false;

@@ -232,6 +232,10 @@ public interface IMailHub
 	/// accounts — purely local, the same as <see cref="SetMailboxCollapsed"/>.</summary>
 	Task SetMailboxPinned(Guid mailboxId, bool pinned);
 
+	/// <summary>Hides a folder from the sidebar tree, or shows it again — purely local, the same as
+	/// <see cref="SetMailboxCollapsed"/>. The folder keeps syncing and notifying.</summary>
+	Task SetMailboxHidden(Guid mailboxId, bool hidden);
+
 	/// <summary>Drag-reorder of the pinned list, which spans accounts (so unlike
 	/// <see cref="ReorderMailboxes"/> it has no parent). Ids that are not pinned are ignored.</summary>
 	Task ReorderPinnedMailboxes(IReadOnlyList<Guid> orderedMailboxIds);
@@ -1204,6 +1208,19 @@ public class MailHub(
 
 		await context.SaveChangesAsync();
 		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, changed);
+	}
+
+	public async Task SetMailboxHidden(Guid mailboxId, bool hidden)
+	{
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		if (mailbox.IsHidden == hidden)
+		{
+			return;
+		}
+
+		mailbox.IsHidden = hidden;
+		await context.SaveChangesAsync();
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
 	}
 
 	public async Task SetMailboxPinned(Guid mailboxId, bool pinned)
