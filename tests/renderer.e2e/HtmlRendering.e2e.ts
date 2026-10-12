@@ -54,12 +54,19 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 	);
 
 	const { app, window } = await launchApp();
+	// The frame's inline styles are allowed by the policy the backend serves it under; a policy
+	// violation here would mean the document inherited the app page's stricter one.
+	const policyViolations: string[] = [];
+	window.on("console", (message) => {
+		if (/Content Security Policy/i.test(message.text()))
+			policyViolations.push(message.text());
+	});
 
 	try {
 		await createImapAccount(window, imapPort);
 
 		await window
-			.getByRole("button", { name: /INBOX/ })
+			.getByRole("button", { name: /inbox/i })
 			.click({ timeout: 60_000 });
 		await window
 			.getByRole("button", { name: /Hostile message/ })
@@ -109,12 +116,8 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 			window.locator('iframe[title="Message body"]'),
 		).toHaveAttribute("sandbox", "allow-same-origin");
 
-		// The renderer fetches the authenticated MIME part before passing the isolated frame a
-		// blob URL; an img request cannot carry the launch credential itself.
-		await expect(window.locator("[data-inline-status]")).toHaveAttribute(
-			"data-inline-status",
-			"resolved",
-		);
+		// The backend embeds the inline part in the document itself as a data URL: an img request
+		// cannot carry the launch credential, and the part is already stored locally.
 		await expect
 			.poll(() =>
 				body
@@ -122,7 +125,23 @@ test("hostile HTML renders safely and blocks tracking", async () => {
 					.evaluate((image: HTMLImageElement) => image.naturalWidth),
 			)
 			.toBe(1);
-		await expect(body.locator("#inline")).toHaveAttribute("src", /^blob:/);
+		await expect(body.locator("#inline")).toHaveAttribute(
+			"src",
+			/^data:image\/png;base64,/,
+		);
+
+		// The document is served by the backend under its own policy, so the message's inline
+		// styles and style elements apply natively instead of being blocked.
+		await expect(
+			window.locator('iframe[title="Message body"]'),
+		).toHaveAttribute("src", /^\/messages\/[0-9a-f-]+\/frame\?/);
+		await expect(body.locator("#styled")).toHaveCSS("color", "rgb(255, 0, 0)");
+		await expect(body.locator("#classed")).toHaveCSS("color", "rgb(0, 128, 0)");
+		// The only refusal is the probe's own: it deliberately asks the frame for a remote image,
+		// and the policy is what stops it. Nothing the message legitimately carries is refused.
+		expect(
+			policyViolations.filter((line) => !line.includes("csp-probe.gif")),
+		).toEqual([]);
 
 		await window.locator(".cds--combo-button__trigger").click();
 		await window.getByRole("menuitem", { name: "Trust domain" }).click();

@@ -35,7 +35,7 @@ test("a backend crash offers restart while cached mail remains usable", async ()
 
 	try {
 		await createImapAccount(first.window, imapPort);
-		const inbox = first.window.getByRole("button", { name: /INBOX/ });
+		const inbox = first.window.getByRole("button", { name: /inbox/i });
 		await expect(inbox).toBeVisible({ timeout: 60_000 });
 		await inbox.click();
 		const cachedMessage = first.window.getByRole("button", {
@@ -101,7 +101,7 @@ test("a backend crash offers restart while cached mail remains usable", async ()
 		await terminateElectron(first.app);
 		firstClosed = true;
 		second = await launchApp([], {}, first.dataDirectory);
-		const restoredInbox = second.window.getByRole("button", { name: /INBOX/ });
+		const restoredInbox = second.window.getByRole("button", { name: /inbox/i });
 		await expect(restoredInbox).toBeVisible({ timeout: 10_000 });
 		await restoredInbox.click();
 		await expect(

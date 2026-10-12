@@ -64,7 +64,7 @@ import {
 import {
 	buildForwardSeed,
 	buildReplySeed,
-	resolveOriginalHtml,
+	resolveQuotedHtml,
 	normalizeMessageBody,
 	normalizeForwardAttachments,
 	normalizeMessageReplyContext,
@@ -1715,7 +1715,7 @@ async function replyTo(
 		buildReplySeed(
 			mode,
 			normalizeMessageReplyContext(context),
-			resolveOriginalHtml(normalizeMessageBody(body)),
+			await resolveQuotedHtml(message.id, normalizeMessageBody(body)),
 			ownAddress,
 			normalizeForwardAttachments(attachments),
 		),
@@ -1739,7 +1739,7 @@ async function forward(
 	onCompose(
 		buildForwardSeed(
 			normalizeMessageReplyContext(context),
-			resolveOriginalHtml(normalizeMessageBody(body)),
+			await resolveQuotedHtml(message.id, normalizeMessageBody(body)),
 			normalizeForwardAttachments(attachments),
 		),
 	);

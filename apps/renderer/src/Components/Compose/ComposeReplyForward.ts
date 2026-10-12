@@ -1,5 +1,8 @@
-import { prepare } from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
-import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
+import {
+	fetchApi,
+	fetchApiJson,
+} from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
+import { QuotedHtmlDtoSchema } from "@mylomail/shared-types/Api/Contracts/QuotedHtmlDto";
 import type {
 	AttachmentDto,
 	MessageBodyDto,
@@ -75,7 +78,7 @@ export interface ComposeSeed {
 	/**
 	 * Attachments to copy onto the new draft once it exists: every attachment for a forward,
 	 * only inline ones for a reply (a reply's quote references the original's inline images via
-	 * the `cid:`s `sanitiseForQuoting` preserves, but never means to drag along its ordinary
+	 * the `cid:`s the backend preserves when it prepares a quote, but never means to drag along its ordinary
 	 * attachments too — that's what forwarding is for).
 	 */
 	attachmentsToCopy?: {
@@ -154,8 +157,24 @@ export function normalizeForwardAttachments(
 	}));
 }
 
-export function resolveOriginalHtml(body: MessageBody): string {
-	if (body.isFetched && body.html) return body.html;
+/**
+ * The original message as HTML ready to quote in a reply or forward, prepared by the backend: the
+ * same sanitiser as the reading pane, so a reply cannot carry a script or a tracking pixel into a
+ * document the user is about to author into and send (§13 Epic 5). It differs from the pane's copy
+ * in two ways — remote content stays withheld whatever the sender's rules say, and inline images
+ * keep their `cid:` references, because the new draft re-attaches them and binds them by Content-ID.
+ */
+export async function resolveQuotedHtml(
+	messageId: string,
+	body: MessageBody,
+): Promise<string> {
+	if (body.isFetched && body.html) {
+		const prepared = await fetchApiJson(
+			`/messages/${encodeURIComponent(messageId)}/quote-html`,
+			QuotedHtmlDtoSchema,
+		);
+		return prepared.html;
+	}
 	if (body.isFetched && body.text) {
 		return `<p>${escapeHtml(body.text).replace(/\n/g, "<br>")}</p>`;
 	}
@@ -203,22 +222,7 @@ function formatWhen(receivedAt: string): string {
 	});
 }
 
-/**
- * Sanitised before quoting regardless of the original message's own remote-content trust
- * state (§13 Epic 5): a reply/forward draft is an editable document, not the isolated,
- * read-only frame `MessageHtml` renders received mail in, so silently carrying over a live
- * tracking pixel or `<script>` into something the user is about to author into and send would
- * bypass that isolation entirely. Blocking remote content here costs nothing the user cannot
- * already see and re-allow in the original message's own reading-pane view.
- */
-function sanitiseForQuoting(html: string): string {
-	return prepare(html, false).html;
-}
-
-/**
- * Who a reply/reply-all actually goes to, split out from {@link buildReplySeed} so it can be
- * tested without pulling in `sanitiseForQuoting`'s DOMPurify dependency, which needs a real DOM.
- */
+/** Who a reply/reply-all actually goes to, split out from {@link buildReplySeed}. */
 export function buildReplyRecipients(
 	mode: "reply" | "replyAll",
 	context: MessageReplyContext,
@@ -237,11 +241,11 @@ export function buildReplyRecipients(
 	return { to, cc };
 }
 
-/** Builds a Gmail/Outlook-style quoted reply (§13). */
+/** Builds a Gmail/Outlook-style quoted reply (§13). `quotedBodyHtml` is already prepared by the backend (see {@link resolveQuotedHtml}). */
 export function buildReplySeed(
 	mode: "reply" | "replyAll",
 	context: MessageReplyContext,
-	originalBodyHtml: string,
+	quotedBodyHtml: string,
 	ownAddress: string,
 	attachments: ForwardAttachment[] = [],
 ): ComposeSeed {
@@ -250,7 +254,7 @@ export function buildReplySeed(
 	const attribution = `On ${formatWhen(context.receivedAt)}, ${formatAddress(
 		context.from[0] ?? { name: null, email: "" },
 	)} wrote:`;
-	const quoted = sanitiseForQuoting(originalBodyHtml);
+	const quoted = quotedBodyHtml;
 	const bodyHtml =
 		`<p><br></p><p>${attribution}</p>` +
 		`<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex;">` +
@@ -278,7 +282,7 @@ export function buildReplySeed(
 /** Builds a Gmail-style forwarded message (§13). */
 export function buildForwardSeed(
 	context: MessageReplyContext,
-	originalBodyHtml: string,
+	quotedBodyHtml: string,
 	attachments: ForwardAttachment[],
 ): ComposeSeed {
 	const header =
@@ -287,7 +291,7 @@ export function buildForwardSeed(
 		`Date: ${escapeHtml(formatWhen(context.receivedAt))}<br>` +
 		`Subject: ${escapeHtml(context.subject)}<br>` +
 		`To: ${formatAddressList(context.to)}</p>`;
-	const bodyHtml = `<p><br></p>${header}<p><br></p>${sanitiseForQuoting(originalBodyHtml)}`;
+	const bodyHtml = `<p><br></p>${header}<p><br></p>${quotedBodyHtml}`;
 
 	return {
 		key: `forward-${context.messageId}-${Date.now()}`,

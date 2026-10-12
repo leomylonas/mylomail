@@ -388,7 +388,6 @@ function Body({
 					// safe sender's message must not silently unblock trackers on the very
 					// next, unrelated message this instance would otherwise carry over to.
 					key={messageId}
-					html={body.html}
 					messageId={messageId}
 					senderAddress={senderAddress}
 					onReadyChange={onHtmlReadyChange}

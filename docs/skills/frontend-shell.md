@@ -148,7 +148,7 @@ own error handling is a bug.
 
 The renderer holds the capability to invoke mail mutations, so untrusted HTML is the
 most sensitive surface. Require `contextIsolation`, sandboxing, strict CSP, navigation
-and window-open interception, scripts/forms/iframes stripped, DOMPurify, and an isolated
+and window-open interception, scripts/forms/iframes stripped (by the backend's `MessageHtmlPreparer`, not in the renderer), and an isolated
 document context.
 
 Block remote content at the request layer, not by removing `<img src>`: CSS `url()`,

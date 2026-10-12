@@ -47,7 +47,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await createImapAccount(window, imapPort);
 
 		// Topology discovery, then coverage: the sidebar fills in as they land.
-		const inboxMailbox = window.getByRole("button", { name: /INBOX/ });
+		const inboxMailbox = window.getByRole("button", { name: /inbox/i });
 		await expect(inboxMailbox).toBeVisible({ timeout: 60_000 });
 		await inboxMailbox.click();
 

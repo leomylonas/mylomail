@@ -49,7 +49,7 @@ test("a new user adds an IMAP account through the form and reaches their inbox",
 		await expect(
 			window.getByRole("heading", { name: "Add account" }),
 		).toBeHidden({ timeout: 30_000 });
-		await expect(window.getByRole("button", { name: /INBOX/ })).toBeVisible({
+		await expect(window.getByRole("button", { name: /inbox/i })).toBeVisible({
 			timeout: 60_000,
 		});
 	} finally {

@@ -136,8 +136,8 @@ export type IMailHub = {
     getActivity(): Promise<ActivityDto>;
     /**
     * Manual "send & receive": syncs every enabled account now (or just the one named) and says
-    * how each ended. Returns when the sync passes finish; the queued follow-up work — message
-    * bodies, local changes, unsent mail — carries on in the background.
+    * how each was started. Returns at once; the passes run in the background and report through
+    * the usual events.
     * @param accountId Transpiled from System.Guid?
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.SyncNowResultDto>
     */

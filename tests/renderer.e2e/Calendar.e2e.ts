@@ -163,10 +163,7 @@ test("new event editing exposes IANA timezone and lossless recurrence controls",
 		);
 
 		await window.getByRole("button", { name: "Calendar", exact: true }).click();
-		await window
-			.getByRole("button", { name: /^Add an event on / })
-			.first()
-			.click();
+		await window.getByRole("button", { name: "New event" }).click();
 
 		await expect(window.getByLabel("Start time zone")).toBeVisible();
 		await window.getByLabel("Start time zone").selectOption("America/New_York");
@@ -209,10 +206,7 @@ test("calendar CRUD reaches a real CalDAV server through the Electron UI", async
 			)
 			.toBeGreaterThanOrEqual(1);
 		await window.getByRole("button", { name: "Calendar", exact: true }).click();
-		await window
-			.getByRole("button", { name: /^Add an event on /u })
-			.first()
-			.click();
+		await window.getByRole("button", { name: "New event" }).click();
 		await window.getByLabel("Title").fill(title);
 		await window.getByRole("button", { name: "Save" }).click();
 		await expect(
@@ -328,10 +322,10 @@ test("invite replies round-trip through SMTP and attendee replies update the org
 	const { app, window, dataDirectory } = await launchApp();
 	try {
 		await createImapAccount(window, inviteImapPort);
-		await expect(window.getByRole("button", { name: /INBOX/u })).toBeVisible({
+		await expect(window.getByRole("button", { name: /inbox/iu })).toBeVisible({
 			timeout: 60_000,
 		});
-		await window.getByRole("button", { name: /INBOX/u }).click();
+		await window.getByRole("button", { name: /inbox/iu }).click();
 
 		const database = join(dataDirectory, "app.db");
 		await expect

@@ -1,40 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, ComboButton, MenuItem, useTheme } from "@carbon/react";
 import { ViewOff } from "@carbon/icons-react";
-import { defaultMessageFontCss } from "@mylomail/renderer/Components/MessageHtml/DefaultMessageFont";
-import { applyMessageStyles } from "@mylomail/renderer/Components/MessageHtml/ApplyMessageStyles";
-import { darkModeStyle } from "@mylomail/renderer/Components/MessageHtml/DarkModeStyle";
-import type { RemoteContentRuleDto } from "@mylomail/shared-types/Api/Contracts/RemoteContentRuleDto";
+import { fillShadowRoot } from "@mylomail/renderer/Components/MessageHtml/ApplyMessageStyles";
+import { MessageHtmlInfoDtoSchema } from "@mylomail/shared-types/Api/Contracts/MessageHtmlInfoDto";
+import { PrintHtmlDtoSchema } from "@mylomail/shared-types/Api/Contracts/PrintHtmlDto";
+import { RemoteContentDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentDecision";
 import { RemoteContentRuleDecision } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleDecision";
 import { RemoteContentRuleScope } from "@mylomail/shared-types/Api/Domain/RemoteContentRuleScope";
-import { decideRemoteContent } from "@mylomail/renderer/Components/MessageHtml/RemoteContentPolicy";
-import {
-	prepare,
-	resolveInlineImages,
-} from "@mylomail/renderer/Components/MessageHtml/SanitiseMessageHtml";
 import {
 	fetchApi,
+	fetchApiJson,
 	notificationForError,
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/MessageHtml/MessageHtml.module.css";
 
-const remoteContentRulesKey = ["remote-content-rules"];
-
-function useRemoteContentDecision(senderAddress: string | undefined) {
-	const query = useQuery({
-		queryKey: remoteContentRulesKey,
-		queryFn: async (): Promise<RemoteContentRuleDto[]> => {
-			const response = await fetchApi("/remote-content/rules");
-			return (await response.json()) as RemoteContentRuleDto[];
-		},
-		staleTime: 30_000,
-	});
-
-	return decideRemoteContent(query.data ?? [], senderAddress);
-}
+/** What the backend prepared, per message and per "load remote content" request for this view. */
+export const messageHtmlKey = ["message-html"];
 
 interface RuleInput {
 	scope: RemoteContentRuleScope;
@@ -58,7 +42,12 @@ function usePutRemoteContentRules() {
 			);
 		},
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: remoteContentRulesKey });
+			// The backend applies the rules when it prepares a message, so every prepared message and
+			// the rules list are stale.
+			void queryClient.invalidateQueries({
+				queryKey: ["remote-content-rules"],
+			});
+			void queryClient.invalidateQueries({ queryKey: messageHtmlKey });
 		},
 		onError: (error: unknown) =>
 			notify(
@@ -72,32 +61,19 @@ function usePutRemoteContentRules() {
 }
 
 /**
- * The content policy for the isolated frame is set by the backend on the response that serves it
- * (`MessageFramesController`), not here: a frame loaded from a URL gets only the policy that
- * response carries, whereas a `srcdoc` frame inherits the app page's, which forbids inline styles.
- * <b>That policy is the request-layer enforcement §13 requires.</b> Stripping attributes is a
- * parser competing with an attacker; a content policy is the browser refusing to make the request
- * at all, and it covers the routes stripping misses — CSS `url()`, `@import`, `srcset`, SVG
- * references.
+ * A message body shown in an isolated frame (§13).
+ *
+ * The backend prepares it — sanitises it, withholds remote content according to the persisted rules
+ * and this view's own request, embeds inline images — and serves the result as a document under a
+ * content policy of its own. This component never handles untrusted markup except to place the
+ * backend's already-sanitised copy in the print layout.
  */
-const printStyle =
-	"@media print { html, body { margin: 0 !important; background: #fff !important; color: #000 !important; } img { max-width: 100% !important; height: auto !important; } }";
-
-type InlineResolution = {
-	messageId: string;
-	revision: string;
-	html: string | null;
-	status: "resolving" | "resolved" | "failed";
-};
-
 export function MessageHtml({
-	html,
 	messageId,
 	senderAddress,
 	onReadyChange,
 	invertColours = false,
 }: {
-	html: string;
 	messageId: string;
 	/** For the persisted remote-content allow list (§13 Epic 5), passed down from ReadingPane. */
 	senderAddress?: string;
@@ -106,149 +82,74 @@ export function MessageHtml({
 	/** A viewing mode the reader switched on for this message; never stored anywhere. */
 	invertColours?: boolean;
 }) {
-	const remoteContentDecision = useRemoteContentDecision(senderAddress);
 	const putRemoteContentRules = usePutRemoteContentRules();
+	// Local to this view: the reader asked to load this message's remote content.
 	const [allowRemoteOverride, setAllowRemoteOverride] = useState(false);
-	const allowRemote =
-		remoteContentDecision === "allow" ||
-		(remoteContentDecision !== "block" && allowRemoteOverride);
+	const prepared = useQuery({
+		queryKey: [...messageHtmlKey, "info", messageId, allowRemoteOverride],
+		queryFn: () =>
+			fetchApiJson(
+				`/messages/${messageId}/html-info?remote=${allowRemoteOverride}`,
+				MessageHtmlInfoDtoSchema,
+			),
+	});
+	const allowRemote = prepared.data?.remoteAllowed ?? false;
+	const blockedRemoteCount = prepared.data?.blockedRemoteCount ?? 0;
+	const remoteContentDecision = prepared.data?.decision;
 	const senderDomain = senderAddress?.split("@").at(-1) ?? "";
 	// Loading is always for this message; a rule is saved only when asked for.
 	const loadContent = (rules: RuleInput[]) => {
 		setAllowRemoteOverride(true);
 		if (rules.length > 0) putRemoteContentRules.mutate(rules);
 	};
-	const [inlineResolution, setInlineResolution] = useState<InlineResolution>({
-		messageId: "",
-		revision: "",
-		html: null,
-		status: "resolving",
-	});
-	const [loadedDocument, setLoadedDocument] = useState<string | null>(null);
+	const [loadedFrame, setLoadedFrame] = useState<string | null>(null);
 	const printHostRef = useRef<HTMLDivElement>(null);
 	const frameRef = useRef<HTMLIFrameElement>(null);
 
-	const prepared = useMemo(
-		() => prepare(html, allowRemote),
-		[html, allowRemote],
-	);
-
-	const sourceRevision = `${messageId}\u0000${prepared.html}`;
-	useEffect(() => {
-		let revoke = () => undefined as void;
-		let cancelled = false;
-
-		void resolveInlineImages(prepared.html, messageId, fetchPart).then(
-			(result) => {
-				if (cancelled) {
-					result.revoke();
-					return;
-				}
-
-				revoke = result.revoke;
-				setInlineResolution({
-					messageId,
-					revision: sourceRevision,
-					html: result.html,
-					status: "resolved",
-				});
-			},
-			() => {
-				if (!cancelled) {
-					setInlineResolution({
-						messageId,
-						revision: sourceRevision,
-						html: null,
-						status: "failed",
-					});
-				}
-			},
-		);
-
-		return () => {
-			cancelled = true;
-			// Blob URLs keep their data alive for the document's lifetime, so a pane that
-			// never revoked them would grow with every message opened.
-			revoke();
-		};
-	}, [messageId, prepared.html, sourceRevision]);
-
-	const currentResolution =
-		inlineResolution.revision === sourceRevision
-			? inlineResolution
-			: {
-					messageId,
-					revision: sourceRevision,
-					html: null,
-					status: "resolving" as const,
-				};
-	const renderedHtml =
-		currentResolution.html ??
-		(inlineResolution.messageId === messageId ? inlineResolution.html : null) ??
-		prepared.html;
 	const dark = useTheme().theme === "g100";
-	const extraCss = `${defaultMessageFontCss}${darkModeStyle(renderedHtml, dark, invertColours)}${printStyle}`;
-	// The app's own rules come after the message's, as they did when they were applied separately,
-	// so a message cannot out-rank the dark-mode or print rules.
-	const document = `<!doctype html><html><head><meta charset="utf-8"></head><body>${renderedHtml}<style>${extraCss}</style></body></html>`;
-	const documentRevision = `${messageId}\u0000${dark}\u0000${invertColours}\u0000${allowRemote}\u0000${document}`;
-	// The document is handed to the backend, which serves it under its own policy at a URL.
-	const [frame, setFrame] = useState<{ revision: string; url: string } | null>(
-		null,
-	);
-	useEffect(() => {
-		let cancelled = false;
-		void (async () => {
-			try {
-				const response = await fetchApi("/message-frames", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ document, allowRemote }),
-				});
-				const { id } = (await response.json()) as { id: string };
-				if (!cancelled)
-					setFrame({
-						revision: documentRevision,
-						url: `/message-frames/${encodeURIComponent(id)}`,
-					});
-			} catch {
-				if (!cancelled) setFrame(null);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [document, allowRemote, documentRevision]);
-	const ready =
-		(currentResolution.status === "resolved" ||
-			currentResolution.status === "failed") &&
-		loadedDocument === documentRevision;
+	// Everything that changes what the document says is in the URL, so a change reloads the frame
+	// and the loaded document is known by its URL alone. `allowed` is whether remote content actually
+	// loads (a rule can decide it): a rule saved while the reader had already asked to load changes
+	// nothing in the document, so it must not reload it and fetch every remote image again.
+	const frameUrl = prepared.data
+		? `/messages/${messageId}/frame?remote=${allowRemoteOverride}&dark=${dark}&invert=${invertColours}&allowed=${prepared.data.remoteAllowed}`
+		: null;
+	const ready = frameUrl !== null && loadedFrame === frameUrl;
 	useEffect(() => {
 		onReadyChange?.(ready);
-	}, [documentRevision, onReadyChange, ready]);
+	}, [frameUrl, onReadyChange, ready]);
 
 	// Paper cannot show a scrolling frame: a replaced element is never split across pages, so an
 	// iframe taller than a page is clipped to one and its content is lost. For printing the same
-	// sanitised markup is also laid out in a shadow root — in the normal page flow, so it
-	// paginates — and the shadow boundary keeps the message's own CSS away from the app.
-	// Prepared ahead of time, hidden on screen, so its images are loaded when printing begins.
-	const populatedFor = useRef<string | null>(null);
+	// prepared markup is also laid out in a shadow root — in the normal page flow, so it paginates —
+	// and the shadow boundary keeps the message's own CSS away from the app. Fetched once the frame
+	// is up and kept hidden on screen, so its images are loaded when printing begins.
+	const printCopy = useQuery({
+		queryKey: [...messageHtmlKey, "print", messageId, allowRemoteOverride],
+		queryFn: () =>
+			fetchApiJson(
+				`/messages/${messageId}/print-html?remote=${allowRemoteOverride}`,
+				PrintHtmlDtoSchema,
+			),
+		enabled: ready,
+	});
+	const printData = printCopy.data;
+	const populatedFor = useRef<unknown>(null);
 	const populatePrintCopy = useCallback(() => {
 		const host = printHostRef.current;
-		if (!host || populatedFor.current === renderedHtml) return;
-		const root = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-		root.innerHTML = renderedHtml;
-		applyMessageStyles(
-			root,
+		if (!host || !printData || populatedFor.current === printData) return;
+		fillShadowRoot(
+			host.shadowRoot ?? host.attachShadow({ mode: "open" }),
+			printData,
 			":host { display: block; background: #fff; color: #000; } img { max-width: 100%; height: auto; }",
 		);
-		populatedFor.current = renderedHtml;
-	}, [renderedHtml]);
+		populatedFor.current = printData;
+	}, [printData]);
 	useEffect(() => {
-		// While remote content is blocked the markup holds none, so the copy can be prepared now
-		// and its images are ready when printing starts. Once remote content is allowed, copying
-		// early would fetch every remote image a second time, from the app's own page rather than
-		// the locked-down frame, so it waits for printing itself.
+		// While remote content is blocked the markup holds none, so the copy can be laid out now
+		// and its images are ready when printing starts. Once remote content is allowed, laying it
+		// out early would fetch every remote image a second time, from the app's own page rather than
+		// the locked-down frame, so it waits for printing itself. The data is already here by then.
 		if (!allowRemote) populatePrintCopy();
 		const printing = window.matchMedia("print");
 		const onPrint = () => {
@@ -263,10 +164,10 @@ export function MessageHtml({
 	}, [allowRemote, populatePrintCopy]);
 
 	return (
-		<div className={styles.root} data-inline-status={currentResolution.status}>
-			{prepared.blockedRemoteCount > 0 &&
+		<div className={styles.root}>
+			{blockedRemoteCount > 0 &&
 			!allowRemote &&
-			remoteContentDecision === "block" ? (
+			remoteContentDecision === RemoteContentDecision.Block ? (
 				<div className={styles.notice}>
 					<ViewOff size={16} className={styles.noticeIcon} aria-hidden="true" />
 					<p className={styles.noticeText}>
@@ -274,7 +175,7 @@ export function MessageHtml({
 						the rule in Settings to load it.
 					</p>
 				</div>
-			) : prepared.blockedRemoteCount > 0 && !allowRemote ? (
+			) : blockedRemoteCount > 0 && !allowRemote ? (
 				<div className={styles.notice}>
 					<ViewOff size={16} className={styles.noticeIcon} aria-hidden="true" />
 					<p className={styles.noticeText}>
@@ -327,18 +228,18 @@ export function MessageHtml({
 				</div>
 			) : null}
 			<div ref={printHostRef} className={styles.printHost} aria-hidden="true" />
-			{frame?.revision === documentRevision ? (
+			{frameUrl ? (
 				<iframe
 					ref={frameRef}
-					key={documentRevision}
+					key={frameUrl}
 					className={styles.frame}
 					title="Message body"
-					// Same-origin is required for the authenticated renderer's blob URLs. Scripts,
-					// forms, frames and navigation remain independently forbidden — by this sandbox
-					// and by the policy the backend serves the document under — so message HTML
+					// Same-origin keeps the reader's click handling below able to reach the document.
+					// Scripts, forms, frames and navigation remain independently forbidden — by this
+					// sandbox and by the policy the backend serves the document under — so message HTML
 					// still has no executable path to the renderer's mail capabilities (§13).
 					sandbox="allow-same-origin"
-					src={frame.url}
+					src={frameUrl}
 					onLoad={() => {
 						const frameDocument = frameRef.current?.contentDocument;
 						frameDocument?.addEventListener(
@@ -359,21 +260,10 @@ export function MessageHtml({
 							},
 							true,
 						);
-						setLoadedDocument(documentRevision);
+						setLoadedFrame(frameUrl);
 					}}
 				/>
 			) : null}
 		</div>
 	);
-}
-
-/** Fetches one MIME part. Same-origin, so the launch cookie authenticates it (§9). */
-async function fetchPart(messageId: string, contentId: string): Promise<Blob> {
-	const response = await fetchApi(`/messages/${messageId}/parts`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ contentId }),
-	});
-	// fetchApi preserves the server's not-found detail and category for the caller.
-	return response.blob();
 }

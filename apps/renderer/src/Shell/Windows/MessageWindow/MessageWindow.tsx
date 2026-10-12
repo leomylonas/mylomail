@@ -8,7 +8,7 @@ import {
 	normalizeMessageReplyContext,
 	normalizeForwardAttachments,
 	normalizeMessageBody,
-	resolveOriginalHtml,
+	resolveQuotedHtml,
 } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
@@ -92,7 +92,10 @@ export function MessageWindow({
 				hub.getAttachmentMetadata(messageId),
 			]);
 			const account = accounts.data?.find((a) => a.id === context.accountId);
-			const originalHtml = resolveOriginalHtml(normalizeMessageBody(body));
+			const originalHtml = await resolveQuotedHtml(
+				messageId,
+				normalizeMessageBody(body),
+			);
 			const normalizedContext = normalizeMessageReplyContext(context);
 			const seed =
 				mode === "forward"

@@ -462,6 +462,9 @@ export function connectHub(
 		void queryClient.invalidateQueries({
 			queryKey: ["remote-content-rules"],
 		});
+		// The backend applies the rules when it prepares a message, so a changed rule changes every
+		// message already prepared.
+		void queryClient.invalidateQueries({ queryKey: ["message-html"] });
 	});
 
 	// A change the user asked for that will not happen. Shown, not logged: the optimistic

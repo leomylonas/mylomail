@@ -158,6 +158,13 @@ export enum RemoteContentRuleDecision {
     Block = 1,
 }
 
+/** Transpiled from MyloMail.Api.Domain.RemoteContentDecision */
+export enum RemoteContentDecision {
+    Default = 0,
+    Allow = 1,
+    Block = 2,
+}
+
 /** Transpiled from MyloMail.Api.Domain.CoverageStatus */
 export enum CoverageStatus {
     NotStarted = 0,

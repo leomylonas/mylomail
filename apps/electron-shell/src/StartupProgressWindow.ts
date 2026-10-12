@@ -25,48 +25,66 @@ const titles: Record<string, string> = {
  * launch never creates it. The backend has no port to answer on yet, so the progress arrives
  * as lines on its standard output.
  */
-export function createStartupProgressWindow(): {
+export function createStartupProgressWindow(showAfterMs = 2000): {
 	update(progress: StartupProgress): void;
 	close(): void;
 } {
 	let window: BrowserWindow | undefined;
+	let latest: StartupProgress | undefined;
+	let pending: NodeJS.Timeout | undefined;
+
+	const render = (progress: StartupProgress) => {
+		if (!window) {
+			window = new BrowserWindow({
+				useContentSize: true,
+				width: 440,
+				height: 140,
+				resizable: false,
+				minimizable: false,
+				maximizable: false,
+				title: "MyloMail",
+				autoHideMenuBar: true,
+			});
+			void window.loadURL(
+				`data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
+			);
+		}
+		const current = window;
+		const title = titles[progress.phase] ?? "Preparing MyloMail";
+		const percent =
+			progress.fraction === null ? null : Math.round(progress.fraction * 100);
+		current.setProgressBar(progress.fraction ?? 2);
+		// Only a fixed title and a number are interpolated, never backend-supplied text.
+		void current.webContents
+			.executeJavaScript(
+				`(() => {
+					document.getElementById("title").textContent = ${JSON.stringify(
+						percent === null ? title : `${title} — ${percent}%`,
+					)};
+					const bar = document.getElementById("bar");
+					${progress.fraction === null ? 'bar.removeAttribute("value");' : `bar.value = ${progress.fraction};`}
+				})();`,
+			)
+			.catch(() => undefined);
+	};
 
 	return {
 		update(progress) {
-			if (!window) {
-				window = new BrowserWindow({
-					useContentSize: true,
-					width: 440,
-					height: 140,
-					resizable: false,
-					minimizable: false,
-					maximizable: false,
-					title: "MyloMail",
-					autoHideMenuBar: true,
-				});
-				void window.loadURL(
-					`data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
-				);
+			latest = progress;
+			if (window) {
+				render(progress);
+				return;
 			}
-			const current = window;
-			const title = titles[progress.phase] ?? "Preparing MyloMail";
-			const percent =
-				progress.fraction === null ? null : Math.round(progress.fraction * 100);
-			current.setProgressBar(progress.fraction ?? 2);
-			// Only a fixed title and a number are interpolated, never backend-supplied text.
-			void current.webContents
-				.executeJavaScript(
-					`(() => {
-						document.getElementById("title").textContent = ${JSON.stringify(
-							percent === null ? title : `${title} — ${percent}%`,
-						)};
-						const bar = document.getElementById("bar");
-						${progress.fraction === null ? 'bar.removeAttribute("value");' : `bar.value = ${progress.fraction};`}
-					})();`,
-				)
-				.catch(() => undefined);
+			// Most launches migrate in a moment, and a window that flashes up and vanishes is worse
+			// than none, so it appears only once startup has genuinely taken a while.
+			pending ??= setTimeout(() => {
+				if (latest) render(latest);
+			}, showAfterMs);
 		},
 		close() {
+			clearTimeout(pending);
+			pending = undefined;
+			latest = undefined;
 			if (window && !window.isDestroyed()) window.destroy();
 			window = undefined;
 		},

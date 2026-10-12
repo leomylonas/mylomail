@@ -20,7 +20,7 @@ test("IMAP IDLE reconnects after the server drops its live session", async () =>
 
 	try {
 		await createImapAccount(launched.window, imapPort);
-		const inbox = launched.window.getByRole("button", { name: /INBOX/ });
+		const inbox = launched.window.getByRole("button", { name: /inbox/i });
 		await expect(inbox).toBeVisible({ timeout: 60_000 });
 		await inbox.click();
 		await expect(

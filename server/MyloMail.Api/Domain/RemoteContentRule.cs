@@ -28,3 +28,12 @@ public enum RemoteContentRuleDecision
 	Allow,
 	Block,
 }
+
+[TranspilationSource]
+public enum RemoteContentDecision
+{
+	/// <summary>No rule: blocked, unless the reader asks for this one view.</summary>
+	Default,
+	Allow,
+	Block,
+}

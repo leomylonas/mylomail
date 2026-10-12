@@ -7,6 +7,7 @@ import {
 	buildForwardSeed,
 	buildReplyRecipients,
 	buildReplySeed,
+	resolveQuotedHtml,
 	copyAttachments,
 	mentionsAttachmentOutsideQuote,
 	type ForwardAttachment,
@@ -248,5 +249,61 @@ describe("copyAttachments", () => {
 
 		expect(uploadedForm?.get("isInline")).toBeNull();
 		expect(uploadedForm?.get("contentId")).toBeNull();
+	});
+});
+
+describe("resolveQuotedHtml", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const body = (overrides: Record<string, unknown>) =>
+		({
+			messageId: "m1",
+			text: null,
+			html: null,
+			isFetched: true,
+			isFailed: false,
+			...overrides,
+		}) as Parameters<typeof resolveQuotedHtml>[1];
+
+	it("asks the backend for a quote of an HTML message, and quotes what it returns", async () => {
+		const fetchMock = vi.fn<(url: string) => Promise<Response>>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						html: '<p>Hi</p><img src="cid:logo@example.org">',
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const html = await resolveQuotedHtml("m1", body({ html: "<p>raw</p>" }));
+
+		// The backend's copy, never the raw body the renderer happens to hold.
+		expect(html).toBe('<p>Hi</p><img src="cid:logo@example.org">');
+		expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+			"/messages/m1/quote-html",
+		);
+	});
+
+	it("quotes a text-only message as escaped paragraphs without asking the backend", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		const html = await resolveQuotedHtml("m1", body({ text: "a <b>\nsecond" }));
+
+		expect(html).toBe("<p>a &lt;b&gt;<br>second</p>");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("says so when the content could not be, or has not yet been, downloaded", async () => {
+		expect(
+			await resolveQuotedHtml("m1", body({ isFailed: true, isFetched: false })),
+		).toContain("could not be downloaded");
+		expect(await resolveQuotedHtml("m1", body({ isFetched: false }))).toContain(
+			"still downloading",
+		);
 	});
 });

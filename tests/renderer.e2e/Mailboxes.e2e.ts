@@ -30,12 +30,12 @@ test("a folder is created, renamed and deleted on the server", async () => {
 		await createImapAccount(window, imapPort);
 
 		await window
-			.getByRole("button", { name: /INBOX/ })
+			.getByRole("button", { name: /inbox/i })
 			.first()
 			.waitFor({ timeout: 60_000 });
 
 		await window
-			.getByRole("button", { name: /INBOX/ })
+			.getByRole("button", { name: /inbox/i })
 			.first()
 			.click({ button: "right" });
 		await window.getByRole("menuitem", { name: "New folder" }).click();

@@ -149,8 +149,11 @@ export async function appendHostileHtmlMessage(
 		"--boundary42",
 		'Content-Type: text/html; charset="utf-8"',
 		"",
-		"<html><body>",
+		"<html><head><style>#classed { color: rgb(0, 128, 0) }</style></head><body>",
 		"<p id='visible-body'>Hostile body text</p>",
+		// Styling is how most mail is laid out, so the document must be allowed to carry it.
+		"<p id='styled' style='color: rgb(255, 0, 0)'>Styled</p>",
+		"<p id='classed'>Classed</p>",
 		`<script>window.pwned = true;</${"script"}>`,
 		'<img id="inline" src="cid:inline-image@example.org">',
 		`<img id="tracker" src="${remoteImageUrl}">`,

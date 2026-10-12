@@ -296,7 +296,7 @@ async function launchElectron(
 		...(executablePath ? { executablePath } : {}),
 		env: environment,
 	});
-	const window = await app.firstWindow();
+	const window = await mainWindow(app);
 	window.on("pageerror", (error) => {
 		console.error(`[renderer] ${error.stack ?? error.message}`);
 	});
@@ -305,6 +305,21 @@ async function launchElectron(
 			console.error(`[renderer] ${message.text()}`);
 	});
 	return { app, window };
+}
+
+/**
+ * The app's own window. A slow start shows a small progress window first (a `data:` page), and
+ * `firstWindow()` can return that one: the specs need the window the backend serves.
+ */
+async function mainWindow(app: ElectronApplication): Promise<Page> {
+	await app.firstWindow();
+	for (;;) {
+		const window = app
+			.windows()
+			.find((candidate) => !candidate.url().startsWith("data:"));
+		if (window) return window;
+		await app.waitForEvent("window", { timeout: 120_000 });
+	}
 }
 
 function packagedExecutablePath(): string {
