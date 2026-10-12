@@ -763,6 +763,59 @@ public sealed class MutationExecutionTests
 	}
 
 
+	private static Task SetSnapshotAsync(MutationHarness harness, Guid mailboxId, int providerUnread, int? baseline = null) =>
+		harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var mailbox = await context.Mailboxes.SingleAsync(m => m.Id == mailboxId);
+			mailbox.ProviderUnreadCount = providerUnread;
+			mailbox.UnreadAtProviderCount = baseline;
+			await context.SaveChangesAsync();
+		});
+
+	private static Task<(int Shown, int? Snapshot, int? Baseline)> UnreadAsync(MutationHarness harness, Guid mailboxId) =>
+		harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var summary = (await MyloMail.Api.Hubs.MailboxSummaryDtoFactory.GetAsync(context, mailboxId))!;
+			var mailbox = await context.Mailboxes.AsNoTracking().SingleAsync(m => m.Id == mailboxId);
+			return (summary.UnreadCount, mailbox.ProviderUnreadCount, mailbox.UnreadAtProviderCount);
+		});
+
+	/// <summary>
+	/// The count a user watches must not move when an action merely stops being pending: it was
+	/// already counted while queued, and confirmation moves the snapshot with the server-known flag.
+	/// </summary>
+	[Fact]
+	public async Task A_confirmed_read_keeps_the_displayed_count_and_moves_the_provider_snapshot_with_it()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await SetSnapshotAsync(harness, harness.InboxId, providerUnread: 5);
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		Assert.Equal((4, 5, null), await UnreadAsync(harness, harness.InboxId));
+
+		await ExecuteAsync(harness);
+
+		Assert.Equal((4, 4, null), await UnreadAsync(harness, harness.InboxId));
+	}
+
+	[Fact]
+	public async Task A_confirmed_move_takes_the_unread_message_out_of_one_snapshot_and_into_the_other()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await SetSnapshotAsync(harness, harness.InboxId, providerUnread: 5, baseline: 1);
+		await SetSnapshotAsync(harness, harness.ArchiveId, providerUnread: 3, baseline: 0);
+		await harness.UsingAsync(async services =>
+			await services.GetRequiredService<MutationQueue>().MoveAsync(harness.AccountId, harness.MessageId, harness.ArchiveId));
+
+		await ExecuteAsync(harness);
+
+		var (_, inboxSnapshot, inboxBaseline) = await UnreadAsync(harness, harness.InboxId);
+		var (_, archiveSnapshot, archiveBaseline) = await UnreadAsync(harness, harness.ArchiveId);
+		Assert.Equal((4, 0), (inboxSnapshot, inboxBaseline));
+		Assert.Equal((4, 1), (archiveSnapshot, archiveBaseline));
+	}
+
 	internal static async Task ExecuteAsync(MutationHarness harness)
 	{
 		await harness.UsingAsync(async services =>

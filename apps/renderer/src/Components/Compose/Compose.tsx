@@ -515,7 +515,9 @@ export function Compose({
 	): Promise<void> =>
 		trackAttachmentMutation(async () => {
 			const form = new FormData();
-			form.append("file", content, filename);
+			// An inline image can have no filename at all, and a multipart part with an empty
+			// filename is read by the server as an ordinary field rather than a file.
+			form.append("file", content, filename || "attachment");
 			if (isInline) {
 				form.append("isInline", "true");
 				if (contentId) {

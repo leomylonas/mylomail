@@ -215,6 +215,14 @@ public interface IMailHub
 	/// — purely local, the same as <see cref="ReorderMailboxes"/>.</summary>
 	Task SetMailboxCollapsed(Guid mailboxId, bool collapsed);
 
+	/// <summary>Pins a folder to the top of the sidebar, alongside pinned folders of other
+	/// accounts — purely local, the same as <see cref="SetMailboxCollapsed"/>.</summary>
+	Task SetMailboxPinned(Guid mailboxId, bool pinned);
+
+	/// <summary>Drag-reorder of the pinned list, which spans accounts (so unlike
+	/// <see cref="ReorderMailboxes"/> it has no parent). Ids that are not pinned are ignored.</summary>
+	Task ReorderPinnedMailboxes(IReadOnlyList<Guid> orderedMailboxIds);
+
 	/// <summary>
 	/// Bounds this one mailbox's initial sync differently from the account's own choice —
 	/// e.g. a large "All Mail" label discovered after account setup (§3, §13 Epic 3). Null
@@ -966,6 +974,49 @@ public class MailHub(
 		}
 
 		mailbox.IsCollapsed = collapsed;
+		await context.SaveChangesAsync();
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
+	}
+
+	public async Task ReorderPinnedMailboxes(IReadOnlyList<Guid> orderedMailboxIds)
+	{
+		var pinned = await context.Mailboxes.Where(m => m.IsPinned && orderedMailboxIds.Contains(m.Id)).ToListAsync();
+		var changed = new List<Guid>();
+		foreach (var mailbox in pinned)
+		{
+			var position = orderedMailboxIds.ToList().IndexOf(mailbox.Id);
+			if (mailbox.PinnedSortOrder != position)
+			{
+				mailbox.PinnedSortOrder = position;
+				changed.Add(mailbox.Id);
+			}
+		}
+
+		if (changed.Count == 0)
+		{
+			return;
+		}
+
+		await context.SaveChangesAsync();
+		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, changed);
+	}
+
+	public async Task SetMailboxPinned(Guid mailboxId, bool pinned)
+	{
+		var mailbox = await context.Mailboxes.FirstAsync(m => m.Id == mailboxId);
+		if (mailbox.IsPinned == pinned)
+		{
+			return;
+		}
+
+		mailbox.IsPinned = pinned;
+		if (pinned)
+		{
+			// Joins the end of the pinned list rather than landing wherever its old value sorts.
+			mailbox.PinnedSortOrder =
+				(await context.Mailboxes.Where(m => m.IsPinned).MaxAsync(m => (int?)m.PinnedSortOrder) ?? -1) + 1;
+		}
+
 		await context.SaveChangesAsync();
 		await MailboxSummaryDtoFactory.AnnounceManyAsync(context, events, [mailbox.Id]);
 	}

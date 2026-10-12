@@ -854,6 +854,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<bool>("IsCollapsed")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsSubscribed")
                         .HasColumnType("INTEGER");
 
@@ -866,6 +869,9 @@ namespace MyloMail.Api.Persistence.Migrations
 
                     b.Property<Guid?>("ParentId")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("PinnedSortOrder")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("ProviderMailboxId")
                         .HasColumnType("TEXT");
@@ -883,6 +889,9 @@ namespace MyloMail.Api.Persistence.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("TopologyGeneration")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UnreadAtProviderCount")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");

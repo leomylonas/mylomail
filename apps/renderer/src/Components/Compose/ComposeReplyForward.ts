@@ -331,7 +331,13 @@ export async function copyAttachments(
 				`/messages/${toCopy.sourceMessageId}/attachments/${attachment.id}`,
 			);
 			const form = new FormData();
-			form.append("file", await response.blob(), attachment.filename);
+			// An inline image can have no filename at all, and a multipart part with an empty
+			// filename is read by the server as an ordinary field rather than a file.
+			form.append(
+				"file",
+				await response.blob(),
+				attachment.filename || "attachment",
+			);
 			if (attachment.isInline) {
 				form.append("isInline", "true");
 				if (attachment.contentId) {

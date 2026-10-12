@@ -173,5 +173,5 @@ internal static class GmailRequestExtensions
 	/// <summary>Extracted so a test can exercise the fallback-to-default logic directly, without
 	/// needing a live 429 response to reach it.</summary>
 	internal static ProviderThrottledException Translate(GoogleApiException ex, TimeSpan? captured) =>
-		new(captured is { } retryAfter && retryAfter > TimeSpan.Zero ? retryAfter : DefaultRetryAfter, "Gmail rate limit exceeded.", ex);
+		new(captured is { } retryAfter && retryAfter > TimeSpan.Zero ? retryAfter : DefaultRetryAfter, $"Gmail rate limit exceeded ({(int)ex.HttpStatusCode}, {string.Join('/', ex.Error?.Errors?.Select(e => e.Reason) ?? [])}: {ex.Error?.Message}).", ex);
 }

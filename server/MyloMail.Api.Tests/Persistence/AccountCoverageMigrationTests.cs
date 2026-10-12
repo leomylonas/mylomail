@@ -216,7 +216,23 @@ public sealed class AccountCoverageMigrationTests
 		await using var scope = database.CreateScope();
 		var context = scope.ServiceProvider.GetRequiredService<MyloMailDbContext>();
 		await context.GetService<IMigrator>().MigrateAsync(PreviousMigration);
+		// The seed goes through the current model, which writes columns later migrations add; the
+		// column exists for the seed and is dropped again so the migration under test still runs.
+		await context.Database.ExecuteSqlRawAsync(
+			"""
+			ALTER TABLE "Mailboxes" ADD COLUMN "IsPinned" INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE "Mailboxes" ADD COLUMN "PinnedSortOrder" INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE "Mailboxes" ADD COLUMN "UnreadAtProviderCount" INTEGER NULL;
+			"""
+		);
 		await seed(context);
+		await context.Database.ExecuteSqlRawAsync(
+			"""
+			ALTER TABLE "Mailboxes" DROP COLUMN "IsPinned";
+			ALTER TABLE "Mailboxes" DROP COLUMN "PinnedSortOrder";
+			ALTER TABLE "Mailboxes" DROP COLUMN "UnreadAtProviderCount";
+			"""
+		);
 	}
 
 	private static void AddGmailAccount(MyloMailDbContext context, Guid accountId) =>

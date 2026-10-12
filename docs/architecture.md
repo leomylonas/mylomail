@@ -95,7 +95,8 @@ IMAP hierarchy is a server-specific string convention, not a portable path. Keep
 
 **Counts are two different numbers, and both are needed.** The locally computed count (via the `MessageMailbox` join) reflects only what has been downloaded. Under a bounded initial sync — "last 3 months" against a 10,000-message Inbox — that number is simply wrong as a mailbox total, yet Epic 2 requires accurate live counts. So:
 
-- `ProviderTotalCount`/`ProviderUnreadCount` are refreshed on each sync and are what the sidebar displays.
+- `ProviderTotalCount`/`ProviderUnreadCount` are refreshed on each topology sync; `ProviderTotalCount` is what the sidebar displays as the total.
+- **The unread figure the sidebar shows is a projection, not the snapshot** (`MailboxSummaryDto.UnreadCount`, `MailboxUnreadProjection`). `ProviderUnreadCount` only changes when topology sync next reads it, so showing it directly lagged every local change. The projection is a pure function of durable state, so it is deterministic and idempotent: with a complete local copy (`InitialSyncMode.Full` and `Covered`) it is the local unread count; for a bounded mailbox that is `Covered` it is the provider's snapshot plus how far the local server-known unread count has moved since the snapshot (`Mailbox.UnreadAtProviderCount`, written by topology sync in the same transaction as the counts); otherwise (backfilling, or no baseline) it is the snapshot plus the net effect of pending intents. Pending read/unread changes and messages on their way out (trash, delete, move, label removal) are always part of the local figure, so an action shows the moment it is recorded and cannot jump back when it stops being pending. The renderer displays the figure and does no arithmetic of its own. A race between a provider read and a local change can leave it off until the next topology sync, which replaces the snapshot and baseline together.
 - The locally computed count is used only where it is the correct answer, such as "messages currently shown in this view".
 - Where a provider cannot report a count, the local count is displayed with an indication that older mail is not held locally.
 
@@ -1317,7 +1318,7 @@ Each of these was arrived at by finding the simpler version broken:
 - **Writing `Dispatched` synchronously before every provider call.** Looks like gratuitous I/O on the hot path. It is the entire crash-safety mechanism. Batching, deferring or making it async silently reintroduces the window it closes, and the resulting bug is invisible in testing.
 - **`Message.Id` rather than `Message-ID` as identity.** RFC 5322 says a message SHOULD have a `Message-ID`, not MUST, and duplicates occur in practice.
 - **Provider ids on `MessageMailbox`, not `Message`.** IMAP UIDs are folder-scoped and change on move.
-- **Two count fields per mailbox.** Locally computed counts are wrong under bounded sync; provider-reported counts drive the sidebar.
+- **Two count fields per mailbox.** Locally computed counts are wrong under bounded sync; provider-reported counts are the authority the sidebar's unread figure is projected from (§1), never overwritten by local arithmetic.
 - **In-memory Hangfire storage.** Job persistence was a second source of truth that could diverge from the app tables. Startup reconciliation was always the real recovery mechanism.
 - **Ordering that is not transactionality.** After a terminal failure, later mutations in a chain are re-evaluated, not cancelled wholesale — providers offer no transaction across these operations, and cancelling turns one failure into several abandoned user intentions.
 - **Separate `Availability` and `Coverage` UI dimensions.** A mailbox is fully usable while backfilling.

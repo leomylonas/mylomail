@@ -250,6 +250,14 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("SetMailboxCollapsed", mailboxId, collapsed);
     }
 
+    public readonly setMailboxPinned = async (mailboxId: string, pinned: boolean): Promise<void> => {
+        return await this.connection.invoke("SetMailboxPinned", mailboxId, pinned);
+    }
+
+    public readonly reorderPinnedMailboxes = async (orderedMailboxIds: string[]): Promise<void> => {
+        return await this.connection.invoke("ReorderPinnedMailboxes", orderedMailboxIds);
+    }
+
     public readonly setMailboxInitialSyncOverride = async (mailboxId: string, mode: (InitialSyncMode | undefined), boundValue: (number | undefined)): Promise<void> => {
         return await this.connection.invoke("SetMailboxInitialSyncOverride", mailboxId, mode, boundValue);
     }

@@ -108,6 +108,8 @@ internal static class MailboxSummaryDtoFactory
 		}
 
 		var mailboxIds = mailboxRows.Select(row => row.Mailbox.Id).ToList();
+		var serverKnownUnread = await MailboxUnreadProjection.ServerKnownUnreadAsync(context, mailboxIds, ct);
+		var pendingUnreadDelta = await MailboxUnreadProjection.PendingDeltaAsync(context, mailboxIds, ct);
 		var coverages = await context
 			.MailboxCoverageStates.Where(state => mailboxIds.Contains(state.MailboxId))
 			.AsNoTracking()
@@ -166,7 +168,19 @@ internal static class MailboxSummaryDtoFactory
 						row.Mailbox.InitialSyncModeOverride,
 						row.Mailbox.InitialSyncBoundValueOverride,
 						row.Mailbox.ProviderMailboxId is null,
-						row.Mailbox.SpecialUseOverride
+						row.Mailbox.SpecialUseOverride,
+						row.Mailbox.IsPinned,
+						row.Mailbox.PinnedSortOrder,
+						MailboxUnreadProjection.Display(
+							completeLocalCopy: coverage?.Status == CoverageStatus.Covered
+								&& (row.Mailbox.InitialSyncModeOverride ?? account.InitialSyncMode) == InitialSyncMode.Full
+								&& row.Mailbox.EffectiveSpecialUse != SpecialUse.Drafts,
+							covered: coverage?.Status == CoverageStatus.Covered,
+							row.Mailbox.ProviderUnreadCount,
+							row.Mailbox.UnreadAtProviderCount,
+							serverKnownUnread.GetValueOrDefault(row.Mailbox.Id),
+							pendingUnreadDelta.GetValueOrDefault(row.Mailbox.Id)
+						)
 					);
 				}),
 		];

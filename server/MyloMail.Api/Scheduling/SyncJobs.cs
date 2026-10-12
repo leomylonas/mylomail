@@ -1319,7 +1319,7 @@ public sealed class SyncJobs(
 			// Exactly the delay the provider named, for the whole account — not a backoff
 			// curve, and not just for this one job.
 			gate.Throttle(account.Id, ex.RetryAfter);
-			logger.LogWarning("Account {AccountId} throttled for {Delay}.", account.Id, ex.RetryAfter);
+			logger.LogWarning("Account {AccountId} throttled for {Delay}: {Reason}", account.Id, ex.RetryAfter, ex.Message);
 			// A quiet diagnostic signal only (§ no user-facing error for something that's
 			// already retrying itself automatically) — fires once when the gate first engages
 			// for this account, not on every job that finds it already closed (those never

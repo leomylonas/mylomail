@@ -288,6 +288,21 @@ export type IMailHub = {
     */
     setMailboxCollapsed(mailboxId: string, collapsed: boolean): Promise<void>;
     /**
+    * Pins a folder to the top of the sidebar, alongside pinned folders of other
+    * accounts — purely local, the same as .
+    * @param mailboxId Transpiled from System.Guid
+    * @param pinned Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    setMailboxPinned(mailboxId: string, pinned: boolean): Promise<void>;
+    /**
+    * Drag-reorder of the pinned list, which spans accounts (so unlike
+    * it has no parent). Ids that are not pinned are ignored.
+    * @param orderedMailboxIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    reorderPinnedMailboxes(orderedMailboxIds: string[]): Promise<void>;
+    /**
     * Bounds this one mailbox's initial sync differently from the account's own choice —
     * e.g. a large "All Mail" label discovered after account setup (§3, §13 Epic 3). Null
     * mode clears the override, reverting to the account's default. Only meaningful before

@@ -41,6 +41,14 @@ public class Mailbox
 	/// <see cref="LocalSortOrder"/> — persisted so it survives a restart, never pushed upstream.</summary>
 	public bool IsCollapsed { get; set; }
 
+	/// <summary>Pinned to the top of the sidebar across every account. Local UI preference
+	/// only, like <see cref="IsCollapsed"/> — never written by sync, never pushed upstream.</summary>
+	public bool IsPinned { get; set; }
+
+	/// <summary>Position among pinned mailboxes across every account, ascending. Meaningful
+	/// only while <see cref="IsPinned"/>; local UI preference, never written by sync.</summary>
+	public int PinnedSortOrder { get; set; }
+
 	public InitialSyncMode? InitialSyncModeOverride { get; set; }
 	public int? InitialSyncBoundValueOverride { get; set; }
 
@@ -56,6 +64,14 @@ public class Mailbox
 	/// </summary>
 	public int? ProviderTotalCount { get; set; }
 	public int? ProviderUnreadCount { get; set; }
+
+	/// <summary>
+	/// How many messages were unread, by the server-known flag, in the local copy of this mailbox
+	/// when <see cref="ProviderUnreadCount"/> was last read — null unless local coverage was
+	/// <c>Covered</c> then. The pair is what lets the displayed count follow local changes after
+	/// the provider's snapshot (see <c>MailboxUnreadProjection</c>). Written only by topology sync.
+	/// </summary>
+	public int? UnreadAtProviderCount { get; set; }
 
 	/// <summary>
 	/// Incremented whenever this mailbox is deleted, recreated or replaced by topology

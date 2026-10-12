@@ -256,6 +256,12 @@ export type MailboxSummaryDto = {
     isSynthesized: boolean;
     /** Transpiled from MyloMail.Api.Domain.SpecialUse */
     specialUseOverride?: SpecialUse;
+    /** Transpiled from bool */
+    isPinned: boolean;
+    /** Transpiled from int */
+    pinnedSortOrder: number;
+    /** Transpiled from int */
+    unreadCount: number;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.MessageSummaryDto */

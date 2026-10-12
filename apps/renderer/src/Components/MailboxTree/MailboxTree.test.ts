@@ -12,9 +12,11 @@ function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 		parentId: null,
 		name: overrides.id,
 		providerTotalCount: null,
-		providerUnreadCount: null,
+		unreadCount: 0,
 		localCount: 0,
 		isCollapsed: false,
+		isPinned: false,
+		pinnedSortOrder: 0,
 		availability: MailboxAvailability.Usable,
 		coverage: 0,
 		coverageMessagesFetched: 0,
@@ -34,7 +36,7 @@ describe("mailbox sidebar counts", () => {
 			describeMailboxCount(
 				mailbox({
 					id: "inbox",
-					providerUnreadCount: 0,
+					unreadCount: 0,
 					providerTotalCount: 42,
 					localCount: 5,
 				}),
@@ -47,24 +49,12 @@ describe("mailbox sidebar counts", () => {
 			describeMailboxCount(
 				mailbox({
 					id: "archive",
-					providerUnreadCount: 3,
+					unreadCount: 3,
 					providerTotalCount: null,
 					localCount: 8,
 				}),
 			),
 		).toBe("3 unread · 8 held");
-	});
-
-	it("still reports the provider total when unread count is unavailable", () => {
-		expect(
-			describeMailboxCount(
-				mailbox({
-					id: "sent",
-					providerUnreadCount: null,
-					providerTotalCount: 9,
-				}),
-			),
-		).toBe("9 total");
 	});
 });
 

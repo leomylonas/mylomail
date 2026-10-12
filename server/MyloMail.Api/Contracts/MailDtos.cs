@@ -6,8 +6,11 @@ namespace MyloMail.Api.Contracts;
 
 /// <summary>A mailbox as the sidebar renders it (§1).</summary>
 /// <remarks>
-/// <paramref name="ProviderTotalCount"/> and <paramref name="ProviderUnreadCount"/> are what
-/// the sidebar displays. A locally computed count is wrong under bounded sync — "last 3
+/// <paramref name="ProviderTotalCount"/> is what the sidebar displays as the mailbox total, and
+/// <paramref name="UnreadCount"/> is the unread figure it shows: the provider's
+/// <paramref name="ProviderUnreadCount"/> snapshot projected forward over local state (see
+/// <c>MailboxUnreadProjection</c>), so it follows reads, deletions and new mail without waiting for
+/// the next sync. A locally computed total is wrong under bounded sync — "last 3
 /// months" of a 10,000-message inbox holds far fewer than the mailbox contains — so
 /// <paramref name="LocalCount"/> is carried separately and used only where it is the right
 /// answer, such as how many messages this view is showing.
@@ -45,7 +48,10 @@ public record MailboxSummaryDto(
 	InitialSyncMode? InitialSyncModeOverride,
 	int? InitialSyncBoundValueOverride,
 	bool IsSynthesized,
-	SpecialUse? SpecialUseOverride
+	SpecialUse? SpecialUseOverride,
+	bool IsPinned,
+	int PinnedSortOrder,
+	int UnreadCount
 );
 
 /// <summary>A message as the list renders it. Content is fetched separately (§1).</summary>

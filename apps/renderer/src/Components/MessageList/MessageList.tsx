@@ -48,7 +48,6 @@ import {
 	acceptOptimisticMessages,
 	createOptimisticMessageClaims,
 	hideOptimisticMessages,
-	showMailboxEmptied,
 	optimisticMessageIds,
 	optimisticMessageIdsKey,
 	restoreOptimisticMessages,
@@ -493,7 +492,15 @@ export function MessageList({
 				isFlagged ?? undefined,
 			),
 		onSettled: () =>
-			queryClient.invalidateQueries({ queryKey: queryKeys.pending(accountId) }),
+			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: queryKeys.pending(accountId),
+				}),
+				// Reading or unreading changes the server's unread count the moment it is queued.
+				queryClient.invalidateQueries({
+					queryKey: queryKeys.mailboxes(accountId),
+				}),
+			]),
 		onError: reportFailure("The flag could not be changed"),
 	});
 
@@ -564,17 +571,12 @@ export function MessageList({
 				sourceMessages.map((message) => message.id),
 			);
 			hideOptimisticMessages(queryClient, mailboxId, claims);
-			const restoreCounts = showMailboxEmptied(
-				queryClient,
-				accountId,
-				mailboxId,
-			);
 			// The open message is one of those being deleted; leave nothing stale in the pane.
 			store.setState("selectedMessageId", null);
 			store.setState("selectedMessageSubject", "");
 			store.setState("selectedMessageSenderAddress", "");
 			setSelectedIds(new Set());
-			return { claims, restoreCounts };
+			return { claims };
 		},
 		onSuccess: (result, _input, context) => {
 			acceptOptimisticMessages(
@@ -596,7 +598,6 @@ export function MessageList({
 		onError: (error, _input, context) => {
 			if (context) {
 				restoreOptimisticMessages(queryClient, mailboxId, context.claims);
-				context.restoreCounts();
 			}
 			reportFailure("The folder could not be emptied")(error);
 		},
@@ -994,12 +995,38 @@ export function MessageList({
 	if (messages.isPending) return <SkeletonText paragraph lineCount={6} />;
 	if (messages.isError)
 		return <p className={styles.empty}>Could not load messages.</p>;
-	if (messages.data.length === 0)
+	if (messages.data.length === 0) {
+		// The filters can be what emptied the list, and the filter bar lives in the list's own
+		// header, so without a way out here the user is stuck on an empty view.
+		const filtered =
+			filterText !== "" ||
+			columnFilters.date !== "all" ||
+			columnFilters.read !== "all" ||
+			columnFilters.flag !== "all";
 		return (
-			<p className={styles.empty}>
-				{searching ? "No messages match that search." : "Nothing here yet."}
-			</p>
+			<div className={styles.empty}>
+				<p>
+					{searching
+						? "No messages match that search."
+						: filtered
+							? "No messages match the current filters."
+							: "Nothing here yet."}
+				</p>
+				{filtered ? (
+					<Button
+						kind="tertiary"
+						size="sm"
+						onClick={() => {
+							setFilterText("");
+							setColumnFilters({ date: "all", read: "all", flag: "all" });
+						}}
+					>
+						Clear filters
+					</Button>
+				) : null}
+			</div>
 		);
+	}
 
 	const buildActions = (targets: MessageSummary[]) =>
 		messageActions(
@@ -1309,6 +1336,31 @@ export function MessageList({
 												}),
 											);
 											event.dataTransfer.effectAllowed = "move";
+											// The default drag image is a full-size snapshot of the row,
+											// which covers the folders being dragged over. A small,
+											// translucent chip keeps the sidebar visible.
+											const chip = document.createElement("div");
+											chip.textContent =
+												ids.length > 1
+													? `${ids.length} messages`
+													: message.subject || "(no subject)";
+											Object.assign(chip.style, {
+												position: "fixed",
+												top: "-1000px",
+												maxWidth: "16rem",
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+												whiteSpace: "nowrap",
+												padding: "4px 10px",
+												borderRadius: "4px",
+												background: "var(--cds-highlight, #0f62fe)",
+												color: "var(--cds-text-primary, #fff)",
+												font: "13px sans-serif",
+												opacity: "0.55",
+											});
+											document.body.appendChild(chip);
+											event.dataTransfer.setDragImage(chip, 8, 8);
+											setTimeout(() => chip.remove(), 0);
 										}}
 										onContextMenu={(event) => {
 											event.preventDefault();

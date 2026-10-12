@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
 using Xunit;
@@ -306,6 +307,70 @@ public sealed class DatabaseBootstrapperTests
 		await Assert.ThrowsAsync<InvalidOperationException>(database.MigrateAsync);
 	}
 
+	/// <summary>
+	/// A backup of a large database is the slow part of startup, and with nothing pending there
+	/// is nothing for it to protect.
+	/// </summary>
+	[Fact]
+	public async Task Takes_no_backup_when_nothing_is_pending()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+
+		var progress = new RecordingProgress();
+		await using var scope = database.CreateScope();
+		var bootstrapper = new DatabaseBootstrapper(
+			scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(),
+			NullLogger<DatabaseBootstrapper>.Instance,
+			progress
+		);
+		await bootstrapper.MigrateAsync();
+
+		Assert.Empty(progress.Reports);
+	}
+
+	[Fact]
+	public async Task Reports_backup_progress_up_to_completion_and_leaves_no_partial_file()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		await using (var seed = database.CreateScope())
+		{
+			var context = seed.ServiceProvider.GetRequiredService<MyloMailDbContext>();
+			// Enough pages that the copy takes several steps.
+			await context.Database.ExecuteSqlRawAsync(
+				"CREATE TABLE \"Filler\" (\"Data\" BLOB); "
+					+ "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 6000) "
+					+ "INSERT INTO \"Filler\" SELECT zeroblob(1000) FROM n;"
+			);
+			await context.Database.ExecuteSqlRawAsync("DELETE FROM \"__EFMigrationsHistory\";");
+		}
+
+		var progress = new RecordingProgress();
+		await using var scope = database.CreateScope();
+		var bootstrapper = new DatabaseBootstrapper(
+			scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(),
+			NullLogger<DatabaseBootstrapper>.Instance,
+			progress
+		);
+		// Every table already exists, so the migration itself fails; the backup is what is under test.
+		await Assert.ThrowsAnyAsync<Exception>(() => bootstrapper.MigrateAsync());
+
+		var backup = progress.Reports.Where(r => r.Phase == "backup").Select(r => r.Fraction!.Value).ToList();
+		Assert.True(backup.Count > 2, "A multi-page database must be copied in more than one step.");
+		Assert.Equal(backup.OrderBy(f => f), backup);
+		Assert.Equal(1, backup[^1]);
+		Assert.True(File.Exists(database.DatabasePath + DatabaseBootstrapper.BackupSuffix));
+		Assert.False(File.Exists(database.DatabasePath + DatabaseBootstrapper.BackupSuffix + ".partial"));
+	}
+
+	private sealed class RecordingProgress : IStartupProgress
+	{
+		public List<(string Phase, double? Fraction)> Reports { get; } = [];
+
+		public void Report(string phase, double? fraction) => Reports.Add((phase, fraction));
+	}
+
 	private static async Task<List<string>> TableNamesAsync(TestDatabase database)
 	{
 		await using var scope = database.CreateScope();
@@ -330,13 +395,16 @@ public sealed class DatabaseBootstrapperTests
 	/// which writes every column the model has, including ones added by migrations after the
 	/// legacy schema they stop at. Adding such columns for the seed and dropping them before the
 	/// real migration runs lets the model insert while the migration still finds what it expects.
-	/// Extend both lists when a later migration adds an Account column.
+	/// Extend both lists when a later migration adds an Account or Mailbox column.
 	/// </summary>
 	private static Task AddNewerAccountColumnsAsync(MyloMailDbContext context) =>
 		context.Database.ExecuteSqlRawAsync(
 			"""
 			ALTER TABLE "Accounts" ADD COLUMN "MaxMessageDownloadMegabytes" INTEGER NOT NULL DEFAULT 128;
 			ALTER TABLE "Accounts" ADD COLUMN "GroupConversations" INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE "Mailboxes" ADD COLUMN "IsPinned" INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE "Mailboxes" ADD COLUMN "PinnedSortOrder" INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE "Mailboxes" ADD COLUMN "UnreadAtProviderCount" INTEGER NULL;
 			"""
 		);
 
@@ -345,6 +413,9 @@ public sealed class DatabaseBootstrapperTests
 			"""
 			ALTER TABLE "Accounts" DROP COLUMN "MaxMessageDownloadMegabytes";
 			ALTER TABLE "Accounts" DROP COLUMN "GroupConversations";
+			ALTER TABLE "Mailboxes" DROP COLUMN "IsPinned";
+			ALTER TABLE "Mailboxes" DROP COLUMN "PinnedSortOrder";
+			ALTER TABLE "Mailboxes" DROP COLUMN "UnreadAtProviderCount";
 			"""
 		);
 }

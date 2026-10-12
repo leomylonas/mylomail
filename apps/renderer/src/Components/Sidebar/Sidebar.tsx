@@ -1,9 +1,23 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WarningAltFilled } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MailboxTree } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
-import { accountDragType } from "@mylomail/renderer/Lib/DragTypes";
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import {
+	MailboxIcon,
+	MailboxTree,
+	mailboxesQuery,
+} from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
+import {
+	inboxUnreadCount,
+	movePinnedBefore,
+	pinnedMailboxes,
+} from "@mylomail/renderer/Components/MailboxTree/MailboxOrdering";
+import { useWindowStore } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
+import { useStoreValue } from "@mylomail/renderer/Shell/WindowScope/UseStoreValue";
+import {
+	accountDragType,
+	pinnedMailboxDragType,
+} from "@mylomail/renderer/Lib/DragTypes";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -41,6 +55,18 @@ export function Sidebar({
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
+	const windowStore = useWindowStore();
+	const selectedMailboxId = useStoreValue(windowStore, "selectedMailboxId");
+	const navRef = useRef<HTMLElement>(null);
+	// The folder a pinned-row click asked the tree to reveal. Cleared once it has been scrolled to,
+	// which can be several renders later: expanding its ancestors is a server round trip.
+	const [revealId, setRevealId] = useState<string | null>(null);
+	const [pinnedDropTarget, setPinnedDropTarget] = useState<string | null>(null);
+	const [pinnedMenu, setPinnedMenu] = useState<{
+		x: number;
+		y: number;
+		mailboxId: string;
+	} | null>(null);
 	const [menu, setMenu] = useState<{
 		x: number;
 		y: number;
@@ -69,8 +95,224 @@ export function Sidebar({
 		onError: reportFailure("The sidebar setting could not be saved"),
 	});
 
+	const unpin = useMutation({
+		mutationFn: (input: { mailboxId: string; pinned: boolean }) =>
+			hub.setMailboxPinned(input.mailboxId, input.pinned),
+		onSuccess: () =>
+			void queryClient.invalidateQueries({ queryKey: ["mailboxes"] }),
+		onError: reportFailure("The folder could not be unpinned"),
+	});
+
+	const reorderPinned = useMutation({
+		mutationFn: (orderedMailboxIds: string[]) =>
+			hub.reorderPinnedMailboxes(orderedMailboxIds),
+		onSuccess: () =>
+			void queryClient.invalidateQueries({ queryKey: ["mailboxes"] }),
+		onError: reportFailure("The pinned folders could not be reordered"),
+	});
+
+	// Same queries each MailboxTree runs, so this adds no fetches; it is what lets a
+	// collapsed account show its inbox count and the pinned section span accounts.
+	const mailboxQueries = useQueries({
+		queries: accounts.map((account) => mailboxesQuery(hub, account.id)),
+	});
+	const mailboxesByAccount = new Map(
+		accounts.map((account, index) => [
+			account.id,
+			mailboxQueries[index]?.data ?? [],
+		]),
+	);
+	const pinned = pinnedMailboxes(accounts, mailboxesByAccount);
+	// Opens whatever hides a folder — its collapsed account and collapsed ancestors — then lets
+	// the effect below scroll to it once the tree has rendered it.
+	const revealMailbox = (accountId: string, mailbox: { id: string }) => {
+		const account = accounts.find((candidate) => candidate.id === accountId);
+		const all = mailboxesByAccount.get(accountId) ?? [];
+		if (account?.sidebarCollapsed)
+			toggleCollapsed.mutate({ accountId, collapsed: false });
+		let parentId = all.find((m) => m.id === mailbox.id)?.parentId ?? null;
+		while (parentId) {
+			const parent = all.find((m) => m.id === parentId);
+			if (!parent) break;
+			if (parent.isCollapsed)
+				void hub
+					.setMailboxCollapsed(parent.id, false)
+					.then(() =>
+						queryClient.invalidateQueries({ queryKey: ["mailboxes"] }),
+					);
+			parentId = parent.parentId;
+		}
+		setRevealId(mailbox.id);
+	};
+	const treeVersion = `${mailboxQueries.map((query) => query.dataUpdatedAt).join()}|${accounts
+		.map((account) => account.sidebarCollapsed)
+		.join()}`;
+	useEffect(() => {
+		if (!revealId) return;
+		const element = navRef.current?.querySelector(
+			`[data-mailbox-id="${revealId}"]`,
+		);
+		if (!element) return;
+		element.scrollIntoView({ block: "center" });
+		setRevealId(null);
+		// Re-runs as the tree's data and the accounts' expand state arrive.
+	}, [revealId, treeVersion]);
+	const pinnedIds = pinned.map((entry) => entry.mailbox.id);
+	const movePinned = (draggedId: string, targetId: string) => {
+		const ordered = movePinnedBefore(pinnedIds, draggedId, targetId);
+		if (ordered) reorderPinned.mutate(ordered);
+	};
+
 	return (
-		<nav className={styles.sidebar} aria-label="Accounts and mailboxes">
+		<nav
+			ref={navRef}
+			className={styles.sidebar}
+			aria-label="Accounts and mailboxes"
+		>
+			{pinned.length > 0 ? (
+				<section
+					className={`${styles.section} ${styles.pinnedSection}`}
+					aria-label="Pinned folders"
+				>
+					<h2 className={styles.pinnedHeading}>Pinned</h2>
+					<ul className={styles.pinnedList}>
+						{pinned.map((entry) => {
+							const isSelected = entry.mailbox.id === selectedMailboxId;
+							return (
+								<li
+									key={entry.mailbox.id}
+									className={
+										pinnedDropTarget === entry.mailbox.id
+											? styles.dropTarget
+											: undefined
+									}
+									onDragOver={(event) => {
+										if (
+											event.dataTransfer.types.includes(pinnedMailboxDragType)
+										) {
+											event.preventDefault();
+											setPinnedDropTarget(entry.mailbox.id);
+										}
+									}}
+									onDragLeave={() =>
+										setPinnedDropTarget((current) =>
+											current === entry.mailbox.id ? null : current,
+										)
+									}
+									onDrop={(event) => {
+										event.preventDefault();
+										setPinnedDropTarget(null);
+										const draggedId = event.dataTransfer.getData(
+											pinnedMailboxDragType,
+										);
+										if (draggedId) movePinned(draggedId, entry.mailbox.id);
+									}}
+								>
+									<button
+										type="button"
+										draggable
+										onDragStart={(event) => {
+											event.dataTransfer.setData(
+												pinnedMailboxDragType,
+												entry.mailbox.id,
+											);
+											event.dataTransfer.effectAllowed = "move";
+										}}
+										className={`${styles.pinnedItem} ${isSelected ? styles.selected : ""}`}
+										aria-current={isSelected}
+										onClick={() => {
+											windowStore.setState(
+												"selectedAccountId",
+												entry.accountId,
+											);
+											windowStore.setState(
+												"selectedMailboxId",
+												entry.mailbox.id,
+											);
+											onMailboxSelected?.(entry.mailbox.id);
+											revealMailbox(entry.accountId, entry.mailbox);
+										}}
+										onContextMenu={(event) => {
+											event.preventDefault();
+											setPinnedMenu({
+												x: event.clientX,
+												y: event.clientY,
+												mailboxId: entry.mailbox.id,
+											});
+										}}
+									>
+										<span className={styles.pinnedIcon} aria-hidden="true">
+											<MailboxIcon
+												specialUse={
+													entry.mailbox.specialUseOverride ??
+													entry.mailbox.specialUse
+												}
+											/>
+										</span>
+										<span className={styles.name}>
+											{entry.label}
+											{entry.accountQualifier ? (
+												<span className={styles.qualifier}>
+													{" "}
+													({entry.accountQualifier})
+												</span>
+											) : null}
+										</span>
+										{entry.mailbox.unreadCount ? (
+											<span className={styles.unreadCount}>
+												{entry.mailbox.unreadCount}
+											</span>
+										) : null}
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+				</section>
+			) : null}
+			{pinnedMenu ? (
+				<MessageContextMenu
+					open
+					x={pinnedMenu.x}
+					y={pinnedMenu.y}
+					onClose={() => setPinnedMenu(null)}
+					actions={[
+						{
+							label: "Move up",
+							unavailable:
+								pinnedIds.indexOf(pinnedMenu.mailboxId) <= 0
+									? "Already first."
+									: undefined,
+							run: () =>
+								movePinned(
+									pinnedMenu.mailboxId,
+									pinnedIds[pinnedIds.indexOf(pinnedMenu.mailboxId) - 1],
+								),
+						},
+						{
+							label: "Move down",
+							unavailable:
+								pinnedIds.indexOf(pinnedMenu.mailboxId) === pinnedIds.length - 1
+									? "Already last."
+									: undefined,
+							run: () =>
+								movePinned(
+									pinnedIds[pinnedIds.indexOf(pinnedMenu.mailboxId) + 1],
+									pinnedMenu.mailboxId,
+								),
+						},
+						{ label: "-", run: () => undefined },
+						{
+							label: "Unpin from top",
+							run: () =>
+								unpin.mutate({
+									mailboxId: pinnedMenu.mailboxId,
+									pinned: false,
+								}),
+						},
+					]}
+				/>
+			) : null}
 			{accounts.map((account) => {
 				const isCollapsed = account.sidebarCollapsed ?? false;
 				const authWarning =
@@ -78,6 +320,9 @@ export function Sidebar({
 					account.authState !== AuthState.Connected
 						? authStateWarning(account.authState)
 						: null;
+				const inboxUnread = inboxUnreadCount(
+					mailboxesByAccount.get(account.id) ?? [],
+				);
 				return (
 					<section key={account.id} className={styles.section}>
 						<button
@@ -144,6 +389,14 @@ export function Sidebar({
 									title={authWarning}
 								>
 									<WarningAltFilled size={16} />
+								</span>
+							) : null}
+							{isCollapsed && inboxUnread > 0 ? (
+								<span
+									className={styles.unreadCount}
+									aria-label={`${inboxUnread} unread in Inbox`}
+								>
+									{inboxUnread}
 								</span>
 							) : null}
 						</button>

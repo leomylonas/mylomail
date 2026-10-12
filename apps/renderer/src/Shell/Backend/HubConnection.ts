@@ -371,7 +371,18 @@ export function connectHub(
 	// reverting an intent removes its `MessagePendingChanges` row and announces the message,
 	// and only the window that started it learns that from its own mutation call — every
 	// other window would keep rendering the optimistic badge indefinitely (§7, Epic 10).
+	// Every one of these can change a mailbox's unread count, which the server projects over local
+	// state. Coalesced: a backfill or a bulk action announces a message at a time.
+	let mailboxRefresh: ReturnType<typeof setTimeout> | undefined;
+	const refreshMailboxCounts = () => {
+		if (mailboxRefresh !== undefined) return;
+		mailboxRefresh = setTimeout(() => {
+			mailboxRefresh = undefined;
+			void queryClient.invalidateQueries({ queryKey: ["mailboxes"] });
+		}, 500);
+	};
 	const invalidateMessageCaches = () => {
+		refreshMailboxCounts();
 		void Promise.all([
 			queryClient.invalidateQueries({ queryKey: ["messages"] }),
 			queryClient.invalidateQueries({ queryKey: ["search"] }),
@@ -386,6 +397,7 @@ export function connectHub(
 	hub.subscribe("messageDeleted", invalidateMessageCaches);
 
 	hub.subscribe("messageMutationQueued", (queued: MutationQueuedDto) => {
+		refreshMailboxCounts();
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.pending(queued.accountId),
 		});
@@ -399,6 +411,7 @@ export function connectHub(
 	});
 
 	hub.subscribe("messageMutationSettled", (settlement: MutationSettledDto) => {
+		refreshMailboxCounts();
 		const releaseProjection = () =>
 			settleOptimisticMutation(queryClient, settlement);
 		void Promise.all([

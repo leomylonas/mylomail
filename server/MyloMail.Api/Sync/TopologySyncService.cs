@@ -69,6 +69,20 @@ public sealed class TopologySyncService(
 		var updated = 0;
 		var countsChanged = new List<Guid>();
 
+		// Taken beside the provider's counts, so the displayed unread figure can follow local
+		// changes after this snapshot (MailboxUnreadProjection). Meaningful only where local
+		// coverage was complete when the provider counted.
+		var existingIds = existing.Select(m => m.Id).ToList();
+		var localUnreadNow = await MailboxUnreadProjection.ServerKnownUnreadAsync(context, existingIds, ct);
+		var coveredNow = (
+			await context
+				.MailboxCoverageStates.Where(state =>
+					existingIds.Contains(state.MailboxId) && state.Status == CoverageStatus.Covered
+				)
+				.Select(state => state.MailboxId)
+				.ToListAsync(ct)
+		).ToHashSet();
+
 		foreach (var dto in reported)
 		{
 			seen.Add(dto.ProviderMailboxId);
@@ -93,9 +107,13 @@ public sealed class TopologySyncService(
 				{
 					epoch.Generation = mailbox.TopologyGeneration;
 				}
-				var previousCounts = (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount);
+				var previousCounts = (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount);
 				Update(mailbox, effectiveDto);
-				if (previousCounts != (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount))
+				mailbox.UnreadAtProviderCount = coveredNow.Contains(mailbox.Id)
+					&& mailbox.EffectiveSpecialUse != SpecialUse.Drafts
+					? localUnreadNow.GetValueOrDefault(mailbox.Id)
+					: null;
+				if (previousCounts != (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount))
 				{
 					countsChanged.Add(mailbox.Id);
 				}

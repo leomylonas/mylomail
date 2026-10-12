@@ -410,9 +410,16 @@ public sealed class MutationReconciler(
 	{
 		var existing = await context.MessageMailboxes.Where(o => o.MessageId == messageId).ToListAsync(ct);
 		var vanished = existing.Where(o => !locations.ContainsKey(o.MailboxId)).ToList();
+		// The same snapshot movement the executor makes when it settles an outcome itself, so crash
+		// recovery shows the count the normal path would have.
+		var unread = await UnreadSnapshot.IsUnreadAsync(context, messageId, ct);
 		foreach (var occurrence in vanished)
 		{
 			context.MessageMailboxes.Remove(occurrence);
+			if (unread)
+			{
+				await UnreadSnapshot.AdjustAsync(context, occurrence.MailboxId, -1, ct);
+			}
 		}
 		if (locations.Count > 0)
 		{
@@ -426,6 +433,11 @@ public sealed class MutationReconciler(
 			var occurrence = existing.FirstOrDefault(o => o.MailboxId == mailboxId);
 			if (occurrence is null)
 			{
+				if (unread)
+				{
+					await UnreadSnapshot.AdjustAsync(context, mailboxId, 1, ct);
+				}
+
 				context.MessageMailboxes.Add(new MessageMailbox { Id = Guid.NewGuid(), MessageId = messageId, MailboxId = mailboxId, ProviderOccurrenceId = providerId });
 			}
 			else

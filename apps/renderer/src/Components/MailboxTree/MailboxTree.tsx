@@ -23,7 +23,6 @@ import {
 	acceptOptimisticMessages,
 	createOptimisticMessageClaims,
 	hideOptimisticMessages,
-	showMailboxEmptied,
 	restoreOptimisticMessages,
 	type OptimisticMessageClaim,
 } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
@@ -46,6 +45,10 @@ import {
 	messageDragType,
 	parseMessageDrag,
 } from "@mylomail/renderer/Lib/DragTypes";
+import {
+	displayMailboxName,
+	systemRank,
+} from "@mylomail/renderer/Components/MailboxTree/MailboxOrdering";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
 export interface Mailbox {
@@ -53,9 +56,14 @@ export interface Mailbox {
 	parentId: string | null;
 	name: string;
 	providerTotalCount: number | null;
-	providerUnreadCount: number | null;
+	/** Unread as the server projects it over local state — never the raw provider snapshot. */
+	unreadCount: number;
 	localCount: number;
 	isCollapsed: boolean;
+	/** Pinned to the top of the sidebar, across accounts. */
+	isPinned: boolean;
+	/** Position in the cross-account pinned list; meaningful only while pinned. */
+	pinnedSortOrder: number;
 	availability: MailboxAvailability;
 	coverage: CoverageStatus;
 	coverageMessagesFetched: number;
@@ -87,9 +95,11 @@ function normalizeMailbox(mailbox: MailboxSummaryDto): Mailbox {
 		parentId: mailbox.parentId ?? null,
 		name: mailbox.name,
 		providerTotalCount: mailbox.providerTotalCount ?? null,
-		providerUnreadCount: mailbox.providerUnreadCount ?? null,
+		unreadCount: mailbox.unreadCount,
 		localCount: mailbox.localCount,
 		isCollapsed: mailbox.isCollapsed,
+		isPinned: mailbox.isPinned,
+		pinnedSortOrder: mailbox.pinnedSortOrder,
 		availability: mailbox.availability,
 		coverage: mailbox.coverage,
 		coverageMessagesFetched: mailbox.coverageMessagesFetched,
@@ -113,6 +123,15 @@ type Dialog =
 	| { kind: "delete"; mailbox: Mailbox }
 	| { kind: "sync"; mailbox: Mailbox }
 	| { kind: "special-use"; mailbox: Mailbox };
+
+/** The query behind an account's tree; shared with the sidebar's pinned section. */
+export function mailboxesQuery(hub: MailHubConnection, accountId: string) {
+	return {
+		queryKey: queryKeys.mailboxes(accountId),
+		queryFn: async () =>
+			(await hub.getMailboxes(accountId)).map(normalizeMailbox),
+	};
+}
 
 export function MailboxTree({
 	hub,
@@ -236,6 +255,13 @@ export function MailboxTree({
 		onSuccess: refresh,
 	});
 
+	const setPinned = useMutation({
+		mutationFn: (input: { mailboxId: string; pinned: boolean }) =>
+			hub.setMailboxPinned(input.mailboxId, input.pinned),
+		onSuccess: refresh,
+		onError: reportFailure("The folder could not be pinned"),
+	});
+
 	const setSyncOverride = useMutation({
 		mutationFn: (input: {
 			mailboxId: string;
@@ -253,25 +279,23 @@ export function MailboxTree({
 
 	const emptyFolder = useMutation({
 		mutationFn: (mailbox: Mailbox) => hub.emptyMailbox(accountId, mailbox.id),
-		onMutate: (mailbox) => ({
-			restoreCounts: showMailboxEmptied(queryClient, accountId, mailbox.id),
-		}),
 		onSuccess: (result, mailbox) => {
 			void queryClient.invalidateQueries({
 				queryKey: queryKeys.messages(mailbox.id),
 			});
+			// The server counts a folder with deletions queued as already emptied.
 			void queryClient.invalidateQueries({
 				queryKey: queryKeys.mailboxes(accountId),
 			});
-			if (result.rejectedMessageIds.length > 0)
+			if (result.rejectedMessageIds.length > 0) {
 				notify(notifications, {
 					kind: "error",
 					title: "Some messages could not be deleted",
 					detail: `${result.rejectedMessageIds.length} message(s) could not be queued.`,
 				});
+			}
 		},
-		onError: (error, _mailbox, context) => {
-			context?.restoreCounts();
+		onError: (error) => {
 			notify(
 				notifications,
 				notificationForError(error, "The folder could not be emptied"),
@@ -311,11 +335,7 @@ export function MailboxTree({
 		onError: reportFailure("The folder could not be deleted"),
 	});
 
-	const mailboxes = useQuery({
-		queryKey: queryKeys.mailboxes(accountId),
-		queryFn: async () =>
-			(await hub.getMailboxes(accountId)).map(normalizeMailbox),
-	});
+	const mailboxes = useQuery(mailboxesQuery(hub, accountId));
 
 	// Fetched alongside the tree rather than when the confirmation opens: a dialog that has to
 	// wait for a round trip before it can say what deleting does would either flash the wrong
@@ -329,7 +349,10 @@ export function MailboxTree({
 	if (mailboxes.isError) return <p>Could not load mailboxes.</p>;
 
 	const children = (parentId: string | null) =>
-		mailboxes.data.filter((mailbox) => (mailbox.parentId ?? null) === parentId);
+		mailboxes.data
+			.filter((mailbox) => (mailbox.parentId ?? null) === parentId)
+			// System folders first; Array.sort is stable so user folders keep server order.
+			.sort((a, b) => systemRank(a) - systemRank(b));
 
 	const dropOnMailbox = (event: React.DragEvent, target: Mailbox) => {
 		event.preventDefault();
@@ -422,13 +445,18 @@ export function MailboxTree({
 							onDragOver={(event) => {
 								event.preventDefault();
 								event.dataTransfer.dropEffect = "move";
+								// Set on every over-event rather than on enter: enter/leave also
+								// fire as the pointer crosses the row's child elements, which
+								// cleared the highlight everywhere except the row's border.
+								setDropTarget(mailbox.id);
 							}}
-							onDragEnter={() => setDropTarget(mailbox.id)}
-							onDragLeave={() =>
+							onDragLeave={(event) => {
+								if (event.currentTarget.contains(event.relatedTarget as Node))
+									return;
 								setDropTarget((current) =>
 									current === mailbox.id ? null : current,
-								)
-							}
+								);
+							}}
 							onDrop={(event) => dropOnMailbox(event, mailbox)}
 						>
 							{hasChildren ? (
@@ -453,6 +481,7 @@ export function MailboxTree({
 								type="button"
 								draggable
 								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
+								data-mailbox-id={mailbox.id}
 								aria-current={mailbox.id === selectedMailboxId}
 								onClick={() => {
 									// Every account's tree is visible at once now (§13 Epic 2), so
@@ -480,7 +509,7 @@ export function MailboxTree({
 									/>
 								</span>
 								<span className={styles.name} title={mailbox.name}>
-									{mailbox.name}
+									{displayMailboxName(mailbox)}
 								</span>
 								<MailboxAvailabilityStatus
 									availability={mailbox.availability}
@@ -488,9 +517,9 @@ export function MailboxTree({
 								<span className={styles.srOnly}>
 									{describeMailboxCount(mailbox)}
 								</span>
-								{mailbox.providerUnreadCount ? (
+								{mailbox.unreadCount ? (
 									<span className={styles.unreadCount} aria-hidden="true">
-										{mailbox.providerUnreadCount}
+										{mailbox.unreadCount}
 									</span>
 								) : null}
 							</button>
@@ -542,6 +571,15 @@ export function MailboxTree({
 									{ label: "-", run: () => undefined },
 								]
 							: []),
+						{
+							label: menu.mailbox.isPinned ? "Unpin from top" : "Pin to top",
+							run: () =>
+								setPinned.mutate({
+									mailboxId: menu.mailbox.id,
+									pinned: !menu.mailbox.isPinned,
+								}),
+						},
+						{ label: "-", run: () => undefined },
 						{
 							label: "Rename",
 							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
@@ -1013,7 +1051,7 @@ function MailboxAvailabilityStatus({
 	);
 }
 
-function MailboxIcon({ specialUse }: { specialUse: SpecialUse }) {
+export function MailboxIcon({ specialUse }: { specialUse: SpecialUse }) {
 	switch (specialUse) {
 		case SpecialUse.Inbox:
 			return <Email size={16} />;
@@ -1037,7 +1075,5 @@ export function describeMailboxCount(mailbox: Mailbox): string {
 		mailbox.providerTotalCount === null
 			? `${mailbox.localCount} held`
 			: `${mailbox.providerTotalCount} total`;
-	return mailbox.providerUnreadCount === null
-		? total
-		: `${mailbox.providerUnreadCount} unread · ${total}`;
+	return `${mailbox.unreadCount} unread · ${total}`;
 }

@@ -15,10 +15,13 @@ namespace MyloMail.Api.Providers.Gmail;
 /// Google counts them as one user.
 /// </para>
 /// <para>
-/// <b>Refill is 10,000 units/min, burst 2,500.</b> The refill leaves a third of Google's
+/// <b>Refill is 6,000 units/min, burst 1,000.</b> It was 10,000/2,500, and a first sync of a large
+/// account still drew a 403 "Units per minute per user" about once a minute: every rejection costs
+/// a full minute of waiting, so a lower steady rate finishes sooner than a higher one that keeps
+/// overdrawing, and it leaves room for the user's other clients of the same account. The refill leaves more than half of Google's
 /// allowance as headroom for requests this process cannot see (another client of the same
 /// account). The burst is deliberately small: a bucket may hand out its burst plus a
-/// minute's refill inside one minute, and 2,500 + 10,000 is still under 15,000, whereas a
+/// minute's refill inside one minute, and 1,000 + 6,000 is well under 15,000, whereas a
 /// burst equal to the refill would not be.
 /// </para>
 /// <para>
@@ -36,8 +39,8 @@ namespace MyloMail.Api.Providers.Gmail;
 /// </remarks>
 public sealed class GmailRequestBudget
 {
-	public const int DefaultUnitsPerMinute = 10_000;
-	public const int DefaultBurstUnits = 2_500;
+	public const int DefaultUnitsPerMinute = 6_000;
+	public const int DefaultBurstUnits = 1_000;
 
 	/// <summary>The process-wide budget every <see cref="GmailMailProvider"/> uses unless given another.</summary>
 	public static GmailRequestBudget Shared { get; } = new(TimeProvider.System);

@@ -68,3 +68,82 @@
 	flex: 0 0 auto;
 	color: var(--cds-support-warning);
 }
+
+.unreadCount {
+	flex: 0 0 auto;
+	margin-left: auto;
+	color: var(--cds-link-primary);
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+.pinnedHeading {
+	margin: 0;
+	padding: var(--cds-spacing-02) var(--cds-spacing-04);
+	color: var(--cds-text-secondary);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+.pinnedList {
+	margin: 0;
+	padding: 0 var(--cds-spacing-03);
+	list-style: none;
+}
+
+.pinnedItem {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-03);
+	width: 100%;
+	min-width: 0;
+	min-height: 1.625rem;
+	padding: var(--cds-spacing-01) var(--cds-spacing-04) var(--cds-spacing-01)
+		var(--cds-spacing-02);
+	border: none;
+	border-radius: 0.25rem;
+	background: none;
+	color: var(--cds-text-primary);
+	font: inherit;
+	font-size: 0.8125rem;
+	text-align: left;
+	cursor: pointer;
+}
+
+.pinnedItem:hover {
+	background: var(--cds-layer-hover);
+}
+
+.pinnedItem:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
+}
+
+.selected,
+.selected:hover {
+	background: var(--cds-highlight);
+	font-weight: 600;
+}
+
+.pinnedIcon {
+	display: flex;
+	flex: 0 0 auto;
+	color: var(--cds-icon-secondary);
+}
+
+.qualifier {
+	color: var(--cds-text-secondary);
+	font-size: 0.6875rem;
+	font-weight: 400;
+}
+
+/* Stays put while the account trees scroll beneath it. */
+.pinnedSection {
+	position: sticky;
+	z-index: 1;
+	top: calc(var(--cds-spacing-02) * -1);
+	background: var(--cds-layer);
+	box-shadow: 0 1px 0 var(--cds-border-subtle);
+}

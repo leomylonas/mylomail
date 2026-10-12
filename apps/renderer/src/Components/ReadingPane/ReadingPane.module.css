@@ -122,13 +122,19 @@
 
 .invite {
 	display: flex;
-	max-width: 52rem;
 	flex-direction: column;
 	gap: var(--cds-spacing-02);
 	padding: var(--cds-spacing-04);
 	margin-block: var(--cds-spacing-05);
 	border-left: 3px solid var(--cds-border-interactive);
 	background: var(--cds-layer-accent);
+}
+
+/* Carbon caps an inline notification at a fixed width, which left the reply warning short of
+   the card it sits in. */
+.invite > div {
+	max-inline-size: none;
+	inline-size: 100%;
 }
 
 .inviteTitle {

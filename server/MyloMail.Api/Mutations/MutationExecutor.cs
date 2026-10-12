@@ -363,6 +363,10 @@ public sealed class MutationExecutor(
 				{
 					context.MessageMailboxes.Remove(occurrence);
 					removedMessageIds.Add(outcome.MessageId);
+					if (await UnreadSnapshot.IsUnreadAsync(context, outcome.MessageId, ct))
+					{
+						await UnreadSnapshot.AdjustAsync(context, change.MailboxId, -1, ct);
+					}
 				}
 
 				continue;
@@ -378,6 +382,11 @@ public sealed class MutationExecutor(
 
 			if (occurrence is null)
 			{
+				if (await UnreadSnapshot.IsUnreadAsync(context, outcome.MessageId, ct))
+				{
+					await UnreadSnapshot.AdjustAsync(context, change.MailboxId, 1, ct);
+				}
+
 				context.MessageMailboxes.Add(
 					new MessageMailbox
 					{
@@ -405,7 +414,19 @@ public sealed class MutationExecutor(
 			if (message is not null)
 			{
 				// Server-known state catches up only once the server has confirmed it.
+				var wasRead = message.IsRead;
 				message.IsRead = item.DesiredIsRead ?? message.IsRead;
+				if (message.IsRead != wasRead)
+				{
+					foreach (var mailboxId in await context
+						.MessageMailboxes.Where(o => o.MessageId == message.Id)
+						.Select(o => o.MailboxId)
+						.ToListAsync(ct))
+					{
+						await UnreadSnapshot.AdjustAsync(context, mailboxId, message.IsRead ? -1 : 1, ct);
+					}
+				}
+
 				message.IsFlagged = item.DesiredIsFlagged ?? message.IsFlagged;
 			}
 		}
