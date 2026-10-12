@@ -1,6 +1,5 @@
 .sidebar {
 	height: 100%;
-	padding-top: var(--cds-spacing-02);
 	overflow-y: auto;
 	background: var(--cds-layer);
 }
@@ -139,14 +138,14 @@
 	font-weight: 400;
 }
 
-/* Stays put while the account trees scroll beneath it. */
+/* Stays put while the account trees scroll beneath it. It sits flush with the top of the scroll
+   area (no padding above it, or the folders show through that gap) and carries its own top
+   padding so its resting look is unchanged. */
 .pinnedSection {
 	position: sticky;
 	z-index: 1;
-
-	/* Equal to the sidebar's own top padding, so the section sticks exactly where it already sits
-	   and does not shift by that padding when scrolling begins. */
-	top: var(--cds-spacing-02);
+	top: 0;
+	padding-top: var(--cds-spacing-02);
 	background: var(--cds-layer);
 	box-shadow: 0 1px 0 var(--cds-border-subtle);
 }
