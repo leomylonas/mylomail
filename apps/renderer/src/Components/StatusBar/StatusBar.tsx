@@ -137,14 +137,16 @@ export function StatusBar({
 				{throttled.data?.length ? (
 					<span
 						className={styles.throttle}
-						title="The provider asked MyloMail to slow down. Nothing is wrong: syncing resumes by itself when the wait ends."
+						title={`${throttled.data
+							.map(
+								(t) =>
+									`${t.accountName} is rate-limited by its provider; resuming in about ${t.retryAfterSeconds}s.`,
+							)
+							.join(
+								"\n",
+							)}\nNothing is wrong: the provider asked MyloMail to slow down, and syncing resumes by itself.`}
 					>
-						Paused by {throttled.data.map((t) => t.accountName).join(", ")}{" "}
-						(rate limit
-						{throttled.data.length === 1
-							? `, about ${throttled.data[0]!.retryAfterSeconds}s`
-							: ""}
-						)
+						Throttled
 					</span>
 				) : null}
 				{retrying > 0 ? (
