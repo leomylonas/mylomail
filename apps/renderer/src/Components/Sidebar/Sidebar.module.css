@@ -143,7 +143,9 @@
 .pinnedSection {
 	position: sticky;
 	z-index: 1;
-	top: calc(var(--cds-spacing-02) * -1);
+	/* Equal to the sidebar's own top padding, so the section sticks exactly where it already sits
+	   and does not shift by that padding when scrolling begins. */
+	top: var(--cds-spacing-02);
 	background: var(--cds-layer);
 	box-shadow: 0 1px 0 var(--cds-border-subtle);
 }
