@@ -201,9 +201,7 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 					className={`${styles.card} ${account.contentFailed > 0 ? styles.stuck : ""}`}
 				>
 					<div className={styles.cardHeader}>
-						<h4>
-							Step 2: downloading each email’s text (message content)
-						</h4>
+						<h4>Step 2: downloading each email’s text (message content)</h4>
 						<span className={styles.figure}>
 							{account.contentReady.toLocaleString()} of{" "}
 							{contentExpected !== contentTotal ? "about " : ""}
