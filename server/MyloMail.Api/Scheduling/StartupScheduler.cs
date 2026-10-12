@@ -71,6 +71,19 @@ public sealed class StartupScheduler(
 			await context.SaveChangesAsync(ct);
 		}
 
+		// An account in Error was judged under the conditions of the run that recorded it: a provider
+		// client registration missing from that launch's environment, a server that was down. Every
+		// job skips such an account, so nothing would ever look again and the stale message would
+		// stay on screen after the cause was fixed. Each launch gives it one fresh attempt; one that
+		// is still broken records the error again on its first call. NeedsReauth is different — only
+		// the user can resolve it — and is left alone.
+		await context
+			.Accounts.Where(a => a.IsEnabled && a.AuthState == AuthState.Error)
+			.ExecuteUpdateAsync(
+				setters => setters.SetProperty(a => a.AuthState, AuthState.Connected).SetProperty(a => a.LastAuthError, (string?)null),
+				ct
+			);
+
 		var accounts = await context
 			.Accounts.Where(a => a.IsEnabled && a.AuthState != AuthState.NeedsReauth && a.AuthState != AuthState.Error)
 			.Select(a => a.Id)

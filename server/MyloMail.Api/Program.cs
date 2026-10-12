@@ -65,6 +65,7 @@ if (ProcessFaultInjector.FromEnvironment() is { } processFaults)
 	builder.Services.AddSingleton<IFaultInjector>(processFaults);
 }
 
+builder.Services.AddSingleton<IStartupProgress, ConsoleStartupProgress>();
 builder.Services.AddPersistence(dataDirectory);
 builder.Services.AddSingleton(credentialStoreSelector);
 builder.Services.AddScoped<ICredentialStore>(provider =>
@@ -133,11 +134,24 @@ if (Environment.GetEnvironmentVariable("MYLOMAIL_RENDERER_PATH") is string rende
 app.MapControllers();
 app.MapHub<MailHub>("/hub");
 
-// Migration runs at startup, behind a VACUUM INTO backup, and surfaces failure rather than
+// Migration runs at startup, behind an online backup when migrations are pending, and surfaces failure rather than
 // retrying (§9).
 await using (var scope = app.Services.CreateAsyncScope())
 {
-	await scope.ServiceProvider.GetRequiredService<DatabaseBootstrapper>().MigrateAsync();
+	try
+	{
+		await scope.ServiceProvider.GetRequiredService<DatabaseBootstrapper>().MigrateAsync();
+	}
+	catch (Exception ex)
+	{
+		// Written to the file log, not only left to the unhandled-exception message on stderr,
+		// and flushed: the file sink is asynchronous, and a crash would otherwise take its
+		// last, most useful events with it.
+		app.Logger.LogCritical(ex, "Startup failed while preparing the database; the backend is exiting.");
+		await app.DisposeAsync();
+		throw;
+	}
+
 	try
 	{
 		await scope.ServiceProvider.GetRequiredService<CredentialStoreSelector>()

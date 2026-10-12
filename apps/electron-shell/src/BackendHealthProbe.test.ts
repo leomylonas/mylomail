@@ -28,6 +28,53 @@ const launch = (child: FakeChildProcess) => ({
 const immediately = async () => undefined;
 
 describe("waitForBackendHealth", () => {
+	it("reports startup progress and lets it keep a slow backend alive past the timeout", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = new FakeChildProcess();
+			const onProgress = vi.fn();
+			const pending = waitForBackendHealth(launch(child), {
+				timeoutMs: 1000,
+				onProgress,
+				fetchHealth: async () => ({ ok: true }),
+				delay: immediately,
+			});
+
+			// Three times the timeout in total, but never 1s of silence.
+			for (const fraction of ["0", "0.4", "0.8"]) {
+				await vi.advanceTimersByTimeAsync(800);
+				child.stdout.write(`MYLOMAIL_STARTUP=backup:${fraction}\n`);
+			}
+			await vi.advanceTimersByTimeAsync(800);
+			child.stdout.write("MYLOMAIL_STARTUP=migrating:-\nMYLOMAIL_PORT=7\n");
+
+			await expect(pending).resolves.toBe(7);
+			expect(onProgress.mock.calls.map(([event]) => event)).toEqual([
+				{ phase: "backup", fraction: 0 },
+				{ phase: "backup", fraction: 0.4 },
+				{ phase: "backup", fraction: 0.8 },
+				{ phase: "migrating", fraction: null },
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("still fails a backend that goes silent", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = new FakeChildProcess();
+			const pending = waitForBackendHealth(launch(child), { timeoutMs: 1000 });
+			const assertion = expect(pending).rejects.toThrow(/in time/);
+			await vi.advanceTimersByTimeAsync(800);
+			child.stdout.write("MYLOMAIL_STARTUP=migrating:-\n");
+			await vi.advanceTimersByTimeAsync(1001);
+			await assertion;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("returns the announced port and authenticates with the launch token", async () => {
 		const child = new FakeChildProcess();
 		const fetchHealth = vi.fn(async () => ({ ok: true }));

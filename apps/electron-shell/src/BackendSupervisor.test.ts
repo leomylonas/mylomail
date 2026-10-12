@@ -9,6 +9,7 @@ import {
 
 class FakeChildProcess extends EventEmitter {
 	public readonly stdin = { end: vi.fn() };
+	public readonly stderr = new EventEmitter();
 	public readonly kill = vi.fn();
 	public killed = false;
 
@@ -60,6 +61,27 @@ describe("startBackend", () => {
 		// The restarted launch's port is what the renderer connects to; the first launch
 		// never had one.
 		expect(backend.port).toBe(51423);
+	});
+
+	it("says why a backend failed by including what it wrote to stderr", async () => {
+		const child = new FakeChildProcess();
+		vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		const starting = startBackend({
+			command: "backend",
+			args: [],
+			requestMasterPassword: vi.fn(),
+			spawnProcess: () => child as unknown as ChildProcess,
+			waitUntilReady: async () => await new Promise<number>(() => undefined),
+		});
+		child.stderr.emit(
+			"data",
+			Buffer.from("Unhandled exception. A pre-migration backup already exists"),
+		);
+		child.exit(134);
+
+		await expect(starting).rejects.toThrow(
+			/code 134\..*A pre-migration backup already exists/s,
+		);
 	});
 
 	it("does not prompt when the backend exits for another reason", async () => {

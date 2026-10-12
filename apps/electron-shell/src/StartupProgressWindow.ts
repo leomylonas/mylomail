@@ -1,0 +1,74 @@
+import { BrowserWindow } from "electron";
+import type { StartupProgress } from "@mylomail/electron-shell/BackendHealthProbe";
+
+const page = `<!doctype html>
+<meta charset="utf-8">
+<title>MyloMail</title>
+<style>
+	html, body { overflow: hidden; }
+	body { box-sizing: border-box; height: 100vh; margin: 0; padding: 24px; font: 14px system-ui, sans-serif; background: #262626; color: #f4f4f4; }
+	h1 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+	p { margin: 12px 0 0; color: #c6c6c6; }
+	progress { width: 100%; height: 8px; accent-color: #4589ff; }
+</style>
+<h1 id="title">Preparing MyloMail</h1>
+<progress id="bar"></progress>
+<p id="detail">Your database is being upgraded. This can take a while for a large mailbox.</p>`;
+
+const titles: Record<string, string> = {
+	backup: "Backing up your database",
+	migrating: "Upgrading your database",
+};
+
+/**
+ * A small window shown only when the backend reports a long startup phase — an ordinary
+ * launch never creates it. The backend has no port to answer on yet, so the progress arrives
+ * as lines on its standard output.
+ */
+export function createStartupProgressWindow(): {
+	update(progress: StartupProgress): void;
+	close(): void;
+} {
+	let window: BrowserWindow | undefined;
+
+	return {
+		update(progress) {
+			if (!window) {
+				window = new BrowserWindow({
+					useContentSize: true,
+					width: 440,
+					height: 140,
+					resizable: false,
+					minimizable: false,
+					maximizable: false,
+					title: "MyloMail",
+					autoHideMenuBar: true,
+				});
+				void window.loadURL(
+					`data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
+				);
+			}
+			const current = window;
+			const title = titles[progress.phase] ?? "Preparing MyloMail";
+			const percent =
+				progress.fraction === null ? null : Math.round(progress.fraction * 100);
+			current.setProgressBar(progress.fraction ?? 2);
+			// Only a fixed title and a number are interpolated, never backend-supplied text.
+			void current.webContents
+				.executeJavaScript(
+					`(() => {
+						document.getElementById("title").textContent = ${JSON.stringify(
+							percent === null ? title : `${title} — ${percent}%`,
+						)};
+						const bar = document.getElementById("bar");
+						${progress.fraction === null ? 'bar.removeAttribute("value");' : `bar.value = ${progress.fraction};`}
+					})();`,
+				)
+				.catch(() => undefined);
+		},
+		close() {
+			if (window && !window.isDestroyed()) window.destroy();
+			window = undefined;
+		},
+	};
+}

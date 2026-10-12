@@ -44,6 +44,7 @@ public static class PersistenceServiceCollectionExtensions
 					.UseSqlite(connectionString)
 					.AddInterceptors(provider.GetRequiredService<SqlitePragmaInterceptor>())
 		);
+		services.TryAddSingleton<IStartupProgress, NullStartupProgress>();
 		services.AddScoped<DatabaseBootstrapper>();
 		services.AddSingleton(new AttachmentTempDirectory(dataDirectory));
 		services.AddScoped<Content.AttachmentService>();

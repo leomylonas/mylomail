@@ -13,6 +13,7 @@ import {
 import { startBackend } from "@mylomail/electron-shell/BackendSupervisor";
 import { attachBackend } from "@mylomail/electron-shell/BackendAttachment";
 import { waitForBackendHealth } from "@mylomail/electron-shell/BackendHealthProbe";
+import { createStartupProgressWindow } from "@mylomail/electron-shell/StartupProgressWindow";
 import {
 	backendConnectionChannel,
 	focusDraftWindowChannel,
@@ -132,6 +133,7 @@ export async function startShell(): Promise<void> {
 			"Renderer",
 		);
 	}
+	const startupProgress = createStartupProgressWindow();
 	const backend =
 		backendMode === "attach"
 			? await attachBackend({
@@ -146,17 +148,13 @@ export async function startShell(): Promise<void> {
 						.split(" ")
 						.filter(Boolean),
 					requestMasterPassword: promptForMasterPassword,
-					waitUntilReady: (launch) => waitForBackendHealth(launch),
+					waitUntilReady: (launch) =>
+						waitForBackendHealth(launch, {
+							onProgress: startupProgress.update,
+						}),
 				});
 	const ownedChild = "child" in backend ? backend.child : undefined;
 	startupOwnedChild = ownedChild;
-
-	// The backend's own output, which was piped and then never read — so anything it logged,
-	// including every unhandled error, went into a pipe nobody drained. Forwarded rather than
-	// inherited so it stays distinguishable from the shell's own logging.
-	ownedChild?.stderr?.on("data", (chunk: Buffer) =>
-		process.stderr.write(`[backend] ${chunk.toString("utf8")}`),
-	);
 
 	// §9: "Electron detects unexpected backend process exit and offers restart." An attached
 	// backend belongs to its external launcher/debugger, so its lifecycle is intentionally not
@@ -427,6 +425,8 @@ export async function startShell(): Promise<void> {
 		query: initialMailtoUri ? mailtoWindowQuery(initialMailtoUri) : undefined,
 		isMain: true,
 	});
+	// Not before: with no other window open, closing it would quit the app.
+	startupProgress.close();
 	trackBoundsPersistence(first, origin);
 	activeOrigin = origin;
 	for (const uri of pendingMailtoUris.splice(0)) {

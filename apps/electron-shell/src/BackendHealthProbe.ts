@@ -2,10 +2,24 @@ import type { ChildProcess } from "node:child_process";
 import type { BackendLaunch } from "@mylomail/electron-shell/BackendSupervisor";
 
 const portPrefix = "MYLOMAIL_PORT=";
+const startupPrefix = "MYLOMAIL_STARTUP=";
+
+/** A long startup phase the backend is working through, e.g. the pre-migration backup. */
+export interface StartupProgress {
+	phase: string;
+	/** 0–1, or null when the phase is running but its length is unknown. */
+	fraction: number | null;
+}
 
 export interface BackendHealthProbeOptions {
-	/** Overall budget for the port announcement and the first healthy response. */
+	/**
+	 * Budget for the port announcement and the first healthy response. While the backend
+	 * reports startup progress the budget restarts with every report, so a long backup or
+	 * migration is not mistaken for a hung process; silence for this long is still a failure.
+	 */
 	timeoutMs?: number;
+	/** Called for each progress line the backend prints before it announces its port. */
+	onProgress?: (progress: StartupProgress) => void;
 	/** Gap between health attempts once the port is known. */
 	pollIntervalMs?: number;
 	fetchHealth?: (url: string, token: string) => Promise<{ ok: boolean }>;
@@ -24,12 +38,11 @@ export async function waitForBackendHealth(
 	options: BackendHealthProbeOptions = {},
 ): Promise<number> {
 	const timeoutMs = options.timeoutMs ?? 30_000;
-	const deadline = Date.now() + timeoutMs;
-	const port = await readPort(backend.child, deadline);
+	const port = await readPort(backend.child, timeoutMs, options.onProgress);
 	await pollForHealth(
 		`http://127.0.0.1:${port}/health`,
 		backend.launchToken,
-		deadline,
+		Date.now() + timeoutMs,
 		options,
 	);
 	return port;
@@ -100,13 +113,18 @@ async function defaultFetchHealth(
  * distinguishes a credential-unlock exit from a failure by that rejection, so a probe that
  * waited forever would turn a recoverable exit into a stuck launch.
  */
-function readPort(child: ChildProcess, deadline: number): Promise<number> {
+function readPort(
+	child: ChildProcess,
+	timeoutMs: number,
+	onProgress?: (progress: StartupProgress) => void,
+): Promise<number> {
 	const stdout = child.stdout;
 	if (!stdout)
 		throw new Error("Backend stdout is unavailable for the port announcement.");
 
 	return new Promise((resolve, reject) => {
 		let output = "";
+		let processed = 0;
 
 		const settle = (finish: () => void) => {
 			stdout.off("data", onData);
@@ -118,6 +136,18 @@ function readPort(child: ChildProcess, deadline: number): Promise<number> {
 
 		const onData = (chunk: Buffer | string) => {
 			output += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+			const completeEnd = output.lastIndexOf("\n") + 1;
+			if (completeEnd > processed) {
+				for (const text of output
+					.slice(processed, completeEnd)
+					.split(/\r?\n/)) {
+					const progress = parseStartupProgress(text);
+					if (!progress) continue;
+					timer.refresh();
+					onProgress?.(progress);
+				}
+				processed = completeEnd;
+			}
 			const line = output
 				.split(/\r?\n/)
 				.find((candidate) => candidate.startsWith(portPrefix));
@@ -144,11 +174,24 @@ function readPort(child: ChildProcess, deadline: number): Promise<number> {
 				settle(() =>
 					reject(new Error("Backend did not report a port in time.")),
 				),
-			Math.max(deadline - Date.now(), 0),
+			timeoutMs,
 		);
 
 		stdout.on("data", onData);
 		child.once("exit", onExit);
 		child.once("error", onError);
 	});
+}
+
+function parseStartupProgress(line: string): StartupProgress | null {
+	if (!line.startsWith(startupPrefix)) return null;
+	const [phase, rawFraction] = line.slice(startupPrefix.length).split(":");
+	if (!phase) return null;
+	const fraction = Number.parseFloat(rawFraction ?? "");
+	return {
+		phase,
+		fraction: Number.isFinite(fraction)
+			? Math.min(Math.max(fraction, 0), 1)
+			: null,
+	};
 }
