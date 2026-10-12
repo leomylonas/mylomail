@@ -24,7 +24,9 @@ internal static partial class SnippetBuilder
 
 	public static string Build(string? text, string? html)
 	{
-		var fromText = Clean(text is null ? null : StripPlainTextNoise(text));
+		// Entities are decoded in the plain-text part too: some senders paste their HTML pre-header
+		// padding (`&#847;&zwnj;` repeated) into it as literal text.
+		var fromText = Clean(text is null ? null : WebUtility.HtmlDecode(StripPlainTextNoise(text)));
 		if (IsMeaningful(fromText))
 		{
 			return Truncate(fromText);

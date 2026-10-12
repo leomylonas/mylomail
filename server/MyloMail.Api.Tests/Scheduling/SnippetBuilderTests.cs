@@ -64,6 +64,18 @@ public sealed class SnippetBuilderTests
 	}
 
 	[Fact]
+	public void Entity_padding_pasted_into_the_plain_text_part_does_not_hide_the_html_body()
+	{
+		var text = "CommBank" + string.Concat(Enumerable.Repeat("&#847;&zwnj; ", 40));
+		const string html = "<p>Your online statement for the account ending in 8862 is now ready to view online.</p>";
+
+		Assert.Equal(
+			"Your online statement for the account ending in 8862 is now ready to view online.",
+			SnippetBuilder.Build(text, html)
+		);
+	}
+
+	[Fact]
 	public void Nothing_readable_gives_an_empty_preview_rather_than_markup()
 	{
 		Assert.Equal(string.Empty, SnippetBuilder.Build(null, "<style>.a{color:red}</style><div style=\"display:none\">&zwnj;&zwnj;</div>"));
