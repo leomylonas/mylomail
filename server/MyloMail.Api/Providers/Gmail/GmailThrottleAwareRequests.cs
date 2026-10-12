@@ -118,7 +118,7 @@ internal static class GmailRequestExtensions
 		catch (GoogleApiException ex) when (IsRateLimited(ex))
 		{
 			Trackers.TryGetValue(request.Service, out var tracker);
-			throw Translate(ex, tracker?.LastRetryAfter);
+			throw Translate(ex, tracker?.LastRetryAfter, SpendNote(request.Service));
 		}
 	}
 
@@ -145,13 +145,13 @@ internal static class GmailRequestExtensions
 		catch (GoogleApiException ex) when (IsRateLimited(ex))
 		{
 			Trackers.TryGetValue(service, out var tracker);
-			throw Translate(ex, tracker?.LastRetryAfter);
+			throw Translate(ex, tracker?.LastRetryAfter, SpendNote(service));
 		}
 		catch (HttpRequestException ex)
 			when (ex.InnerException is GoogleApiException apiException && IsRateLimited(apiException))
 		{
 			Trackers.TryGetValue(service, out var tracker);
-			throw Translate(apiException, tracker?.LastRetryAfter);
+			throw Translate(apiException, tracker?.LastRetryAfter, SpendNote(service));
 		}
 	}
 
@@ -172,6 +172,12 @@ internal static class GmailRequestExtensions
 
 	/// <summary>Extracted so a test can exercise the fallback-to-default logic directly, without
 	/// needing a live 429 response to reach it.</summary>
-	internal static ProviderThrottledException Translate(GoogleApiException ex, TimeSpan? captured) =>
-		new(captured is { } retryAfter && retryAfter > TimeSpan.Zero ? retryAfter : DefaultRetryAfter, $"Gmail rate limit exceeded ({(int)ex.HttpStatusCode}, {string.Join('/', ex.Error?.Errors?.Select(e => e.Reason) ?? [])}: {ex.Error?.Message}).", ex);
+	internal static ProviderThrottledException Translate(GoogleApiException ex, TimeSpan? captured, string? spendNote = null) =>
+		new(captured is { } retryAfter && retryAfter > TimeSpan.Zero ? retryAfter : DefaultRetryAfter, $"Gmail rate limit exceeded ({(int)ex.HttpStatusCode}, {string.Join('/', ex.Error?.Errors?.Select(e => e.Reason) ?? [])}: {ex.Error?.Message}){spendNote}.", ex);
+
+	/// <summary>What our own accounting charged in the last minute, to set beside Google's refusal.</summary>
+	private static string? SpendNote(IClientService service) =>
+		Meters.TryGetValue(service, out var meter)
+			? $" [this app charged {meter.Budget.SpentInLastMinute(meter.AccountId)} units in the last minute]"
+			: null;
 }

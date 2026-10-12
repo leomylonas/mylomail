@@ -92,3 +92,24 @@
 	opacity: 0.85;
 	cursor: default;
 }
+
+.activityButton {
+	display: flex;
+	gap: var(--cds-spacing-05);
+	padding: 0;
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.activityButton:hover {
+	color: var(--cds-text-primary);
+	text-decoration: underline;
+}
+
+.activityButton:focus-visible {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: 2px;
+}

@@ -81,6 +81,7 @@ public sealed class GmailRequestBudget
 		lock (bucket)
 		{
 			Refill(bucket);
+			bucket.Spent.Enqueue((clock.GetTimestamp(), units));
 			bucket.Available -= units;
 			wait = bucket.Available >= 0
 				? TimeSpan.Zero
@@ -116,8 +117,32 @@ public sealed class GmailRequestBudget
 		bucket.Available = Math.Min(burstUnits, bucket.Available + elapsed.TotalSeconds * unitsPerSecond);
 	}
 
+	/// <summary>
+	/// Units this process has charged to the account in the last minute — what the bucket believes
+	/// it has spent, for comparing with what Google says when it refuses a request.
+	/// </summary>
+	public int SpentInLastMinute(Guid accountId)
+	{
+		if (!buckets.TryGetValue(accountId, out var bucket))
+		{
+			return 0;
+		}
+
+		lock (bucket)
+		{
+			var now = clock.GetTimestamp();
+			while (bucket.Spent.Count > 0 && clock.GetElapsedTime(bucket.Spent.Peek().Timestamp, now) > TimeSpan.FromMinutes(1))
+			{
+				bucket.Spent.Dequeue();
+			}
+
+			return bucket.Spent.Sum(entry => entry.Units);
+		}
+	}
+
 	private sealed class Bucket(double available, long timestamp)
 	{
+		public readonly Queue<(long Timestamp, int Units)> Spent = new();
 		public double Available = available;
 		public long Timestamp = timestamp;
 	}

@@ -118,6 +118,9 @@ public interface IMailHub
 	/// <summary>Accounts a provider is currently rate-limiting, for a quiet status-bar notice.</summary>
 	Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts();
 
+	/// <summary>Per-account download activity for the status bar's details dialog.</summary>
+	Task<ActivityDto> GetActivity();
+
 	/// <summary>
 	/// Manual "send &amp; receive": syncs every enabled account now (or just the one named) and says
 	/// how each ended. Returns when the sync passes finish; the queued follow-up work — message
@@ -733,6 +736,135 @@ public class MailHub(
 
 	public async Task<IReadOnlyList<ProblemDto>> GetProblems() =>
 		await ProblemReport.LoadAsync(context);
+
+	public async Task<ActivityDto> GetActivity()
+	{
+		var accounts = await context
+			.Accounts.AsNoTracking()
+			.Where(a => a.IsEnabled)
+			.OrderBy(a => a.SortOrder)
+			.Select(a => new { a.Id, a.DisplayName, a.ProviderType })
+			.ToListAsync();
+		var throttled = gate.Active().ToDictionary(entry => entry.AccountId, entry => (int)Math.Ceiling(entry.Remaining.TotalSeconds));
+
+		var contentStates = context
+			.MessageContentStates.AsNoTracking()
+			.Join(
+				context.Messages,
+				state => state.MessageId,
+				message => message.Id,
+				(state, message) => new
+				{
+					message.AccountId,
+					state.Status,
+					state.LastError,
+					state.Attempts,
+					state.MessageId,
+					message.Subject,
+					message.From,
+				}
+			);
+		// Counted and grouped in the database: a large account has tens of thousands of rows, and
+		// only the few being fetched right now need their subject and sender.
+		var contentCounts = (
+			await contentStates
+				.GroupBy(row => new { row.AccountId, row.Status })
+				.Select(group => new { group.Key.AccountId, group.Key.Status, Count = group.Count() })
+				.ToListAsync()
+		).ToLookup(row => row.AccountId);
+		var fetchingRows = (
+			await contentStates.Where(row => row.Status == ContentStatus.Fetching).Take(100).ToListAsync()
+		).ToLookup(row => row.AccountId);
+		var failureRows = (
+			await contentStates
+				.Where(row => row.Status != ContentStatus.Indexed && row.LastError != null)
+				.GroupBy(row => new { row.AccountId, row.LastError })
+				.Select(group => new { group.Key.AccountId, group.Key.LastError, Count = group.Count() })
+				.ToListAsync()
+		).ToLookup(row => row.AccountId);
+
+		var walks = await context.AccountCoverageStates.AsNoTracking().ToDictionaryAsync(walk => walk.AccountId);
+		var folderRows = await context
+			.Mailboxes.AsNoTracking()
+			.Where(m => m.ProviderMailboxId != null)
+			.Join(
+				context.MailboxCoverageStates,
+				m => m.Id,
+				c => c.MailboxId,
+				(m, c) => new
+				{
+					m.AccountId,
+					m.Name,
+					c.Status,
+					c.MessagesFetched,
+					c.EstimatedTotal,
+					c.LastError,
+				}
+			)
+			.ToListAsync();
+		var folderCounts = await context
+			.Mailboxes.AsNoTracking()
+			.Where(m => m.ProviderMailboxId != null)
+			.GroupBy(m => m.AccountId)
+			.Select(group => new { AccountId = group.Key, Count = group.Count() })
+			.ToDictionaryAsync(row => row.AccountId, row => row.Count);
+		var staged = await context
+			.StagedChangeEvents.AsNoTracking()
+			.GroupBy(e => e.AccountId)
+			.Select(group => new { AccountId = group.Key, Count = group.Count() })
+			.ToDictionaryAsync(row => row.AccountId, row => row.Count);
+
+		var result = new List<AccountActivityDto>();
+		foreach (var account in accounts)
+		{
+			int Of(params ContentStatus[] statuses) =>
+				contentCounts[account.Id].Where(row => statuses.Contains(row.Status)).Sum(row => row.Count);
+			var isGmail = account.ProviderType == ProviderType.Gmail;
+			result.Add(
+				new AccountActivityDto(
+					account.Id,
+					account.DisplayName,
+					account.ProviderType,
+					throttled.TryGetValue(account.Id, out var seconds) ? seconds : null,
+					isGmail && walks.TryGetValue(account.Id, out var walk)
+						? new WalkActivityDto(walk.Status, walk.MessagesFetched, walk.EstimatedTotal, walk.LastError)
+						: null,
+					isGmail
+						? []
+						: [
+							.. folderRows
+								.Where(row => row.AccountId == account.Id && row.Status != CoverageStatus.Covered)
+								.OrderBy(row => row.Name)
+								.Select(row => new FolderActivityDto(row.Name, row.Status, row.MessagesFetched, row.EstimatedTotal, row.LastError)),
+						],
+					folderCounts.GetValueOrDefault(account.Id),
+					staged.GetValueOrDefault(account.Id),
+					Of(ContentStatus.Indexed),
+					Of(ContentStatus.NotFetched, ContentStatus.Queued),
+					Of(ContentStatus.Fetching),
+					Of(ContentStatus.Failed),
+					[
+						.. fetchingRows[account.Id]
+							.Take(5)
+							.Select(row => new ActivityMessageDto(
+								row.MessageId,
+								row.Subject,
+								row.From.Count > 0 ? row.From[0].Name ?? row.From[0].Email : null,
+								row.Attempts
+							)),
+					],
+					[
+						.. failureRows[account.Id]
+							.OrderByDescending(row => row.Count)
+							.Take(5)
+							.Select(row => new ActivityFailureGroupDto(row.LastError!, row.Count)),
+					]
+				)
+			);
+		}
+
+		return new ActivityDto(result);
+	}
 
 	public async Task<SyncNowResultDto> SyncNow(Guid? accountId)
 	{

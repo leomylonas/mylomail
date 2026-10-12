@@ -3,6 +3,7 @@ import { WarningAltFilled } from "@carbon/icons-react";
 import { Tooltip } from "@carbon/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import { ActivityDialog } from "@mylomail/renderer/Components/ActivityDialog/ActivityDialog";
 import { ProblemsDialog } from "@mylomail/renderer/Components/ProblemsDialog/ProblemsDialog";
 import {
 	ProblemKind,
@@ -45,6 +46,7 @@ export function StatusBar({
 }) {
 	const queryClient = useQueryClient();
 	const [problemsOpen, setProblemsOpen] = useState(false);
+	const [activityOpen, setActivityOpen] = useState(false);
 	// Failures are recorded durably by background work; polling picks up those that raise no
 	// event of their own (a message given up on), while account and folder changes invalidate.
 	const problems = useQuery({
@@ -116,25 +118,41 @@ export function StatusBar({
 				/>
 			) : null}
 			<div className={styles.activity} role="status" aria-live="polite">
-				{activity.syncing ? (
-					<span>
-						Downloading mail
-						{activity.syncing.folders > 1
-							? ` in ${activity.syncing.folders} folders`
-							: ""}
-						:{" "}
-						{activity.syncing.total
-							? `${activity.syncing.fetched} of ${activity.syncing.total}`
-							: `${activity.syncing.fetched} so far`}
-					</span>
-				) : null}
-				{pendingContent > 0 ? (
-					<span title="Message content is downloaded in the background, newest first, one message at a time. A message you open jumps the queue. Until it arrives a message cannot be read offline or searched by its text.">
-						Downloading message content:{" "}
-						{(queue.data?.ready ?? 0).toLocaleString()} of{" "}
-						{totalContent.toLocaleString()} ({pendingContent.toLocaleString()}{" "}
-						queued)
-					</span>
+				{activity.syncing || pendingContent > 0 || retrying > 0 ? (
+					<button
+						type="button"
+						className={styles.activityButton}
+						aria-haspopup="dialog"
+						title="Show what is downloading, queued and stuck (message content is downloaded newest first; a message you open jumps the queue)"
+						onClick={() => setActivityOpen(true)}
+					>
+						{activity.syncing ? (
+							<span>
+								Downloading mail
+								{activity.syncing.folders > 1
+									? ` in ${activity.syncing.folders} folders`
+									: ""}
+								:{" "}
+								{activity.syncing.total
+									? `${activity.syncing.fetched} of ${activity.syncing.total}`
+									: `${activity.syncing.fetched} so far`}
+							</span>
+						) : null}
+						{pendingContent > 0 ? (
+							<span>
+								Downloading message content:{" "}
+								{(queue.data?.ready ?? 0).toLocaleString()} of{" "}
+								{totalContent.toLocaleString()} (
+								{pendingContent.toLocaleString()} queued)
+							</span>
+						) : null}
+						{retrying > 0 ? (
+							<span>
+								Retrying {retrying} failed{" "}
+								{retrying === 1 ? "download" : "downloads"}
+							</span>
+						) : null}
+					</button>
 				) : null}
 				{throttled.data?.length ? (
 					<Tooltip
@@ -158,12 +176,6 @@ export function StatusBar({
 						</button>
 					</Tooltip>
 				) : null}
-				{retrying > 0 ? (
-					<span>
-						Retrying {retrying} failed{" "}
-						{retrying === 1 ? "download" : "downloads"}
-					</span>
-				) : null}
 				{!activity.syncing &&
 				pendingContent === 0 &&
 				retrying === 0 &&
@@ -185,6 +197,9 @@ export function StatusBar({
 					</button>
 				) : null}
 			</div>
+			{activityOpen && hub ? (
+				<ActivityDialog hub={hub} onClose={() => setActivityOpen(false)} />
+			) : null}
 			{problemsOpen && hub ? (
 				<ProblemsDialog
 					hub={hub}
