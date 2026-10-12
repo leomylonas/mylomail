@@ -1470,16 +1470,22 @@ export function MessageList({
 												<span className={styles.flagSlot} aria-hidden="true" />
 											</span>
 											<span className={`${styles.cell} ${styles.snippet}`}>
-												{message.searchSnippet
-													? parseSearchSnippet(message.searchSnippet).map(
-															(segment, index) =>
-																segment.highlighted ? (
-																	<mark key={index}>{segment.text}</mark>
-																) : (
-																	<span key={index}>{segment.text}</span>
-																),
-														)
-													: message.snippet}
+												{message.searchSnippet ? (
+													parseSearchSnippet(message.searchSnippet).map(
+														(segment, index) =>
+															segment.highlighted ? (
+																<mark key={index}>{segment.text}</mark>
+															) : (
+																<span key={index}>{segment.text}</span>
+															),
+													)
+												) : message.snippet.trim() !== "" ? (
+													message.snippet
+												) : (
+													<span className={styles.noPreview}>
+														No preview available
+													</span>
+												)}
 											</span>
 										</span>
 										<span className={styles.state}>
