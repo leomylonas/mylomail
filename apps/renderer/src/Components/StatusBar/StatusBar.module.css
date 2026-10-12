@@ -83,6 +83,12 @@
 }
 
 .throttle {
+	padding: 0;
+	border: none;
+	background: none;
+	color: inherit;
+	font: inherit;
 	font-style: italic;
 	opacity: 0.85;
+	cursor: default;
 }

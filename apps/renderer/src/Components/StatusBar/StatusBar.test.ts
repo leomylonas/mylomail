@@ -82,4 +82,29 @@ describe("summariseActivity", () => {
 		);
 		expect(result.syncing).toBeNull();
 	});
+
+	it("ignores accounts that are already fully downloaded", () => {
+		const result = summariseActivity(
+			[],
+			[
+				{
+					...folder("a", CoverageStatus.Covered, 5000, 5000),
+					accountId: "done",
+				},
+				{
+					...folder("b", CoverageStatus.Backfilling, 20, 100),
+					accountId: "busy",
+				},
+			],
+		);
+		expect(result.syncing).toEqual({ fetched: 20, total: 100, folders: 1 });
+	});
+
+	it("reports a count so far, not a fraction, once a folder passes its provider estimate", () => {
+		const result = summariseActivity(
+			[],
+			[folder("a", CoverageStatus.Backfilling, 2400, 201)],
+		);
+		expect(result.syncing).toEqual({ fetched: 2400, total: null, folders: 1 });
+	});
 });

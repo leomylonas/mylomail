@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState } from "react";
 import { WarningAltFilled } from "@carbon/icons-react";
+import { Tooltip } from "@carbon/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { ProblemsDialog } from "@mylomail/renderer/Components/ProblemsDialog/ProblemsDialog";
@@ -15,6 +16,7 @@ import styles from "@mylomail/renderer/Components/StatusBar/StatusBar.module.css
 
 interface MailboxProgressSeed {
 	id: string;
+	accountId?: string;
 	coverage: CoverageStatus;
 	coverageMessagesFetched: number;
 	coverageEstimatedTotal: number | null;
@@ -135,16 +137,26 @@ export function StatusBar({
 					</span>
 				) : null}
 				{throttled.data?.length ? (
-					<span
-						className={styles.throttle}
-						title={`${throttled.data
-							.map((t) => `${t.accountName} is rate-limited by its provider.`)
-							.join(
-								"\n",
-							)}\nNothing is wrong: the provider asked MyloMail to slow down, and syncing resumes by itself within a minute or so.`}
+					<Tooltip
+						align="top"
+						label={
+							<>
+								{throttled.data.map((t) => (
+									<div key={t.accountId}>
+										{t.accountName} is rate-limited by its provider.
+									</div>
+								))}
+								<div>
+									Nothing is wrong: the provider asked MyloMail to slow down,
+									and syncing resumes by itself within a minute or so.
+								</div>
+							</>
+						}
 					>
-						Throttled
-					</span>
+						<button type="button" className={styles.throttle}>
+							Throttled
+						</button>
+					</Tooltip>
 				) : null}
 				{retrying > 0 ? (
 					<span>
@@ -209,9 +221,16 @@ export function summariseActivity(
 			mailbox.coverage === CoverageStatus.Backfilling ||
 			mailbox.coverage === CoverageStatus.NotStarted,
 	);
+	// Only accounts that still have something to download. Folders of an account that is entirely
+	// done would otherwise swamp the figure and show "all downloaded" while another account has
+	// barely started; within an account that is still going, finished folders count as complete
+	// so the figure only climbs.
+	const activeAccounts = new Set(pending.map((mailbox) => mailbox.accountId));
 	let fetched = 0;
 	let total = 0;
+	let overran = false;
 	for (const mailbox of real) {
+		if (!activeAccounts.has(mailbox.accountId)) continue;
 		const event = live.get(mailbox.id);
 		const estimate =
 			event?.estimatedTotal ??
@@ -219,19 +238,23 @@ export function summariseActivity(
 			mailbox.providerTotalCount ??
 			mailbox.localCount;
 		total += estimate;
-		fetched +=
-			mailbox.coverage === CoverageStatus.Covered
-				? estimate
-				: Math.min(
-						estimate,
-						event?.messagesFetched ?? mailbox.coverageMessagesFetched,
-					);
+		if (mailbox.coverage === CoverageStatus.Covered) {
+			fetched += estimate;
+			continue;
+		}
+		const done = event?.messagesFetched ?? mailbox.coverageMessagesFetched;
+		// Not capped: a provider's own estimate can be far too small (Gmail's list estimate is
+		// only a rough guide), and a capped figure would read "complete" while the download runs.
+		if (estimate > 0 && done >= estimate) overran = true;
+		fetched += done;
 	}
+	// Once a folder has passed its estimate the fraction means nothing, so say "so far" instead.
+	const known = total > 0 && !overran;
 
 	return {
 		syncing:
 			pending.length > 0
-				? { fetched, total: total > 0 ? total : null, folders: pending.length }
+				? { fetched, total: known ? total : null, folders: pending.length }
 				: null,
 	};
 }

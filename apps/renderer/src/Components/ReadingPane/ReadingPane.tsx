@@ -413,8 +413,12 @@ function Body({
 	);
 }
 
+/**
+ * Indexed by `InviteResponse` (Accept, Decline, Tentative) — the type of the invite DTOs. It
+ * used to be indexed as though the first entry were "needs action", which made an accepted
+ * invitation read "You this invitation."
+ */
 const responseStatusLabel = [
-	"",
 	"accepted",
 	"declined",
 	"responded tentatively to",
@@ -526,39 +530,35 @@ function InviteBanner({
 				</p>
 			) : null}
 			{invite.data.eventId ? (
-				invite.data.myResponseStatus != null ? (
-					<p>
-						You {responseStatusLabel[invite.data.myResponseStatus]} this
-						invitation.
-					</p>
-				) : (
+				<>
+					{invite.data.myResponseStatus != null ? (
+						<p>
+							You {responseStatusLabel[invite.data.myResponseStatus]} this
+							invitation.
+						</p>
+					) : null}
 					<div className={styles.inviteActions}>
-						<Button
-							size="sm"
-							kind="primary"
-							disabled={respond.isPending}
-							onClick={() => respond.mutate(InviteResponse.Accept)}
-						>
-							Accept
-						</Button>
-						<Button
-							size="sm"
-							kind="tertiary"
-							disabled={respond.isPending}
-							onClick={() => respond.mutate(InviteResponse.Tentative)}
-						>
-							Tentative
-						</Button>
-						<Button
-							size="sm"
-							kind="danger--tertiary"
-							disabled={respond.isPending}
-							onClick={() => respond.mutate(InviteResponse.Decline)}
-						>
-							Decline
-						</Button>
+						{[
+							[InviteResponse.Accept, "Accept", "primary"],
+							[InviteResponse.Tentative, "Tentative", "tertiary"],
+							[InviteResponse.Decline, "Decline", "danger--tertiary"],
+						].map(([response, label, kind]) => (
+							<Button
+								key={label as string}
+								size="sm"
+								kind={kind as "primary" | "tertiary" | "danger--tertiary"}
+								// The response already given is shown as such, and cannot be
+								// sent again; the others change it.
+								disabled={
+									respond.isPending || invite.data.myResponseStatus === response
+								}
+								onClick={() => respond.mutate(response as InviteResponse)}
+							>
+								{label}
+							</Button>
+						))}
 					</div>
-				)
+				</>
 			) : (
 				<p className={styles.waiting}>
 					Preparing this invitation for a response…
