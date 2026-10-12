@@ -118,21 +118,8 @@
 	border: 0;
 }
 
-.hiddenSection {
-	margin-top: var(--cds-spacing-04);
-	border-top: 1px solid var(--cds-border-subtle);
-	padding-top: var(--cds-spacing-03);
-}
-
-.hiddenToggle {
-	padding: var(--cds-spacing-02) var(--cds-spacing-03);
-	border: 0;
-	background: none;
-	color: var(--cds-text-secondary);
-	font: inherit;
-	cursor: pointer;
-}
-
-.hiddenToggle:hover {
-	color: var(--cds-text-primary);
+/* A hidden folder shown on request: still usable, plainly not part of the everyday list. */
+.hiddenFolder {
+	font-style: italic;
+	opacity: 0.6;
 }

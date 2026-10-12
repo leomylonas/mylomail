@@ -18,6 +18,7 @@ import {
 	accountDragType,
 	pinnedMailboxDragType,
 } from "@mylomail/renderer/Lib/DragTypes";
+import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -67,6 +68,11 @@ export function Sidebar({
 		y: number;
 		mailboxId: string;
 	} | null>(null);
+	// Accounts whose hidden folders are currently shown in place. Per window, not persisted: it is
+	// a way of looking, not a setting.
+	const [accountsShowingHidden, setAccountsShowingHidden] = useState<
+		ReadonlySet<string>
+	>(new Set());
 	const [menu, setMenu] = useState<{
 		x: number;
 		y: number;
@@ -409,6 +415,7 @@ export function Sidebar({
 							<MailboxTree
 								hub={hub}
 								accountId={account.id}
+								showHidden={accountsShowingHidden.has(account.id)}
 								onMailboxSelected={onMailboxSelected}
 							/>
 						)}
@@ -421,9 +428,35 @@ export function Sidebar({
 					x={menu.x}
 					y={menu.y}
 					onClose={() => setMenu(null)}
-					actions={accountMoveActions(accounts, menu.account, (orderedIds) =>
-						reorder.mutate(orderedIds),
-					)}
+					actions={[
+						...accountMoveActions(accounts, menu.account, (orderedIds) =>
+							reorder.mutate(orderedIds),
+						),
+						{ label: "-", run: () => undefined },
+						(() => {
+							const accountId = menu.account.id;
+							const showing = accountsShowingHidden.has(accountId);
+							const hiddenCount = (
+								queryClient.getQueryData<{ isHidden: boolean }[]>(
+									queryKeys.mailboxes(accountId),
+								) ?? []
+							).filter((mailbox) => mailbox.isHidden).length;
+							return {
+								label: showing ? "Hide hidden folders" : "Show hidden folders",
+								run: () =>
+									setAccountsShowingHidden((current) => {
+										const next = new Set(current);
+										if (showing) next.delete(accountId);
+										else next.add(accountId);
+										return next;
+									}),
+								unavailable:
+									!showing && hiddenCount === 0
+										? "This account has no hidden folders."
+										: undefined,
+							};
+						})(),
+					]}
 				/>
 			) : null}
 		</nav>

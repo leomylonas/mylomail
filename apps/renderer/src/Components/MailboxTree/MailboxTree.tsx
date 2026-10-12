@@ -139,10 +139,13 @@ export function mailboxesQuery(hub: MailHubConnection, accountId: string) {
 export function MailboxTree({
 	hub,
 	accountId,
+	showHidden = false,
 	onMailboxSelected,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	/** Hidden folders appear in place, dimmed and italic, instead of being left out. */
+	showHidden?: boolean;
 	/** Called only for the user's own click on a folder, never when selection is restored. */
 	onMailboxSelected?: (mailboxId: string) => void;
 }) {
@@ -157,7 +160,6 @@ export function MailboxTree({
 	} | null>(null);
 	const [dialog, setDialog] = useState<Dialog | null>(null);
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
-	const [showHidden, setShowHidden] = useState(false);
 
 	const close = () => setDialog(null);
 	const refresh = () => {
@@ -372,14 +374,14 @@ export function MailboxTree({
 	if (mailboxes.isPending) return <SkeletonText paragraph lineCount={5} />;
 	if (mailboxes.isError) return <p>Could not load mailboxes.</p>;
 
-	// A hidden folder takes its subtree with it, so the visible tree stops at the first hidden
-	// folder and the "Hidden folders" list shows each such subtree whole.
-	const children = (parentId: string | null, inHidden: boolean) =>
+	// A hidden folder takes its subtree with it: unless the account's hidden folders are being
+	// shown, the tree stops at the first hidden folder.
+	const children = (parentId: string | null, includeHidden: boolean) =>
 		mailboxes.data
 			.filter(
 				(mailbox) =>
 					(mailbox.parentId ?? null) === parentId &&
-					(inHidden || !mailbox.isHidden),
+					(includeHidden || !mailbox.isHidden),
 			)
 			// System folders first; Array.sort is stable so user folders keep server order.
 			.sort((a, b) => systemRank(a) - systemRank(b));
@@ -461,27 +463,19 @@ export function MailboxTree({
 		}
 	};
 
-	const hiddenRoots = mailboxes.data
-		.filter(
-			(mailbox) =>
-				mailbox.isHidden &&
-				!isUnderHidden(mailboxes.data, mailbox.parentId ?? null),
-		)
-		.sort((a, b) => systemRank(a) - systemRank(b));
-
 	const renderLevel = (
 		parentId: string | null,
 		depth: number,
-		inHidden = false,
-		roots?: Mailbox[],
+		underHidden = false,
 	) => (
 		<ul>
-			{(roots ?? children(parentId, inHidden)).map((mailbox) => {
-				const hasChildren = children(mailbox.id, inHidden).length > 0;
+			{children(parentId, showHidden).map((mailbox) => {
+				const dimmed = underHidden || mailbox.isHidden;
+				const hasChildren = children(mailbox.id, showHidden).length > 0;
 				return (
 					<li key={mailbox.id}>
 						<div
-							className={`${styles.row} ${dropTarget === mailbox.id ? styles.dropTarget : ""}`}
+							className={`${styles.row} ${dropTarget === mailbox.id ? styles.dropTarget : ""} ${dimmed ? styles.hiddenFolder : ""}`}
 							style={{
 								paddingLeft: `calc(var(--cds-spacing-03) * ${depth + 1})`,
 							}}
@@ -568,7 +562,7 @@ export function MailboxTree({
 							</button>
 						</div>
 						{hasChildren && !mailbox.isCollapsed
-							? renderLevel(mailbox.id, depth + 1, inHidden)
+							? renderLevel(mailbox.id, depth + 1, dimmed)
 							: null}
 					</li>
 				);
@@ -580,20 +574,6 @@ export function MailboxTree({
 		<>
 			<nav className={styles.tree} aria-label="Mailboxes">
 				{renderLevel(null, 0)}
-				{hiddenRoots.length > 0 ? (
-					<div className={styles.hiddenSection}>
-						<button
-							type="button"
-							className={styles.hiddenToggle}
-							aria-expanded={showHidden}
-							onClick={() => setShowHidden((shown) => !shown)}
-						>
-							{showHidden ? "Hide" : "Show"} hidden folders (
-							{hiddenRoots.length})
-						</button>
-						{showHidden ? renderLevel(null, 0, true, hiddenRoots) : null}
-					</div>
-				) : null}
 			</nav>
 			{menu ? (
 				<MessageContextMenu
@@ -973,21 +953,6 @@ function isDescendantOf(
 	let current: Mailbox | undefined = candidate;
 	while (current) {
 		if (current.id === ancestorId) return true;
-		current = mailboxes.find((m) => m.id === current!.parentId);
-	}
-	return false;
-}
-
-/** Whether a folder, or any folder above it, is hidden — the folder is then off the visible tree. */
-export function isUnderHidden(
-	mailboxes: Mailbox[],
-	folderId: string | null,
-): boolean {
-	const seen = new Set<string>();
-	let current = mailboxes.find((m) => m.id === folderId);
-	while (current && !seen.has(current.id)) {
-		if (current.isHidden) return true;
-		seen.add(current.id);
 		current = mailboxes.find((m) => m.id === current!.parentId);
 	}
 	return false;

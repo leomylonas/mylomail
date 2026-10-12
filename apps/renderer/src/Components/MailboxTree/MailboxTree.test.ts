@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	describeMailboxAvailability,
 	describeMailboxCount,
-	isUnderHidden,
 	mailboxMoveActions,
 	type Mailbox,
 } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
@@ -258,25 +257,5 @@ describe("mailboxMoveActions — Move to top level", () => {
 				"Move to top level",
 			).unavailable,
 		).toBeTruthy();
-	});
-});
-
-describe("hidden folders", () => {
-	const tree = [
-		mailbox({ id: "root" }),
-		mailbox({ id: "sync", parentId: "root", isHidden: true }),
-		mailbox({ id: "conflicts", parentId: "sync" }),
-		mailbox({ id: "other", parentId: "root" }),
-	];
-
-	it("takes the whole subtree with it", () => {
-		expect(isUnderHidden(tree, "sync")).toBe(true);
-		expect(isUnderHidden(tree, "conflicts")).toBe(true);
-	});
-
-	it("leaves siblings and ancestors visible", () => {
-		expect(isUnderHidden(tree, "other")).toBe(false);
-		expect(isUnderHidden(tree, "root")).toBe(false);
-		expect(isUnderHidden(tree, null)).toBe(false);
 	});
 });
