@@ -427,6 +427,15 @@ export type IMailHub = {
     */
     emptyMailbox(accountId: string, mailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
+    * Marks every unread message in a folder as read, as one read-state mutation per message — the
+    * same mutation as marking a single message — so ordering, retries and reconciliation are
+    * unchanged. Returns how many were queued.
+    * @param accountId Transpiled from System.Guid
+    * @param mailboxId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<int>
+    */
+    markMailboxRead(accountId: string, mailboxId: string): Promise<number>;
+    /**
     * @param accountId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarSummaryDto>>
     */

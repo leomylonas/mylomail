@@ -322,6 +322,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("EmptyMailbox", accountId, mailboxId);
     }
 
+    public readonly markMailboxRead = async (accountId: string, mailboxId: string): Promise<number> => {
+        return await this.connection.invoke("MarkMailboxRead", accountId, mailboxId);
+    }
+
     public readonly getCalendars = async (accountId: string): Promise<CalendarSummaryDto[]> => {
         return await this.connection.invoke("GetCalendars", accountId);
     }

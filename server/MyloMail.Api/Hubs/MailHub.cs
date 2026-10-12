@@ -319,6 +319,13 @@ public interface IMailHub
 	/// </summary>
 	Task<MutationEnqueueResultDto> EmptyMailbox(Guid accountId, Guid mailboxId);
 
+	/// <summary>
+	/// Marks every unread message in a folder as read, as one read-state mutation per message — the
+	/// same mutation as marking a single message — so ordering, retries and reconciliation are
+	/// unchanged. Returns how many were queued.
+	/// </summary>
+	Task<int> MarkMailboxRead(Guid accountId, Guid mailboxId);
+
 	Task<IReadOnlyList<CalendarSummaryDto>> GetCalendars(Guid accountId);
 
 	/// <summary>
@@ -1639,6 +1646,25 @@ public class MailHub(
 			messageIds,
 			messageId => mutations.RemoveFromMailboxAsync(accountId, messageId, mailboxId)
 		);
+
+	public async Task<int> MarkMailboxRead(Guid accountId, Guid mailboxId)
+	{
+		if (!await context.Mailboxes.AnyAsync(m => m.Id == mailboxId && m.AccountId == accountId))
+		{
+			throw new MutationHubException(ErrorCategory.Validation, "This folder no longer exists.");
+		}
+
+		// Unread by what the server last said, leaving out any already on their way to read.
+		var messageIds = await context
+			.MessageMailboxes.Where(occurrence => occurrence.MailboxId == mailboxId)
+			.Join(context.Messages.Where(message => !message.IsRead && !message.IsDraft), o => o.MessageId, m => m.Id, (_, m) => m.Id)
+			.Where(id => !context.MessagePendingChanges.Any(change =>
+				change.MessageId == id && change.Field == MessageFlagField.IsRead && change.DesiredValue))
+			.Distinct()
+			.ToListAsync();
+		await SetFlags(accountId, messageIds, true, null);
+		return messageIds.Count;
+	}
 
 	public Task<MutationEnqueueResultDto> MoveToTrash(Guid accountId, IReadOnlyList<Guid> messageIds) =>
 		EnqueueEachWithResultAsync(messageIds, messageId => mutations.MoveToTrashAsync(accountId, messageId));

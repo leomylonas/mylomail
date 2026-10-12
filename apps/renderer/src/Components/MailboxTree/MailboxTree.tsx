@@ -255,6 +255,19 @@ export function MailboxTree({
 		onSuccess: refresh,
 	});
 
+	const markAllRead = useMutation({
+		mutationFn: (mailbox: Mailbox) =>
+			hub.markMailboxRead(accountId, mailbox.id),
+		onSuccess: () => {
+			// The counts and the lists both follow the queued read-state changes.
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.mailboxes(accountId),
+			});
+			void queryClient.invalidateQueries({ queryKey: ["messages"] });
+		},
+		onError: reportFailure("The folder could not be marked as read"),
+	});
+
 	const setPinned = useMutation({
 		mutationFn: (input: { mailboxId: string; pinned: boolean }) =>
 			hub.setMailboxPinned(input.mailboxId, input.pinned),
@@ -571,6 +584,14 @@ export function MailboxTree({
 									{ label: "-", run: () => undefined },
 								]
 							: []),
+						{
+							label: "Mark all as read",
+							run: () => markAllRead.mutate(menu.mailbox),
+							unavailable:
+								menu.mailbox.unreadCount === 0
+									? "There are no unread messages in this folder."
+									: undefined,
+						},
 						{
 							label: menu.mailbox.isPinned ? "Unpin from top" : "Pin to top",
 							run: () =>
