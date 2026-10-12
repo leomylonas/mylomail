@@ -120,7 +120,7 @@ export function StatusBar({
 			<div className={styles.activity} role="status" aria-live="polite">
 				{activity.syncing || pendingContent > 0 || retrying > 0 ? (
 					<Tooltip
-						align="top"
+						align="top-start"
 						label={
 							<>
 								{activity.syncing ? (
@@ -165,7 +165,7 @@ export function StatusBar({
 				) : null}
 				{throttled.data?.length ? (
 					<Tooltip
-						align="top"
+						align="top-start"
 						label={
 							<>
 								{throttled.data.map((t) => (

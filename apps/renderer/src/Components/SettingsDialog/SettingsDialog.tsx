@@ -49,7 +49,12 @@ export function SettingsDialog({
 	// event that reads as the user dismissing a dialog StrictMode merely remounted.
 	useEffect(() => {
 		const dialog = dialogRef.current;
-		if (dialog && !dialog.open) dialog.showModal();
+		if (dialog && !dialog.open) {
+			dialog.showModal();
+			// Focus the dialog, not its first control: the close button's tooltip otherwise pops up
+			// unprompted.
+			dialog.focus();
+		}
 	}, []);
 
 	const activeAccount =

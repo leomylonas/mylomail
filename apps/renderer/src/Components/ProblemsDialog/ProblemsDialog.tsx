@@ -36,7 +36,12 @@ export function ProblemsDialog({
 	// No cleanup close, for the reason given in SettingsDialog.
 	useEffect(() => {
 		const dialog = dialogRef.current;
-		if (dialog && !dialog.open) dialog.showModal();
+		if (dialog && !dialog.open) {
+			dialog.showModal();
+			// showModal focuses the first control, the close button, whose tooltip then pops up
+			// unprompted. The dialog itself takes focus instead; Tab still reaches the controls.
+			dialog.focus();
+		}
 	}, []);
 
 	const retry = useMutation({
@@ -65,6 +70,7 @@ export function ProblemsDialog({
 			ref={dialogRef}
 			className={styles.dialog}
 			aria-labelledby="problems-dialog-title"
+			tabIndex={-1}
 			onClose={onClose}
 		>
 			<header className={styles.header}>

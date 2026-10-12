@@ -31,7 +31,12 @@ export function ActivityDialog({
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	useEffect(() => {
 		const dialog = dialogRef.current;
-		if (dialog && !dialog.open) dialog.showModal();
+		if (dialog && !dialog.open) {
+			dialog.showModal();
+			// showModal focuses the first control, the close button, whose tooltip then pops up
+			// unprompted. The dialog itself takes focus instead; Tab still reaches the controls.
+			dialog.focus();
+		}
 	}, []);
 	const activity = useQuery({
 		queryKey: ["activity"],
@@ -45,6 +50,7 @@ export function ActivityDialog({
 			ref={dialogRef}
 			className={styles.dialog}
 			aria-labelledby="activity-dialog-title"
+			tabIndex={-1}
 			onClose={onClose}
 		>
 			<header className={styles.header}>
