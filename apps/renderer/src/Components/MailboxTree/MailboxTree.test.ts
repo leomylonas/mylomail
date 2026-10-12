@@ -278,6 +278,7 @@ describe("marking several folders", () => {
 		empty: vi.fn(),
 		setPinned: vi.fn(),
 		setHidden: vi.fn(),
+		remove: vi.fn(),
 	});
 	const action = (
 		actions: ReturnType<typeof folderBulkActions>,
@@ -315,5 +316,23 @@ describe("marking several folders", () => {
 		expect(h.setHidden).toHaveBeenCalledWith([shown], true);
 		action(folderBulkActions([hidden], h), /Show in folder list/).run();
 		expect(h.setHidden).toHaveBeenLastCalledWith([hidden], false);
+	});
+
+	it("deletes the marked folders that are real, and not a nested label group", () => {
+		const h = handlers();
+		const real = mailbox({ id: "r" });
+		const group = mailbox({ id: "g", isSynthesized: true });
+		action(
+			folderBulkActions([real, group, mailbox({ id: "x" })], h),
+			/^Delete 2 folders$/,
+		).run();
+		expect(h.remove).toHaveBeenCalledWith([
+			real,
+			expect.objectContaining({ id: "x" }),
+		]);
+		expect(
+			action(folderBulkActions([group, group], h), /^Delete 0 folders$/)
+				.unavailable,
+		).toBeDefined();
 	});
 });

@@ -123,7 +123,7 @@ interface Capabilities {
 type Dialog =
 	| { kind: "create"; parent: Mailbox | null }
 	| { kind: "rename"; mailbox: Mailbox }
-	| { kind: "delete"; mailbox: Mailbox }
+	| { kind: "delete"; mailboxes: Mailbox[] }
 	| { kind: "sync"; mailbox: Mailbox }
 	| { kind: "special-use"; mailbox: Mailbox };
 
@@ -368,6 +368,29 @@ export function MailboxTree({
 	});
 
 	const mailboxes = useQuery(mailboxesQuery(hub, accountId));
+
+	// Deepest first, so a folder is never deleted out from under one of its marked subfolders. One
+	// at a time and stopping at the first failure, which has already said why.
+	const removeFolders = async (folders: Mailbox[]) => {
+		const all = mailboxes.data ?? [];
+		const depth = (folder: Mailbox) => {
+			let steps = 0;
+			for (
+				let parent = all.find((m) => m.id === folder.parentId);
+				parent;
+				parent = all.find((m) => m.id === parent!.parentId)
+			)
+				steps++;
+			return steps;
+		};
+		for (const folder of [...folders].sort((a, b) => depth(b) - depth(a))) {
+			try {
+				await remove.mutateAsync(folder);
+			} catch {
+				break;
+			}
+		}
+	};
 
 	// Fetched alongside the tree rather than when the confirmation opens: a dialog that has to
 	// wait for a round trip before it can say what deleting does would either flash the wrong
@@ -654,6 +677,8 @@ export function MailboxTree({
 												.mutateAsync({ mailboxId: m.id, pinned })
 												.catch(() => undefined);
 									},
+									remove: (folders) =>
+										setDialog({ kind: "delete", mailboxes: folders }),
 									setHidden: (folders, hidden) =>
 										folders.forEach((m) =>
 											setHidden.mutate({ mailboxId: m.id, hidden }),
@@ -751,7 +776,7 @@ export function MailboxTree({
 									{
 										label: "Delete",
 										run: () =>
-											setDialog({ kind: "delete", mailbox: menu.mailbox }),
+											setDialog({ kind: "delete", mailboxes: [menu.mailbox] }),
 										danger: true,
 										unavailable: menu.mailbox.isSynthesized
 											? "Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail."
@@ -797,13 +822,20 @@ export function MailboxTree({
 				<Modal
 					open
 					danger
-					modalHeading={`Delete "${dialog.mailbox.name}"?`}
+					modalHeading={
+						dialog.mailboxes.length === 1
+							? `Delete "${dialog.mailboxes[0].name}"?`
+							: `Delete ${dialog.mailboxes.length} folders?`
+					}
 					primaryButtonText="Delete"
 					secondaryButtonText="Cancel"
-					onRequestSubmit={() => remove.mutate(dialog.mailbox)}
+					onRequestSubmit={() => void removeFolders(dialog.mailboxes)}
 					onRequestClose={close}
 					onSecondarySubmit={close}
 				>
+					{dialog.mailboxes.length > 1 ? (
+						<p>{dialog.mailboxes.map((m) => m.name).join(", ")}</p>
+					) : null}
 					<p>{describeDeletion(capabilities.data)}</p>
 				</Modal>
 			) : null}
@@ -938,12 +970,15 @@ export function folderBulkActions(
 		empty: (folders: Mailbox[]) => void;
 		setPinned: (folders: Mailbox[], pinned: boolean) => void | Promise<void>;
 		setHidden: (folders: Mailbox[], hidden: boolean) => void;
+		remove: (folders: Mailbox[]) => void;
 	},
 ) {
 	const unread = folders.filter((m) => m.unreadCount > 0);
 	const emptiable = folders.filter(isEmptiable);
 	const allPinned = folders.every((m) => m.isPinned);
 	const allHidden = folders.every((m) => m.isHidden);
+	// A nested Gmail label group has no label of its own to delete.
+	const deletable = folders.filter((m) => !m.isSynthesized);
 	return [
 		{
 			label: "Mark all as read",
@@ -978,6 +1013,16 @@ export function folderBulkActions(
 					folders.filter((m) => m.isHidden === allHidden),
 					!allHidden,
 				),
+		},
+		{ label: "-", run: () => undefined },
+		{
+			label: `Delete ${deletable.length} ${deletable.length === 1 ? "folder" : "folders"}`,
+			danger: true,
+			run: () => handlers.remove(deletable),
+			unavailable:
+				deletable.length === 0
+					? "A nested label group can't be deleted directly — delete the labels themselves."
+					: undefined,
 		},
 	];
 }
