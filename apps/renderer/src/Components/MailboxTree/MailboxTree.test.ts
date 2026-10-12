@@ -2,10 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	describeMailboxAvailability,
 	describeMailboxCount,
+	folderBulkActions,
+	markedRange,
 	mailboxMoveActions,
 	type Mailbox,
 } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
-import { MailboxAvailability } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	MailboxAvailability,
+	SpecialUse,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 function mailbox(overrides: Partial<Mailbox> & { id: string }): Mailbox {
 	return {
@@ -257,5 +262,58 @@ describe("mailboxMoveActions — Move to top level", () => {
 				"Move to top level",
 			).unavailable,
 		).toBeTruthy();
+	});
+});
+
+describe("marking several folders", () => {
+	it("ranges from the anchor to the target in either direction", () => {
+		const order = ["a", "b", "c", "d"];
+		expect(markedRange(order, "b", "d")).toEqual(["b", "c", "d"]);
+		expect(markedRange(order, "d", "b")).toEqual(["b", "c", "d"]);
+		expect(markedRange(order, "gone", "c")).toEqual(["c"]);
+	});
+
+	const handlers = () => ({
+		markRead: vi.fn(),
+		empty: vi.fn(),
+		setPinned: vi.fn(),
+		setHidden: vi.fn(),
+	});
+	const action = (
+		actions: ReturnType<typeof folderBulkActions>,
+		label: RegExp,
+	) => actions.find((a) => label.test(a.label))!;
+
+	it("marks read only the folders that have unread mail", () => {
+		const h = handlers();
+		const a = mailbox({ id: "a", unreadCount: 2 });
+		const b = mailbox({ id: "b" });
+		action(folderBulkActions([a, b], h), /Mark all as read/).run();
+		expect(h.markRead).toHaveBeenCalledWith([a]);
+		expect(
+			action(folderBulkActions([b], h), /Mark all as read/).unavailable,
+		).toBeDefined();
+	});
+
+	it("offers to empty only Trash and Spam among the marked folders", () => {
+		const h = handlers();
+		const trash = mailbox({ id: "t", specialUse: SpecialUse.Trash });
+		const plain = mailbox({ id: "p" });
+		const actions = folderBulkActions([trash, plain], h);
+		action(actions, /^Empty 1 folder$/).run();
+		expect(h.empty).toHaveBeenCalledWith([trash]);
+		expect(
+			folderBulkActions([plain], h).some((a) => /^Empty/.test(a.label)),
+		).toBe(false);
+	});
+
+	it("hides the visible ones, and shows them all once every one is hidden", () => {
+		const h = handlers();
+		const shown = mailbox({ id: "s" });
+		const hidden = mailbox({ id: "h", isHidden: true });
+		action(folderBulkActions([shown, hidden], h), /^Hide folders$/).run();
+		expect(h.setHidden).toHaveBeenCalledWith([shown], true);
+		action(folderBulkActions([hidden], h), /Show in folder list/).run();
+		expect(h.setHidden).toHaveBeenLastCalledWith([hidden], false);
 	});
 });

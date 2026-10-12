@@ -157,7 +157,13 @@ export function MailboxTree({
 		x: number;
 		y: number;
 		mailbox: Mailbox;
+		/** The folders the menu acts on: every marked folder when the click was on one of them. */
+		targets: Mailbox[];
 	} | null>(null);
+	// Folders marked for a bulk action with Ctrl/Cmd or Shift click. Marking never navigates; a
+	// plain click clears it.
+	const [marked, setMarked] = useState<readonly string[]>([]);
+	const [anchorId, setAnchorId] = useState<string | null>(null);
 	const [dialog, setDialog] = useState<Dialog | null>(null);
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -463,6 +469,50 @@ export function MailboxTree({
 		}
 	};
 
+	const visibleOrder = (parentId: string | null): string[] =>
+		children(parentId, showHidden).flatMap((mailbox) => [
+			mailbox.id,
+			...(mailbox.isCollapsed ? [] : visibleOrder(mailbox.id)),
+		]);
+
+	const clickMailbox = (event: React.MouseEvent, mailbox: Mailbox) => {
+		if (event.shiftKey) {
+			setMarked(
+				markedRange(
+					visibleOrder(null),
+					anchorId ?? selectedMailboxId ?? mailbox.id,
+					mailbox.id,
+				),
+			);
+			return;
+		}
+		if (event.ctrlKey || event.metaKey) {
+			setAnchorId(mailbox.id);
+			setMarked((current) => {
+				const base =
+					current.length === 0 &&
+					selectedMailboxId &&
+					selectedMailboxId !== mailbox.id &&
+					mailboxes.data!.some((m) => m.id === selectedMailboxId)
+						? [selectedMailboxId]
+						: current;
+				return base.includes(mailbox.id)
+					? base.filter((id) => id !== mailbox.id)
+					: [...base, mailbox.id];
+			});
+			return;
+		}
+		setMarked([]);
+		setAnchorId(mailbox.id);
+		// Every account's tree is visible at once now (§13 Epic 2), so
+		// selecting a mailbox has to say which account it belongs to
+		// too — there is no longer a separately-chosen "current
+		// account" this tree can assume it already is.
+		store.setState("selectedAccountId", accountId);
+		store.setState("selectedMailboxId", mailbox.id);
+		onMailboxSelected?.(mailbox.id);
+	};
+
 	const renderLevel = (
 		parentId: string | null,
 		depth: number,
@@ -517,21 +567,23 @@ export function MailboxTree({
 							<button
 								type="button"
 								draggable
-								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""}`}
+								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""} ${marked.includes(mailbox.id) ? styles.marked : ""}`}
 								data-mailbox-id={mailbox.id}
 								aria-current={mailbox.id === selectedMailboxId}
-								onClick={() => {
-									// Every account's tree is visible at once now (§13 Epic 2), so
-									// selecting a mailbox has to say which account it belongs to
-									// too — there is no longer a separately-chosen "current
-									// account" this tree can assume it already is.
-									store.setState("selectedAccountId", accountId);
-									store.setState("selectedMailboxId", mailbox.id);
-									onMailboxSelected?.(mailbox.id);
-								}}
+								onClick={(event) => clickMailbox(event, mailbox)}
 								onContextMenu={(event) => {
 									event.preventDefault();
-									setMenu({ x: event.clientX, y: event.clientY, mailbox });
+									const targets =
+										marked.length > 1 && marked.includes(mailbox.id)
+											? mailboxes.data.filter((m) => marked.includes(m.id))
+											: [mailbox];
+									if (targets.length === 1) setMarked([]);
+									setMenu({
+										x: event.clientX,
+										y: event.clientY,
+										mailbox,
+										targets,
+									});
 								}}
 								onDragStart={(event) => {
 									event.dataTransfer.setData(mailboxDragType, mailbox.id);
@@ -552,6 +604,7 @@ export function MailboxTree({
 									availability={mailbox.availability}
 								/>
 								<span className={styles.srOnly}>
+									{marked.includes(mailbox.id) ? "Selected. " : ""}
 									{describeMailboxCount(mailbox)}
 								</span>
 								{mailbox.unreadCount ? (
@@ -581,107 +634,139 @@ export function MailboxTree({
 					x={menu.x}
 					y={menu.y}
 					onClose={() => setMenu(null)}
-					actions={[
-						{
-							label: "New subfolder",
-							run: () => setDialog({ kind: "create", parent: menu.mailbox }),
-						},
-						{
-							label: "New folder",
-							run: () => setDialog({ kind: "create", parent: null }),
-						},
-						{ label: "-", run: () => undefined },
-						...(isEmptiable(menu.mailbox)
-							? [
-									{
-										label: `Empty ${menu.mailbox.name}`,
-										danger: true,
-										run: () => {
-											if (
-												window.confirm(
-													`Permanently delete everything in ${menu.mailbox.name}? This cannot be undone.`,
-												)
+					actions={
+						menu.targets.length > 1
+							? folderBulkActions(menu.targets, {
+									markRead: (folders) =>
+										folders.forEach((m) => markAllRead.mutate(m)),
+									empty: (folders) => {
+										if (
+											window.confirm(
+												`Permanently delete everything in ${folders.map((m) => m.name).join(", ")}? This cannot be undone.`,
 											)
-												emptyFolder.mutate(menu.mailbox);
-										},
+										)
+											folders.forEach((m) => emptyFolder.mutate(m));
+									},
+									// One at a time: each pin takes the next place in the list.
+									setPinned: async (folders, pinned) => {
+										for (const m of folders)
+											await setPinned
+												.mutateAsync({ mailboxId: m.id, pinned })
+												.catch(() => undefined);
+									},
+									setHidden: (folders, hidden) =>
+										folders.forEach((m) =>
+											setHidden.mutate({ mailboxId: m.id, hidden }),
+										),
+								})
+							: [
+									{
+										label: "New subfolder",
+										run: () =>
+											setDialog({ kind: "create", parent: menu.mailbox }),
+									},
+									{
+										label: "New folder",
+										run: () => setDialog({ kind: "create", parent: null }),
 									},
 									{ label: "-", run: () => undefined },
+									...(isEmptiable(menu.mailbox)
+										? [
+												{
+													label: `Empty ${menu.mailbox.name}`,
+													danger: true,
+													run: () => {
+														if (
+															window.confirm(
+																`Permanently delete everything in ${menu.mailbox.name}? This cannot be undone.`,
+															)
+														)
+															emptyFolder.mutate(menu.mailbox);
+													},
+												},
+												{ label: "-", run: () => undefined },
+											]
+										: []),
+									{
+										label: "Mark all as read",
+										run: () => markAllRead.mutate(menu.mailbox),
+										unavailable:
+											menu.mailbox.unreadCount === 0
+												? "There are no unread messages in this folder."
+												: undefined,
+									},
+									{
+										label: menu.mailbox.isPinned
+											? "Unpin from top"
+											: "Pin to top",
+										run: () =>
+											setPinned.mutate({
+												mailboxId: menu.mailbox.id,
+												pinned: !menu.mailbox.isPinned,
+											}),
+									},
+									{
+										label: menu.mailbox.isHidden
+											? "Show in folder list"
+											: "Hide folder",
+										run: () =>
+											setHidden.mutate({
+												mailboxId: menu.mailbox.id,
+												hidden: !menu.mailbox.isHidden,
+											}),
+									},
+									{ label: "-", run: () => undefined },
+									{
+										label: "Rename",
+										run: () =>
+											setDialog({ kind: "rename", mailbox: menu.mailbox }),
+										unavailable: menu.mailbox.isSynthesized
+											? "Gmail doesn't support renaming a nested label group directly — rename the label itself in Gmail."
+											: undefined,
+									},
+									{
+										label: "Sync settings…",
+										run: () =>
+											setDialog({ kind: "sync", mailbox: menu.mailbox }),
+										unavailable:
+											menu.mailbox.coverage === CoverageStatus.NotStarted
+												? undefined
+												: "Only available before this folder's initial sync has started.",
+									},
+									{ label: "-", run: () => undefined },
+									...mailboxMoveActions(
+										mailboxes.data,
+										menu.mailbox,
+										(orderedMailboxIds) =>
+											reorderMailboxes.mutate({
+												parentId: menu.mailbox.parentId ?? null,
+												orderedMailboxIds,
+											}),
+										(newParentId) =>
+											moveMailbox.mutate({
+												mailboxId: menu.mailbox.id,
+												newParentId,
+											}),
+									),
+									{
+										label: "Delete",
+										run: () =>
+											setDialog({ kind: "delete", mailbox: menu.mailbox }),
+										danger: true,
+										unavailable: menu.mailbox.isSynthesized
+											? "Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail."
+											: undefined,
+									},
+									{
+										label: "Folder role…",
+										run: () =>
+											setDialog({ kind: "special-use", mailbox: menu.mailbox }),
+										unavailable: menu.mailbox.isSynthesized
+											? "A nested label group has no role of its own — set it on the label itself."
+											: undefined,
+									},
 								]
-							: []),
-						{
-							label: "Mark all as read",
-							run: () => markAllRead.mutate(menu.mailbox),
-							unavailable:
-								menu.mailbox.unreadCount === 0
-									? "There are no unread messages in this folder."
-									: undefined,
-						},
-						{
-							label: menu.mailbox.isPinned ? "Unpin from top" : "Pin to top",
-							run: () =>
-								setPinned.mutate({
-									mailboxId: menu.mailbox.id,
-									pinned: !menu.mailbox.isPinned,
-								}),
-						},
-						{
-							label: menu.mailbox.isHidden
-								? "Show in folder list"
-								: "Hide folder",
-							run: () =>
-								setHidden.mutate({
-									mailboxId: menu.mailbox.id,
-									hidden: !menu.mailbox.isHidden,
-								}),
-						},
-						{ label: "-", run: () => undefined },
-						{
-							label: "Rename",
-							run: () => setDialog({ kind: "rename", mailbox: menu.mailbox }),
-							unavailable: menu.mailbox.isSynthesized
-								? "Gmail doesn't support renaming a nested label group directly — rename the label itself in Gmail."
-								: undefined,
-						},
-						{
-							label: "Sync settings…",
-							run: () => setDialog({ kind: "sync", mailbox: menu.mailbox }),
-							unavailable:
-								menu.mailbox.coverage === CoverageStatus.NotStarted
-									? undefined
-									: "Only available before this folder's initial sync has started.",
-						},
-						{ label: "-", run: () => undefined },
-						...mailboxMoveActions(
-							mailboxes.data,
-							menu.mailbox,
-							(orderedMailboxIds) =>
-								reorderMailboxes.mutate({
-									parentId: menu.mailbox.parentId ?? null,
-									orderedMailboxIds,
-								}),
-							(newParentId) =>
-								moveMailbox.mutate({
-									mailboxId: menu.mailbox.id,
-									newParentId,
-								}),
-						),
-						{
-							label: "Delete",
-							run: () => setDialog({ kind: "delete", mailbox: menu.mailbox }),
-							danger: true,
-							unavailable: menu.mailbox.isSynthesized
-								? "Gmail doesn't support deleting a nested label group directly — delete the label itself in Gmail."
-								: undefined,
-						},
-						{
-							label: "Folder role…",
-							run: () =>
-								setDialog({ kind: "special-use", mailbox: menu.mailbox }),
-							unavailable: menu.mailbox.isSynthesized
-								? "A nested label group has no role of its own — set it on the label itself."
-								: undefined,
-						},
-					]}
+					}
 				/>
 			) : null}
 			{dialog?.kind === "create" ? (
@@ -827,6 +912,74 @@ function SpecialUseOverrideModal({
 			</RadioButtonGroup>
 		</Modal>
 	);
+}
+
+/** The folders from `anchor` to `target` inclusive, in the order the tree shows them. */
+export function markedRange(
+	visibleIds: readonly string[],
+	anchor: string,
+	target: string,
+): string[] {
+	const from = visibleIds.indexOf(anchor);
+	const to = visibleIds.indexOf(target);
+	if (from === -1 || to === -1) return [target];
+	return visibleIds.slice(Math.min(from, to), Math.max(from, to) + 1);
+}
+
+/**
+ * What the context menu offers when several folders are marked: only the actions that mean the
+ * same thing for each — never rename, move, delete or sync settings, which are about one folder.
+ * A pure function, like {@link mailboxMoveActions}, so the contents are testable without rendering.
+ */
+export function folderBulkActions(
+	folders: Mailbox[],
+	handlers: {
+		markRead: (folders: Mailbox[]) => void;
+		empty: (folders: Mailbox[]) => void;
+		setPinned: (folders: Mailbox[], pinned: boolean) => void | Promise<void>;
+		setHidden: (folders: Mailbox[], hidden: boolean) => void;
+	},
+) {
+	const unread = folders.filter((m) => m.unreadCount > 0);
+	const emptiable = folders.filter(isEmptiable);
+	const allPinned = folders.every((m) => m.isPinned);
+	const allHidden = folders.every((m) => m.isHidden);
+	return [
+		{
+			label: "Mark all as read",
+			run: () => handlers.markRead(unread),
+			unavailable:
+				unread.length === 0
+					? "There are no unread messages in these folders."
+					: undefined,
+		},
+		...(emptiable.length > 0
+			? [
+					{
+						label: `Empty ${emptiable.length} ${emptiable.length === 1 ? "folder" : "folders"}`,
+						danger: true,
+						run: () => handlers.empty(emptiable),
+					},
+				]
+			: []),
+		{ label: "-", run: () => undefined },
+		{
+			label: allPinned ? "Unpin from top" : "Pin to top",
+			run: () =>
+				void handlers.setPinned(
+					folders.filter((m) => m.isPinned === allPinned),
+					!allPinned,
+				),
+		},
+		{
+			label: allHidden ? "Show in folder list" : "Hide folders",
+			run: () =>
+				handlers.setHidden(
+					folders.filter((m) => m.isHidden === allHidden),
+					!allHidden,
+				),
+		},
+	];
 }
 
 /** Only Trash and Spam can be emptied, by whichever role the user has assigned. */

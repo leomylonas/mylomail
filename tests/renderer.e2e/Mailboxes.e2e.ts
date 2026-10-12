@@ -98,3 +98,31 @@ test("a folder is created, renamed and deleted on the server", async () => {
 		await app.close();
 	}
 });
+
+test("several folders are marked together, hidden together, and shown again from the account menu", async () => {
+	const { app, window } = await launchApp();
+
+	try {
+		await createImapAccount(window, imapPort);
+		const folders = window.locator("[data-mailbox-id]");
+		await expect(folders.first()).toBeVisible({ timeout: 60_000 });
+		await expect.poll(() => folders.count()).toBeGreaterThan(2);
+		const before = await folders.count();
+
+		await folders.nth(1).click({ modifiers: ["ControlOrMeta"] });
+		await folders.nth(2).click({ modifiers: ["ControlOrMeta"] });
+		await folders.nth(2).click({ button: "right" });
+		// Only offered for a selection of several folders.
+		await window.getByRole("menuitem", { name: "Hide folders" }).click();
+		await expect.poll(() => folders.count()).toBeLessThanOrEqual(before - 2);
+
+		await window
+			.locator("section > button[draggable]")
+			.first()
+			.click({ button: "right" });
+		await window.getByRole("menuitem", { name: "Show hidden folders" }).click();
+		await expect.poll(() => folders.count()).toBe(before);
+	} finally {
+		await app.close();
+	}
+});

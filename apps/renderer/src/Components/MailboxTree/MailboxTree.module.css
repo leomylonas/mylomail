@@ -123,3 +123,8 @@
 	font-style: italic;
 	opacity: 0.6;
 }
+
+/* Folders marked for a bulk action; the viewed folder keeps its own, stronger highlight. */
+.marked:not(.selected) {
+	background: var(--cds-layer-selected);
+}
