@@ -483,15 +483,10 @@ public sealed class SyncJobs(
 	}
 
 	/// <summary>
-	/// Starts the change-stream poll loops for an account, one per stream — which is not the
-	/// same as one per mailbox.
+	/// The mailboxes whose change stream may be read now, one per stream — Gmail's is
+	/// account-scoped, so it is one however many labels the account has.
 	/// </summary>
-	/// <remarks>
-	/// Gmail's stream is account-scoped, so it gets exactly one loop however many labels the
-	/// account has. Starting one per label would consume the same history stream repeatedly
-	/// and race between the jobs, which is the fiction §1 rejects.
-	/// </remarks>
-	public async Task StartChangeStreamsAsync(Account account, CancellationToken ct = default)
+	private async Task<IReadOnlyList<Guid>> ChangeStreamScopesAsync(Account account, CancellationToken ct)
 	{
 		var capabilities = providers.For(account).Capabilities;
 		var accountScoped = capabilities.ChangeStreamScope == ChangeStreamScope.Account;
@@ -532,7 +527,21 @@ public sealed class SyncJobs(
 			.Select(m => m.Id)
 			.ToListAsync(ct);
 
-		var scopes = accountScoped ? mailboxes.Take(1) : mailboxes;
+		return accountScoped ? [.. mailboxes.Take(1)] : mailboxes;
+	}
+
+	/// <summary>
+	/// Starts the change-stream poll loops for an account, one per stream — which is not the
+	/// same as one per mailbox.
+	/// </summary>
+	/// <remarks>
+	/// Gmail's stream is account-scoped, so it gets exactly one loop however many labels the
+	/// account has. Starting one per label would consume the same history stream repeatedly
+	/// and race between the jobs, which is the fiction §1 rejects.
+	/// </remarks>
+	public async Task StartChangeStreamsAsync(Account account, CancellationToken ct = default)
+	{
+		var scopes = await ChangeStreamScopesAsync(account, ct);
 
 		foreach (var mailboxId in scopes)
 		{
@@ -1015,6 +1024,104 @@ public sealed class SyncJobs(
 			j => j.ChangeStreamAsync(accountId, mailboxId, default),
 			PollInterval(account) + gate.Delay(accountId)
 		);
+	}
+
+	/// <summary>
+	/// A manual "send &amp; receive": one pass over everything an account would otherwise do on its
+	/// own schedule, now, without starting or extending any poll loop.
+	/// </summary>
+	/// <remarks>
+	/// Each step is the same single pass the loops make, behind the same guard, so throttling and
+	/// authentication failures are handled and recorded exactly as they would be on schedule.
+	/// The loops stay the only owners of their registry slots and successors (as for
+	/// <see cref="WakeChangeStreamAsync"/>), so this never doubles a poll rate. A provider that is
+	/// rate-limiting the account is not asked anything: pressing the button must not extend the
+	/// limit.
+	/// </remarks>
+	public async Task<Contracts.SyncNowOutcome> SyncNowAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
+		if (account is null || !account.IsEnabled)
+		{
+			return Contracts.SyncNowOutcome.NeedsAttention;
+		}
+
+		if (account.AuthState is AuthState.NeedsReauth or AuthState.Error)
+		{
+			return Contracts.SyncNowOutcome.NeedsAttention;
+		}
+
+		if (!connectivity.IsOnline)
+		{
+			return Contracts.SyncNowOutcome.Offline;
+		}
+
+		if (gate.Delay(accountId) > TimeSpan.Zero)
+		{
+			return Contracts.SyncNowOutcome.Throttled;
+		}
+
+		var failed = false;
+		try
+		{
+			await GuardAsync(account, () => topology.ReconcileAsync(account, ct), ct);
+			foreach (var mailboxId in await ChangeStreamScopesAsync(account, ct))
+			{
+				var mailbox = await context.Mailboxes.FirstOrDefaultAsync(m => m.Id == mailboxId, ct);
+				if (mailbox is null)
+				{
+					continue;
+				}
+
+				try
+				{
+					await GuardAsync(account, () => changes.SyncAsync(account, mailbox, ct), ct);
+				}
+				catch (Exception ex) when (ex is not (
+					ProviderThrottledException
+					or ProviderAuthenticationException
+					or Credentials.CredentialStoreUnavailableException
+					or OperationCanceledException
+					or SimulatedCrashException)
+					&& !ConnectivityMonitor.IsNetworkFailure(ex))
+				{
+					// One folder failing must not stop the others; it is recorded where the loop
+					// records it, so it appears in Problems and clears on the next success.
+					await changes.RecordFailureAsync(accountId, mailboxId, mailbox.TopologyGeneration, ex, ct);
+					failed = true;
+				}
+			}
+		}
+		catch (ProviderThrottledException)
+		{
+			return Contracts.SyncNowOutcome.Throttled;
+		}
+		catch (ProviderAuthenticationException)
+		{
+			return Contracts.SyncNowOutcome.NeedsAttention;
+		}
+		catch (Credentials.CredentialStoreUnavailableException)
+		{
+			return Contracts.SyncNowOutcome.NeedsAttention;
+		}
+		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
+		{
+			return Contracts.SyncNowOutcome.Offline;
+		}
+		catch (Exception ex) when (ex is not (SimulatedCrashException or OperationCanceledException))
+		{
+			logger.LogWarning(ex, "Manual sync for account {AccountId} failed.", accountId);
+			failed = true;
+		}
+
+		// Everything the passes above may have queued, and anything waiting from before: staged
+		// Gmail history, message bodies, queued local changes, unsent mail, unpushed drafts.
+		jobs.Enqueue<SyncJobs>(job => job.ReplayStagedAsync(accountId, default));
+		jobs.Enqueue<ContentJobs>(job => job.FetchNextAsync(accountId, default));
+		jobs.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default));
+		jobs.Enqueue<OutboxJobs>(job => job.RunAsync(accountId, default));
+		jobs.Enqueue<DraftJobs>(job => job.PushAsync(accountId, default));
+		return failed ? Contracts.SyncNowOutcome.Failed : Contracts.SyncNowOutcome.Synced;
 	}
 
 	/// <summary>

@@ -5,7 +5,7 @@ import {
 	Separator,
 	type PanelImperativeHandle,
 } from "react-resizable-panels";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sidebar } from "@mylomail/renderer/Components/Sidebar/Sidebar";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
@@ -29,6 +29,7 @@ import {
 	EmailNew,
 	Folder,
 	OpenPanelLeft,
+	Renew,
 	OpenPanelRight,
 	Settings as SettingsIcon,
 	UserMultiple,
@@ -66,6 +67,7 @@ import {
 	ProviderType,
 	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { SyncNowOutcome } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 export interface NotificationClick {
@@ -138,6 +140,37 @@ export function AppShell({
 	const initialNotificationHandled = useRef(false);
 
 	const queryClient = useQueryClient();
+
+	// Outlook-style "send & receive": one sync pass for every account, now.
+	const syncNow = useMutation({
+		mutationFn: () => hub!.syncNow(undefined),
+		onSuccess: (result) => {
+			void Promise.all(
+				["messages", "mailboxes", "problems", "accounts", "content-queue"].map(
+					(key) => queryClient.invalidateQueries({ queryKey: [key] }),
+				),
+			);
+			const held = result.accounts.filter(
+				(account) => account.outcome !== SyncNowOutcome.Synced,
+			);
+			if (held.length === 0) return;
+			notify(notifications, {
+				kind: "info",
+				title: "Some accounts were not synced",
+				detail: held
+					.map(
+						(account) =>
+							`${account.accountName}: ${describeSyncOutcome(account.outcome)}`,
+					)
+					.join("\n"),
+			});
+		},
+		onError: (error) =>
+			notify(
+				notifications,
+				notificationForError(error, "Send & receive failed"),
+			),
+	});
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
@@ -508,6 +541,15 @@ export function AppShell({
 						onClick={openComposeShortcut}
 					>
 						New message
+					</Button>
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={Renew}
+						disabled={!hub || syncNow.isPending}
+						onClick={() => syncNow.mutate()}
+					>
+						{syncNow.isPending ? "Syncing…" : "Send / receive"}
 					</Button>
 					<span className={styles.commandDivider} aria-hidden="true" />
 					<div className={styles.messageCommands} ref={setCommandHost} />
@@ -887,4 +929,19 @@ function describeConnectionProblem(
 	if (status === "connecting") return "Connecting…";
 	if (accountsErrored) return "Could not load accounts.";
 	return null;
+}
+
+function describeSyncOutcome(outcome: SyncNowOutcome): string {
+	switch (outcome) {
+		case SyncNowOutcome.Throttled:
+			return "the provider is rate-limiting it; it will resume by itself";
+		case SyncNowOutcome.NeedsAttention:
+			return "it needs you to sign in again";
+		case SyncNowOutcome.Offline:
+			return "there is no connection";
+		case SyncNowOutcome.Failed:
+			return "something failed; see Problems";
+		default:
+			return "synced";
+	}
 }

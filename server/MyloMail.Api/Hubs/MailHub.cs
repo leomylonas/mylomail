@@ -119,6 +119,13 @@ public interface IMailHub
 	Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts();
 
 	/// <summary>
+	/// Manual "send &amp; receive": syncs every enabled account now (or just the one named) and says
+	/// how each ended. Returns when the sync passes finish; the queued follow-up work — message
+	/// bodies, local changes, unsent mail — carries on in the background.
+	/// </summary>
+	Task<SyncNowResultDto> SyncNow(Guid? accountId);
+
+	/// <summary>
 	/// Asks for these messages' content ahead of the background backlog — the one the user just
 	/// opened, or the rows on screen. Only messages still waiting are affected; the rest are
 	/// ignored. A hint: it changes the order of fetches, nothing else.
@@ -384,6 +391,7 @@ public class MailHub(
 	IIncomingMailAuthentication authentication,
 	IHubEvents events,
 	Scheduling.AccountGate gate,
+	Scheduling.SyncJobs syncJobs,
 	IFaultInjector faults,
 	TimeProvider clock
 ) : Hub<IMailClient>, IMailHub
@@ -725,6 +733,25 @@ public class MailHub(
 
 	public async Task<IReadOnlyList<ProblemDto>> GetProblems() =>
 		await ProblemReport.LoadAsync(context);
+
+	public async Task<SyncNowResultDto> SyncNow(Guid? accountId)
+	{
+		var accounts = await context
+			.Accounts.AsNoTracking()
+			.Where(a => a.IsEnabled && (accountId == null || a.Id == accountId))
+			.OrderBy(a => a.SortOrder)
+			.Select(a => new { a.Id, a.DisplayName })
+			.ToListAsync();
+		var results = new List<SyncNowAccountResultDto>();
+		foreach (var account in accounts)
+		{
+			results.Add(
+				new SyncNowAccountResultDto(account.Id, account.DisplayName, await syncJobs.SyncNowAsync(account.Id, Context.ConnectionAborted))
+			);
+		}
+
+		return new SyncNowResultDto(results);
+	}
 
 	public async Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts()
 	{

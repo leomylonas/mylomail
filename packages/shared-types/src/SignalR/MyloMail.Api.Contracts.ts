@@ -806,6 +806,31 @@ export type ProblemDto = {
     canRetry: boolean;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.SyncNowOutcome */
+export enum SyncNowOutcome {
+    Synced = 0,
+    Throttled = 1,
+    NeedsAttention = 2,
+    Offline = 3,
+    Failed = 4,
+}
+
+/** Transpiled from MyloMail.Api.Contracts.SyncNowAccountResultDto */
+export type SyncNowAccountResultDto = {
+    /** Transpiled from System.Guid */
+    accountId: string;
+    /** Transpiled from string */
+    accountName: string;
+    /** Transpiled from MyloMail.Api.Contracts.SyncNowOutcome */
+    outcome: SyncNowOutcome;
+}
+
+/** Transpiled from MyloMail.Api.Contracts.SyncNowResultDto */
+export type SyncNowResultDto = {
+    /** Transpiled from System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.SyncNowAccountResultDto> */
+    accounts: SyncNowAccountResultDto[];
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ThrottleStatusDto */
 export type ThrottleStatusDto = {
     /** Transpiled from System.Guid */
