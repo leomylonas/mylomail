@@ -53,6 +53,15 @@
  * restore its own. Everything hand-built in this renderer inherits it, which stacks lines
  * of text on top of each other, so a readable default is restored here.
  */
+/* The shell is exactly one viewport tall and scrolls inside its own panes. Letting the document
+   scroll as well moved the whole app up inside the window whenever something focused or revealed
+   an element, so it is not allowed to. */
+html,
+body {
+	height: 100%;
+	overflow: hidden;
+}
+
 body {
 	background: var(--cds-background);
 	color: var(--cds-text-primary);
