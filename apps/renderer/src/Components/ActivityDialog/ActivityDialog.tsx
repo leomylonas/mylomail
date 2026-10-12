@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Close } from "@carbon/icons-react";
 import { IconButton, Tag } from "@carbon/react";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +8,12 @@ import type {
 	FolderActivityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { CoverageStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	addSample,
+	describeEstimate,
+	estimateProgress,
+	type ProgressSample,
+} from "@mylomail/renderer/Lib/ProgressRate";
 import styles from "@mylomail/renderer/Components/ActivityDialog/ActivityDialog.module.css";
 
 const statusLabel: Record<CoverageStatus, string> = {
@@ -102,6 +108,12 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 		walk?.estimatedTotal && walk.estimatedTotal > walk.fetched
 			? walk.estimatedTotal
 			: null;
+	const walkRate = useRate(walk?.fetched ?? 0, walkKnownTotal, "messages");
+	const contentRate = useRate(
+		account.contentReady,
+		contentTotal > 0 ? contentTotal : null,
+		"messages",
+	);
 
 	return (
 		<section className={styles.account} aria-label={account.accountName}>
@@ -139,6 +151,7 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 							value={walk.fetched}
 						/>
 					) : null}
+					<p className={styles.note}>{walkRate}</p>
 					<p className={styles.note}>
 						Newer mail is fetched separately every minute while this runs.
 						{account.stagedHistoryPages > 0
@@ -193,6 +206,7 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 						max={contentTotal}
 						value={account.contentReady}
 					/>
+					<p className={styles.note}>{contentRate}</p>
 					<dl className={styles.stats}>
 						<Stat label="Downloaded" value={account.contentReady} />
 						<Stat label="Downloading" value={account.contentFetching} />
@@ -258,4 +272,30 @@ function FolderRow({ folder }: { folder: FolderActivityDto }) {
 			</td>
 		</tr>
 	);
+}
+
+/**
+ * How fast a count has been climbing over the last few minutes and when it should finish, read
+ * from the readings this dialog sees as it refreshes. Nothing is stored: closing the dialog
+ * forgets them, and the figure is a guess from recent speed rather than a promise.
+ */
+function useRate(value: number, total: number | null, unit: string): string {
+	// A clock that ticks on its own: the count only changes when work completes, so a standing
+	// figure still needs time to pass for a stall to be noticed.
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(Date.now()), 2_000);
+		return () => clearInterval(timer);
+	}, []);
+	const [seen, setSeen] = useState<{
+		value: number;
+		samples: ProgressSample[];
+	}>(() => ({ value, samples: [{ at: now, value }] }));
+	let samples = seen.samples;
+	if (seen.value !== value) {
+		samples = addSample(samples, { at: now, value });
+		setSeen({ value, samples });
+	}
+	const current = addSample(samples, { at: now, value });
+	return describeEstimate(estimateProgress(current, total), unit);
 }
