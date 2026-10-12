@@ -202,7 +202,7 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 				>
 					<div className={styles.cardHeader}>
 						<h4>
-							Step 2: downloading each email\u2019s text (message content)
+							Step 2: downloading each email’s text (message content)
 						</h4>
 						<span className={styles.figure}>
 							{account.contentReady.toLocaleString()} of{" "}
