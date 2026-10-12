@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { loadEnvFile, platform } from "node:process";
@@ -31,22 +31,90 @@ if (existsSync(providerEnvironment)) {
 const backendArguments =
 	process.env.MYLOMAIL_BACKEND_ARGS ??
 	"run --no-build --project server/MyloMail.Api";
+// `pnpm app` is the development environment: every start is a fresh build running fresh code, so
+// anything left over from an earlier launch — an app window, or a backend that outlived it —
+// goes first. The patterns are specific to this checkout's backend and shell entry point.
+const staleProcessPatterns = [
+	join(root, "server", "MyloMail.Api", "bin"),
+	"run --no-build --project server/MyloMail.Api",
+	"apps/electron-shell/dist/Main.js",
+];
+killStaleProcesses();
 run("pnpm", ["build:electron"]);
 if (process.env.MYLOMAIL_BACKEND_ARGS === undefined)
 	run("dotnet", ["build", "server/MyloMail.Api"]);
-run(
-	"pnpm",
-	[
-		"exec",
-		"electron",
-		...sandboxArguments(),
-		"apps/electron-shell/dist/Main.js",
-	],
-	{
-		MYLOMAIL_RENDERER_PATH: join(root, "apps", "renderer", "dist"),
-		MYLOMAIL_BACKEND_ARGS: backendArguments,
-	},
-);
+runApp();
+
+/**
+ * Runs the app in its own process group and takes the whole group down with the launcher, so
+ * stopping `pnpm app` — Ctrl-C, a signal, or the shell closing — never leaves the backend (a
+ * grandchild of the shell) running with nobody to talk to.
+ */
+function runApp(): void {
+	const child = spawn(
+		"pnpm",
+		[
+			"exec",
+			"electron",
+			...sandboxArguments(),
+			"apps/electron-shell/dist/Main.js",
+		],
+		{
+			cwd: root,
+			env: {
+				...process.env,
+				MYLOMAIL_RENDERER_PATH: join(root, "apps", "renderer", "dist"),
+				MYLOMAIL_BACKEND_ARGS: backendArguments,
+			},
+			stdio: "inherit",
+			shell: platform === "win32",
+			detached: platform !== "win32",
+		},
+	);
+
+	let stopping = false;
+	const stopGroup = (signal: NodeJS.Signals = "SIGTERM") => {
+		if (child.pid === undefined) return;
+		try {
+			if (platform === "win32") child.kill(signal);
+			else process.kill(-child.pid, signal);
+		} catch {
+			// The group is already gone.
+		}
+	};
+	for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+		process.on(signal, () => {
+			if (stopping) return;
+			stopping = true;
+			stopGroup(signal);
+			// A shell that ignores the signal must not leave the launcher hanging.
+			setTimeout(() => {
+				stopGroup("SIGKILL");
+				killStaleProcesses();
+				process.exit(130);
+			}, 5000).unref();
+		});
+	}
+	child.on("error", (error) => {
+		console.error(error);
+		process.exitCode = 1;
+	});
+	child.on("exit", (code) => {
+		// Whatever the shell left behind, including a backend it did not get to stop.
+		stopGroup("SIGKILL");
+		killStaleProcesses();
+		process.exitCode = code ?? process.exitCode ?? 1;
+	});
+}
+
+function killStaleProcesses(): void {
+	if (platform === "win32") return;
+	for (const signal of ["-TERM", "-KILL"]) {
+		for (const pattern of staleProcessPatterns)
+			spawnSync("pkill", [signal, "-f", pattern], { stdio: "ignore" });
+		if (signal === "-TERM") spawnSync("sleep", ["1"]);
+	}
+}
 
 function run(
 	command: string,
