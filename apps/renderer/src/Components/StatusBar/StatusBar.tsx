@@ -138,13 +138,10 @@ export function StatusBar({
 					<span
 						className={styles.throttle}
 						title={`${throttled.data
-							.map(
-								(t) =>
-									`${t.accountName} is rate-limited by its provider; resuming in about ${t.retryAfterSeconds}s.`,
-							)
+							.map((t) => `${t.accountName} is rate-limited by its provider.`)
 							.join(
 								"\n",
-							)}\nNothing is wrong: the provider asked MyloMail to slow down, and syncing resumes by itself.`}
+							)}\nNothing is wrong: the provider asked MyloMail to slow down, and syncing resumes by itself within a minute or so.`}
 					>
 						Throttled
 					</span>
