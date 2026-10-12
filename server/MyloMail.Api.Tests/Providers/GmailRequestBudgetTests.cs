@@ -54,6 +54,29 @@ public sealed class GmailRequestBudgetTests
 		await spend.WaitAsync(TimeSpan.FromSeconds(5));
 	}
 
+	/// <summary>
+	/// Refused after charging far less than the configured rate: the provider enforces a lower limit
+	/// than assumed, and the account is slowed to about half of what it was spending.
+	/// </summary>
+	[Fact]
+	public async Task A_refusal_well_under_the_configured_rate_slows_the_account_to_half_of_what_it_spent()
+	{
+		var clock = new FakeTimeProvider();
+		var budget = Budget(clock, burst: 100);
+		var account = Guid.NewGuid();
+		await budget.AcquireAsync(account, 60, CancellationToken.None);
+
+		budget.NoteRefused(account);
+
+		// Spent 60 in the minute, so the new rate is 30/min = 0.5 units/s (a twentieth of 10/s).
+		var spend = budget.AcquireAsync(account, 1, CancellationToken.None);
+		Assert.False(spend.IsCompleted);
+		clock.Advance(TimeSpan.FromSeconds(1.9));
+		Assert.False(spend.IsCompleted);
+		clock.Advance(TimeSpan.FromSeconds(0.2));
+		await spend.WaitAsync(TimeSpan.FromSeconds(5));
+	}
+
 	[Fact]
 	public async Task Waiters_queue_behind_each_other_rather_than_all_waking_together()
 	{

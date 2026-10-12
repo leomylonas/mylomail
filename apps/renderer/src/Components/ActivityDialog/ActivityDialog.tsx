@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Close } from "@carbon/icons-react";
-import { IconButton } from "@carbon/react";
+import { IconButton, Tag } from "@carbon/react";
 import { useQuery } from "@tanstack/react-query";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import type {
@@ -89,55 +89,71 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 		account.contentQueued +
 		account.contentFetching +
 		account.contentFailed;
+	const contentOutstanding =
+		account.contentQueued + account.contentFetching + account.contentFailed;
 	const walk = account.walk;
+	const walkKnownTotal =
+		walk?.estimatedTotal && walk.estimatedTotal > walk.fetched
+			? walk.estimatedTotal
+			: null;
+
 	return (
-		<section aria-label={account.accountName}>
-			<h3>
-				{account.accountName}
+		<section className={styles.account} aria-label={account.accountName}>
+			<div className={styles.accountHeader}>
+				<h3>{account.accountName}</h3>
 				{account.throttleRetryAfterSeconds != null ? (
-					<span className={styles.badge}>
-						rate-limited by the provider; resumes by itself
-					</span>
+					<Tag type="warm-gray" size="sm">
+						Rate-limited, resumes by itself
+					</Tag>
 				) : null}
-			</h3>
+			</div>
 
 			{walk && walk.status !== CoverageStatus.Covered ? (
 				<div
-					className={`${styles.item} ${walk.status === CoverageStatus.Failed ? styles.stuck : ""}`}
+					className={`${styles.card} ${walk.status === CoverageStatus.Failed ? styles.stuck : ""}`}
 				>
-					<p className={styles.title}>Mail list: {statusLabel[walk.status]}</p>
-					<p className={styles.meta}>
-						{walk.estimatedTotal && walk.estimatedTotal > walk.fetched
-							? `${walk.fetched.toLocaleString()} of ${walk.estimatedTotal.toLocaleString()} messages`
+					<div className={styles.cardHeader}>
+						<h4>Mail list</h4>
+						<Tag
+							type={walk.status === CoverageStatus.Failed ? "red" : "blue"}
+							size="sm"
+						>
+							{statusLabel[walk.status]}
+						</Tag>
+					</div>
+					<p className={styles.figure}>
+						{walkKnownTotal
+							? `${walk.fetched.toLocaleString()} of ${walkKnownTotal.toLocaleString()} messages`
 							: `${walk.fetched.toLocaleString()} messages so far`}
-						. Newer mail is fetched separately every minute while this runs.
 					</p>
-					{walk.estimatedTotal && walk.estimatedTotal > walk.fetched ? (
+					{walkKnownTotal ? (
 						<progress
 							className={styles.bar}
-							max={walk.estimatedTotal}
+							max={walkKnownTotal}
 							value={walk.fetched}
 						/>
 					) : null}
+					<p className={styles.note}>
+						Newer mail is fetched separately every minute while this runs.
+						{account.stagedHistoryPages > 0
+							? ` ${account.stagedHistoryPages.toLocaleString()} change${account.stagedHistoryPages === 1 ? "" : "s"} received meanwhile will be applied when it finishes.`
+							: ""}
+					</p>
 					{walk.lastError ? (
-						<p className={styles.detail}>{walk.lastError}</p>
-					) : null}
-					{account.stagedHistoryPages > 0 ? (
-						<p className={styles.note}>
-							{account.stagedHistoryPages.toLocaleString()} change
-							{account.stagedHistoryPages === 1 ? "" : "s"} received while
-							downloading are held and applied when it finishes.
-						</p>
+						<p className={styles.error}>{walk.lastError}</p>
 					) : null}
 				</div>
 			) : null}
 
 			{account.folders.length > 0 ? (
-				<div className={styles.item}>
-					<p className={styles.title}>
-						Folders: {account.folders.length} of {account.folderCount} still
-						downloading
-					</p>
+				<div className={styles.card}>
+					<div className={styles.cardHeader}>
+						<h4>Folders</h4>
+						<span className={styles.figure}>
+							{account.folders.length} of {account.folderCount} still
+							downloading
+						</span>
+					</div>
 					<table className={styles.table}>
 						<thead>
 							<tr>
@@ -155,38 +171,32 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 				</div>
 			) : null}
 
-			{contentTotal > 0 &&
-			account.contentQueued + account.contentFetching + account.contentFailed >
-				0 ? (
+			{contentOutstanding > 0 ? (
 				<div
-					className={`${styles.item} ${account.contentFailed > 0 ? styles.stuck : ""}`}
+					className={`${styles.card} ${account.contentFailed > 0 ? styles.stuck : ""}`}
 				>
-					<p className={styles.title}>Message content</p>
-					<p className={styles.stats}>
-						<span>
-							<strong>{account.contentReady.toLocaleString()}</strong>{" "}
-							downloaded
+					<div className={styles.cardHeader}>
+						<h4>Message content</h4>
+						<span className={styles.figure}>
+							{account.contentReady.toLocaleString()} of{" "}
+							{contentTotal.toLocaleString()} downloaded
 						</span>
-						<span>
-							<strong>{account.contentFetching.toLocaleString()}</strong>{" "}
-							downloading now
-						</span>
-						<span>
-							<strong>{account.contentQueued.toLocaleString()}</strong> queued
-						</span>
-						<span>
-							<strong>{account.contentFailed.toLocaleString()}</strong> stuck
-						</span>
-					</p>
+					</div>
 					<progress
 						className={styles.bar}
 						max={contentTotal}
 						value={account.contentReady}
 					/>
+					<dl className={styles.stats}>
+						<Stat label="Downloaded" value={account.contentReady} />
+						<Stat label="Downloading" value={account.contentFetching} />
+						<Stat label="Queued" value={account.contentQueued} />
+						<Stat label="Stuck" value={account.contentFailed} />
+					</dl>
 					{account.downloading.length > 0 ? (
 						<>
-							<p className={styles.note}>Downloading now:</p>
-							<ul>
+							<p className={styles.subheading}>Downloading now</p>
+							<ul className={styles.list}>
 								{account.downloading.map((message) => (
 									<li key={message.messageId}>
 										{message.subject || "(no subject)"}
@@ -201,12 +211,12 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 					) : null}
 					{account.failureGroups.length > 0 ? (
 						<>
-							<p className={styles.note}>Why messages are stuck:</p>
-							<ul>
+							<p className={styles.subheading}>Why messages are stuck</p>
+							<ul className={styles.list}>
 								{account.failureGroups.map((group) => (
 									<li key={group.error}>
 										{group.count.toLocaleString()} ×{" "}
-										<span className={styles.detail}>{group.error}</span>
+										<span className={styles.error}>{group.error}</span>
 									</li>
 								))}
 							</ul>
@@ -215,6 +225,15 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 				</div>
 			) : null}
 		</section>
+	);
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+	return (
+		<div className={styles.stat}>
+			<dt>{label}</dt>
+			<dd>{value.toLocaleString()}</dd>
+		</div>
 	);
 }
 
@@ -228,7 +247,7 @@ function FolderRow({ folder }: { folder: FolderActivityDto }) {
 					? `${folder.fetched.toLocaleString()} of ${folder.estimatedTotal.toLocaleString()}`
 					: folder.fetched.toLocaleString()}
 				{folder.lastError ? (
-					<span className={styles.detail}> {folder.lastError}</span>
+					<div className={styles.error}>{folder.lastError}</div>
 				) : null}
 			</td>
 		</tr>

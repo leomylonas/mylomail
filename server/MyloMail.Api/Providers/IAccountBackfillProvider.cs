@@ -52,4 +52,7 @@ public interface IAccountBackfillProvider
 		IReadOnlyList<string> providerStableIds,
 		CancellationToken ct
 	);
+
+	/// <summary>The number of messages in the whole account, or null if the provider cannot say.</summary>
+	Task<long?> GetAccountMessageTotalAsync(Account account, CancellationToken ct);
 }

@@ -388,6 +388,11 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 
 	public int RecentListCalls { get; private set; }
 
+	public long? AccountMessageTotal { get; set; }
+
+	public Task<long?> GetAccountMessageTotalAsync(Account account, CancellationToken ct) =>
+		Task.FromResult(AccountMessageTotal);
+
 	private IEnumerable<WalkMessage> WalkMessagesNewestFirst() =>
 		mailboxes
 			.Values.SelectMany(mailbox =>

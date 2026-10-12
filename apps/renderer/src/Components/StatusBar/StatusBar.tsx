@@ -119,40 +119,49 @@ export function StatusBar({
 			) : null}
 			<div className={styles.activity} role="status" aria-live="polite">
 				{activity.syncing || pendingContent > 0 || retrying > 0 ? (
-					<button
-						type="button"
-						className={styles.activityButton}
-						aria-haspopup="dialog"
-						title="Show what is downloading, queued and stuck (message content is downloaded newest first; a message you open jumps the queue)"
-						onClick={() => setActivityOpen(true)}
+					<Tooltip
+						align="top"
+						label={
+							<>
+								{activity.syncing ? (
+									<div>
+										Downloading mail
+										{activity.syncing.folders > 1
+											? ` in ${activity.syncing.folders} folders`
+											: ""}
+										:{" "}
+										{activity.syncing.total
+											? `${activity.syncing.fetched.toLocaleString()} of ${activity.syncing.total.toLocaleString()}`
+											: `${activity.syncing.fetched.toLocaleString()} so far`}
+									</div>
+								) : null}
+								{pendingContent > 0 ? (
+									<div>
+										Downloading message content:{" "}
+										{(queue.data?.ready ?? 0).toLocaleString()} of{" "}
+										{totalContent.toLocaleString()} (
+										{pendingContent.toLocaleString()} queued)
+									</div>
+								) : null}
+								{retrying > 0 ? (
+									<div>
+										Retrying {retrying} failed{" "}
+										{retrying === 1 ? "download" : "downloads"}
+									</div>
+								) : null}
+								<div>Click for details.</div>
+							</>
+						}
 					>
-						{activity.syncing ? (
-							<span>
-								Downloading mail
-								{activity.syncing.folders > 1
-									? ` in ${activity.syncing.folders} folders`
-									: ""}
-								:{" "}
-								{activity.syncing.total
-									? `${activity.syncing.fetched} of ${activity.syncing.total}`
-									: `${activity.syncing.fetched} so far`}
-							</span>
-						) : null}
-						{pendingContent > 0 ? (
-							<span>
-								Downloading message content:{" "}
-								{(queue.data?.ready ?? 0).toLocaleString()} of{" "}
-								{totalContent.toLocaleString()} (
-								{pendingContent.toLocaleString()} queued)
-							</span>
-						) : null}
-						{retrying > 0 ? (
-							<span>
-								Retrying {retrying} failed{" "}
-								{retrying === 1 ? "download" : "downloads"}
-							</span>
-						) : null}
-					</button>
+						<button
+							type="button"
+							className={styles.activityButton}
+							aria-haspopup="dialog"
+							onClick={() => setActivityOpen(true)}
+						>
+							Syncing…
+						</button>
+					</Tooltip>
 				) : null}
 				{throttled.data?.length ? (
 					<Tooltip

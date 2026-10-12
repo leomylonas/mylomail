@@ -114,6 +114,7 @@ public sealed class AccountCoverageJobTests
 		await harness.UsingAsync(scope =>
 			scope.GetRequiredService<MyloMail.Api.Sync.CoverageService>().RunAccountPageAsync(harness.Account));
 		var newest = Guid.NewGuid();
+		harness.Provider.AccountMessageTotal = 5000;
 		harness.Provider.SeedMessage("INBOX", newest, DateTimeOffset.UnixEpoch.AddDays(1));
 		var pagesBefore = harness.Provider.AccountWalkPages;
 
@@ -131,6 +132,8 @@ public sealed class AccountCoverageJobTests
 			var walk = await context.AccountCoverageStates.SingleAsync();
 			Assert.Equal(CoverageStatus.Backfilling, walk.Status);
 			Assert.NotNull(walk.ResumeToken);
+			// A walk whose pages keep being refused still learns its real total.
+			Assert.Equal(harness.Account.InitialSyncMode == InitialSyncMode.LastNMonths ? walk.EstimatedTotal : 5000, walk.EstimatedTotal);
 		});
 
 		// Rate-limited: asking again straight away costs the provider nothing.

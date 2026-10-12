@@ -180,6 +180,9 @@ public sealed partial class GmailMailProvider(
 		);
 	}
 
+	public async Task<long?> GetAccountMessageTotalAsync(Account account, CancellationToken ct) =>
+		(await (await ServiceAsync(account, ct)).Users.GetProfile(UserId).ExecuteThrottleAwareAsync(ct)).MessagesTotal;
+
 	public async Task<IReadOnlyList<string>> ListRecentMessageIdsAsync(Account account, int count, CancellationToken ct)
 	{
 		var service = await ServiceAsync(account, ct);

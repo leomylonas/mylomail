@@ -24,6 +24,22 @@ public sealed class SyncNowTests
 		return harness;
 	}
 
+	[Fact]
+	public async Task A_manual_sync_that_would_ask_nothing_of_the_provider_says_why_without_starting()
+	{
+		await using var harness = await CoveredGmailAsync();
+		await harness.UsingAsync(scope =>
+		{
+			scope.GetRequiredService<AccountGate>().Throttle(harness.Account.Id, TimeSpan.FromMinutes(1));
+			return Task.CompletedTask;
+		});
+
+		var blocked = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<SyncJobs>().SyncNowBlockedAsync(harness.Account.Id));
+
+		Assert.Equal(SyncNowOutcome.Throttled, blocked);
+	}
+
 	private static Task<SyncNowOutcome> SyncNowAsync(SyncHarness harness) =>
 		harness.UsingAsync(scope => scope.GetRequiredService<SyncJobs>().SyncNowAsync(harness.Account.Id));
 

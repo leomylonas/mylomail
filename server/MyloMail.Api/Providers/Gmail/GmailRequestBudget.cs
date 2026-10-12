@@ -85,7 +85,7 @@ public sealed class GmailRequestBudget
 			bucket.Available -= units;
 			wait = bucket.Available >= 0
 				? TimeSpan.Zero
-				: TimeSpan.FromSeconds(-bucket.Available / unitsPerSecond);
+				: TimeSpan.FromSeconds(-bucket.Available / (unitsPerSecond * bucket.Scale));
 		}
 
 		if (wait <= TimeSpan.Zero)
@@ -114,8 +114,45 @@ public sealed class GmailRequestBudget
 		var now = clock.GetTimestamp();
 		var elapsed = clock.GetElapsedTime(bucket.Timestamp, now);
 		bucket.Timestamp = now;
-		bucket.Available = Math.Min(burstUnits, bucket.Available + elapsed.TotalSeconds * unitsPerSecond);
+		// A rate cut after a refusal heals by a tenth of the way back to the configured rate per
+		// minute, so the budget finds the limit the provider actually enforces and drifts back up
+		// if it was a passing condition.
+		bucket.Scale = Math.Min(1, bucket.Scale * Math.Pow(1.1, elapsed.TotalMinutes));
+		bucket.Available = Math.Min(
+			burstUnits * bucket.Scale,
+			bucket.Available + elapsed.TotalSeconds * unitsPerSecond * bucket.Scale
+		);
 	}
+
+	/// <summary>
+	/// The provider refused a request. If this app had charged far less than the configured rate
+	/// in the last minute, the limit actually enforced is lower than assumed, and the account is
+	/// slowed to about half of what it had been spending when it was refused.
+	/// </summary>
+	/// <remarks>
+	/// Measured on a real account: refused at 540 units in a minute against an assumed allowance
+	/// of 15,000. Pacing at a fixed rate the provider does not honour just trades each page for a
+	/// minute of lockout, so the rate is found by being refused, not configured.
+	/// </remarks>
+	public void NoteRefused(Guid accountId)
+	{
+		if (!buckets.TryGetValue(accountId, out var bucket))
+		{
+			return;
+		}
+
+		var spent = SpentInLastMinute(accountId);
+		lock (bucket)
+		{
+			Refill(bucket);
+			var target = Math.Max(MinimumScale, spent / 2.0 / (unitsPerSecond * 60));
+			bucket.Scale = Math.Min(bucket.Scale, target);
+			// Nothing in hand: the next request waits at the slower rate from a standing start.
+			bucket.Available = Math.Min(bucket.Available, 0);
+		}
+	}
+
+	private const double MinimumScale = 0.02;
 
 	/// <summary>
 	/// Units this process has charged to the account in the last minute — what the bucket believes
@@ -143,6 +180,7 @@ public sealed class GmailRequestBudget
 	private sealed class Bucket(double available, long timestamp)
 	{
 		public readonly Queue<(long Timestamp, int Units)> Spent = new();
+		public double Scale = 1;
 		public double Available = available;
 		public long Timestamp = timestamp;
 	}

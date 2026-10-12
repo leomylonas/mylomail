@@ -543,6 +543,7 @@ public sealed class CoverageService(
 		}
 
 		LastRecentCatchUp[account.Id] = now;
+		await RefreshWalkTotalAsync(account, provider, ct);
 		var listed = await provider.ListRecentMessageIdsAsync(account, RecentCatchUpCount, ct);
 		var known = (
 			await context
@@ -614,6 +615,34 @@ public sealed class CoverageService(
 			ingested.Created.Count
 		);
 		return ingested.Created.Count;
+	}
+
+	/// <summary>
+	/// Keeps the walk's stored total honest while it is making no progress. A walk page reports the
+	/// total only when it commits, and a page that keeps being refused never does, which left the
+	/// status showing "N so far" indefinitely. The count is one cheap call and is not part of any
+	/// cursor, so refreshing it here cannot affect what the walk covers.
+	/// </summary>
+	private async Task RefreshWalkTotalAsync(Account account, IAccountBackfillProvider provider, CancellationToken ct)
+	{
+		if (account.InitialSyncMode == InitialSyncMode.LastNMonths)
+		{
+			return;
+		}
+
+		var total = await provider.GetAccountMessageTotalAsync(account, ct);
+		if (total is not long known)
+		{
+			return;
+		}
+
+		var estimate = checked((int)Math.Min(
+			known,
+			account.InitialSyncMode == InitialSyncMode.LastNMessages && account.InitialSyncBoundValue is int bound ? bound : known
+		));
+		await context
+			.AccountCoverageStates.Where(state => state.AccountId == account.Id && state.Status != CoverageStatus.Covered)
+			.ExecuteUpdateAsync(setters => setters.SetProperty(state => state.EstimatedTotal, estimate), ct);
 	}
 
 	private async Task<bool> RunWalkPageAsync(Account account, int pageSize, CancellationToken ct)

@@ -123,8 +123,8 @@ public interface IMailHub
 
 	/// <summary>
 	/// Manual "send &amp; receive": syncs every enabled account now (or just the one named) and says
-	/// how each ended. Returns when the sync passes finish; the queued follow-up work — message
-	/// bodies, local changes, unsent mail — carries on in the background.
+	/// how each was started. Returns at once; the passes run in the background and report through
+	/// the usual events.
 	/// </summary>
 	Task<SyncNowResultDto> SyncNow(Guid? accountId);
 
@@ -877,9 +877,15 @@ public class MailHub(
 		var results = new List<SyncNowAccountResultDto>();
 		foreach (var account in accounts)
 		{
-			results.Add(
-				new SyncNowAccountResultDto(account.Id, account.DisplayName, await syncJobs.SyncNowAsync(account.Id, Context.ConnectionAborted))
-			);
+			// Answered at once: a pass over every folder of several accounts can take minutes, and
+			// the caller has nothing to wait for. What it finds arrives through the usual events.
+			var blocked = await syncJobs.SyncNowBlockedAsync(account.Id, Context.ConnectionAborted);
+			if (blocked is null)
+			{
+				jobs.Enqueue<Scheduling.SyncJobs>(job => job.RunSyncNowAsync(account.Id, default));
+			}
+
+			results.Add(new SyncNowAccountResultDto(account.Id, account.DisplayName, blocked ?? SyncNowOutcome.Synced));
 		}
 
 		return new SyncNowResultDto(results);

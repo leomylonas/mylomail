@@ -1038,6 +1038,30 @@ public sealed class SyncJobs(
 	/// rate-limiting the account is not asked anything: pressing the button must not extend the
 	/// limit.
 	/// </remarks>
+	/// <summary>
+	/// Whether a manual sync should be started at all, answered without asking the provider.
+	/// Null means it can go ahead.
+	/// </summary>
+	public async Task<Contracts.SyncNowOutcome?> SyncNowBlockedAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var account = await context.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == accountId, ct);
+		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)
+		{
+			return Contracts.SyncNowOutcome.NeedsAttention;
+		}
+
+		if (!connectivity.IsOnline)
+		{
+			return Contracts.SyncNowOutcome.Offline;
+		}
+
+		return gate.Delay(accountId) > TimeSpan.Zero ? Contracts.SyncNowOutcome.Throttled : null;
+	}
+
+	/// <summary>The background job a manual sync starts: the pass itself, results announced by the usual events.</summary>
+	public async Task RunSyncNowAsync(Guid accountId, CancellationToken ct = default) =>
+		await SyncNowAsync(accountId, ct);
+
 	public async Task<Contracts.SyncNowOutcome> SyncNowAsync(Guid accountId, CancellationToken ct = default)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
