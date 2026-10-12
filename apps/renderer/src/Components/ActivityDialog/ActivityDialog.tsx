@@ -109,9 +109,15 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 			? walk.estimatedTotal
 			: null;
 	const walkRate = useRate(walk?.fetched ?? 0, walkKnownTotal, "messages");
+	// While the mail list is still running, content can only be downloaded for the messages it has
+	// reached so far, so the account's real size is the list's total, not the content total.
+	const contentExpected =
+		walkKnownTotal && walkKnownTotal > contentTotal
+			? walkKnownTotal
+			: contentTotal;
 	const contentRate = useRate(
 		account.contentReady,
-		contentTotal > 0 ? contentTotal : null,
+		contentExpected > 0 ? contentExpected : null,
 		"messages",
 	);
 
@@ -131,7 +137,7 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 					className={`${styles.card} ${walk.status === CoverageStatus.Failed ? styles.stuck : ""}`}
 				>
 					<div className={styles.cardHeader}>
-						<h4>Mail list</h4>
+						<h4>Step 1: finding your messages (mail list)</h4>
 						<Tag
 							type={walk.status === CoverageStatus.Failed ? "red" : "blue"}
 							size="sm"
@@ -195,23 +201,35 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 					className={`${styles.card} ${account.contentFailed > 0 ? styles.stuck : ""}`}
 				>
 					<div className={styles.cardHeader}>
-						<h4>Message content</h4>
+						<h4>
+							Step 2: downloading each email\u2019s text (message content)
+						</h4>
 						<span className={styles.figure}>
 							{account.contentReady.toLocaleString()} of{" "}
-							{contentTotal.toLocaleString()} downloaded
+							{contentExpected !== contentTotal ? "about " : ""}
+							{contentExpected.toLocaleString()} downloaded
 						</span>
 					</div>
 					<progress
 						className={styles.bar}
-						max={contentTotal}
+						max={contentExpected}
 						value={account.contentReady}
 					/>
+					{contentExpected !== contentTotal ? (
+						<p className={styles.note}>
+							Only messages the mail list has found so far can be downloaded:{" "}
+							{contentTotal.toLocaleString()} of about{" "}
+							{contentExpected.toLocaleString()} so far.{" "}
+							{(contentExpected - contentTotal).toLocaleString()} more will
+							appear here as the mail list above catches up.
+						</p>
+					) : null}
 					<p className={styles.note}>{contentRate}</p>
 					<dl className={styles.stats}>
 						<Stat label="Downloaded" value={account.contentReady} />
-						<Stat label="Downloading" value={account.contentFetching} />
-						<Stat label="Queued" value={account.contentQueued} />
-						<Stat label="Stuck" value={account.contentFailed} />
+						<Stat label="Downloading now" value={account.contentFetching} />
+						<Stat label="Waiting their turn" value={account.contentQueued} />
+						<Stat label="Stuck (gave up)" value={account.contentFailed} />
 					</dl>
 					{account.downloading.length > 0 ? (
 						<>
