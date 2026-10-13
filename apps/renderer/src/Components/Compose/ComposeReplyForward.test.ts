@@ -163,6 +163,69 @@ describe("buildReplySeed", () => {
 	});
 });
 
+describe("the quoted header", () => {
+	const reply = () =>
+		buildReplySeed(
+			"reply",
+			context({
+				cc: [{ name: null, email: "copy@example.test" }],
+				subject: "Quarterly numbers",
+			}),
+			"<p>Original words</p>",
+			"me@example.test",
+			[],
+			"24h",
+		);
+
+	it("is Outlook's: a rule, then From, Sent, To, Cc and Subject, above the original", () => {
+		const html = reply().bodyHtml;
+
+		expect(
+			html.startsWith("<p><br></p><p>________________________________</p>"),
+		).toBe(true);
+		expect(html).toContain(
+			"<strong>From:</strong> Alice &lt;alice@example.test&gt;",
+		);
+		expect(html).toMatch(/<strong>Sent:<\/strong> [^<]*2026/);
+		expect(html).toContain("<strong>To:</strong> Me &lt;me@example.test&gt;");
+		expect(html).toContain("<strong>Cc:</strong> copy@example.test");
+		expect(html).toContain("<strong>Subject:</strong> Quarterly numbers");
+		expect(html.indexOf("Subject:")).toBeLessThan(
+			html.indexOf("Original words"),
+		);
+		expect(html).not.toContain("wrote:");
+	});
+
+	it("leaves out Cc when there is none, and writes Sent on the chosen clock", () => {
+		const html = buildForwardSeed(context(), "<p>x</p>", [], "12h").bodyHtml;
+
+		expect(html).not.toContain("Cc:");
+		expect(html).toMatch(/Sent:<\/strong> [^<]*(AM|PM)/i);
+	});
+
+	it("prefixes a forward Fw, as Outlook does", () => {
+		expect(buildForwardSeed(context(), "<p>x</p>", []).subject).toBe(
+			"Fw: Hello",
+		);
+	});
+
+	it("is not counted when looking for a mention of an attachment in what the user wrote", () => {
+		const seed = buildReplySeed(
+			"reply",
+			context({ subject: "See attached invoice" }),
+			"<p>the attached file</p>",
+			"me@example.test",
+		);
+
+		expect(mentionsAttachmentOutsideQuote(seed.bodyHtml)).toBe(false);
+		expect(
+			mentionsAttachmentOutsideQuote(
+				`<p>Please see the attached</p>${seed.bodyHtml}`,
+			),
+		).toBe(true);
+	});
+});
+
 describe("buildForwardSeed", () => {
 	it("copies every attachment, inline and ordinary alike", () => {
 		const inline = attachment("inline1", "logo.png", {

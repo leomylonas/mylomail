@@ -169,3 +169,35 @@ test("the From menu moves a message to another account without losing what was t
 		await app.close();
 	}
 });
+
+test("writing starts at the top of the message, above the signature", async () => {
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window
+			.getByRole("dialog")
+			.getByRole("button", { name: "Matrix" })
+			.click();
+		await window.getByRole("button", { name: "Edit", exact: true }).click();
+		await window.getByLabel("Signature (HTML)").fill("<p>Bottom signature</p>");
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
+		await window.getByRole("button", { name: "Close settings" }).click();
+		await expect(
+			window.getByRole("button", { name: "New message" }),
+		).toBeEnabled({ timeout: 60_000 });
+		await window.getByRole("button", { name: "New message" }).click();
+
+		const message = window.getByLabel("Message", { exact: true });
+		await expect(message).toContainText("Bottom signature");
+		// No click into the body: the caret is where a new message should start.
+		await window.keyboard.type("Typed first");
+
+		await expect(message).toHaveText(/^Typed first[\s\S]*Bottom signature/);
+	} finally {
+		await app.close();
+	}
+});

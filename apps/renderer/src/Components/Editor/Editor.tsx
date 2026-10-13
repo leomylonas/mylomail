@@ -109,6 +109,9 @@ export function Editor({
 							const nodes = $generateNodesFromDOM(editor, document);
 							$getRoot().select();
 							$insertNodes(nodes);
+							// Writing starts at the top, above any quoted message or signature,
+							// not wherever inserting the content happened to leave the cursor.
+							$getRoot().selectStart();
 						}
 					: undefined,
 				theme: {

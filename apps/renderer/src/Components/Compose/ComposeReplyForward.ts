@@ -202,6 +202,13 @@ export function mentionsAttachmentOutsideQuote(html: string): boolean {
 	document
 		.querySelectorAll("blockquote")
 		.forEach((element) => element.remove());
+	// Everything from the rule down is the quoted message, not the user's own words.
+	const rule = [...document.body.children].find(
+		(element) =>
+			element.tagName === "P" && element.textContent === quoteSeparator,
+	);
+	while (rule?.nextSibling) rule.nextSibling.remove();
+	rule?.remove();
 	return /\b(attached|attachment|attach)\b/i.test(
 		document.body.textContent ?? "",
 	);
@@ -217,16 +224,48 @@ function formatAddressList(addresses: Address[]): string {
 	return addresses.map(formatAddress).join(", ");
 }
 
-function formatWhen(receivedAt: string, clock: ClockPreference): string {
+/** Outlook writes the date out in full: "Friday, 9 October 2026 5:32 PM". */
+function formatSent(receivedAt: string, clock: ClockPreference): string {
 	return new Date(receivedAt).toLocaleString(undefined, {
-		weekday: "short",
+		weekday: "long",
 		year: "numeric",
-		month: "short",
+		month: "long",
 		day: "numeric",
 		hour: "numeric",
 		minute: "2-digit",
 		...clockOptions(clock),
 	});
+}
+
+/**
+ * The rule that ends what the user writes and begins what they are replying to or forwarding, as
+ * Outlook draws it. A paragraph of this text exactly, so the signature can be placed above it and
+ * the missing-attachment check can ignore everything below it.
+ */
+export const quoteSeparator = "________________________________";
+
+/**
+ * The header block Outlook puts above a quoted message, for a reply and a forward alike:
+ * a rule, then From, Sent, To, Cc and Subject with their labels in bold.
+ */
+function quoteHeaderHtml(
+	context: MessageReplyContext,
+	clock: ClockPreference,
+): string {
+	const line = (label: string, value: string) =>
+		`<strong>${label}:</strong> ${value}`;
+	const lines = [
+		line("From", formatAddressList(context.from)),
+		line("Sent", escapeHtml(formatSent(context.receivedAt, clock))),
+		...(context.to.length > 0
+			? [line("To", formatAddressList(context.to))]
+			: []),
+		...(context.cc.length > 0
+			? [line("Cc", formatAddressList(context.cc))]
+			: []),
+		line("Subject", escapeHtml(context.subject)),
+	];
+	return `<p>${quoteSeparator}</p><p>${lines.join("<br>")}</p>`;
 }
 
 /** Who a reply/reply-all actually goes to, split out from {@link buildReplySeed}. */
@@ -259,14 +298,8 @@ export function buildReplySeed(
 ): ComposeSeed {
 	const { to, cc } = buildReplyRecipients(mode, context, ownAddress);
 
-	const attribution = `On ${formatWhen(context.receivedAt, clock)}, ${formatAddress(
-		context.from[0] ?? { name: null, email: "" },
-	)} wrote:`;
-	const quoted = quotedBodyHtml;
-	const bodyHtml =
-		`<p><br></p><p>${attribution}</p>` +
-		`<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex;">` +
-		`${quoted}</blockquote>`;
+	// The cursor lands on the empty first line, above the rule, where the reply is written.
+	const bodyHtml = `<p><br></p>${quoteHeaderHtml(context, clock)}<p><br></p>${quotedBodyHtml}`;
 
 	// Only the inline images the preserved cid:s in `quoted` can actually reference — a reply
 	// never means to drag along the original's ordinary attachments too.
@@ -294,20 +327,14 @@ export function buildForwardSeed(
 	attachments: ForwardAttachment[],
 	clock: ClockPreference = "system",
 ): ComposeSeed {
-	const header =
-		`<p>---------- Forwarded message ---------<br>` +
-		`From: ${formatAddressList(context.from)}<br>` +
-		`Date: ${escapeHtml(formatWhen(context.receivedAt, clock))}<br>` +
-		`Subject: ${escapeHtml(context.subject)}<br>` +
-		`To: ${formatAddressList(context.to)}</p>`;
-	const bodyHtml = `<p><br></p>${header}<p><br></p>${quotedBodyHtml}`;
+	const bodyHtml = `<p><br></p>${quoteHeaderHtml(context, clock)}<p><br></p>${quotedBodyHtml}`;
 
 	return {
 		key: `forward-${context.messageId}-${Date.now()}`,
 		to: [],
 		cc: [],
 		bcc: [],
-		subject: prefixSubject(context.subject, "Fwd"),
+		subject: prefixSubject(context.subject, "Fw"),
 		bodyHtml,
 		// A forward is a new, unrelated message — never threaded to the original (§1).
 		inReplyToMessageId: null,

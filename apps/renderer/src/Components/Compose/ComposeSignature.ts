@@ -1,3 +1,4 @@
+import { quoteSeparator } from "@mylomail/renderer/Components/Compose/ComposeReplyForward";
 import { signatureIdentityAttribute } from "@mylomail/renderer/Components/Editor/SignatureNode";
 
 export interface SignatureIdentity {
@@ -29,7 +30,13 @@ export function applyIdentitySignature(
 	const signature = document.createElement("div");
 	signature.setAttribute(signatureIdentityAttribute, identity.id);
 	signature.innerHTML = identity.signatureHtml;
-	document.body.append(spacer, signature);
+	// Above the rule that starts a quoted reply or forward, as Outlook puts it; at the end otherwise.
+	const rule = [...document.body.children].find(
+		(element) =>
+			element.tagName === "P" && element.textContent === quoteSeparator,
+	);
+	if (rule) rule.before(spacer, signature);
+	else document.body.append(spacer, signature);
 	return document.body.innerHTML;
 }
 

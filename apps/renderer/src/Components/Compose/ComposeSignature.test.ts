@@ -43,4 +43,24 @@ describe("applyIdentitySignature", () => {
 			'<p>Message</p><p><br></p><div data-mylomail-signature="second"><p>Thanks,<br>Support</p></div>',
 		);
 	});
+
+	it("puts the signature above the rule that starts a quoted message, as Outlook does", () => {
+		const changed = applyIdentitySignature(
+			"<p><br></p><p>________________________________</p><p>From: x</p><p>Original</p>",
+			first,
+		);
+
+		expect(changed.indexOf("data-mylomail-signature")).toBeLessThan(
+			changed.indexOf("________"),
+		);
+		expect(changed.indexOf("________")).toBeLessThan(
+			changed.indexOf("Original"),
+		);
+		// Replacing it later leaves it in the same place.
+		const swapped = applyIdentitySignature(changed, second);
+		expect(swapped.indexOf("Thanks,")).toBeLessThan(
+			swapped.indexOf("________"),
+		);
+		expect(swapped).not.toContain("Alice");
+	});
 });

@@ -1,3 +1,4 @@
+import { openWithDefaultApplication } from "@mylomail/electron-shell/OpenPath";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import type { ChildProcess } from "node:child_process";
@@ -242,7 +243,7 @@ export async function startShell(): Promise<void> {
 				if (answer.response !== 0) return "";
 			}
 
-			return shell.openPath(path);
+			return openWithDefaultApplication(path);
 		},
 	);
 
