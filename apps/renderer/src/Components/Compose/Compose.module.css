@@ -1,7 +1,7 @@
 .compose {
 	display: flex;
 	flex-direction: column;
-	gap: var(--cds-spacing-04);
+	gap: var(--cds-spacing-03);
 	height: 100%;
 	min-height: 0;
 	padding: var(--cds-spacing-05);
@@ -9,23 +9,102 @@
 	background: var(--cds-background);
 }
 
-.composeHeader {
-	padding-bottom: var(--cds-spacing-04);
+/* The command bar stays put, as Outlook's does, while the message scrolls beneath it. */
+.commandBar {
+	position: sticky;
+	top: calc(var(--cds-spacing-05) * -1);
+	z-index: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--cds-spacing-02);
+	margin: calc(var(--cds-spacing-05) * -1) calc(var(--cds-spacing-05) * -1) 0;
+	padding: var(--cds-spacing-03) var(--cds-spacing-05);
+	border-bottom: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
+}
+
+.spacer {
+	flex: 1;
+}
+
+/* From, To, Cc, Bcc and Subject read as one block of ruled lines, not a stack of form fields. */
+.headers {
+	display: flex;
+	flex-direction: column;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-03);
 	border-bottom: 1px solid var(--cds-border-subtle);
 }
 
-.composeHeader h2 {
-	margin: var(--cds-spacing-02) 0 0;
-	font-size: 1.5rem;
-	font-weight: 400;
+.rowLabel,
+.rowLabelStatic {
+	flex: none;
+	width: 3.5rem;
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	color: var(--cds-text-secondary);
+	font: inherit;
+	font-size: 0.875rem;
+	text-align: center;
 }
 
-.eyebrow {
-	color: var(--cds-text-secondary);
-	font-size: 0.6875rem;
-	font-weight: 600;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
+.rowLabel {
+	border: 1px solid var(--cds-border-subtle);
+	border-radius: 4px;
+	background: none;
+	color: var(--cds-text-primary);
+	cursor: pointer;
+}
+
+.rowLabel:hover {
+	background: var(--cds-layer-hover);
+}
+
+.rowLabelStatic {
+	padding-inline: 0;
+}
+
+.rowField {
+	flex: 1;
+	min-width: 0;
+}
+
+.rowField input,
+.rowField select {
+	border: 0;
+	outline-offset: -2px;
+	background: transparent;
+}
+
+.rowField select {
+	cursor: pointer;
+}
+
+.rowLink {
+	flex: none;
+	padding: var(--cds-spacing-02) var(--cds-spacing-03);
+	border: 0;
+	background: none;
+	color: var(--cds-link-primary);
+	font: inherit;
+	font-size: 0.75rem;
+	cursor: pointer;
+}
+
+.picker {
+	padding: var(--cds-spacing-03) 0 var(--cds-spacing-03) 4rem;
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.editor {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 12rem;
 }
 
 .actions {
@@ -33,15 +112,6 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--cds-spacing-03);
-}
-
-.compose > .actions:last-child {
-	position: sticky;
-	bottom: calc(var(--cds-spacing-05) * -1);
-	z-index: 1;
-	padding-block: var(--cds-spacing-03);
-	border-top: 1px solid var(--cds-border-subtle);
-	background: var(--cds-background);
 }
 
 .sent {

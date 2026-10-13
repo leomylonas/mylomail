@@ -1,5 +1,6 @@
 .shell {
 	display: flex;
+	flex: 1;
 	flex-direction: column;
 	border: 1px solid var(--cds-border-strong);
 	background: var(--cds-field);
@@ -14,6 +15,7 @@
 
 .surface {
 	position: relative;
+	flex: 1;
 	min-height: 12rem;
 }
 

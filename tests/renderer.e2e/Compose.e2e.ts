@@ -137,3 +137,35 @@ test("a composed message is sent and arrives at the server", async () => {
 		await app.close();
 	}
 });
+
+test("the From menu moves a message to another account without losing what was typed", async () => {
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await createImapAccount(window, 12143, undefined, {
+			displayName: "Second",
+			emailAddress: "second@mylomail.local",
+		});
+		await expect(
+			window.getByRole("button", { name: "New message" }),
+		).toBeEnabled({ timeout: 60_000 });
+		await window.getByRole("button", { name: "New message" }).click();
+
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
+		await window.getByLabel("Subject").fill("Moving house");
+		const from = window.getByLabel("From");
+		await expect(from.locator("option")).toHaveCount(2);
+
+		await from.selectOption({ label: "Second <second@mylomail.local>" });
+
+		await expect(from.locator("option:checked")).toHaveText(
+			"Second <second@mylomail.local>",
+		);
+		await expect(window.getByLabel("To", { exact: true })).toHaveValue(
+			"someone@example.org",
+		);
+		await expect(window.getByLabel("Subject")).toHaveValue("Moving house");
+	} finally {
+		await app.close();
+	}
+});

@@ -79,6 +79,8 @@ export interface ComposeSeed {
 	subject: string;
 	bodyHtml: string;
 	inReplyToMessageId: string | null;
+	/** The identity to send as, when the user already chose one (moving a draft between accounts). */
+	sendIdentityId?: string | null;
 	/**
 	 * Attachments to copy onto the new draft once it exists: every attachment for a forward,
 	 * only inline ones for a reply (a reply's quote references the original's inline images via

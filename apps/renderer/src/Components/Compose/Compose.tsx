@@ -1,7 +1,8 @@
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
-import { useQuery } from "@tanstack/react-query";
+import { Attachment, Launch, Save, Send, TrashCan } from "@carbon/icons-react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
 	ActionableNotification,
 	Button,
@@ -12,6 +13,7 @@ import {
 	OverflowMenuItem,
 	Select,
 	SelectItem,
+	SelectItemGroup,
 	SkeletonText,
 	TextInput,
 	TimePicker,
@@ -125,41 +127,68 @@ export async function saveComposeBeforeClose({
 	}
 }
 
-function RecipientField({
+/**
+ * One address row of the header: the label (which opens the contact picker, as Outlook's To/Cc
+ * buttons open its address book), a borderless field, and any trailing links.
+ */
+function RecipientRow({
 	id,
 	label,
 	value,
 	suggestions,
 	onChange,
+	trailing,
 }: {
 	id: string;
 	label: string;
 	value: string;
 	suggestions: RecipientSuggestion[];
 	onChange: (value: string) => void;
+	trailing?: React.ReactNode;
 }) {
 	const [pickerVersion, setPickerVersion] = useState(0);
+	const [picking, setPicking] = useState(false);
 	return (
 		<>
-			<TextInput
-				id={id}
-				labelText={label}
-				value={value}
-				onChange={(event) => onChange(event.target.value)}
-			/>
-			<ComboBox
-				key={pickerVersion}
-				id={`${id}-contact`}
-				titleText={`Add contact to ${label}`}
-				placeholder="Search contacts"
-				items={suggestions}
-				itemToString={(item) => item?.label ?? ""}
-				onChange={({ selectedItem }) => {
-					if (!selectedItem) return;
-					onChange(appendRecipient(value, selectedItem.email));
-					setPickerVersion((version) => version + 1);
-				}}
-			/>
+			<div className={styles.row}>
+				<button
+					type="button"
+					className={styles.rowLabel}
+					aria-expanded={picking}
+					title={`Add contact to ${label}`}
+					onClick={() => setPicking((open) => !open)}
+				>
+					{label}
+				</button>
+				<TextInput
+					id={id}
+					className={styles.rowField}
+					labelText={label}
+					hideLabel
+					size="sm"
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+				/>
+				{trailing}
+			</div>
+			{picking ? (
+				<div className={styles.picker}>
+					<ComboBox
+						key={pickerVersion}
+						id={`${id}-contact`}
+						titleText={`Add contact to ${label}`}
+						placeholder="Search contacts"
+						size="sm"
+						items={suggestions}
+						itemToString={(item) => item?.label ?? ""}
+						onChange={({ selectedItem }) => {
+							if (!selectedItem) return;
+							onChange(appendRecipient(value, selectedItem.email));
+							setPickerVersion((version) => version + 1);
+						}}
+					/>
+				</div>
+			) : null}
 		</>
 	);
 }
@@ -179,9 +208,19 @@ export function Compose({
 	draft,
 	seed,
 	registerCloseSaver,
+	accounts,
+	onAccountChange,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	/** Every account, for the From menu. */
+	accounts?: { id: string; displayName: string; emailAddress: string }[];
+	/**
+	 * Moves this message to another account: the parent remounts compose there with the given
+	 * seed. Absent in a window that is already just one account's draft, which then offers only
+	 * that account's own identities.
+	 */
+	onAccountChange?: (accountId: string, seed: ComposeSeed) => void;
 	onClose: () => void;
 	/**
 	 * Pops this draft into its own window (§13 Epic 10). Absent inside a window that is
@@ -221,6 +260,7 @@ export function Compose({
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
 	const dateFormats = useDateFormats();
 	const [savedAt, setSavedAt] = useState<string | null>(null);
+	const [showBcc, setShowBcc] = useState(false);
 	const [syncConflict, setSyncConflict] = useState(
 		draft?.syncConflict ?? false,
 	);
@@ -273,8 +313,16 @@ export function Compose({
 	// identities load; a brand-new draft picks the account's default at that point (§15).
 	const [identities, setIdentities] = useState<SendIdentityDto[]>([]);
 	const [sendIdentityId, setSendIdentityId] = useState<string | null>(
-		draft?.sendIdentityId ?? null,
+		draft?.sendIdentityId ?? seed?.sendIdentityId ?? null,
 	);
+	// Other accounts' identities, so the From menu can move this message to one of them.
+	const otherAccounts = (accounts ?? []).filter((a) => a.id !== accountId);
+	const otherIdentities = useQueries({
+		queries: otherAccounts.map((account) => ({
+			queryKey: ["send-identities", account.id],
+			queryFn: () => hub.getSendIdentities(account.id),
+		})),
+	});
 	// `Editor` (Lexical) only ever reads its `initialHtml` once, at construction — it never
 	// re-syncs from a later `body` change. A brand-new draft's signature has to be appended
 	// to `body` *before* `Editor` first mounts, or it would silently exist in state/on save
@@ -475,6 +523,52 @@ export function Compose({
 		() => registerCloseSaver?.(saveBeforeClose),
 		[registerCloseSaver, saveBeforeClose],
 	);
+
+	/**
+	 * Moves this message to another account's identity. A draft lives on one account's server, so
+	 * the old copy is deleted and the parent remounts compose on the new account with the same
+	 * fields and the new identity's signature. Attachments are per draft and are not carried, so
+	 * the menu does not offer other accounts while there are any.
+	 */
+	const moveToAccount = async (
+		targetAccountId: string,
+		identity: SendIdentityDto,
+	): Promise<void> => {
+		if (!onAccountChange) return;
+		setBusy(true);
+		try {
+			await saveChain.current.catch(() => undefined);
+			discarding.current = true;
+			const persistedDraftId = fieldsRef.current.draftId;
+			if (persistedDraftId) {
+				await hub.deleteDraft(persistedDraftId);
+			}
+			const fields = fieldsRef.current;
+			onAccountChange(targetAccountId, {
+				key: crypto.randomUUID(),
+				to: parseAddresses(fields.to).map((address) => ({
+					...address,
+					name: null,
+				})),
+				cc: parseAddresses(fields.cc).map((address) => ({
+					...address,
+					name: null,
+				})),
+				bcc: parseAddresses(fields.bcc).map((address) => ({
+					...address,
+					name: null,
+				})),
+				subject: fields.subject,
+				bodyHtml: applyIdentitySignature(fields.body, identity),
+				inReplyToMessageId,
+				sendIdentityId: identity.id,
+			});
+		} catch (error) {
+			discarding.current = false;
+			setBusy(false);
+			reportFailure("This message could not be moved to that account")(error);
+		}
+	};
 
 	const discard = async (): Promise<void> => {
 		discarding.current = true;
@@ -914,10 +1008,120 @@ export function Compose({
 				void addFiles(event.dataTransfer.files);
 			}}
 		>
-			<header className={styles.composeHeader}>
-				<span className={styles.eyebrow}>Message</span>
-				<h2>{draft ? "Edit draft" : "New message"}</h2>
-			</header>
+			<div
+				className={styles.commandBar}
+				role="toolbar"
+				aria-label="Message actions"
+			>
+				<div className={styles.sendSplit}>
+					<Button
+						size="sm"
+						renderIcon={Send}
+						disabled={busy || (!to && !cc && !bcc) || syncConflict}
+						onClick={() => void send()}
+					>
+						Send
+					</Button>
+					<OverflowMenu
+						aria-label="Send later"
+						size="sm"
+						disabled={busy || (!to && !cc && !bcc) || syncConflict}
+						flipped
+					>
+						<OverflowMenuItem
+							itemText="Tomorrow morning"
+							onClick={() => scheduleForPreset("tomorrow")}
+						/>
+						<OverflowMenuItem
+							itemText="Monday morning"
+							onClick={() => scheduleForPreset("monday")}
+						/>
+						<OverflowMenuItem
+							itemText="Pick date & time…"
+							hasDivider
+							onClick={() => setSchedulePickerOpen(true)}
+						/>
+					</OverflowMenu>
+				</div>
+				<Button
+					size="sm"
+					kind="ghost"
+					renderIcon={Attachment}
+					disabled={busy}
+					onClick={() => fileInput.current?.click()}
+				>
+					Attach files
+				</Button>
+				<Button
+					size="sm"
+					kind="ghost"
+					renderIcon={Save}
+					disabled={busy}
+					onClick={() =>
+						void save().catch(reportFailure("This draft could not be saved"))
+					}
+				>
+					Save draft
+				</Button>
+				<Button
+					size="sm"
+					kind="ghost"
+					renderIcon={TrashCan}
+					disabled={busy}
+					onClick={() => void discard()}
+				>
+					Discard
+				</Button>
+				<span className={styles.spacer} />
+				{savedAt ? (
+					<span className={styles.sent}>Draft saved at {savedAt}</span>
+				) : null}
+				{onDetach ? (
+					<Button
+						size="sm"
+						kind="ghost"
+						renderIcon={Launch}
+						onClick={() => void detach()}
+					>
+						Open in new window
+					</Button>
+				) : null}
+			</div>
+			{schedulePickerOpen ? (
+				<div className={styles.schedulePicker}>
+					<DatePicker
+						datePickerType="single"
+						minDate={new Date()}
+						onChange={(dates) => setScheduleDate(dates[0] ?? null)}
+					>
+						<DatePickerInput
+							id="compose-schedule-date"
+							labelText="Date"
+							placeholder="mm/dd/yyyy"
+						/>
+					</DatePicker>
+					<TimePicker
+						id="compose-schedule-time"
+						labelText="Time"
+						value={scheduleTime}
+						onChange={(event) => setScheduleTime(event.target.value)}
+					/>
+					<Button
+						size="sm"
+						disabled={busy || !scheduleDate || !scheduleTime || syncConflict}
+						onClick={scheduleCustom}
+					>
+						Schedule
+					</Button>
+					<Button
+						size="sm"
+						kind="ghost"
+						onClick={() => setSchedulePickerOpen(false)}
+					>
+						Cancel
+					</Button>
+				</div>
+			) : null}
 			{syncConflict ? (
 				<div className={styles.conflict}>
 					<p>
@@ -943,43 +1147,6 @@ export function Compose({
 					</div>
 				</div>
 			) : null}
-			{identities.length > 1 ? (
-				<Select
-					id="compose-from"
-					labelText="From"
-					value={sendIdentityId ?? ""}
-					onChange={(event) => {
-						const id = event.target.value;
-						const identity = identities.find(
-							(candidate) => candidate.id === id,
-						);
-						if (!identity) return;
-
-						const nextBody = applyIdentitySignature(body, identity);
-						setSendIdentityId(id);
-						setBody(nextBody);
-						setEditorRevision((current) => current + 1);
-						// `fieldsRef` is otherwise only kept current by a passive effect that
-						// runs after paint — too late for `save()`'s already-chained promise,
-						// which can run as a microtask before that effect flushes. Update the
-						// identity and its matching body as one save snapshot.
-						fieldsRef.current = {
-							...fieldsRef.current,
-							body: nextBody,
-							sendIdentityId: id,
-						};
-						void save().catch(reportFailure("This draft could not be saved"));
-					}}
-				>
-					{identities.map((identity) => (
-						<SelectItem
-							key={identity.id}
-							value={identity.id}
-							text={`${identity.displayName} <${identity.emailAddress}>`}
-						/>
-					))}
-				</Select>
-			) : null}
 			{contacts.isError ? (
 				<ActionableNotification
 					kind="error"
@@ -994,38 +1161,149 @@ export function Compose({
 					lowContrast
 				/>
 			) : null}
-			<RecipientField
-				id="compose-to"
-				label="To"
-				value={to}
-				suggestions={contactSuggestions}
-				onChange={updateTo}
-			/>
-			<RecipientField
-				id="compose-cc"
-				label="Cc"
-				value={cc}
-				suggestions={contactSuggestions}
-				onChange={updateCc}
-			/>
-			<RecipientField
-				id="compose-bcc"
-				label="Bcc"
-				value={bcc}
-				suggestions={contactSuggestions}
-				onChange={updateBcc}
-			/>
-			<TextInput
-				id="compose-subject"
-				labelText="Subject"
-				value={subject}
-				onChange={(event) => updateSubject(event.target.value)}
-			/>
-			{editorReady ? (
-				<Editor key={editorRevision} onChange={updateBody} initialHtml={body} />
-			) : (
-				<SkeletonText paragraph lineCount={4} />
-			)}
+			<div className={styles.headers}>
+				<div className={styles.row}>
+					<span className={styles.rowLabelStatic}>From</span>
+					<Select
+						id="compose-from"
+						className={styles.rowField}
+						labelText="From"
+						hideLabel
+						size="sm"
+						value={`${accountId}:${sendIdentityId ?? ""}`}
+						onChange={(event) => {
+							const [targetAccountId, identityId] =
+								event.target.value.split(":");
+							if (targetAccountId !== accountId) {
+								const index = otherAccounts.findIndex(
+									(account) => account.id === targetAccountId,
+								);
+								const identity = otherIdentities[index]?.data?.find(
+									(candidate) => candidate.id === identityId,
+								);
+								if (identity) void moveToAccount(targetAccountId!, identity);
+								return;
+							}
+
+							const identity = identities.find(
+								(candidate) => candidate.id === identityId,
+							);
+							if (!identity) return;
+
+							const nextBody = applyIdentitySignature(body, identity);
+							setSendIdentityId(identity.id);
+							setBody(nextBody);
+							setEditorRevision((current) => current + 1);
+							// `fieldsRef` is otherwise only kept current by a passive effect that
+							// runs after paint — too late for `save()`'s already-chained promise,
+							// which can run as a microtask before that effect flushes. Update the
+							// identity and its matching body as one save snapshot.
+							fieldsRef.current = {
+								...fieldsRef.current,
+								body: nextBody,
+								sendIdentityId: identity.id,
+							};
+							void save().catch(reportFailure("This draft could not be saved"));
+						}}
+					>
+						{[
+							{
+								id: accountId,
+								name:
+									accounts?.find((account) => account.id === accountId)
+										?.displayName ?? "This account",
+								list: identities,
+								available: true,
+							},
+							...otherAccounts.map((account, index) => ({
+								id: account.id,
+								name: account.displayName,
+								list: otherIdentities[index]?.data ?? [],
+								// A draft's attachments belong to its account's draft, and a window
+								// that is only this draft cannot hand the message to another account.
+								available:
+									Boolean(onAccountChange) &&
+									!attachments.some((attachment) => !attachment.isInline),
+							})),
+						].map((group) => (
+							<SelectItemGroup
+								key={group.id}
+								label={
+									group.available || group.id === accountId
+										? group.name
+										: `${group.name} (remove attachments to switch)`
+								}
+							>
+								{group.list.map((identity) => (
+									<SelectItem
+										key={identity.id}
+										value={`${group.id}:${identity.id}`}
+										disabled={!group.available}
+										text={`${identity.displayName} <${identity.emailAddress}>`}
+									/>
+								))}
+							</SelectItemGroup>
+						))}
+					</Select>
+				</div>
+				<RecipientRow
+					id="compose-to"
+					label="To"
+					value={to}
+					suggestions={contactSuggestions}
+					onChange={updateTo}
+					trailing={
+						showBcc ? null : (
+							<button
+								type="button"
+								className={styles.rowLink}
+								onClick={() => setShowBcc(true)}
+							>
+								Bcc
+							</button>
+						)
+					}
+				/>
+				<RecipientRow
+					id="compose-cc"
+					label="Cc"
+					value={cc}
+					suggestions={contactSuggestions}
+					onChange={updateCc}
+				/>
+				{showBcc || bcc ? (
+					<RecipientRow
+						id="compose-bcc"
+						label="Bcc"
+						value={bcc}
+						suggestions={contactSuggestions}
+						onChange={updateBcc}
+					/>
+				) : null}
+				<div className={styles.row}>
+					<TextInput
+						id="compose-subject"
+						className={styles.rowField}
+						labelText="Subject"
+						hideLabel
+						size="sm"
+						placeholder="Add a subject"
+						value={subject}
+						onChange={(event) => updateSubject(event.target.value)}
+					/>
+				</div>
+			</div>
+			<div className={styles.editor}>
+				{editorReady ? (
+					<Editor
+						key={editorRevision}
+						onChange={updateBody}
+						initialHtml={body}
+					/>
+				) : (
+					<SkeletonText paragraph lineCount={4} />
+				)}
+			</div>
 			<input
 				className={styles.fileInput}
 				ref={fileInput}
@@ -1064,106 +1342,6 @@ export function Compose({
 						))}
 				</ul>
 			) : null}
-			<div className={styles.actions}>
-				<Button
-					size="sm"
-					kind="tertiary"
-					disabled={busy}
-					onClick={() => fileInput.current?.click()}
-				>
-					Attach files
-				</Button>
-				<div className={styles.sendSplit}>
-					<Button
-						size="sm"
-						disabled={busy || (!to && !cc && !bcc) || syncConflict}
-						onClick={() => void send()}
-					>
-						Send
-					</Button>
-					<OverflowMenu
-						aria-label="Send later"
-						size="sm"
-						disabled={busy || (!to && !cc && !bcc) || syncConflict}
-						flipped
-					>
-						<OverflowMenuItem
-							itemText="Tomorrow morning"
-							onClick={() => scheduleForPreset("tomorrow")}
-						/>
-						<OverflowMenuItem
-							itemText="Monday morning"
-							onClick={() => scheduleForPreset("monday")}
-						/>
-						<OverflowMenuItem
-							itemText="Pick date & time…"
-							hasDivider
-							onClick={() => setSchedulePickerOpen(true)}
-						/>
-					</OverflowMenu>
-				</div>
-				{schedulePickerOpen ? (
-					<div className={styles.schedulePicker}>
-						<DatePicker
-							datePickerType="single"
-							minDate={new Date()}
-							onChange={(dates) => setScheduleDate(dates[0] ?? null)}
-						>
-							<DatePickerInput
-								id="compose-schedule-date"
-								labelText="Date"
-								placeholder="mm/dd/yyyy"
-							/>
-						</DatePicker>
-						<TimePicker
-							id="compose-schedule-time"
-							labelText="Time"
-							value={scheduleTime}
-							onChange={(event) => setScheduleTime(event.target.value)}
-						/>
-						<Button
-							size="sm"
-							disabled={busy || !scheduleDate || !scheduleTime || syncConflict}
-							onClick={scheduleCustom}
-						>
-							Schedule
-						</Button>
-						<Button
-							size="sm"
-							kind="ghost"
-							onClick={() => setSchedulePickerOpen(false)}
-						>
-							Cancel
-						</Button>
-					</div>
-				) : null}
-				<Button
-					size="sm"
-					kind="tertiary"
-					disabled={busy}
-					onClick={() =>
-						void save().catch(reportFailure("This draft could not be saved"))
-					}
-				>
-					Save draft
-				</Button>
-				{savedAt ? (
-					<span className={styles.sent}>Saved at {savedAt}</span>
-				) : null}
-				{onDetach ? (
-					<Button size="sm" kind="ghost" onClick={() => void detach()}>
-						Open in new window
-					</Button>
-				) : null}
-				<Button
-					size="sm"
-					kind="ghost"
-					disabled={busy}
-					onClick={() => void discard()}
-				>
-					Discard
-				</Button>
-			</div>
 		</div>
 	);
 }

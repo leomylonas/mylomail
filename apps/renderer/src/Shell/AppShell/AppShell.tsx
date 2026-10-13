@@ -98,6 +98,9 @@ export function AppShell({
 		useState<SettingsSection | null>(null);
 	const [commandHost, setCommandHost] = useState<HTMLElement | null>(null);
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
+	// The account chosen in compose's From menu, when it differs from the folder being viewed.
+	// Cleared whenever a different compose is opened, so a new message starts from the open folder.
+	const [composeAccountId, setComposeAccountId] = useState<string | null>(null);
 	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
 	// "New message" — the two are mutually exclusive seeds for the same compose pane.
@@ -405,6 +408,7 @@ export function AppShell({
 
 					setOpenDraft(undefined);
 					setComposeSeed(undefined);
+					setComposeAccountId(null);
 					setPane("reading");
 					void queryClient.invalidateQueries({ queryKey: ["accounts"] });
 					void queryClient.invalidateQueries({
@@ -449,6 +453,7 @@ export function AppShell({
 		if (!selectedAccountId) return;
 		setOpenDraft(undefined);
 		setComposeSeed(undefined);
+		setComposeAccountId(null);
 		setPane("compose");
 	};
 	useShortcuts([
@@ -724,6 +729,7 @@ export function AppShell({
 
 											setOpenDraft(draft);
 											setComposeSeed(undefined);
+											setComposeAccountId(null);
 											setPane("compose");
 										})();
 									}}
@@ -764,6 +770,7 @@ export function AppShell({
 									onCompose={(seed) => {
 										setOpenDraft(undefined);
 										setComposeSeed(seed);
+										setComposeAccountId(null);
 										setPane("compose");
 									}}
 									commandHost={commandHost}
@@ -788,7 +795,13 @@ export function AppShell({
 							<Compose
 								key={openDraft?.id ?? composeSeed?.key ?? "new"}
 								hub={hub}
-								accountId={selectedAccountId}
+								accountId={composeAccountId ?? selectedAccountId}
+								accounts={accounts.data}
+								onAccountChange={(accountId, seed) => {
+									setOpenDraft(undefined);
+									setComposeSeed(seed);
+									setComposeAccountId(accountId);
+								}}
 								draft={openDraft}
 								seed={composeSeed}
 								onClose={() => setPane("reading")}
@@ -805,7 +818,7 @@ export function AppShell({
 
 													try {
 														await window.windows?.open(
-															`compose=${draftId}&account=${selectedAccountId}`,
+															`compose=${draftId}&account=${composeAccountId ?? selectedAccountId}`,
 														);
 														setPane("reading");
 													} catch {

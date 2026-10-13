@@ -31,11 +31,16 @@ export async function createImapAccount(
 	window: Page,
 	imapPort: number,
 	calDav?: CalDavAccountOptions,
+	/** A second account on the same matrix needs its own name and address. */
+	identity: { displayName: string; emailAddress: string } = {
+		displayName: "Matrix",
+		emailAddress: "test@mylomail.local",
+	},
 ): Promise<number> {
 	const request: AddAccountRequest = {
-		displayName: "Matrix",
+		displayName: identity.displayName,
 		providerType: ProviderType.Imap,
-		emailAddress: "test@mylomail.local",
+		emailAddress: identity.emailAddress,
 		secret: "password",
 		certificateTrustMode: CertificateTrustMode.TrustAll,
 		imap: {
