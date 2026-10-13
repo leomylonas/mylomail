@@ -1,3 +1,4 @@
+import type { DateFormats } from "@mylomail/renderer/Lib/DateFormats";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import { toInclusiveEndDateInputValue } from "@mylomail/renderer/Components/Calendar/EventModal/AllDayEventEnd";
 
@@ -16,9 +17,10 @@ export function describeInviteWhen(
 	start: string,
 	end: string,
 	isAllDay: boolean,
+	formats: DateFormats,
 ): string {
 	if (!isAllDay) {
-		return `${new Date(start).toLocaleString()} – ${new Date(end).toLocaleTimeString()}`;
+		return `${formats.dateTime(new Date(start))} – ${formats.time(new Date(end))}`;
 	}
 
 	const startDate = dayjs.utc(start).format("YYYY-MM-DD");

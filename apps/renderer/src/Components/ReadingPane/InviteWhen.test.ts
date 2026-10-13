@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createDateFormats } from "@mylomail/renderer/Lib/DateFormats";
 import { describeInviteWhen } from "@mylomail/renderer/Components/ReadingPane/InviteWhen";
 
 describe("describeInviteWhen", () => {
@@ -7,6 +8,7 @@ describe("describeInviteWhen", () => {
 			"2026-03-10T14:00:00.000Z",
 			"2026-03-10T15:00:00.000Z",
 			false,
+			createDateFormats("system"),
 		);
 		expect(when).toContain("–");
 		expect(when).not.toMatch(/12:00:00 AM/);
@@ -18,6 +20,7 @@ describe("describeInviteWhen", () => {
 			"2026-03-10T00:00:00.000Z",
 			"2026-03-11T00:00:00.000Z",
 			true,
+			createDateFormats("system"),
 		);
 		expect(when).not.toContain("–");
 		expect(when).not.toMatch(/12:00:00 AM|AM|PM/);
@@ -28,6 +31,7 @@ describe("describeInviteWhen", () => {
 			"2026-03-10T00:00:00.000Z",
 			"2026-03-13T00:00:00.000Z",
 			true,
+			createDateFormats("system"),
 		);
 		expect(when).toContain("–");
 		expect(when).not.toMatch(/12:00:00 AM|AM|PM/);
@@ -44,6 +48,7 @@ describe("describeInviteWhen", () => {
 			"2026-03-10T00:00:00.000Z",
 			"2026-03-11T00:00:00.000Z",
 			true,
+			createDateFormats("system"),
 		);
 		expect(when).toBe(new Date(2026, 2, 10).toLocaleDateString());
 	});
@@ -60,6 +65,7 @@ describe("describeInviteWhen", () => {
 				"2026-03-10T00:00:00.000Z",
 				"2026-03-11T00:00:00.000Z",
 				true,
+				createDateFormats("system"),
 			);
 			expect(when).toBe(new Date(2026, 2, 10).toLocaleDateString());
 		} finally {

@@ -1,4 +1,9 @@
 import type { Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
+import {
+	clockOptions,
+	uses24HourClock,
+	type ClockPreference,
+} from "@mylomail/renderer/Lib/DateFormats";
 
 export interface CalendarFormatters {
 	firstDayIndex: number;
@@ -21,7 +26,9 @@ export interface CalendarFormatters {
  */
 export function createCalendarFormatters(
 	locales?: Intl.LocalesArgument,
+	clockPreference: ClockPreference = "system",
 ): CalendarFormatters {
+	const clock = clockOptions(clockPreference);
 	const resolvedLocale = new Intl.DateTimeFormat(locales).resolvedOptions()
 		.locale;
 	const locale = new Intl.Locale(resolvedLocale) as Intl.Locale & {
@@ -53,24 +60,22 @@ export function createCalendarFormatters(
 	// different notation from the "16:05" beside it; padding the hour (and pinning `h23`, since a
 	// few locales' `h24` would print midnight as "24:00") keeps every time the same width and
 	// unmistakable. A 12-hour locale keeps its own AM/PM marker.
-	const uses24HourClock = ["h23", "h24"].includes(
-		new Intl.DateTimeFormat(locales, { hour: "numeric" }).resolvedOptions()
-			.hourCycle ?? "",
-	);
+	const twentyFourHour = uses24HourClock(clockPreference, locales);
 	const time = new Intl.DateTimeFormat(
 		locales,
-		uses24HourClock
+		twentyFourHour
 			? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
-			: { hour: "numeric", minute: "2-digit" },
+			: { hour: "numeric", minute: "2-digit", ...clock },
 	);
 	const reminder = new Intl.DateTimeFormat(locales, {
 		month: "short",
 		day: "numeric",
 		hour: "numeric",
 		minute: "2-digit",
+		...clock,
 	});
 	const number = new Intl.NumberFormat(locales);
-	const hour = new Intl.DateTimeFormat(locales, { hour: "numeric" });
+	const hour = new Intl.DateTimeFormat(locales, { hour: "numeric", ...clock });
 	// `formatRange` collapses what the two ends share, so the same-month week reads "4 – 10 Oct
 	// 2026" in one locale and "Oct 4 – 10, 2026" in another, as the locale writes it.
 	const weekRange = new Intl.DateTimeFormat(locales, {
@@ -99,7 +104,7 @@ export function createCalendarFormatters(
 /** First visible day in a locale-ordered six-week month grid. */
 export function calendarGridStart(
 	anchor: Dayjs,
-	firstDayIndex = calendarFormatters.firstDayIndex,
+	firstDayIndex = localeFirstDayIndex,
 ): Dayjs {
 	const monthStart = anchor.startOf("month");
 	const daysBeforeFirst = (monthStart.day() - firstDayIndex + 7) % 7;
@@ -109,10 +114,11 @@ export function calendarGridStart(
 /** First day of the locale's week containing `anchor`, at the start of that day. */
 export function calendarWeekStart(
 	anchor: Dayjs,
-	firstDayIndex = calendarFormatters.firstDayIndex,
+	firstDayIndex = localeFirstDayIndex,
 ): Dayjs {
 	const dayStart = anchor.startOf("day");
 	return dayStart.subtract((dayStart.day() - firstDayIndex + 7) % 7, "day");
 }
 
-export const calendarFormatters = createCalendarFormatters();
+/** The locale's first weekday does not depend on the clock, so it needs no hook. */
+const localeFirstDayIndex = createCalendarFormatters().firstDayIndex;

@@ -1,3 +1,7 @@
+import {
+	systemDateFormats,
+	type DateFormats,
+} from "@mylomail/renderer/Lib/DateFormats";
 import { OutboxStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 export interface SentState {
@@ -40,6 +44,7 @@ export interface SentDisplay {
 export function describeSentState(
 	sent: SentState,
 	now: Date = new Date(),
+	formats: DateFormats = systemDateFormats,
 ): SentDisplay {
 	if (sent.cancelled || sent.status === OutboxStatus.Cancelled) {
 		return {
@@ -88,7 +93,7 @@ export function describeSentState(
 	}
 	return {
 		message: sent.scheduledFor
-			? `Scheduled for ${sent.scheduledFor.toLocaleString()}.`
+			? `Scheduled for ${formats.dateTime(sent.scheduledFor)}.`
 			: "Sending…",
 		failed: false,
 		canUndo: true,

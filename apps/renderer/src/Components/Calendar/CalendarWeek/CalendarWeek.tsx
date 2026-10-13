@@ -1,3 +1,4 @@
+import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
 import {
 	useCallback,
 	useEffect,
@@ -9,7 +10,6 @@ import {
 import { IconButton } from "@carbon/react";
 import { ZoomFit, ZoomIn, ZoomOut } from "@carbon/icons-react";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
-import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import { readableTextColour } from "@mylomail/renderer/Components/Calendar/CalendarColour";
 import {
 	eventTitle,
@@ -121,6 +121,7 @@ export function CalendarWeek({
 	/** A range was selected: a new event spans `start` to `end`, possibly over several days. */
 	onCreateRange: (start: Dayjs, end: Dayjs) => void;
 }) {
+	const calendarFormatters = useCalendarFormatters();
 	const days = Array.from({ length: dayCount }, (_, index) =>
 		weekStart.add(index, "day"),
 	);

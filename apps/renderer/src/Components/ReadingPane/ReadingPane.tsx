@@ -1,3 +1,4 @@
+import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -270,6 +271,7 @@ export function ReadingPane({
 }
 
 function MessageHeaders({ context }: { context: MessageReplyContext }) {
+	const dateFormats = useDateFormats();
 	const [expanded, setExpanded] = useState(false);
 	const hasDistinctReplyTo =
 		context.replyTo.length > 0 &&
@@ -295,10 +297,7 @@ function MessageHeaders({ context }: { context: MessageReplyContext }) {
 				) : null}
 				<Header
 					name="Date"
-					value={new Intl.DateTimeFormat(undefined, {
-						dateStyle: "medium",
-						timeStyle: "short",
-					}).format(new Date(context.receivedAt))}
+					value={dateFormats.dateTimeMedium(new Date(context.receivedAt))}
 				/>
 			</dl>
 			{many ? (
@@ -436,6 +435,7 @@ function InviteBanner({
 	hub: MailHubConnection;
 	messageId: string;
 }) {
+	const dateFormats = useDateFormats();
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 	const invite = useQuery({
@@ -481,6 +481,7 @@ function InviteBanner({
 			? invite.data.end
 			: invite.data.end.toISOString(),
 		invite.data.isAllDay,
+		dateFormats,
 	);
 
 	if (invite.data.isReply) {

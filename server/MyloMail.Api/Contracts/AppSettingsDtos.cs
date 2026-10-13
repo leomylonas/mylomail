@@ -12,7 +12,8 @@ public record ShellSettingsDto(
 	string? WindowBoundsJson,
 	bool MailtoPromptDismissed,
 	CloseBehavior CloseBehavior,
-	ThemePreference Theme
+	ThemePreference Theme,
+	TimeFormatPreference TimeFormat
 );
 
 public record UpdatePanelLayoutRequest(string PanelLayout);
@@ -32,6 +33,8 @@ public record UpdateMailtoPromptDismissedRequest(bool Dismissed);
 public record UpdateCloseBehaviorRequest(CloseBehavior CloseBehavior);
 
 public record UpdateThemeRequest(ThemePreference Theme);
+
+public record UpdateTimeFormatRequest(TimeFormatPreference TimeFormat);
 
 /// <summary>Whether this OS has a working native credential store, or the app fell back to
 /// the weaker master-password-protected SQLite store (§4, §8).</summary>

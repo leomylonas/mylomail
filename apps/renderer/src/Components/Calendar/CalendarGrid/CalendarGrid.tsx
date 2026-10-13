@@ -1,9 +1,7 @@
+import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
 import { useRef, useState } from "react";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
-import {
-	calendarFormatters,
-	calendarGridStart,
-} from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
+import { calendarGridStart } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import { readableTextColour } from "@mylomail/renderer/Components/Calendar/CalendarColour";
 import {
 	eventTitle,
@@ -71,6 +69,7 @@ export function CalendarGrid({
 	onCreateOnDay: (date: Dayjs) => void;
 	onSelectEvent: (eventId: string) => void;
 }) {
+	const calendarFormatters = useCalendarFormatters();
 	const gridStart = calendarGridStart(anchor);
 	const days = Array.from({ length: 42 }, (_, i) => gridStart.add(i, "day"));
 	const weeks = Array.from({ length: 6 }, (_, weekIndex) =>

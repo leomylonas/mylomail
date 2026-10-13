@@ -1,3 +1,4 @@
+import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
 import { useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +14,6 @@ import {
 } from "@carbon/react";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
-import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
@@ -124,6 +124,7 @@ export function EventModal({
 	onResolveConflict?: (keepMine: boolean) => void;
 	onClose: () => void;
 }) {
+	const calendarFormatters = useCalendarFormatters();
 	const isNew = !initial.eventId;
 	const [values, setValues] = useState(initial);
 	const [comment, setComment] = useState("");

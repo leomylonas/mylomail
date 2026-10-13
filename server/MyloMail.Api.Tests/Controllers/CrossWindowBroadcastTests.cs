@@ -39,6 +39,26 @@ public sealed class CrossWindowBroadcastTests
 	}
 
 	[Fact]
+	public async Task The_time_format_is_remembered_and_broadcast_to_every_window()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var events = new RecordingEvents();
+
+		await using var scope = database.CreateScope();
+		var controller = new AppSettingsController(scope.ServiceProvider.GetRequiredService<MyloMailDbContext>(), events);
+		Assert.Equal(TimeFormatPreference.System, (await Settings(controller)).TimeFormat);
+
+		await controller.PutTimeFormat(new UpdateTimeFormatRequest(TimeFormatPreference.Hour24), default);
+
+		Assert.Equal(TimeFormatPreference.Hour24, (await Settings(controller)).TimeFormat);
+		Assert.Equal(1, events.ShellSettingsChanged);
+	}
+
+	private static async Task<ShellSettingsDto> Settings(AppSettingsController controller) =>
+		(ShellSettingsDto)((OkObjectResult)(await controller.Get(default)).Result!).Value!;
+
+	[Fact]
 	public async Task Changing_the_close_behaviour_broadcasts_ShellSettingsChanged()
 	{
 		await using var database = new TestDatabase();

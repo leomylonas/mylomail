@@ -1,3 +1,4 @@
+import { createDateFormats } from "@mylomail/renderer/Lib/DateFormats";
 import { useForm } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -33,6 +34,12 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
  * applies and these arrive as numbers. */
 const closeBehavior = { QuitApp: 0, MinimizeToTray: 1 } as const;
 const theme = { System: 0, Light: 1, Dark: 2 } as const;
+
+/** Mirrors TimeFormatPreference in the same file. */
+const timeFormat = { System: 0, Hour12: 1, Hour24: 2 } as const;
+
+// One fixed afternoon time, so each choice shows how it will actually read.
+const sampleTime = new Date(2026, 0, 1, 16, 5);
 const defaultRule: PutRemoteContentRuleRequest = {
 	scope: RemoteContentRuleScope.Sender,
 	decision: RemoteContentRuleDecision.Allow,
@@ -115,6 +122,19 @@ export function ShellSettings() {
 		}
 	};
 
+	const setTimeFormat = async (value: number) => {
+		try {
+			await fetchApi("/shell-settings/time-format", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ timeFormat: value }),
+			});
+			invalidateShellSettings();
+		} catch (error) {
+			reportFailure("The time format could not be saved")(error);
+		}
+	};
+
 	const deleteRule = async (id: string) => {
 		try {
 			await fetchApi(`/remote-content/rules/${id}`, {
@@ -176,6 +196,28 @@ export function ShellSettings() {
 						labelText="Dark"
 						value={String(theme.Dark)}
 						id="theme-dark"
+					/>
+				</RadioButtonGroup>
+				<RadioButtonGroup
+					legendText="Time format"
+					name="time-format"
+					valueSelected={String(settings.data?.timeFormat ?? timeFormat.System)}
+					onChange={(value) => void setTimeFormat(Number(value))}
+				>
+					<RadioButton
+						labelText="Match system"
+						value={String(timeFormat.System)}
+						id="time-format-system"
+					/>
+					<RadioButton
+						labelText={`12-hour (${createDateFormats("12h").time(sampleTime)})`}
+						value={String(timeFormat.Hour12)}
+						id="time-format-12"
+					/>
+					<RadioButton
+						labelText={`24-hour (${createDateFormats("24h").time(sampleTime)})`}
+						value={String(timeFormat.Hour24)}
+						id="time-format-24"
 					/>
 				</RadioButtonGroup>
 			</section>

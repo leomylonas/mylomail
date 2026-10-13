@@ -1,3 +1,4 @@
+import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useEffect, useRef } from "react";
 import { Close } from "@carbon/icons-react";
 import { Button, IconButton } from "@carbon/react";
@@ -29,6 +30,7 @@ export function ProblemsDialog({
 	/** Opens that account's settings, where the download limit is changed. */
 	onOpenAccountSettings: (accountId: string) => void;
 }) {
+	const dateFormats = useDateFormats();
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
@@ -140,7 +142,7 @@ export function ProblemsDialog({
 											problem.from,
 											problem.mailboxName,
 											problem.receivedAt
-												? new Date(problem.receivedAt).toLocaleString()
+												? dateFormats.dateTime(new Date(problem.receivedAt))
 												: null,
 										]
 											.filter(Boolean)
@@ -204,7 +206,7 @@ export function ProblemsDialog({
 											problem.from,
 											problem.mailboxName,
 											problem.receivedAt
-												? new Date(problem.receivedAt).toLocaleString()
+												? dateFormats.dateTime(new Date(problem.receivedAt))
 												: null,
 											problem.attempts ? `${problem.attempts} attempts` : null,
 										]

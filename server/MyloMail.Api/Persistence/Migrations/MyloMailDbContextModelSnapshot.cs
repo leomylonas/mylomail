@@ -191,6 +191,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<int>("Theme")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("TimeFormat")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("WindowBoundsJson")
                         .HasColumnType("TEXT");
 

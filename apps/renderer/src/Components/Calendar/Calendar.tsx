@@ -1,3 +1,4 @@
+import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
 import {
 	useCallback,
 	useEffect,
@@ -50,7 +51,6 @@ import {
 } from "@mylomail/renderer/Components/Calendar/CalendarVisibility";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
 import {
-	calendarFormatters,
 	calendarGridStart,
 	calendarWeekStart,
 } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
@@ -175,6 +175,7 @@ export function Calendar({
 	}[];
 	onlyCalendarId?: string;
 }) {
+	const calendarFormatters = useCalendarFormatters();
 	const [anchor, setAnchor] = useState(() => dayjs());
 	const [view, setView] = useState<CalendarView>("grid");
 	const [takeAgendaFocus, setTakeAgendaFocus] = useState(false);

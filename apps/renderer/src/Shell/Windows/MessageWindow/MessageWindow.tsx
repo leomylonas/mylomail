@@ -1,3 +1,4 @@
+import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
@@ -45,6 +46,7 @@ export function MessageWindow({
 	senderAddress?: string;
 	accountId?: string;
 }) {
+	const dateFormats = useDateFormats();
 	const { hub, status } = useHub();
 	const { store: notifications } = useWindowNotifications();
 	const queryClient = useQueryClient();
@@ -103,6 +105,7 @@ export function MessageWindow({
 							normalizedContext,
 							originalHtml,
 							normalizeForwardAttachments(attachments),
+							dateFormats.clock,
 						)
 					: buildReplySeed(
 							mode,
@@ -110,6 +113,7 @@ export function MessageWindow({
 							originalHtml,
 							account?.emailAddress ?? "",
 							normalizeForwardAttachments(attachments),
+							dateFormats.clock,
 						);
 
 			const wireAddresses = (addresses: typeof seed.to) =>

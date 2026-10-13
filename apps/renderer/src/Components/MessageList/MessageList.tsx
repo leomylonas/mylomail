@@ -1,3 +1,8 @@
+import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
+import {
+	type ClockPreference,
+	type DateFormats,
+} from "@mylomail/renderer/Lib/DateFormats";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	Attachment,
@@ -170,10 +175,6 @@ const recentFormatter = new Intl.DateTimeFormat(undefined, {
 	day: "numeric",
 	month: "short",
 });
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
-	hour: "numeric",
-	minute: "2-digit",
-});
 const fullFormatter = new Intl.DateTimeFormat(undefined, {
 	day: "numeric",
 	month: "short",
@@ -181,10 +182,14 @@ const fullFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 /** Time for today, weekday for the last week, then date — the way Outlook abbreviates. */
-function formatMessageDate(date: Date, now = new Date()): string {
+function formatMessageDate(
+	date: Date,
+	formats: DateFormats,
+	now = new Date(),
+): string {
 	const dayMs = 24 * 60 * 60 * 1000;
 	const startOfToday = new Date(now).setHours(0, 0, 0, 0);
-	if (date.getTime() >= startOfToday) return timeFormatter.format(date);
+	if (date.getTime() >= startOfToday) return formats.time(date);
 	if (date.getTime() >= startOfToday - 6 * dayMs)
 		return recentFormatter.format(date);
 	if (date.getFullYear() === now.getFullYear())
@@ -324,6 +329,7 @@ export function MessageList({
 	 */
 	commandHost: HTMLElement | null;
 }) {
+	const dateFormats = useDateFormats();
 	const store = useWindowStore();
 	const threadMode = groupConversations ? "collapsed" : "flat";
 	const queryClient = useQueryClient();
@@ -968,7 +974,14 @@ export function MessageList({
 			description: "Reply",
 			run: () =>
 				selectedMessages.length === 1 &&
-				void replyTo(hub, selectedMessages[0]!, "reply", ownAddress, onCompose),
+				void replyTo(
+					hub,
+					selectedMessages[0]!,
+					"reply",
+					ownAddress,
+					onCompose,
+					dateFormats.clock,
+				),
 		},
 		{
 			key: "a",
@@ -981,6 +994,7 @@ export function MessageList({
 					"replyAll",
 					ownAddress,
 					onCompose,
+					dateFormats.clock,
 				),
 		},
 		{
@@ -988,7 +1002,7 @@ export function MessageList({
 			description: "Forward",
 			run: () =>
 				selectedMessages.length === 1 &&
-				void forward(hub, selectedMessages[0]!, onCompose),
+				void forward(hub, selectedMessages[0]!, onCompose, dateFormats.clock),
 		},
 	]);
 
@@ -1066,6 +1080,7 @@ export function MessageList({
 			onCompose,
 			ownAddress,
 			reportFailure,
+			dateFormats.clock,
 		);
 	const filtersActive =
 		filterText !== "" ||
@@ -1434,7 +1449,10 @@ export function MessageList({
 													{describeSender(message)}
 												</span>
 												<span className={`${styles.cell} ${styles.dateCell}`}>
-													{formatMessageDate(new Date(message.receivedAt))}
+													{formatMessageDate(
+														new Date(message.receivedAt),
+														dateFormats,
+													)}
 												</span>
 											</span>
 											<span className={styles.line}>
@@ -1591,6 +1609,7 @@ export function messageActions(
 	onCompose: (seed: ComposeSeed) => void,
 	ownAddress: string,
 	reportFailure: (title: string) => (error: unknown) => void,
+	clock: ClockPreference = "system",
 ): MenuAction[] {
 	const single = targets.length === 1 ? targets[0] : undefined;
 	const suffix = targets.length > 1 ? ` (${targets.length})` : "";
@@ -1608,18 +1627,20 @@ export function messageActions(
 		{
 			label: "Reply",
 			run: () =>
-				single && void replyTo(hub, single, "reply", ownAddress, onCompose),
+				single &&
+				void replyTo(hub, single, "reply", ownAddress, onCompose, clock),
 			unavailable: singleUnavailable,
 		},
 		{
 			label: "Reply all",
 			run: () =>
-				single && void replyTo(hub, single, "replyAll", ownAddress, onCompose),
+				single &&
+				void replyTo(hub, single, "replyAll", ownAddress, onCompose, clock),
 			unavailable: singleUnavailable,
 		},
 		{
 			label: "Forward",
-			run: () => single && void forward(hub, single, onCompose),
+			run: () => single && void forward(hub, single, onCompose, clock),
 			unavailable: singleUnavailable,
 		},
 		{ label: "-", run: () => undefined },
@@ -1705,6 +1726,7 @@ async function replyTo(
 	mode: "reply" | "replyAll",
 	ownAddress: string,
 	onCompose: (seed: ComposeSeed) => void,
+	clock: ClockPreference,
 ): Promise<void> {
 	const [context, body, attachments] = await Promise.all([
 		hub.getMessageReplyContext(message.id),
@@ -1718,6 +1740,7 @@ async function replyTo(
 			await resolveQuotedHtml(message.id, normalizeMessageBody(body)),
 			ownAddress,
 			normalizeForwardAttachments(attachments),
+			clock,
 		),
 	);
 }
@@ -1730,6 +1753,7 @@ async function forward(
 	hub: MailHubConnection,
 	message: MessageSummary,
 	onCompose: (seed: ComposeSeed) => void,
+	clock: ClockPreference,
 ): Promise<void> {
 	const [context, body, attachments] = await Promise.all([
 		hub.getMessageReplyContext(message.id),
@@ -1741,6 +1765,7 @@ async function forward(
 			normalizeMessageReplyContext(context),
 			await resolveQuotedHtml(message.id, normalizeMessageBody(body)),
 			normalizeForwardAttachments(attachments),
+			clock,
 		),
 	);
 }

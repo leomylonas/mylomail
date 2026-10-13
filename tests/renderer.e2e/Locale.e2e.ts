@@ -83,6 +83,23 @@ test("calendar dates and times follow the process locale", async () => {
 		await expect(
 			window.getByRole("button", { name: /Locale event/u }),
 		).toContainText(expected.time);
+		await expect(
+			window.getByRole("button", { name: /Locale event/u }),
+		).toContainText("16:05");
+
+		// The clock is a setting, not just the locale's habit: choosing 12-hour in a 24-hour
+		// locale changes the times the calendar shows.
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window.getByLabel(/^12-hour/u).check({ force: true });
+		await window.keyboard.press("Escape");
+		await window
+			.getByRole("button", { name: "Calendar", exact: true })
+			.first()
+			.click();
+		await window.getByText("Agenda", { exact: true }).click();
+		await expect(
+			window.getByRole("button", { name: /Locale event/u }),
+		).toContainText(/4:05\s?PM/iu);
 	} finally {
 		await app.close();
 	}

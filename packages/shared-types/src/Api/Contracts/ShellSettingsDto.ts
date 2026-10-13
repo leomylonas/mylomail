@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { CloseBehavior } from '../Domain/CloseBehavior';
 import { ThemePreference } from '../Domain/ThemePreference';
+import { TimeFormatPreference } from '../Domain/TimeFormatPreference';
 
 export interface ShellSettingsDto {
   panelLayout?: string;
@@ -13,6 +14,7 @@ export interface ShellSettingsDto {
   mailtoPromptDismissed: boolean;
   closeBehavior: CloseBehavior;
   theme: ThemePreference;
+  timeFormat: TimeFormatPreference;
 }
 
 export const ShellSettingsDtoSchema = z.object({
@@ -21,4 +23,5 @@ export const ShellSettingsDtoSchema = z.object({
   mailtoPromptDismissed: z.boolean(),
   closeBehavior: z.nativeEnum(CloseBehavior),
   theme: z.nativeEnum(ThemePreference),
+  timeFormat: z.nativeEnum(TimeFormatPreference),
 });

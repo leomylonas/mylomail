@@ -1,4 +1,8 @@
 import {
+	clockOptions,
+	type ClockPreference,
+} from "@mylomail/renderer/Lib/DateFormats";
+import {
 	fetchApi,
 	fetchApiJson,
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
@@ -211,7 +215,7 @@ function formatAddressList(addresses: Address[]): string {
 	return addresses.map(formatAddress).join(", ");
 }
 
-function formatWhen(receivedAt: string): string {
+function formatWhen(receivedAt: string, clock: ClockPreference): string {
 	return new Date(receivedAt).toLocaleString(undefined, {
 		weekday: "short",
 		year: "numeric",
@@ -219,6 +223,7 @@ function formatWhen(receivedAt: string): string {
 		day: "numeric",
 		hour: "numeric",
 		minute: "2-digit",
+		...clockOptions(clock),
 	});
 }
 
@@ -248,10 +253,11 @@ export function buildReplySeed(
 	quotedBodyHtml: string,
 	ownAddress: string,
 	attachments: ForwardAttachment[] = [],
+	clock: ClockPreference = "system",
 ): ComposeSeed {
 	const { to, cc } = buildReplyRecipients(mode, context, ownAddress);
 
-	const attribution = `On ${formatWhen(context.receivedAt)}, ${formatAddress(
+	const attribution = `On ${formatWhen(context.receivedAt, clock)}, ${formatAddress(
 		context.from[0] ?? { name: null, email: "" },
 	)} wrote:`;
 	const quoted = quotedBodyHtml;
@@ -284,11 +290,12 @@ export function buildForwardSeed(
 	context: MessageReplyContext,
 	quotedBodyHtml: string,
 	attachments: ForwardAttachment[],
+	clock: ClockPreference = "system",
 ): ComposeSeed {
 	const header =
 		`<p>---------- Forwarded message ---------<br>` +
 		`From: ${formatAddressList(context.from)}<br>` +
-		`Date: ${escapeHtml(formatWhen(context.receivedAt))}<br>` +
+		`Date: ${escapeHtml(formatWhen(context.receivedAt, clock))}<br>` +
 		`Subject: ${escapeHtml(context.subject)}<br>` +
 		`To: ${formatAddressList(context.to)}</p>`;
 	const bodyHtml = `<p><br></p>${header}<p><br></p>${quotedBodyHtml}`;

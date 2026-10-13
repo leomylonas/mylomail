@@ -1,3 +1,4 @@
+import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
 import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { dayjs, type Dayjs } from "@mylomail/renderer/Lib/DayjsSetup";
@@ -5,7 +6,6 @@ import {
 	isRovingFocusKey,
 	nextFocusIndex,
 } from "@mylomail/renderer/Lib/RovingFocus";
-import { calendarFormatters } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
 import { eventOverlapsDay } from "@mylomail/renderer/Components/Calendar/CalendarEventDays";
 import {
 	agendaTimeLabel,
@@ -57,6 +57,7 @@ export function CalendarAgenda({
 	events: AgendaEvent[];
 	onSelectEvent: (eventId: string) => void;
 }) {
+	const calendarFormatters = useCalendarFormatters();
 	const parentRef = useRef<HTMLDivElement>(null);
 	const days = buildDays(rangeStart, rangeEnd, events);
 

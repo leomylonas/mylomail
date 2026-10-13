@@ -28,7 +28,8 @@ public class AppSettingsController(MyloMailDbContext context, IHubEvents events)
 				settings?.WindowBoundsJson,
 				settings?.MailtoPromptDismissed ?? false,
 				settings?.CloseBehavior ?? Domain.CloseBehavior.QuitApp,
-				settings?.Theme ?? Domain.ThemePreference.System
+				settings?.Theme ?? Domain.ThemePreference.System,
+				settings?.TimeFormat ?? Domain.TimeFormatPreference.System
 			)
 		);
 	}
@@ -51,6 +52,16 @@ public class AppSettingsController(MyloMailDbContext context, IHubEvents events)
 	{
 		var settings = await GetOrCreateAsync(ct);
 		settings.Theme = request.Theme;
+		await context.SaveChangesAsync(ct);
+		await events.ShellSettingsChangedAsync();
+		return NoContent();
+	}
+
+	[HttpPut("time-format")]
+	public async Task<IActionResult> PutTimeFormat(UpdateTimeFormatRequest request, CancellationToken ct)
+	{
+		var settings = await GetOrCreateAsync(ct);
+		settings.TimeFormat = request.TimeFormat;
 		await context.SaveChangesAsync(ct);
 		await events.ShellSettingsChangedAsync();
 		return NoContent();

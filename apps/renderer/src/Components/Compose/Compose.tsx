@@ -1,3 +1,4 @@
+import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useQuery } from "@tanstack/react-query";
@@ -218,6 +219,7 @@ export function Compose({
 	const [sent, setSent] = useState<Sent | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
+	const dateFormats = useDateFormats();
 	const [savedAt, setSavedAt] = useState<string | null>(null);
 	const [syncConflict, setSyncConflict] = useState(
 		draft?.syncConflict ?? false,
@@ -425,7 +427,7 @@ export function Compose({
 
 			setDraftId(saved.id);
 			fieldsRef.current = { ...fieldsRef.current, draftId: saved.id };
-			setSavedAt(new Date().toLocaleTimeString());
+			setSavedAt(dateFormats.time(new Date()));
 			return saved.id;
 		};
 		const next = saveChain.current.then(run, run);
@@ -880,7 +882,7 @@ export function Compose({
 	}, [sent, busy, to, syncConflict, send]);
 
 	if (sent) {
-		const display = describeSentState(sent);
+		const display = describeSentState(sent, undefined, dateFormats);
 		return (
 			<div className={styles.compose}>
 				<p

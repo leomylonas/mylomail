@@ -35,6 +35,9 @@ public class AppSettings
 
 	public ThemePreference Theme { get; set; } = ThemePreference.System;
 
+	/// <summary>Whether times are shown on a 12- or 24-hour clock, or as the system locale has it.</summary>
+	public TimeFormatPreference TimeFormat { get; set; } = TimeFormatPreference.System;
+
 	/// <summary>Sweeps orphaned temp attachments left by a crash.</summary>
 	public bool AttachmentTempCleanupOnStartup { get; set; } = true;
 	/// <summary>Durable completion marker for the restart-safe conversation-id upgrade.</summary>
@@ -49,6 +52,13 @@ public enum CloseBehavior
 {
 	QuitApp,
 	MinimizeToTray,
+}
+
+public enum TimeFormatPreference
+{
+	System,
+	Hour12,
+	Hour24,
 }
 
 public enum ThemePreference
