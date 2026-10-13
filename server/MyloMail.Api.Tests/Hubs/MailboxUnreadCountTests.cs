@@ -106,6 +106,28 @@ public sealed class MailboxUnreadCountTests
 	}
 
 	[Fact]
+	public async Task A_message_being_deleted_for_good_stops_counting_even_when_it_carries_several_labels()
+	{
+		// Gmail keeps an unread trashed message under both TRASH and UNREAD. A permanent delete
+		// removes every occurrence, so there is nothing ambiguous to wait for.
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var (mailbox, messages) = await SeedCompleteMailboxAsync(harness, SpecialUse.Trash, unread: 3);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var other = Guid.NewGuid();
+			context.Mailboxes.Add(new Mailbox { Id = other, AccountId = harness.Account.Id, ProviderMailboxId = "UNREAD", Name = "UNREAD" });
+			context.MessageMailboxes.Add(new MessageMailbox { Id = Guid.NewGuid(), MessageId = messages[0], MailboxId = other, ProviderOccurrenceId = "u" });
+			await context.SaveChangesAsync();
+		});
+
+		await harness.UsingAsync(async services =>
+			await services.GetRequiredService<MailHub>().DeletePermanently(harness.Account.Id, [messages[0]]));
+
+		Assert.Equal(2, await UnreadAsync(harness, mailbox));
+	}
+
+	[Fact]
 	public async Task A_message_on_its_way_to_trash_stops_counting_in_its_source_folder()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);

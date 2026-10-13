@@ -408,6 +408,29 @@ public sealed class MutationExecutor(
 			landed.OrphanedAt = null;
 		}
 
+		if (item.OperationKind == MutationOperationKind.DeletePermanently)
+		{
+			// The message no longer exists at the provider, whichever labels it carried. Providers
+			// report only the occurrence they addressed (Gmail resolves one), so the rest go here, with
+			// the same snapshot movement as a reported removal, rather than reappearing in another
+			// folder's count until the next sync notices.
+			var unread = await UnreadSnapshot.IsUnreadAsync(context, outcome.MessageId, ct);
+			foreach (var left in await context.MessageMailboxes.Where(o => o.MessageId == outcome.MessageId).ToListAsync(ct))
+			{
+				if (context.Entry(left).State == EntityState.Deleted)
+				{
+					continue;
+				}
+
+				context.MessageMailboxes.Remove(left);
+				removedMessageIds.Add(outcome.MessageId);
+				if (unread)
+				{
+					await UnreadSnapshot.AdjustAsync(context, left.MailboxId, -1, ct);
+				}
+			}
+		}
+
 		if (item.OperationKind == MutationOperationKind.SetFlags)
 		{
 			var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == item.MessageId, ct);

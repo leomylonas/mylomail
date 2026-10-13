@@ -132,6 +132,37 @@ public sealed class MutationExecutionTests
 	}
 
 	/// <summary>
+	/// Gmail resolves one occurrence of a multi-label message and reports only that one removed. The
+	/// message is gone at the provider, so the others must go with it — and take their share of the
+	/// unread snapshot — rather than lingering in another folder until a sync notices.
+	/// </summary>
+	[Fact]
+	public async Task A_confirmed_permanent_delete_removes_every_occurrence_of_the_message()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			// Sorts last, so the executor addresses the harness's own occurrence, as the fake knows it.
+			var other = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+			context.Mailboxes.Add(new Mailbox { Id = other, AccountId = harness.AccountId, ProviderMailboxId = "OTHER", Name = "OTHER", ProviderUnreadCount = 5, UnreadAtProviderCount = 5 });
+			context.MessageMailboxes.Add(new MessageMailbox { Id = Guid.NewGuid(), MessageId = harness.MessageId, MailboxId = other, ProviderOccurrenceId = "elsewhere" });
+			(await context.Messages.SingleAsync(m => m.Id == harness.MessageId)).IsRead = false;
+			await context.SaveChangesAsync();
+			await services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId);
+		});
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.Empty(await context.MessageMailboxes.ToListAsync());
+			Assert.Equal(4, (await context.Mailboxes.SingleAsync(m => m.ProviderMailboxId == "OTHER")).ProviderUnreadCount);
+		});
+	}
+
+	/// <summary>
 	/// A move removes the source occurrence within the same confirmed outcome that creates
 	/// the destination one. The message did not disappear, and announcing a deletion here
 	/// would empty it out of every open window.

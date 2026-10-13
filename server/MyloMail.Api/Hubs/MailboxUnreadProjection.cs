@@ -119,6 +119,10 @@ internal static class MailboxUnreadProjection
 				&& (
 					item.OperationKind == MutationOperationKind.RemoveFromMailbox
 						? item.ScopeMailboxId == occurrence.MailboxId
+						// A permanent delete removes every occurrence, so nothing is left to guess at:
+						// an unread trashed Gmail message (TRASH and UNREAD) stops counting in both.
+						: item.OperationKind == MutationOperationKind.DeletePermanently
+							? true
 						// Message-scoped, but only settled for the occurrences the provider reports
 						// (Gmail resolves one source label), so a message held in several mailboxes
 						// is not guessed at: it counts when the confirmation lands.
