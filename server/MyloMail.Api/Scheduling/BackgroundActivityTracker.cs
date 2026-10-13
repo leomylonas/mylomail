@@ -67,7 +67,7 @@ public sealed class BackgroundActivityFilter(BackgroundActivityTracker tracker) 
 		[("SyncJobs", "CalendarAsync")] = "Syncing the calendar",
 		[("SyncJobs", "IntegrityAsync")] = "Checking a folder against the server",
 		[("SyncJobs", "ReplayStagedAsync")] = "Applying changes received during the download",
-		[("SyncJobs", "RunSyncNowAsync")] = "Send / receive",
+		[("SyncJobs", "RunSyncNowAsync")] = "Syncing",
 		[("ContactJobs", "RefreshAsync")] = "Refreshing contacts",
 		[("ContactJobs", "ExecuteAsync")] = "Saving a contact change",
 		[("DraftJobs", "PushAsync")] = "Saving drafts to the server",

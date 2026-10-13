@@ -84,7 +84,10 @@ export function StatusBar({
 		enabled: hub !== null,
 		refetchInterval: (query) => (query.state.data?.length ? 3_000 : 10_000),
 	});
-	const otherWork = backgroundTasks.data ?? [];
+	const otherWork = [...(backgroundTasks.data ?? [])].sort(
+		(a, b) => Number(b.running) - Number(a.running),
+	);
+	const workRunning = otherWork.some((task) => task.running);
 	const pendingContent =
 		(queue.data?.waiting ?? 0) + (queue.data?.fetching ?? 0);
 	const totalContent = pendingContent + (queue.data?.ready ?? 0);
@@ -157,6 +160,7 @@ export function StatusBar({
 								) : null}
 								{otherWork.slice(0, 4).map((task, index) => (
 									<div key={`${task.label}:${task.accountName}:${index}`}>
+										{task.running ? "" : "Waiting: "}
 										{task.label}
 										{task.accountName ? ` (${task.accountName})` : ""}
 										{task.total
@@ -183,7 +187,12 @@ export function StatusBar({
 							aria-haspopup="dialog"
 							onClick={() => setActivityOpen(true)}
 						>
-							Syncing…
+							{activity.syncing ||
+							pendingContent > 0 ||
+							retrying > 0 ||
+							workRunning
+								? "Syncing…"
+								: "Changes waiting…"}
 						</button>
 					</Tooltip>
 				) : null}

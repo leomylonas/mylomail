@@ -131,7 +131,7 @@ public interface IMailHub
 	Task<ActivityDto> GetActivity();
 
 	/// <summary>
-	/// Manual "send &amp; receive": syncs every enabled account now (or just the one named) and says
+	/// Manual sync: syncs every enabled account now (or just the one named) and says
 	/// how each was started. Returns at once; the passes run in the background and report through
 	/// the usual events.
 	/// </summary>
@@ -951,12 +951,12 @@ public class MailHub(
 		var queued = await context
 			.MutationItems.AsNoTracking()
 			.Where(item => item.State == MutationState.Pending || item.State == MutationState.Leased)
-			.GroupBy(item => new { item.AccountId, item.OperationKind })
-			.Select(group => new { group.Key.AccountId, group.Key.OperationKind, Count = group.Count() })
+			.GroupBy(item => new { item.AccountId, item.OperationKind, Running = item.State == MutationState.Leased })
+			.Select(group => new { group.Key.AccountId, group.Key.OperationKind, group.Key.Running, Count = group.Count() })
 			.ToListAsync();
-		foreach (var group in queued.OrderBy(group => group.AccountId).ThenBy(group => group.OperationKind))
+		foreach (var group in queued.OrderBy(g => g.AccountId).ThenByDescending(g => g.Running).ThenBy(g => g.OperationKind))
 		{
-			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, null));
+			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, null, group.Running));
 		}
 
 		var exports = await context
@@ -965,30 +965,30 @@ public class MailHub(
 			.ToListAsync();
 		foreach (var export in exports)
 		{
-			tasks.Add(new BackgroundTaskDto("Exporting mail", NameOf(export.AccountId), export.WrittenCount, export.TotalCount, null));
+			tasks.Add(new BackgroundTaskDto("Exporting mail", NameOf(export.AccountId), export.WrittenCount, export.TotalCount, null, true));
 		}
 
 		foreach (var (_, entry) in activity.Snapshot())
 		{
-			tasks.Add(new BackgroundTaskDto(entry.Label, NameOf(entry.AccountId), entry.Done, entry.Total, entry.StartedAt));
+			tasks.Add(new BackgroundTaskDto(entry.Label, NameOf(entry.AccountId), entry.Done, entry.Total, entry.StartedAt, true));
 		}
 
 		return tasks;
 	}
 
-	/// <summary>The label for changes still waiting to reach the provider, with how many.</summary>
+	/// <summary>What a group of changes to the provider amounts to, in the user's terms.</summary>
 	internal static string DescribeQueuedChange(MutationOperationKind kind, int count)
 	{
-		var what = kind switch
+		var messages = count == 1 ? "1 message" : $"{count:N0} messages";
+		return kind switch
 		{
-			MutationOperationKind.SetFlags => "read or flag",
-			MutationOperationKind.MoveMessage => "move",
-			MutationOperationKind.RemoveFromMailbox => "label removal",
-			MutationOperationKind.MoveToTrash => "delete",
-			MutationOperationKind.DeletePermanently => "permanent delete",
-			_ => "change",
+			MutationOperationKind.SetFlags => $"Updating read or flagged state of {messages}",
+			MutationOperationKind.MoveMessage => $"Moving {messages}",
+			MutationOperationKind.RemoveFromMailbox => $"Removing {messages} from a folder or label",
+			MutationOperationKind.MoveToTrash => $"Moving {messages} to Trash",
+			MutationOperationKind.DeletePermanently => $"Permanently deleting {messages}",
+			_ => $"Applying changes to {messages}",
 		};
-		return $"Sending {count:N0} {what}{(count == 1 ? "" : "s")} to the server";
 	}
 
 	public async Task<ContentQueueDto> GetContentQueue()

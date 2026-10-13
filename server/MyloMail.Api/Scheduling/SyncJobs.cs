@@ -1027,7 +1027,7 @@ public sealed class SyncJobs(
 	}
 
 	/// <summary>
-	/// A manual "send &amp; receive": one pass over everything an account would otherwise do on its
+	/// A manual sync: one pass over everything an account would otherwise do on its
 	/// own schedule, now, without starting or extending any poll loop.
 	/// </summary>
 	/// <remarks>

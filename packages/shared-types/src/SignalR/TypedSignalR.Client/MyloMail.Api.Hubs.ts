@@ -143,7 +143,7 @@ export type IMailHub = {
     */
     getActivity(): Promise<ActivityDto>;
     /**
-    * Manual "send & receive": syncs every enabled account now (or just the one named) and says
+    * Manual sync: syncs every enabled account now (or just the one named) and says
     * how each was started. Returns at once; the passes run in the background and report through
     * the usual events.
     * @param accountId Transpiled from System.Guid?

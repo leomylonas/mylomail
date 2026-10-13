@@ -25,7 +25,7 @@ public sealed class BackgroundTasksTests
 		});
 		Task<int> CountAsync() =>
 			harness.UsingAsync(async services =>
-				(await services.GetRequiredService<MailHub>().GetBackgroundTasks()).Count(task => task.Label.StartsWith("Sending")));
+				(await services.GetRequiredService<MailHub>().GetBackgroundTasks()).Count(task => task.Label.StartsWith("Updating") && !task.Running));
 
 		Assert.Equal(0, await CountAsync());
 		await harness.UsingAsync(services =>

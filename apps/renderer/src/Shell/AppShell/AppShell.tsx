@@ -549,7 +549,7 @@ export function AppShell({
 						disabled={!hub || syncNow.isPending}
 						onClick={() => syncNow.mutate()}
 					>
-						{syncNow.isPending ? "Syncing…" : "Send / receive"}
+						{syncNow.isPending ? "Syncing…" : "Sync"}
 					</Button>
 					<span className={styles.commandDivider} aria-hidden="true" />
 					<div className={styles.messageCommands} ref={setCommandHost} />

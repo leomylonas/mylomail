@@ -224,6 +224,8 @@ export type BackgroundTaskDto = {
     total?: number;
     /** Transpiled from System.DateTimeOffset */
     startedAt?: (Date | string);
+    /** Transpiled from bool */
+    running: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.ContactAddressDto */

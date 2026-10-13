@@ -62,5 +62,13 @@ public record ActivityFailureGroupDto(string Error, int Count);
 /// <param name="Done">Items finished so far; null when progress cannot be measured.</param>
 /// <param name="Total">Items in all; null when unknown.</param>
 /// <param name="StartedAt">When it began, when that is known (queued work has no start).</param>
+/// <param name="Running">True while it is being worked on; false while it is queued behind other work.</param>
 [TranspilationSource]
-public record BackgroundTaskDto(string Label, string? AccountName, int? Done, int? Total, DateTimeOffset? StartedAt);
+public record BackgroundTaskDto(
+	string Label,
+	string? AccountName,
+	int? Done,
+	int? Total,
+	DateTimeOffset? StartedAt,
+	bool Running
+);

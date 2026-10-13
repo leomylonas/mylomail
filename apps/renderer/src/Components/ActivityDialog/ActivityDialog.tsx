@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Close } from "@carbon/icons-react";
-import { IconButton, Tag } from "@carbon/react";
+import { IconButton, InlineLoading, Tag } from "@carbon/react";
 import { useQuery } from "@tanstack/react-query";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import type {
 	AccountActivityDto,
+	BackgroundTaskDto,
 	FolderActivityDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { CoverageStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
@@ -56,6 +57,14 @@ export function ActivityDialog({
 		refetchInterval: 3_000,
 	});
 	const otherWork = tasks.data ?? [];
+	// Running work first within each account, so what is happening now is what is read first.
+	const tasksByAccount = new Map<string, BackgroundTaskDto[]>();
+	for (const task of [...otherWork].sort(
+		(a, b) => Number(b.running) - Number(a.running),
+	)) {
+		const key = task.accountName ?? "";
+		tasksByAccount.set(key, [...(tasksByAccount.get(key) ?? []), task]);
+	}
 
 	return (
 		<dialog
@@ -82,45 +91,87 @@ export function ActivityDialog({
 				{activity.data && accounts.length === 0 && otherWork.length === 0 ? (
 					<p className={styles.empty}>Nothing is running in the background.</p>
 				) : null}
-				{otherWork.length > 0 ? (
-					<section
-						className={styles.account}
-						aria-label="Other background work"
-					>
-						<div className={styles.accountHeader}>
-							<h3>Other background work</h3>
-						</div>
-						<ul className={styles.tasks}>
-							{otherWork.map((task, index) => (
-								<li key={`${task.label}:${task.accountName}:${index}`}>
-									<div>
-										{task.label}
-										{task.accountName ? ` (${task.accountName})` : ""}
-									</div>
-									{task.total ? (
-										<>
-											<progress
-												className={styles.bar}
-												max={task.total}
-												value={task.done ?? 0}
-												aria-label={task.label}
-											/>
-											<p className={styles.note}>
-												{(task.done ?? 0).toLocaleString()} of{" "}
-												{task.total.toLocaleString()}
-											</p>
-										</>
-									) : null}
-								</li>
-							))}
-						</ul>
-					</section>
-				) : null}
 				{accounts.map((account) => (
-					<AccountSection key={account.accountId} account={account} />
+					<AccountSection
+						key={account.accountId}
+						account={account}
+						tasks={tasksByAccount.get(account.accountName) ?? []}
+						now={tasks.dataUpdatedAt}
+					/>
 				))}
+				{/* Work for an account with nothing downloading, or for no account at all. */}
+				{[...tasksByAccount]
+					.filter(
+						([name]) =>
+							!accounts.some((account) => account.accountName === name),
+					)
+					.map(([name, group]) => (
+						<section
+							key={name}
+							className={styles.account}
+							aria-label={name || "General"}
+						>
+							<div className={styles.accountHeader}>
+								<h3>{name || "General"}</h3>
+							</div>
+							{group.map((task, index) => (
+								<TaskCard
+									key={`${task.label}:${index}`}
+									task={task}
+									now={tasks.dataUpdatedAt}
+								/>
+							))}
+						</section>
+					))}
 			</div>
 		</dialog>
+	);
+}
+
+/** One piece of background work: what it is, whether it is under way or waiting, and how far. */
+function TaskCard({
+	task,
+	now,
+}: {
+	task: BackgroundTaskDto;
+	/** When the list was read, so the elapsed time is as current as the list itself. */
+	now: number;
+}) {
+	const seconds = task.startedAt
+		? Math.max(0, Math.round((now - new Date(task.startedAt).getTime()) / 1000))
+		: null;
+	return (
+		<div className={`${styles.card} ${task.running ? "" : styles.waiting}`}>
+			<div className={styles.cardHeader}>
+				<h4>{task.label}</h4>
+				{task.running ? (
+					<InlineLoading status="active" description="Working" />
+				) : (
+					<Tag type="gray" size="sm">
+						Waiting its turn
+					</Tag>
+				)}
+			</div>
+			{task.total ? (
+				<>
+					<progress
+						className={styles.bar}
+						max={task.total}
+						value={task.done ?? 0}
+						aria-label={task.label}
+					/>
+					<p className={styles.note}>
+						{(task.done ?? 0).toLocaleString()} of {task.total.toLocaleString()}
+					</p>
+				</>
+			) : null}
+			{seconds !== null ? (
+				<p className={styles.note}>
+					Running for{" "}
+					{seconds < 90 ? `${seconds} s` : `${Math.round(seconds / 60)} min`}
+				</p>
+			) : null}
+		</div>
 	);
 }
 
@@ -135,7 +186,15 @@ function isBusy(account: AccountActivityDto): boolean {
 	);
 }
 
-function AccountSection({ account }: { account: AccountActivityDto }) {
+function AccountSection({
+	account,
+	tasks,
+	now,
+}: {
+	account: AccountActivityDto;
+	tasks: BackgroundTaskDto[];
+	now: number;
+}) {
 	const contentTotal =
 		account.contentReady +
 		account.contentQueued +
@@ -171,6 +230,10 @@ function AccountSection({ account }: { account: AccountActivityDto }) {
 					</Tag>
 				) : null}
 			</div>
+
+			{tasks.map((task, index) => (
+				<TaskCard key={`${task.label}:${index}`} task={task} now={now} />
+			))}
 
 			{walk && walk.status !== CoverageStatus.Covered ? (
 				<div

@@ -2,7 +2,7 @@ using Tapper;
 
 namespace MyloMail.Api.Contracts;
 
-/// <summary>How one account's manual "send &amp; receive" ended.</summary>
+/// <summary>How one account's manual sync ended.</summary>
 [TranspilationSource]
 public enum SyncNowOutcome
 {
