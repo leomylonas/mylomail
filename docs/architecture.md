@@ -627,6 +627,8 @@ Use each provider's SDK loopback flow rather than hand-rolling a listener: `Goog
 
 Google's current restricted-scope rules require the annual CASA security assessment when an app can access restricted data _from or through a third-party server_, and the Gmail scope documentation states the same trigger as storing or transmitting restricted data on servers. **That trigger is absent here**: MyloMail's backend is a loopback child process, tokens remain in the user's credential store, mail remains in the user's local SQLite database, and project-operated infrastructure receives none of it. Under the published rules, the local-only desktop architecture requires restricted-scope OAuth verification for a shared public client but not CASA. Google Trust & Safety remains the final authority during verification; adding cloud sync, hosted token handling, remote processing, or telemetry containing Gmail data reopens the CASA decision.
 
+Permanent deletion (`messages.batchDelete`, so Delete and Empty Trash) needs the full-access scope `https://mail.google.com/`, which `gmail.modify` does not cover; it is also restricted, so the same verification covers it, with the justification that the app deletes permanently on request. New accounts are asked for it at sign-in. An existing account is taken through the consent screen once, the first time it deletes permanently; if that is declined, the items fail once with `INSUFFICIENT_SCOPE` and an explanation rather than being retried.
+
 Google also states that installed apps cannot keep client credentials secret. A Desktop OAuth client's packaged `client_secret` is therefore deployment configuration and an application identifier, not a confidential user credential.
 
 Deployment policy:

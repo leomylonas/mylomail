@@ -15,14 +15,42 @@ namespace MyloMail.Api.Credentials;
 public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, ClientSecrets client)
 {
 	private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ScopeUpgradeLocks = [];
+	/// <summary>
+	/// Google's full-access Gmail scope. <c>gmail.modify</c> cannot delete permanently, so this is
+	/// the only scope under which "Delete" and "Empty Trash" can work. It is requested from new
+	/// accounts at sign-in, and from an existing account only when it first deletes permanently.
+	/// </summary>
+	public const string FullAccessScope = "https://mail.google.com/";
+
 	public static readonly IReadOnlyList<string> Scopes =
 	[
 		"https://www.googleapis.com/auth/gmail.modify",
+		FullAccessScope,
 		"https://www.googleapis.com/auth/calendar",
 		"https://www.googleapis.com/auth/contacts",
 	];
 	public Task<UserCredential> AuthorizeAsync(Account account, CancellationToken ct) =>
 		AuthorizeAsync(account, requireCalendarScope: false, requireContactsScope: false, ct);
+
+	/// <summary>
+	/// As <see cref="AuthorizeAsync(Account, CancellationToken)"/>, but the credential must carry the
+	/// full-access scope. An account that signed in without it is taken through Google's consent
+	/// screen again, once; declining surfaces as <see cref="TokenResponseException"/> with
+	/// <c>insufficient_scope</c>.
+	/// </summary>
+	public async Task<UserCredential> AuthorizeForPermanentDeleteAsync(Account account, CancellationToken ct)
+	{
+		var gate = ScopeUpgradeLocks.GetOrAdd(account.Id, static _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync(ct);
+		try
+		{
+			return await AuthorizeUnlockedAsync(account, FullAccessScope, ct);
+		}
+		finally
+		{
+			gate.Release();
+		}
+	}
 
 	public async Task<UserCredential> AuthorizeAsync(
 		Account account,
@@ -35,7 +63,15 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		await gate.WaitAsync(ct);
 		try
 		{
-			return await AuthorizeUnlockedAsync(account, requireCalendarScope, requireContactsScope, ct);
+			return await AuthorizeUnlockedAsync(
+				account,
+				requireCalendarScope
+					? "https://www.googleapis.com/auth/calendar"
+					: requireContactsScope
+						? "https://www.googleapis.com/auth/contacts"
+						: "https://www.googleapis.com/auth/gmail.modify",
+				ct
+			);
 		}
 		finally
 		{
@@ -45,8 +81,7 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 
 	private async Task<UserCredential> AuthorizeUnlockedAsync(
 		Account account,
-		bool requireCalendarScope,
-		bool requireContactsScope,
+		string requiredScope,
 		CancellationToken ct
 	)
 	{
@@ -66,11 +101,6 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 			flow.DataStore,
 			new DiagnosticsLocalServerCodeReceiver()
 		);
-		var requiredScope = requireCalendarScope
-			? "https://www.googleapis.com/auth/calendar"
-			: requireContactsScope
-				? "https://www.googleapis.com/auth/contacts"
-				: "https://www.googleapis.com/auth/gmail.modify";
 		if (string.IsNullOrWhiteSpace(credential.Token.Scope)
 			|| !credential.Token.Scope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
 				.Contains(requiredScope, StringComparer.Ordinal))

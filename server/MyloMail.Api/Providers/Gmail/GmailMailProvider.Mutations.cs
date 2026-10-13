@@ -174,7 +174,34 @@ public sealed partial class GmailMailProvider
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
-	) => await DeletePermanentlyBatchAsync(await ServiceAsync(account, ct), refs, ct);
+	)
+	{
+		GmailService service;
+		try
+		{
+			service = BuildService(account, await oauth.AuthorizeForPermanentDeleteAsync(account, ct));
+		}
+		catch (Google.Apis.Auth.OAuth2.Responses.TokenResponseException ex) when (ex.Error?.Error == "insufficient_scope")
+		{
+			// The user declined the wider permission, or Google withheld it: a definite refusal.
+			return new BatchResult([.. refs.Select(MissingScope)]);
+		}
+
+		return await DeletePermanentlyBatchAsync(service, refs, ct);
+	}
+
+	private static BatchItemResult MissingScope(MessageOccurrenceRef reference) =>
+		new(
+			reference.MessageId,
+			reference.MailboxId,
+			false,
+			Problem(
+				"Gmail did not allow permanent deletion",
+				"Permanently deleting mail needs Google's full-access permission, which MyloMail has not been granted for this account. Google removes messages from Trash by itself after 30 days.",
+				"INSUFFICIENT_SCOPE"
+			),
+			[]
+		);
 
 	/// <summary>
 	/// Permanent deletion needs Google's full-access scope (<c>https://mail.google.com/</c>); the
@@ -210,21 +237,7 @@ public sealed partial class GmailMailProvider
 				when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden
 					&& ex.Error?.Errors?.Any(error => error.Reason == "insufficientPermissions") == true)
 			{
-				items.AddRange(
-					existing.Select(reference =>
-						new BatchItemResult(
-							reference.MessageId,
-							reference.MailboxId,
-							false,
-							Problem(
-								"Gmail did not allow permanent deletion",
-								"Permanently deleting mail needs Google's full-access permission, which MyloMail has not been granted for this account. Google removes messages from Trash by itself after 30 days.",
-								"INSUFFICIENT_SCOPE"
-							),
-							[]
-						)
-					)
-				);
+				items.AddRange(existing.Select(MissingScope));
 				continue;
 			}
 
