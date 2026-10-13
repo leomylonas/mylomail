@@ -83,6 +83,7 @@
 }
 
 .cardHeader h4 {
+	flex: 1;
 	margin: 0;
 	font-size: 0.875rem;
 	font-weight: 600;
@@ -178,4 +179,11 @@
 /* Queued behind other work: present, but not the thing being done now. */
 .waiting {
 	border-left-color: var(--cds-border-subtle-02);
+}
+
+/* The title takes the space; the state (spinner or tag) sits at the right edge either way. */
+.cardHeader > div {
+	flex: none;
+	width: auto;
+	margin-left: auto;
 }

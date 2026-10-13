@@ -56,6 +56,12 @@ export function ActivityDialog({
 		queryFn: () => hub.getBackgroundTasks(),
 		refetchInterval: 3_000,
 	});
+	// Ticks every second so the elapsed times move between refreshes of the list.
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, []);
 	const otherWork = tasks.data ?? [];
 	// Running work first within each account, so what is happening now is what is read first.
 	const tasksByAccount = new Map<string, BackgroundTaskDto[]>();
@@ -96,7 +102,7 @@ export function ActivityDialog({
 						key={account.accountId}
 						account={account}
 						tasks={tasksByAccount.get(account.accountName) ?? []}
-						now={tasks.dataUpdatedAt}
+						now={now}
 					/>
 				))}
 				{/* Work for an account with nothing downloading, or for no account at all. */}
@@ -118,7 +124,7 @@ export function ActivityDialog({
 								<TaskCard
 									key={`${task.label}:${index}`}
 									task={task}
-									now={tasks.dataUpdatedAt}
+									now={now}
 								/>
 							))}
 						</section>
@@ -140,6 +146,7 @@ function TaskCard({
 	const seconds = task.startedAt
 		? Math.max(0, Math.round((now - new Date(task.startedAt).getTime()) / 1000))
 		: null;
+	const verb = task.running ? "Running" : "Waiting";
 	return (
 		<div className={`${styles.card} ${task.running ? "" : styles.waiting}`}>
 			<div className={styles.cardHeader}>
@@ -167,12 +174,21 @@ function TaskCard({
 			) : null}
 			{seconds !== null ? (
 				<p className={styles.note}>
-					Running for{" "}
-					{seconds < 90 ? `${seconds} s` : `${Math.round(seconds / 60)} min`}
+					{verb} for {describeElapsed(seconds)}
 				</p>
 			) : null}
 		</div>
 	);
+}
+
+/** "42 s", "5 min", "3 h 20 min", "2 d 4 h": coarse enough to read, fine enough to see it move. */
+function describeElapsed(seconds: number): string {
+	if (seconds < 90) return `${seconds} s`;
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) return `${minutes} min`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours} h ${minutes % 60} min`;
+	return `${Math.floor(hours / 24)} d ${hours % 24} h`;
 }
 
 function isBusy(account: AccountActivityDto): boolean {

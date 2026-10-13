@@ -965,11 +965,14 @@ public class MailHub(
 				(item.State == MutationState.Pending || item.State == MutationState.Leased)
 				&& unresolved.Any(membership => membership.MutationItemId == item.Id)
 			)
-			.GroupBy(item => item.AccountId)
-			.Select(group => new { AccountId = group.Key, Count = group.Count() })
+			.Select(item => new { item.AccountId, item.CreatedAt })
 			.ToListAsync();
 		var providerNames = await context.Accounts.AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.ProviderType);
-		foreach (var group in verifying.OrderBy(group => group.AccountId))
+		// Grouped here: SQLite cannot take the minimum of a DateTimeOffset.
+		foreach (var group in verifying
+			.GroupBy(row => row.AccountId)
+			.Select(rows => new { AccountId = rows.Key, Count = rows.Count(), Since = rows.Min(row => row.CreatedAt) })
+			.OrderBy(group => group.AccountId))
 		{
 			var provider = providerNames.GetValueOrDefault(group.AccountId) switch
 			{
@@ -978,7 +981,7 @@ public class MailHub(
 				_ => "the mail server",
 			};
 			var changes = group.Count == 1 ? "1 change" : $"{group.Count:N0} changes";
-			tasks.Add(new BackgroundTaskDto($"Checking with {provider} whether {changes} went through", NameOf(group.AccountId), null, null, null, true));
+			tasks.Add(new BackgroundTaskDto($"Checking with {provider} whether {changes} went through", NameOf(group.AccountId), null, null, group.Since, true));
 		}
 
 		var queued = await context
@@ -987,12 +990,30 @@ public class MailHub(
 				(item.State == MutationState.Pending || item.State == MutationState.Leased)
 				&& !unresolved.Any(membership => membership.MutationItemId == item.Id)
 			)
-			.GroupBy(item => new { item.AccountId, item.OperationKind, Running = item.State == MutationState.Leased })
-			.Select(group => new { group.Key.AccountId, group.Key.OperationKind, group.Key.Running, Count = group.Count() })
+			.Select(item => new
+			{
+				item.AccountId,
+				item.OperationKind,
+				Running = item.State == MutationState.Leased,
+				item.CreatedAt,
+			})
 			.ToListAsync();
-		foreach (var group in queued.OrderBy(g => g.AccountId).ThenByDescending(g => g.Running).ThenBy(g => g.OperationKind))
+		// When the oldest of a group was made, so the dialog can say how long it has been waiting.
+		foreach (var group in queued
+			.GroupBy(row => (row.AccountId, row.OperationKind, row.Running))
+			.Select(rows => new
+			{
+				rows.Key.AccountId,
+				rows.Key.OperationKind,
+				rows.Key.Running,
+				Count = rows.Count(),
+				Since = rows.Min(row => row.CreatedAt),
+			})
+			.OrderBy(g => g.AccountId)
+			.ThenByDescending(g => g.Running)
+			.ThenBy(g => g.OperationKind))
 		{
-			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, null, group.Running));
+			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, group.Since, group.Running));
 		}
 
 		var exports = await context
