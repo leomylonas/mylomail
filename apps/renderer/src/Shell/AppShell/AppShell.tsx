@@ -67,7 +67,11 @@ import {
 	ProviderType,
 	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
-import { SyncNowOutcome } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import {
+	SyncNowOutcome,
+	type MutationFailureDto,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
+import { FailureDetailsDialog } from "@mylomail/renderer/Components/FailureDetailsDialog/FailureDetailsDialog";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
 
 export interface NotificationClick {
@@ -283,6 +287,28 @@ export function AppShell({
 				if (accountId) {
 					setReauthenticatingAccountId(accountId);
 					queryClient.setQueryData(queryKeys.reauthRequestedAccountId(), null);
+				}
+			}),
+		[queryClient],
+	);
+
+	// A failure notification's "Details" asked this window to show what went wrong; same
+	// external-event shape as the reauthentication request above.
+	const [failureDetails, setFailureDetails] =
+		useState<MutationFailureDto | null>(null);
+	useEffect(
+		() =>
+			queryClient.getQueryCache().subscribe((event) => {
+				if (
+					event.type !== "updated" ||
+					event.query.queryKey[0] !== "mutation-failure-details"
+				) {
+					return;
+				}
+				const failure = event.query.state.data as MutationFailureDto | null;
+				if (failure) {
+					setFailureDetails(failure);
+					queryClient.setQueryData(queryKeys.mutationFailureDetails(), null);
 				}
 			}),
 		[queryClient],
@@ -914,6 +940,18 @@ export function AppShell({
 				/>
 			) : null}
 
+			{failureDetails && hub ? (
+				<FailureDetailsDialog
+					hub={hub}
+					failure={failureDetails}
+					accountName={
+						accounts.data?.find(
+							(account) => account.id === failureDetails.accountId,
+						)?.displayName ?? null
+					}
+					onClose={() => setFailureDetails(null)}
+				/>
+			) : null}
 			{reauthenticatingAccountId && hub ? (
 				<ReauthenticateAccount
 					hub={hub}

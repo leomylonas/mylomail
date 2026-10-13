@@ -134,6 +134,7 @@ export const queryKeys = {
 	 * shell-level UI state directly (§15).
 	 */
 	reauthRequestedAccountId: () => ["reauth-requested-account"] as const,
+	mutationFailureDetails: () => ["mutation-failure-details"] as const,
 };
 
 /**
@@ -498,6 +499,12 @@ export function connectHub(
 									queryClient.setQueryData(
 										queryKeys.reauthRequestedAccountId(),
 										failure.accountId,
+									);
+								} else {
+									// "Details" shows what failed and why.
+									queryClient.setQueryData(
+										queryKeys.mutationFailureDetails(),
+										failure,
 									);
 								}
 								void queryClient.invalidateQueries({ queryKey: ["messages"] });

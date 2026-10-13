@@ -1,0 +1,16 @@
+.details {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: var(--cds-spacing-03) var(--cds-spacing-06);
+	margin: 0;
+}
+
+.details dt {
+	color: var(--cds-text-secondary);
+	font-size: 0.875rem;
+}
+
+.details dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
