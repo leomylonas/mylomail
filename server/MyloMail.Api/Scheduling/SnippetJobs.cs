@@ -16,13 +16,19 @@ namespace MyloMail.Api.Scheduling;
 /// and a restart simply starts again.
 /// </remarks>
 [AutomaticRetry(Attempts = 0)]
-public sealed class SnippetJobs(MyloMailDbContext context, ILogger<SnippetJobs> logger)
+public sealed class SnippetJobs(MyloMailDbContext context, BackgroundActivityTracker activity, ILogger<SnippetJobs> logger)
 {
 	public const int CurrentVersion = 2;
 	private const int BatchSize = 500;
 
 	public async Task RebuildAsync(CancellationToken ct = default)
 	{
+		var imapMessages = context.Messages.Where(m =>
+			context.Accounts.Any(a => a.Id == m.AccountId && a.ProviderType == ProviderType.Imap)
+		);
+		using var task = activity.Begin("Rebuilding message previews");
+		var total = await imapMessages.CountAsync(ct);
+		task.Report(0, total);
 		var done = 0;
 		var changed = 0;
 		var lastId = Guid.Empty;
@@ -63,6 +69,7 @@ public sealed class SnippetJobs(MyloMailDbContext context, ILogger<SnippetJobs> 
 			}
 
 			done += batch.Count;
+			task.Report(done, total);
 			lastId = batch[^1].Id;
 		}
 

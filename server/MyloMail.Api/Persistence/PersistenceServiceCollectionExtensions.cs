@@ -192,12 +192,14 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<AccountProvisioningService>();
 		services.AddSingleton<ConnectivityMonitor>();
 
-		services.AddHangfire(configuration =>
+		services.AddSingleton<BackgroundActivityTracker>();
+		services.AddHangfire((provider, configuration) =>
 			configuration
 				.SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
 				.UseSimpleAssemblyNameTypeSerializer()
 				.UseRecommendedSerializerSettings()
 				.UseInMemoryStorage()
+				.UseFilter(new BackgroundActivityFilter(provider.GetRequiredService<BackgroundActivityTracker>()))
 		);
 		return services;
 	}

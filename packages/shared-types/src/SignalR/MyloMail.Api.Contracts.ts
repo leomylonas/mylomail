@@ -212,6 +212,20 @@ export type ActivityFailureGroupDto = {
     count: number;
 }
 
+/** Transpiled from MyloMail.Api.Contracts.BackgroundTaskDto */
+export type BackgroundTaskDto = {
+    /** Transpiled from string */
+    label: string;
+    /** Transpiled from string? */
+    accountName?: string;
+    /** Transpiled from int */
+    done?: number;
+    /** Transpiled from int */
+    total?: number;
+    /** Transpiled from System.DateTimeOffset */
+    startedAt?: (Date | string);
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ContactAddressDto */
 export type ContactAddressDto = {
     /** Transpiled from string */

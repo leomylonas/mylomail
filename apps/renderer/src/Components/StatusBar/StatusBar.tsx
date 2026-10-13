@@ -67,6 +67,14 @@ export function StatusBar({
 				? 3_000
 				: 15_000,
 	});
+	// Everything else running in the background: changes the provider has not confirmed yet,
+	// exports, and jobs such as folder reads and calendar syncs, each with its progress.
+	const backgroundTasks = useQuery({
+		queryKey: ["background-tasks"],
+		queryFn: () => hub!.getBackgroundTasks(),
+		enabled: hub !== null,
+		refetchInterval: (query) => (query.state.data?.length ? 2_000 : 8_000),
+	});
 	// Provider rate limits are informational and clear on their own, so they are a muted note in
 	// the activity area rather than an entry in the problems list. Polled while one is active so
 	// the countdown and its disappearance are both seen.
@@ -76,6 +84,7 @@ export function StatusBar({
 		enabled: hub !== null,
 		refetchInterval: (query) => (query.state.data?.length ? 3_000 : 10_000),
 	});
+	const otherWork = backgroundTasks.data ?? [];
 	const pendingContent =
 		(queue.data?.waiting ?? 0) + (queue.data?.fetching ?? 0);
 	const totalContent = pendingContent + (queue.data?.ready ?? 0);
@@ -118,7 +127,10 @@ export function StatusBar({
 				/>
 			) : null}
 			<div className={styles.activity} role="status" aria-live="polite">
-				{activity.syncing || pendingContent > 0 || retrying > 0 ? (
+				{activity.syncing ||
+				pendingContent > 0 ||
+				retrying > 0 ||
+				otherWork.length > 0 ? (
 					<Tooltip
 						align="top-start"
 						label={
@@ -142,6 +154,18 @@ export function StatusBar({
 										{totalContent.toLocaleString()} (
 										{pendingContent.toLocaleString()} queued)
 									</div>
+								) : null}
+								{otherWork.slice(0, 4).map((task, index) => (
+									<div key={`${task.label}:${task.accountName}:${index}`}>
+										{task.label}
+										{task.accountName ? ` (${task.accountName})` : ""}
+										{task.total
+											? `: ${(task.done ?? 0).toLocaleString()} of ${task.total.toLocaleString()}`
+											: ""}
+									</div>
+								))}
+								{otherWork.length > 4 ? (
+									<div>and {otherWork.length - 4} more</div>
 								) : null}
 								{retrying > 0 ? (
 									<div>
@@ -188,6 +212,7 @@ export function StatusBar({
 				{!activity.syncing &&
 				pendingContent === 0 &&
 				retrying === 0 &&
+				otherWork.length === 0 &&
 				!throttled.data?.length ? (
 					<span className={styles.idle}>Up to date</span>
 				) : null}

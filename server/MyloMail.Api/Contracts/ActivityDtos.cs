@@ -52,3 +52,15 @@ public record ActivityMessageDto(Guid MessageId, string Subject, string? From, i
 
 [TranspilationSource]
 public record ActivityFailureGroupDto(string Error, int Count);
+
+/// <summary>
+/// One piece of background work for the status bar: what it is, whose it is, and how far along it
+/// is when that can be known.
+/// </summary>
+/// <param name="Label">What is happening, in the user's terms.</param>
+/// <param name="AccountName">The account it is for, when it is for one.</param>
+/// <param name="Done">Items finished so far; null when progress cannot be measured.</param>
+/// <param name="Total">Items in all; null when unknown.</param>
+/// <param name="StartedAt">When it began, when that is known (queued work has no start).</param>
+[TranspilationSource]
+public record BackgroundTaskDto(string Label, string? AccountName, int? Done, int? Total, DateTimeOffset? StartedAt);

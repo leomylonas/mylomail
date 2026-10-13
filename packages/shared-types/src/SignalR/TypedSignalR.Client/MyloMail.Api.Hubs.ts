@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -124,6 +124,14 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ContentQueueDto>
     */
     getContentQueue(): Promise<ContentQueueDto>;
+    /**
+    * Everything running in the background that is not mail or content download (those have their
+    * own reporting): changes made here that the provider has not confirmed, exports, and the
+    * jobs this process is running now. Queued changes and exports are read from their rows, so
+    * they show after a restart too.
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.BackgroundTaskDto>>
+    */
+    getBackgroundTasks(): Promise<BackgroundTaskDto[]>;
     /**
     * Accounts a provider is currently rate-limiting, for a quiet status-bar notice.
     * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ThrottleStatusDto>>

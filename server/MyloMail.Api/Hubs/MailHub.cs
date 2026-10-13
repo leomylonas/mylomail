@@ -13,6 +13,7 @@ using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
 using TypedSignalR.Client;
@@ -114,6 +115,14 @@ public interface IMailHub
 
 	/// <summary>How much message content is downloaded, waiting or downloading across all accounts.</summary>
 	Task<ContentQueueDto> GetContentQueue();
+
+	/// <summary>
+	/// Everything running in the background that is not mail or content download (those have their
+	/// own reporting): changes made here that the provider has not confirmed, exports, and the
+	/// jobs this process is running now. Queued changes and exports are read from their rows, so
+	/// they show after a restart too.
+	/// </summary>
+	Task<IReadOnlyList<BackgroundTaskDto>> GetBackgroundTasks();
 
 	/// <summary>Accounts a provider is currently rate-limiting, for a quiet status-bar notice.</summary>
 	Task<IReadOnlyList<ThrottleStatusDto>> GetThrottledAccounts();
@@ -404,6 +413,7 @@ public class MailHub(
 	MailInviteMaterializer invites,
 	IIncomingMailAuthentication authentication,
 	IHubEvents events,
+	BackgroundActivityTracker activity,
 	Scheduling.AccountGate gate,
 	Scheduling.SyncJobs syncJobs,
 	IFaultInjector faults,
@@ -930,6 +940,55 @@ public class MailHub(
 				)
 			),
 		];
+	}
+
+	public async Task<IReadOnlyList<BackgroundTaskDto>> GetBackgroundTasks()
+	{
+		var names = await context.Accounts.AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.DisplayName);
+		string? NameOf(Guid? id) => id is { } key && names.TryGetValue(key, out var name) ? name : null;
+		var tasks = new List<BackgroundTaskDto>();
+
+		var queued = await context
+			.MutationItems.AsNoTracking()
+			.Where(item => item.State == MutationState.Pending || item.State == MutationState.Leased)
+			.GroupBy(item => new { item.AccountId, item.OperationKind })
+			.Select(group => new { group.Key.AccountId, group.Key.OperationKind, Count = group.Count() })
+			.ToListAsync();
+		foreach (var group in queued.OrderBy(group => group.AccountId).ThenBy(group => group.OperationKind))
+		{
+			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, null));
+		}
+
+		var exports = await context
+			.ExportJobs.AsNoTracking()
+			.Where(job => job.Status == ExportJobStatus.Running)
+			.ToListAsync();
+		foreach (var export in exports)
+		{
+			tasks.Add(new BackgroundTaskDto("Exporting mail", NameOf(export.AccountId), export.WrittenCount, export.TotalCount, null));
+		}
+
+		foreach (var (_, entry) in activity.Snapshot())
+		{
+			tasks.Add(new BackgroundTaskDto(entry.Label, NameOf(entry.AccountId), entry.Done, entry.Total, entry.StartedAt));
+		}
+
+		return tasks;
+	}
+
+	/// <summary>The label for changes still waiting to reach the provider, with how many.</summary>
+	internal static string DescribeQueuedChange(MutationOperationKind kind, int count)
+	{
+		var what = kind switch
+		{
+			MutationOperationKind.SetFlags => "read or flag",
+			MutationOperationKind.MoveMessage => "move",
+			MutationOperationKind.RemoveFromMailbox => "label removal",
+			MutationOperationKind.MoveToTrash => "delete",
+			MutationOperationKind.DeletePermanently => "permanent delete",
+			_ => "change",
+		};
+		return $"Sending {count:N0} {what}{(count == 1 ? "" : "s")} to the server";
 	}
 
 	public async Task<ContentQueueDto> GetContentQueue()

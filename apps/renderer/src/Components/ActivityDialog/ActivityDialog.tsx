@@ -50,6 +50,12 @@ export function ActivityDialog({
 		refetchInterval: 3_000,
 	});
 	const accounts = (activity.data?.accounts ?? []).filter(isBusy);
+	const tasks = useQuery({
+		queryKey: ["background-tasks"],
+		queryFn: () => hub.getBackgroundTasks(),
+		refetchInterval: 3_000,
+	});
+	const otherWork = tasks.data ?? [];
 
 	return (
 		<dialog
@@ -60,9 +66,9 @@ export function ActivityDialog({
 			onClose={onClose}
 		>
 			<header className={styles.header}>
-				<h2 id="activity-dialog-title">Downloads</h2>
+				<h2 id="activity-dialog-title">Background activity</h2>
 				<IconButton
-					label="Close downloads"
+					label="Close background activity"
 					kind="ghost"
 					size="md"
 					align="bottom-end"
@@ -73,8 +79,42 @@ export function ActivityDialog({
 			</header>
 			<div className={styles.body}>
 				{activity.isPending ? <p className={styles.empty}>Loading…</p> : null}
-				{activity.data && accounts.length === 0 ? (
-					<p className={styles.empty}>Nothing is downloading.</p>
+				{activity.data && accounts.length === 0 && otherWork.length === 0 ? (
+					<p className={styles.empty}>Nothing is running in the background.</p>
+				) : null}
+				{otherWork.length > 0 ? (
+					<section
+						className={styles.account}
+						aria-label="Other background work"
+					>
+						<div className={styles.accountHeader}>
+							<h3>Other background work</h3>
+						</div>
+						<ul className={styles.tasks}>
+							{otherWork.map((task, index) => (
+								<li key={`${task.label}:${task.accountName}:${index}`}>
+									<div>
+										{task.label}
+										{task.accountName ? ` (${task.accountName})` : ""}
+									</div>
+									{task.total ? (
+										<>
+											<progress
+												className={styles.bar}
+												max={task.total}
+												value={task.done ?? 0}
+												aria-label={task.label}
+											/>
+											<p className={styles.note}>
+												{(task.done ?? 0).toLocaleString()} of{" "}
+												{task.total.toLocaleString()}
+											</p>
+										</>
+									) : null}
+								</li>
+							))}
+						</ul>
+					</section>
 				) : null}
 				{accounts.map((account) => (
 					<AccountSection key={account.accountId} account={account} />
