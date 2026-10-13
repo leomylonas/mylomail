@@ -757,6 +757,33 @@ public sealed class MutationExecutionTests
 		});
 	}
 
+	/// <summary>
+	/// A batch failing with something unclassified used to be released and claimed again at once,
+	/// hitting the provider every few seconds for as long as it lasted.
+	/// </summary>
+	[Fact]
+	public async Task A_failing_batch_is_retried_after_a_delay_not_at_once()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
+		harness.Provider.FailNextBatchWith(new InvalidOperationException("the provider keeps failing"));
+
+		await harness.UsingAsync(async services =>
+		{
+			var recorder = (RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>();
+			recorder.Created.Clear();
+			recorder.States.Clear();
+
+			await services.GetRequiredService<MutationJobs>().DrainAsync(harness.AccountId);
+
+			var next = Assert.Single(recorder.States);
+			Assert.True(
+				next is Hangfire.States.ScheduledState scheduled && scheduled.EnqueueAt > DateTime.UtcNow.AddSeconds(1),
+				"the next drain must wait, not run straight away"
+			);
+		});
+	}
+
 	[Fact]
 	public async Task Missing_provider_configuration_releases_claims_and_stops_the_drain_loop()
 	{

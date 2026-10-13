@@ -32,6 +32,7 @@ public sealed class MutationJobs(
 	ConnectivityMonitor connectivity,
 	IBackgroundJobClient jobs,
 	IHubEvents events,
+	SyncRetryBackoff retryBackoff,
 	ILogger<MutationJobs> logger
 )
 {
@@ -154,6 +155,7 @@ public sealed class MutationJobs(
 			})
 			.Select(batch => batch.ToArray())
 			.ToArray();
+		var batchFailed = false;
 		for (var batchIndex = 0; batchIndex < batches.Length; batchIndex++)
 		{
 			var batch = batches[batchIndex];
@@ -261,6 +263,7 @@ public sealed class MutationJobs(
 				// must not abandon the others: they are separate user intentions.
 				logger.LogError(ex, "A mutation batch for account {AccountId} failed.", accountId);
 				await ReleaseCurrentAsync();
+				batchFailed = true;
 			}
 		}
 
@@ -284,6 +287,17 @@ public sealed class MutationJobs(
 			return;
 		}
 
+		// A batch that fails with something unclassified is released and would be claimed again at
+		// once, hitting the provider every few seconds for as long as the failure lasts. Back off
+		// instead, growing to a few minutes; a clean drain starts the count again.
+		var backoffKey = $"{nameof(MutationJobs)}:{accountId}";
+		if (batchFailed)
+		{
+			jobs.Schedule<MutationJobs>(job => job.DrainAsync(accountId, default), retryBackoff.Next(backoffKey));
+			return;
+		}
+
+		retryBackoff.Reset(backoffKey);
 		connectivity.DispatchOrDefer(
 			workKey,
 			client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))

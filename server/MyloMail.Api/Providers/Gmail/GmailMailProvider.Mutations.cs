@@ -174,17 +174,60 @@ public sealed partial class GmailMailProvider
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		CancellationToken ct
+	) => await DeletePermanentlyBatchAsync(await ServiceAsync(account, ct), refs, ct);
+
+	/// <summary>
+	/// Permanent deletion needs Google's full-access scope (<c>https://mail.google.com/</c>); the
+	/// <c>gmail.modify</c> scope MyloMail holds can trash and relabel but not delete. Without it
+	/// Google answers 403 <c>insufficientPermissions</c> for every attempt, so that is a definite,
+	/// terminal refusal of these items — not an outcome in doubt. Reported per item, it fails them
+	/// once and says why; left to surface as a bare exception it was treated as ambiguous and the
+	/// same call was repeated every few seconds, for ever.
+	/// </summary>
+	internal static async Task<BatchResult> DeletePermanentlyBatchAsync(
+		GmailService service,
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		CancellationToken ct
 	)
 	{
-		var service = await ServiceAsync(account, ct);
 		var items = new List<BatchItemResult>(refs.Count);
 		foreach (var group in refs.Chunk(1000))
 		{
 			var (existing, missing) = await ExistingAsync(service, group, ct);
 			items.AddRange(missing);
-			await service.Users.Messages
-				.BatchDelete(new BatchDeleteMessagesRequest { Ids = [.. existing.Select(r => r.ProviderOccurrenceId)] }, UserId)
-				.ExecuteThrottleAwareAsync(ct);
+			if (existing.Count == 0)
+			{
+				continue;
+			}
+
+			try
+			{
+				await service.Users.Messages
+					.BatchDelete(new BatchDeleteMessagesRequest { Ids = [.. existing.Select(r => r.ProviderOccurrenceId)] }, UserId)
+					.ExecuteThrottleAwareAsync(ct);
+			}
+			catch (GoogleApiException ex)
+				when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden
+					&& ex.Error?.Errors?.Any(error => error.Reason == "insufficientPermissions") == true)
+			{
+				items.AddRange(
+					existing.Select(reference =>
+						new BatchItemResult(
+							reference.MessageId,
+							reference.MailboxId,
+							false,
+							Problem(
+								"Gmail did not allow permanent deletion",
+								"Permanently deleting mail needs Google's full-access permission, which MyloMail has not been granted for this account. Google removes messages from Trash by itself after 30 days.",
+								"INSUFFICIENT_SCOPE"
+							),
+							[]
+						)
+					)
+				);
+				continue;
+			}
+
 			items.AddRange(
 				existing.Select(reference =>
 					new BatchItemResult(
