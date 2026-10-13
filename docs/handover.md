@@ -12,6 +12,9 @@
 
 ## Verification
 
+- **Reconciliation point lookup (this session).** `IMailProvider.FindMessageAsync` replaces the per-item folder walk in `MutationReconciler.ObserveAsync`; `DrainAsync` no longer dies or stalls on a failed settle. Invariants broken to prove the scenarios, then restored: (1) making the reconciler walk a folder again and ignoring `ExistsWithoutLocation` failed `Recovery_asks_the_provider_for_the_one_message_and_never_walks_a_folder` and `A_message_that_still_exists_without_any_label_is_not_settled_as_deleted`; (2) disabling the new generic catch in `MutationJobs.DrainAsync` failed `A_change_that_cannot_be_settled_does_not_block_unrelated_changes`. IMAP `FindMessage_follows_a_message_through_a_move_and_reports_it_gone_after_deletion` passes on the QRESYNC, CONDSTORE and BASIC tiers; the Gmail and Graph conformance cases are written but skipped without credentials, so those two are covered only by the request-shape tests in `MessageLookupTests`. Independent invariant review (reviewer role): no violations. Not run: `pnpm check:deep`.
+- Google contacts: an expired `syncToken` is `400 FAILED_PRECONDITION / EXPIRED_SYNC_TOKEN`, not only `410`; the old code reported it as a conflict forever (`GooglePeopleContactProvider.IsExpiredSyncToken`).
+
 - `pnpm check`: format, tsc, eslint, stylelint, build, 861 .NET tests, 259 Vitest passed. The .NET test host intermittently dies with "Internal CLR error (0x80131506)"; a rerun passes. Not investigated.
 - Renderer e2e passed except `Locale` and the window-bounds restore test in `WindowBounds`, which fail identically on the tree before this work. Throwaway Electron scripts exercised: invert mode, Empty Trash, auto-advance after Delete and Move, the real Anthropic email with a trusted domain, print-to-PDF of a real multi-page email.
 - Not run: `pnpm check:deep`; the new migration against a copy of the real database; the real GNOME unlock prompt.

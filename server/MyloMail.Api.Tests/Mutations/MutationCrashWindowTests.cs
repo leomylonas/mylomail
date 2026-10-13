@@ -4,6 +4,10 @@ using MyloMail.Api.Domain;
 using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
+using MyloMail.Api.Providers.Contracts;
+using MyloMail.Api.Scheduling;
+using MyloMail.Api.Tests.Fakes;
+using MyloMail.Api.Tests.Sync;
 using Xunit;
 
 namespace MyloMail.Api.Tests.Mutations;
@@ -271,6 +275,126 @@ public sealed class MutationCrashWindowTests
 		var settlement = Assert.Single(harness.Events.MutationSettlements);
 		Assert.Equal(item.Id, settlement.MutationItemId);
 		Assert.Equal(MutationOperationKind.DeletePermanently, settlement.OperationKind);
+	}
+
+	/// <summary>
+	/// Recovery used to find a message again by walking every folder of the account. On a large
+	/// Gmail account that never finished under rate limiting, and the queue behind it never moved.
+	/// It must ask the provider about the one message.
+	/// </summary>
+	[Fact]
+	public async Task Recovery_asks_the_provider_for_the_one_message_and_never_walks_a_folder()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+		var walksBefore = harness.Provider.InitialSyncMailboxCalls;
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		Assert.Equal(walksBefore, harness.Provider.InitialSyncMailboxCalls);
+		var lookup = Assert.Single(harness.Provider.Lookups);
+		Assert.Equal($"<{harness.MessageId:N}@fake.test>", lookup.MessageIdHeader);
+		await harness.UsingAsync(async services =>
+			Assert.Equal(MutationState.Completed, (await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync()).State)
+		);
+	}
+
+	/// <summary>
+	/// A Gmail message that has lost every label still exists. "No folder holds it" is not the same
+	/// as "it is gone", so a permanent delete that did not happen must not be settled as done.
+	/// </summary>
+	[Fact]
+	public async Task A_message_that_still_exists_without_any_label_is_not_settled_as_deleted()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Gmail);
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterDispatchedBeforeProviderCall);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+		// While the request was in doubt the message lost its label (archived elsewhere) but was not deleted.
+		harness.Provider.RemoveMessage(await harness.UsingAsync(async services =>
+			(await services.GetRequiredService<MyloMailDbContext>().MessageMailboxes.SingleAsync()).ProviderOccurrenceId));
+		harness.Provider.SeedMessageWithoutLabels(harness.MessageId, DateTimeOffset.UnixEpoch);
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+			Assert.Equal(MutationState.Pending, (await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync()).State)
+		);
+	}
+
+	/// <summary>A lookup that fails leaves the outcome unknown: nothing is settled, nothing is replayed.</summary>
+	[Fact]
+	public async Task A_failed_lookup_settles_nothing_and_recovery_finishes_once_it_works()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+
+		harness.Provider.LookupFailure = new HttpRequestException("the provider is having a bad day");
+		await Assert.ThrowsAsync<HttpRequestException>(() =>
+			harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId)));
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			var item = await context.MutationItems.SingleAsync();
+			Assert.NotEqual(MutationState.Completed, item.State);
+			Assert.NotEqual(MutationState.Pending, item.State); // not replayed blindly
+		});
+
+		harness.Provider.LookupFailure = null;
+		await harness.UsingAsync(services => services.GetRequiredService<MutationReconciler>().ReconcileAsync(harness.AccountId));
+		await harness.UsingAsync(async services =>
+			Assert.Equal(MutationState.Completed, (await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync()).State)
+		);
+	}
+
+	/// <summary>
+	/// One interrupted request whose outcome cannot be established right now must not hold up every
+	/// other change on the account: that is what left 16 deletes and 2 read changes queued for hours.
+	/// The interrupted one stays unsettled (never replayed blindly) and settling is retried.
+	/// </summary>
+	[Fact]
+	public async Task A_change_that_cannot_be_settled_does_not_block_unrelated_changes()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var interrupted = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId)
+		);
+		harness.Faults.ArmAt(FaultPoints.AfterProviderCallBeforeResults);
+		await Assert.ThrowsAsync<SimulatedCrashException>(() => MutationExecutionTests.ExecuteAsync(harness));
+		await harness.RestartAsync();
+		var other = await MutationOrderingTests.AddMessageAsync(harness, "unrelated");
+		await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().SetFlagsAsync(harness.AccountId, other, new FlagUpdate(true, null))
+		);
+		harness.Provider.LookupFailure = new InvalidOperationException("the provider could not answer");
+
+		await harness.UsingAsync(services => services.GetRequiredService<MutationJobs>().DrainAsync(harness.AccountId));
+
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			Assert.True((await context.Messages.SingleAsync(message => message.Id == other)).IsRead);
+			var stuck = await context.MutationItems.SingleAsync(item => item.Id == interrupted.Id);
+			Assert.NotEqual(MutationState.Completed, stuck.State);
+			Assert.NotEqual(MutationState.Pending, stuck.State);
+			Assert.Contains(
+				((RecordingJobClient)services.GetRequiredService<Hangfire.IBackgroundJobClient>()).Created,
+				job => job.Method.Name == nameof(MutationJobs.DrainAsync)
+			);
+		});
 	}
 
 	[Fact]

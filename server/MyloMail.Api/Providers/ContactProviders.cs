@@ -74,7 +74,7 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 			if (pageToken is not null) url += "&pageToken=" + Uri.EscapeDataString(pageToken);
 			using var request = await RequestAsync(account, HttpMethod.Get, url, ct);
 			using var response = await client.SendAsync(request, ct);
-			if (response.StatusCode == HttpStatusCode.Gone && cursor is not null)
+			if (cursor is not null && IsExpiredSyncToken(response.StatusCode, await ErrorBodyAsync(response, ct)))
 				throw new ExpiredGoogleSyncTokenException();
 			await EnsureAsync(response, ct);
 			using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
@@ -341,6 +341,26 @@ public sealed class GooglePeopleContactProvider(GmailOAuthAuthenticator oauth, H
 			: [];
 
 	private sealed class ExpiredGoogleSyncTokenException : Exception;
+
+	/// <summary>
+	/// Whether the response says the sync token can no longer be used, so the pull must start over
+	/// without it. Google reports an expired token (they last seven days) as <c>400</c> with status
+	/// <c>FAILED_PRECONDITION</c> and reason <c>EXPIRED_SYNC_TOKEN</c>; <c>410</c> is the older form.
+	/// Treating the <c>400</c> as a conflict instead left every refresh failing forever with "The
+	/// Google contact changed remotely", because the stale token was never discarded.
+	/// </summary>
+	internal static bool IsExpiredSyncToken(HttpStatusCode status, string body) =>
+		status == HttpStatusCode.Gone
+		|| (
+			status == HttpStatusCode.BadRequest
+			&& (
+				body.Contains("EXPIRED_SYNC_TOKEN", StringComparison.OrdinalIgnoreCase)
+				|| body.Contains("FAILED_PRECONDITION", StringComparison.OrdinalIgnoreCase)
+			)
+		);
+
+	private static async Task<string> ErrorBodyAsync(HttpResponseMessage response, CancellationToken ct) =>
+		(int)response.StatusCode is >= 400 and < 500 ? await response.Content.ReadAsStringAsync(ct) : string.Empty;
 }
 
 public sealed class GraphContactProvider(GraphOAuthAuthenticator oauth, HttpClient client) : IContactProvider

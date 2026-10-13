@@ -262,6 +262,57 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 	public Task<int> EstimateMailboxCountAsync(Account account, Mailbox mailbox, CancellationToken ct) =>
 		Task.FromResult(Require(ProviderIdOf(mailbox)).Messages.Count);
 
+	/// <summary>How many folder walks were asked for. Recovery must not make any (it asks for one message).</summary>
+	public int InitialSyncMailboxCalls { get; private set; }
+
+	/// <summary>The lookups recovery made, one per message looked for.</summary>
+	public List<MessageLookup> Lookups { get; } = [];
+
+	/// <summary>Makes the next lookups fail, as a throttled or erroring provider would.</summary>
+	public Exception? LookupFailure { get; set; }
+
+	public Task<IReadOnlyList<MessageDto>> FindMessageAsync(Account account, MessageLookup lookup, CancellationToken ct)
+	{
+		Lookups.Add(lookup);
+		if (LookupFailure is Exception failure)
+		{
+			throw failure;
+		}
+
+		var knownIds = lookup.KnownOccurrences.Select(known => known.ProviderOccurrenceId).ToHashSet(StringComparer.Ordinal);
+		var found = new List<MessageDto>();
+		foreach (var mailboxState in mailboxes.Values)
+		{
+			foreach (var (occurrenceId, message) in mailboxState.Messages)
+			{
+				var dto = ToDto(mailboxState.ProviderMailboxId, occurrenceId, message);
+				if (
+					(lookup.ProviderStableId is not null && dto.ProviderStableId == lookup.ProviderStableId)
+					|| knownIds.Contains(occurrenceId)
+					|| (lookup.MessageIdHeader is not null && message.MessageIdHeader == lookup.MessageIdHeader)
+				)
+				{
+					found.Add(dto);
+				}
+			}
+		}
+
+		// Archived Gmail mail has no label, so it is found by id or header and has no occurrences.
+		foreach (var message in unlabelled)
+		{
+			var dto = ToDto(string.Empty, string.Empty, message) with { Occurrences = [] };
+			if (
+				(lookup.ProviderStableId is not null && dto.ProviderStableId == lookup.ProviderStableId)
+				|| (lookup.MessageIdHeader is not null && message.MessageIdHeader == lookup.MessageIdHeader)
+			)
+			{
+				found.Add(dto);
+			}
+		}
+
+		return Task.FromResult<IReadOnlyList<MessageDto>>(found);
+	}
+
 	public async Task<InitialSyncPage> InitialSyncMailboxAsync(
 		Account account,
 		Mailbox mailbox,
@@ -272,6 +323,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 		CancellationToken ct
 	)
 	{
+		InitialSyncMailboxCalls++;
 		var mailboxState = Require(ProviderIdOf(mailbox));
 		IEnumerable<KeyValuePair<string, FakeMessage>> matching = mailboxState
 			.Messages.OrderByDescending(kv => kv.Value.ReceivedAt);

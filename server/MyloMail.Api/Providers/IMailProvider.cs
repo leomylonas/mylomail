@@ -98,6 +98,19 @@ public interface IMailProvider
 		int? maximumBytes = null
 	);
 
+	/// <summary>
+	/// Finds the provider's current copy of one message by asking for that message — a point read
+	/// by id, a lookup by <c>Message-ID</c>, a search in each folder — and <b>never by walking the
+	/// account</b>. Recovery after an ambiguous attempt needs it, and a walk of a large account is
+	/// both slow and rate-limited, so one interrupted request used to stall everything behind it.
+	/// </summary>
+	/// <returns>
+	/// Every copy found, each with all the occurrences it has. An empty list means the provider has
+	/// no such message: that is an answer (the message is gone), not a failure, and a provider must
+	/// not return it unless its lookup was thorough enough to say so.
+	/// </returns>
+	Task<IReadOnlyList<MessageDto>> FindMessageAsync(Account account, MessageLookup lookup, CancellationToken ct);
+
 	Task<AttachmentConstraints> GetAttachmentConstraintsAsync(Account account, CancellationToken ct);
 
 	// Mutations — operate on occurrences and stable intent, never on captured provider ids.

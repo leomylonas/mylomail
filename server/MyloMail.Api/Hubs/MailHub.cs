@@ -948,9 +948,45 @@ public class MailHub(
 		string? NameOf(Guid? id) => id is { } key && names.TryGetValue(key, out var name) ? name : null;
 		var tasks = new List<BackgroundTaskDto>();
 
+		// A request that was sent but whose outcome was never recorded (the app stopped meanwhile) is
+		// being checked against the provider, not waiting to be sent; say so, and keep it out of the
+		// ordinary queued counts below.
+		var unresolved = context.MutationExecutionAttemptItems.Where(membership =>
+			context.MutationExecutionAttempts.Any(attempt =>
+				attempt.Id == membership.AttemptId
+				&& attempt.ResultPersistedAt == null
+				&& attempt.OutboxItemId == null
+				&& (attempt.State == MutationAttemptState.Dispatched || attempt.State == MutationAttemptState.Ambiguous)
+			)
+		);
+		var verifying = await context
+			.MutationItems.AsNoTracking()
+			.Where(item =>
+				(item.State == MutationState.Pending || item.State == MutationState.Leased)
+				&& unresolved.Any(membership => membership.MutationItemId == item.Id)
+			)
+			.GroupBy(item => item.AccountId)
+			.Select(group => new { AccountId = group.Key, Count = group.Count() })
+			.ToListAsync();
+		var providerNames = await context.Accounts.AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.ProviderType);
+		foreach (var group in verifying.OrderBy(group => group.AccountId))
+		{
+			var provider = providerNames.GetValueOrDefault(group.AccountId) switch
+			{
+				ProviderType.Gmail => "Gmail",
+				ProviderType.Microsoft365 => "Microsoft 365",
+				_ => "the mail server",
+			};
+			var changes = group.Count == 1 ? "1 change" : $"{group.Count:N0} changes";
+			tasks.Add(new BackgroundTaskDto($"Checking with {provider} whether {changes} went through", NameOf(group.AccountId), null, null, null, true));
+		}
+
 		var queued = await context
 			.MutationItems.AsNoTracking()
-			.Where(item => item.State == MutationState.Pending || item.State == MutationState.Leased)
+			.Where(item =>
+				(item.State == MutationState.Pending || item.State == MutationState.Leased)
+				&& !unresolved.Any(membership => membership.MutationItemId == item.Id)
+			)
 			.GroupBy(item => new { item.AccountId, item.OperationKind, Running = item.State == MutationState.Leased })
 			.Select(group => new { group.Key.AccountId, group.Key.OperationKind, group.Key.Running, Count = group.Count() })
 			.ToListAsync();

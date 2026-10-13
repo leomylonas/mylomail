@@ -1,3 +1,4 @@
+using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers;
 using MyloMail.Api.Providers.Contracts;
@@ -135,6 +136,50 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 				"provider claims to report destination ids, so the move must carry one"
 			);
 		}
+	}
+
+	/// <summary>
+	/// Recovery after an ambiguous attempt finds one message by asking for it: where it is, where it
+	/// went after a move, and that it is gone after a permanent delete. An empty answer is only
+	/// correct once the message is truly gone.
+	/// </summary>
+	[SkippableFact]
+	[Trait("Category", "Conformance")]
+	public async Task FindMessage_follows_a_message_through_a_move_and_reports_it_gone_after_deletion()
+	{
+		Available();
+		var occurrence = await Harness.SeedMessageAsync(Harness.Source);
+		var walk = await Harness.Provider.InitialSyncMailboxAsync(
+			Harness.Account, Harness.Source, null, InitialSyncMode.Full, null, int.MaxValue, CancellationToken.None);
+		var seeded = Assert.Single(walk.Messages, message =>
+			message.Occurrences.Any(o => o.ProviderOccurrenceId == occurrence.ProviderOccurrenceId));
+		MessageLookup LookupFor() =>
+			new(
+				seeded.ProviderStableId,
+				seeded.MessageIdHeader,
+				[new KnownOccurrence(Harness.Source, occurrence.ProviderOccurrenceId)],
+				[Harness.Source, Harness.Destination]
+			);
+
+		var before = await Harness.Provider.FindMessageAsync(Harness.Account, LookupFor(), CancellationToken.None);
+		var found = Assert.Single(before);
+		Assert.Contains(found.Occurrences, o => o.ProviderMailboxId == seeded.Occurrences[0].ProviderMailboxId);
+
+		var move = await Harness.Provider.MoveMessagesAsync(Harness.Account, [occurrence], Harness.Destination, CancellationToken.None);
+		Assert.True(Assert.Single(move.Items).Succeeded);
+
+		// The old occurrence id is stale after a move (an IMAP UID, say); the answer must still be the
+		// message's current place, found by the other hints.
+		var afterMove = Assert.Single(await Harness.Provider.FindMessageAsync(Harness.Account, LookupFor(), CancellationToken.None));
+		var destination = Assert.Single(afterMove.Occurrences, o => o.ProviderMailboxId != seeded.Occurrences[0].ProviderMailboxId);
+
+		var delete = await Harness.Provider.DeletePermanentlyAsync(
+			Harness.Account,
+			[new MessageOccurrenceRef(occurrence.MessageId, Harness.Destination.Id, destination.ProviderOccurrenceId)],
+			CancellationToken.None);
+		Assert.True(Assert.Single(delete.Items).Succeeded);
+
+		Assert.Empty(await Harness.Provider.FindMessageAsync(Harness.Account, LookupFor(), CancellationToken.None));
 	}
 
 	/// <summary>

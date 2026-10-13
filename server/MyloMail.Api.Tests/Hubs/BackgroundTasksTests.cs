@@ -61,4 +61,39 @@ public sealed class BackgroundTasksTests
 			Assert.Empty(await hub.GetBackgroundTasks());
 		});
 	}
+
+	[Fact]
+	public async Task A_change_awaiting_a_check_with_the_provider_is_reported_as_such_not_as_waiting_to_send()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var messageId = Guid.NewGuid();
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.Messages.Add(new Message { Id = messageId, AccountId = harness.Account.Id, IsRead = false });
+			await context.SaveChangesAsync();
+			await services.GetRequiredService<MailHub>().SetFlags(harness.Account.Id, [messageId], true, null);
+			var item = await context.MutationItems.SingleAsync();
+			item.State = MutationState.Leased;
+			context.MutationExecutionAttempts.Add(
+				new MutationExecutionAttempt
+				{
+					Id = Guid.NewGuid(),
+					AccountId = harness.Account.Id,
+					Provider = harness.Account.ProviderType,
+					OperationKind = MutationOperationKind.SetFlags,
+					State = MutationAttemptState.Ambiguous,
+					CreatedAt = DateTimeOffset.UnixEpoch,
+					Items = [new MutationExecutionAttemptItem { MutationItemId = item.Id }],
+				}
+			);
+			await context.SaveChangesAsync();
+		});
+
+		var tasks = await harness.UsingAsync(services => services.GetRequiredService<MailHub>().GetBackgroundTasks());
+
+		var shown = Assert.Single(tasks);
+		Assert.StartsWith("Checking with ", shown.Label);
+		Assert.True(shown.Running);
+	}
 }

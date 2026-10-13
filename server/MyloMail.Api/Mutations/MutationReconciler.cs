@@ -115,7 +115,8 @@ public sealed class MutationReconciler(
 					account,
 					item,
 					resolvedTargetMailboxId,
-					observation.Locations
+					observation.Locations,
+					observation.ExistsWithoutLocation
 				);
 				if (applied)
 				{
@@ -282,7 +283,8 @@ public sealed class MutationReconciler(
 		Account account,
 		MutationItem item,
 		Guid? resolvedTargetMailboxId,
-		IReadOnlyDictionary<Guid, string> locations
+		IReadOnlyDictionary<Guid, string> locations,
+		bool existsWithoutLocation
 	)
 	{
 		switch (item.OperationKind)
@@ -298,7 +300,7 @@ public sealed class MutationReconciler(
 			case MutationOperationKind.RemoveFromMailbox:
 				return item.ScopeMailboxId is Guid scope && !locations.ContainsKey(scope);
 			case MutationOperationKind.DeletePermanently:
-				return locations.Count == 0;
+				return locations.Count == 0 && !existsWithoutLocation;
 			default:
 				return false;
 		}
@@ -326,43 +328,52 @@ public sealed class MutationReconciler(
 		var isIndeterminate = false;
 		var provider = providers.For(account);
 
+		// Ask the provider about this one message, never walk the account to find it (see
+		// IMailProvider.FindMessageAsync): a walk of a large account is slow and rate-limited, and
+		// recovery that cannot finish blocks everything behind it.
+		var candidatesFound = await provider.FindMessageAsync(
+			account,
+			new MessageLookup(
+				message.ProviderStableId,
+				message.MessageIdHeader,
+				[
+					.. (
+						from occurrence in context.MessageMailboxes.AsNoTracking()
+						join knownMailbox in context.Mailboxes.AsNoTracking() on occurrence.MailboxId equals knownMailbox.Id
+						where occurrence.MessageId == messageId && knownMailbox.ProviderMailboxId != null
+						select new { knownMailbox, occurrence.ProviderOccurrenceId }
+					)
+						.AsEnumerable()
+						.Select(row => new KnownOccurrence(row.knownMailbox, row.ProviderOccurrenceId)),
+				],
+				mailboxes
+			),
+			ct
+		);
+
 		foreach (var mailbox in mailboxes)
 		{
 			var exactOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
 			var heuristicOccurrenceIds = new HashSet<string>(StringComparer.Ordinal);
-			string? token = null;
-			do
+			foreach (var dto in candidatesFound)
 			{
-				var page = await provider.InitialSyncMailboxAsync(
-					account,
-					mailbox,
-					token,
-					InitialSyncMode.Full,
-					null,
-					200,
-					ct
+				var occurrence = dto.Occurrences.FirstOrDefault(candidate =>
+					candidate.ProviderMailboxId == mailbox.ProviderMailboxId
 				);
-				foreach (var dto in page.Messages)
+				if (occurrence is null)
 				{
-					var occurrence = dto.Occurrences.FirstOrDefault(candidate =>
-						candidate.ProviderMailboxId == mailbox.ProviderMailboxId
-					);
-					if (occurrence is null)
-					{
-						continue;
-					}
-
-					if (MatchesExactly(message, known, dto))
-					{
-						exactOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
-					}
-					else if (MatchesHeuristically(message, dto))
-					{
-						heuristicOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
-					}
+					continue;
 				}
-				token = page.ResumeToken;
-			} while (token is not null);
+
+				if (MatchesExactly(message, known, dto))
+				{
+					exactOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
+				}
+				else if (MatchesHeuristically(message, dto))
+				{
+					heuristicOccurrenceIds.Add(occurrence.ProviderOccurrenceId);
+				}
+			}
 
 			var candidates = exactOccurrenceIds.Count > 0
 				? exactOccurrenceIds
@@ -383,12 +394,19 @@ public sealed class MutationReconciler(
 			}
 		}
 
-		return new MutationObservation(locations, isIndeterminate);
+		var existsWithoutLocation = locations.Count == 0
+			&& candidatesFound.Any(dto => MatchesExactly(message, known, dto) || MatchesHeuristically(message, dto));
+		return new MutationObservation(locations, isIndeterminate, existsWithoutLocation);
 	}
 
+	/// <param name="ExistsWithoutLocation">
+	/// The provider still has the message but in none of the account's folders — a Gmail message with
+	/// no labels (archived mail). It is not gone, so a permanent delete cannot count as applied.
+	/// </param>
 	private sealed record MutationObservation(
 		IReadOnlyDictionary<Guid, string> Locations,
-		bool IsIndeterminate
+		bool IsIndeterminate,
+		bool ExistsWithoutLocation = false
 	);
 
 	private static bool MatchesExactly(

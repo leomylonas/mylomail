@@ -1,3 +1,4 @@
+using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 
 namespace MyloMail.Api.Providers.Contracts;
@@ -89,3 +90,27 @@ public record OccurrenceChange(Guid MailboxId, string? NewProviderOccurrenceId, 
 	/// </remarks>
 	public bool RequiresDestinationReconciliation => !Removed && NewProviderOccurrenceId is null;
 }
+
+/// <summary>
+/// What recovery knows about a message it must find again after an ambiguous attempt. Hints for
+/// <see cref="IMailProvider.FindMessageAsync"/>, which asks the provider about this one message.
+/// </summary>
+/// <remarks>
+/// Like <see cref="MessageOccurrenceRef"/> this carries volatile provider identity and is built for
+/// one reconciliation, then discarded. It is never persisted.
+/// </remarks>
+/// <param name="ProviderStableId">Gmail message id or Graph immutable id; null for IMAP.</param>
+/// <param name="MessageIdHeader">RFC 5322 <c>Message-ID</c>: a hint for finding a copy whose provider id changed, never identity.</param>
+/// <param name="KnownOccurrences">Where this message was last known to be.</param>
+/// <param name="Mailboxes">
+/// Every real folder of the account, for providers that can only find a moved copy by looking
+/// in each folder (IMAP).
+/// </param>
+public record MessageLookup(
+	string? ProviderStableId,
+	string? MessageIdHeader,
+	IReadOnlyList<KnownOccurrence> KnownOccurrences,
+	IReadOnlyList<Mailbox> Mailboxes
+);
+
+public record KnownOccurrence(Mailbox Mailbox, string ProviderOccurrenceId);

@@ -37,6 +37,7 @@ public sealed class MutationJobs(
 {
 	private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(5);
 	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
+	private static readonly TimeSpan ReconcileRetryDelay = TimeSpan.FromMinutes(1);
 
 	/// <summary>
 	/// Claims the eligible heads for one account and executes them in homogeneous batches.
@@ -70,7 +71,10 @@ public sealed class MutationJobs(
 		}
 
 		// A dispatched local attempt says only that the provider may have seen it. Settle
-		// those attempts before claiming any work, so no move or deletion is blindly replayed.
+		// those attempts first. Settling can fail for reasons that are not about the work behind it
+		// (a provider error on one lookup), and an item in an unresolved attempt is never claimed
+		// below, so unrelated changes go ahead and the settling is tried again shortly.
+		var reconcileFailed = false;
 		try
 		{
 			await reconciler.ReconcileAsync(accountId, ct);
@@ -118,11 +122,25 @@ public sealed class MutationJobs(
 			);
 			return;
 		}
+		catch (Exception ex) when (ex is not OperationCanceledException)
+		{
+			logger.LogWarning(
+				ex,
+				"Settling interrupted changes for account {AccountId} failed; other changes continue and this is retried.",
+				accountId
+			);
+			reconcileFailed = true;
+		}
 
 		var leaseOwner = $"{Environment.MachineName}:{Guid.NewGuid():N}";
 		var claimed = await claims.ClaimAsync(accountId, leaseOwner, LeaseDuration, max: 50, ct);
 		if (claimed.Count == 0)
 		{
+			if (reconcileFailed)
+			{
+				jobs.Schedule<MutationJobs>(job => job.DrainAsync(accountId, default), ReconcileRetryDelay);
+			}
+
 			return;
 		}
 
@@ -258,7 +276,14 @@ public sealed class MutationJobs(
 			await Accounts.AccountDtoFactory.AnnounceStatusAsync(context, events, afterDrain, ct);
 		}
 
-		// More chains may have become eligible now that these heads are terminal.
+		// More chains may have become eligible now that these heads are terminal. After a failed
+		// settling, wait first: draining at once would only repeat the same failing lookups.
+		if (reconcileFailed)
+		{
+			jobs.Schedule<MutationJobs>(job => job.DrainAsync(accountId, default), ReconcileRetryDelay);
+			return;
+		}
+
 		connectivity.DispatchOrDefer(
 			workKey,
 			client => client.Enqueue<MutationJobs>(job => job.DrainAsync(accountId, default))
