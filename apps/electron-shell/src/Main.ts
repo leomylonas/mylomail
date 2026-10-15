@@ -45,6 +45,7 @@ import { notificationTargetWindow } from "@mylomail/electron-shell/NotificationW
 import { printWebContents } from "@mylomail/electron-shell/Print";
 import { relaxRemoteImageHeaders } from "@mylomail/electron-shell/RemoteImagePolicy";
 import { surfaceStartupFailure } from "@mylomail/electron-shell/StartupFailure";
+import { getAppIcon } from "@mylomail/electron-shell/AppIcon";
 import {
 	extractMailtoUris,
 	mailtoWindowQuery,
@@ -67,7 +68,13 @@ app.setPath("userData", userDataPath);
 
 // The Linux notification server and StatusNotifier host resolve this stable desktop-file
 // identity to the user-facing Name.
-if (process.platform === "linux") app.setDesktopName("MyloMail");
+if (process.platform === "linux") {
+	app.setDesktopName("MyloMail.desktop");
+	app.commandLine.appendSwitch("class", "MyloMail");
+}
+if (process.platform === "win32") {
+	app.setAppUserModelId("com.mylomail.desktop");
+}
 
 /**
  * Read once at startup, same as window bounds and the mailto-prompt flag (§13), then kept in
@@ -271,6 +278,7 @@ export async function startShell(): Promise<void> {
 		const notification = new Notification({
 			title: request.title,
 			body: request.body,
+			icon: getAppIcon(),
 		});
 		activeNativeNotifications.add(notification);
 		const release = (): void => {
@@ -717,6 +725,7 @@ async function createWindow(
 		x: bounds?.x,
 		y: bounds?.y,
 		show: false,
+		icon: getAppIcon(),
 		// The File/Edit/View menu stays out of the way until Alt is pressed (Windows/Linux
 		// convention). Its shortcuts keep working while it is hidden.
 		autoHideMenuBar: true,
@@ -1052,7 +1061,10 @@ if (!singleInstance) {
 	});
 	app
 		.whenReady()
-		.then(startShell)
+		.then(() => {
+			if (process.platform === "darwin") app.dock?.setIcon(getAppIcon());
+			return startShell();
+		})
 		.catch((error: unknown) => {
 			startupOwnedChild?.kill("SIGTERM");
 			console.error("MyloMail could not start:", error);

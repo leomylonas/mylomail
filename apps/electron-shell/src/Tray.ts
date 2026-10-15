@@ -1,12 +1,5 @@
-import { app, BrowserWindow, Menu, nativeImage, Tray } from "electron";
-
-/**
- * A tiny 32x32 envelope glyph, embedded rather than loaded from disk (§13 Epic 10). The main
- * process bundle is a single rollup file with no static-asset copy step, so a file on disk
- * would need its own build wiring just for one icon; a data URL needs none.
- */
-const iconDataUrl =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAqElEQVR4nO2WSw6AIAwF+4wH8I6eyztyA1w1QaxYStWFfSu+meETAlEk8sfknDOXITW+FQCYpY5l9XdJGw51ACAimjSDPeH14g4CZWfa4CLSgp8EeFAt8hRcFJAm9ErUu9e6U5cCVokafHehmwK9EtpVdwloJSxwtYAkwcCe85YiPkR3EiXcCuaod0ASGYWbBUro6LNtFvCADwt4JARC4LMvGf+IIpHIDqB7VA9Nh/DzAAAAAElFTkSuQmCC";
+import { app, BrowserWindow, Menu, Tray } from "electron";
+import { getTrayIcon } from "@mylomail/electron-shell/AppIcon";
 
 let tray: Tray | undefined;
 
@@ -21,12 +14,12 @@ let tray: Tray | undefined;
 export function ensureTray(): Tray {
 	if (tray) return tray;
 
-	tray = new Tray(nativeImage.createFromDataURL(iconDataUrl));
-	tray.setToolTip("MyloMail");
+	tray = new Tray(getTrayIcon());
+	tray.setToolTip("Mylo Mail");
 	tray.setContextMenu(
 		Menu.buildFromTemplate([
 			{
-				label: "Open MyloMail",
+				label: "Open Mylo Mail",
 				click: () => showAllWindows(),
 			},
 			{ type: "separator" },

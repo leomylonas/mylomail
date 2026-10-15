@@ -68,6 +68,30 @@ public sealed class NotificationEligibilityTests
 	}
 
 	/// <summary>
+	/// Mail the server already shows as read — opened on another device before this one synced it —
+	/// is not new mail, however recently it arrived.
+	/// </summary>
+	[Fact]
+	public async Task A_new_message_the_server_already_marks_read_does_not_notify()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		var inbox = harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
+
+		var readElsewhere = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(1));
+		inbox.Messages[readElsewhere].IsRead = true;
+		var unread = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(2));
+		await SyncTests.SyncAsync(harness);
+
+		var notification = Assert.Single(harness.Events.Notifications);
+		Assert.Equal(harness.Account.Id, notification.AccountId);
+		Assert.NotNull(unread);
+	}
+
+	/// <summary>
 	/// Mail the account's own identity sent (its Sent copy) is not new mail. It used to alert with
 	/// the user's own address as the title, which read as the account name rather than a sender.
 	/// </summary>

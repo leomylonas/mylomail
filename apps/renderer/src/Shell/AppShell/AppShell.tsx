@@ -6,6 +6,7 @@ import {
 	type PanelImperativeHandle,
 } from "react-resizable-panels";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import brandIcon from "@mylomail/renderer/Assets/Brand/Icon.png";
 import { Sidebar } from "@mylomail/renderer/Components/Sidebar/Sidebar";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
@@ -490,10 +491,8 @@ export function AppShell({
 		<div className={styles.shell}>
 			<header className={styles.appBar}>
 				<div className={styles.brand}>
-					<span className={styles.brandMark} aria-hidden="true">
-						M
-					</span>
-					<h1 className={styles.title}>MyloMail</h1>
+					<img className={styles.brandIcon} src={brandIcon} alt="" />
+					<h1 className={styles.title}>Mylo Mail</h1>
 				</div>
 				<div className={styles.globalSearch}>
 					{showMailChrome ? (

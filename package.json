@@ -4,7 +4,7 @@
   "description": "Private cross-platform desktop mail and calendar client",
   "author": "MyloMail contributors",
   "main": "apps/electron-shell/dist/Main.js",
-  "desktopName": "MyloMail",
+  "desktopName": "MyloMail.desktop",
   "private": true,
   "type": "module",
   "engines": {
@@ -28,6 +28,7 @@
     "caldav:up": "bash tests/caldav-matrix/generate-cert.sh && docker compose -f tests/caldav-matrix/compose.yaml up -d --wait",
     "caldav:down": "docker compose -f tests/caldav-matrix/compose.yaml down -v",
     "generate:types": "tsx scripts/generate-types.ts",
+    "generate:icons": "tsx scripts/GenerateIcons.ts",
     "build:electron": "tsx scripts/BuildElectron.ts",
     "app": "tsx scripts/LaunchApp.ts",
     "pretest:e2e": "pnpm build:electron && dotnet build --nologo -v q server/MyloMail.Api/MyloMail.Api.csproj",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@eslint/js": "^9.35.0",
     "@playwright/test": "^1.62.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",

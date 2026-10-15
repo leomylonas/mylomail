@@ -1,7 +1,6 @@
 appId: com.mylomail.desktop
 productName: MyloMail
 asar: true
-icon: Build/Icon.svg
 npmRebuild: false
 directories:
   output: dist/packages
@@ -25,20 +24,23 @@ linux:
   maintainer: MyloMail contributors
   syncDesktopName: true
   executableName: mylomail
+  icon: assets/icons/linux
   category: Network
   synopsis: Private desktop mail and calendar client
   desktop:
     entry:
       Name: Mylo Mail
+      StartupWMClass: MyloMail
   target:
     - AppImage
     - deb
     - rpm
 win:
+  icon: assets/icons/app-icon.ico
   target:
     - nsis
     - msi
-  signAndEditExecutable: false
+  signAndEditExecutable: true
   verifyUpdateCodeSignature: false
 nsis:
   oneClick: false
@@ -47,6 +49,7 @@ nsis:
 msi:
   warningsAsErrors: false
 mac:
+  icon: assets/icons/app-icon.icns
   category: public.app-category.productivity
   identity: null
   hardenedRuntime: false

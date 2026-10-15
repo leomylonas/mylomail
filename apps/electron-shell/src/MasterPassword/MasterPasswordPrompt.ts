@@ -5,6 +5,7 @@ import {
 	masterPasswordCancelChannel,
 	masterPasswordSubmitChannel,
 } from "@mylomail/electron-shell/MasterPassword/MasterPasswordChannels";
+import { getAppIcon } from "@mylomail/electron-shell/AppIcon";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -28,9 +29,10 @@ export async function promptForMasterPassword(
 
 	const window = new BrowserWindow({
 		width: 460,
-		height: 320,
+		height: 440,
 		resizable: false,
-		title: "MyloMail",
+		title: "Mylo Mail",
+		icon: getAppIcon(),
 		webPreferences: {
 			preload: join(here, "MasterPasswordPreload.cjs"),
 			contextIsolation: true,

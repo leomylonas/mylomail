@@ -1,19 +1,6 @@
 import { BrowserWindow } from "electron";
 import type { StartupProgress } from "@mylomail/electron-shell/BackendHealthProbe";
-
-const page = `<!doctype html>
-<meta charset="utf-8">
-<title>MyloMail</title>
-<style>
-	html, body { overflow: hidden; }
-	body { box-sizing: border-box; height: 100vh; margin: 0; padding: 24px; font: 14px system-ui, sans-serif; background: #262626; color: #f4f4f4; }
-	h1 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
-	p { margin: 12px 0 0; color: #c6c6c6; }
-	progress { width: 100%; height: 8px; accent-color: #4589ff; }
-</style>
-<h1 id="title">Preparing MyloMail</h1>
-<progress id="bar"></progress>
-<p id="detail">Your database is being upgraded. This can take a while for a large mailbox.</p>`;
+import { getAppIcon } from "@mylomail/electron-shell/AppIcon";
 
 const titles: Record<string, string> = {
 	backup: "Backing up your database",
@@ -35,14 +22,29 @@ export function createStartupProgressWindow(showAfterMs = 2000): {
 
 	const render = (progress: StartupProgress) => {
 		if (!window) {
+			const page = `<!doctype html>
+<meta charset="utf-8">
+<title>Mylo Mail</title>
+<style>
+	html, body { overflow: hidden; }
+	body { box-sizing: border-box; height: 100vh; margin: 0; padding: 24px; font: 14px system-ui, sans-serif; background: #262626; color: #f4f4f4; }
+	.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+	h1 { margin: 0; font-size: 16px; font-weight: 600; }
+	p { margin: 12px 0 0; color: #c6c6c6; }
+	progress { width: 100%; height: 8px; accent-color: #4589ff; }
+</style>
+<header class="brand"><img src="${getAppIcon().toDataURL()}" width="32" height="32" alt=""><h1 id="title">Preparing Mylo Mail</h1></header>
+<progress id="bar"></progress>
+<p id="detail">Your database is being upgraded. This can take a while for a large mailbox.</p>`;
 			window = new BrowserWindow({
 				useContentSize: true,
 				width: 440,
-				height: 140,
+				height: 168,
 				resizable: false,
 				minimizable: false,
 				maximizable: false,
-				title: "MyloMail",
+				title: "Mylo Mail",
+				icon: getAppIcon(),
 				autoHideMenuBar: true,
 			});
 			void window.loadURL(
@@ -50,7 +52,7 @@ export function createStartupProgressWindow(showAfterMs = 2000): {
 			);
 		}
 		const current = window;
-		const title = titles[progress.phase] ?? "Preparing MyloMail";
+		const title = titles[progress.phase] ?? "Preparing Mylo Mail";
 		const percent =
 			progress.fraction === null ? null : Math.round(progress.fraction * 100);
 		current.setProgressBar(progress.fraction ?? 2);

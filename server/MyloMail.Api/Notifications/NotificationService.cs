@@ -63,7 +63,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		CancellationToken ct = default
 	)
 	{
-		var candidates = Eligible(account, upserted, m => m.ReceivedAt, notificationBaseline);
+		var candidates = Eligible(account, upserted, m => m.ReceivedAt, m => m.IsRead, notificationBaseline);
 		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
 		if (candidates.Count == 0)
 		{
@@ -149,7 +149,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		CancellationToken ct = default
 	)
 	{
-		var candidates = Eligible(account, upserted, m => m.ReceivedAt, notificationBaseline)
+		var candidates = Eligible(account, upserted, m => m.ReceivedAt, m => m.IsRead, notificationBaseline)
 			.Where(m => m.ProviderStableId is not null)
 			.ToList();
 		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
@@ -323,6 +323,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		Account account,
 		IReadOnlyList<T> upserted,
 		Func<T, DateTimeOffset> receivedAt,
+		Func<T, bool> isRead,
 		DateTimeOffset notificationBaseline
 	)
 	{
@@ -332,7 +333,9 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		}
 
 		var cutoff = account.NotificationEpoch > notificationBaseline ? account.NotificationEpoch : notificationBaseline;
-		return upserted.Where(m => receivedAt(m) >= cutoff).ToList();
+		// Mail the server already marks read — opened on another device before this one synced it —
+		// is not news, however recently it arrived.
+		return upserted.Where(m => receivedAt(m) >= cutoff && !isRead(m)).ToList();
 	}
 
 	private static NotificationDto ToDto(NotificationRecord record, string sender, string subject) =>
