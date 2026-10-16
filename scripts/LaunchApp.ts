@@ -3,6 +3,10 @@ import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { loadEnvFile, platform } from "node:process";
 import { dirname, join } from "node:path";
+import {
+	developmentDesktopName,
+	installDevelopmentDesktop,
+} from "./DevelopmentDesktop";
 
 const root = process.cwd();
 
@@ -41,6 +45,7 @@ const staleProcessPatterns = [
 ];
 killStaleProcesses();
 run("pnpm", ["build:electron"]);
+if (platform === "linux") installDevelopmentDesktop(root);
 if (process.env.MYLOMAIL_BACKEND_ARGS === undefined)
 	run("dotnet", ["build", "server/MyloMail.Api"]);
 runApp();
@@ -58,6 +63,7 @@ function runApp(): void {
 			"electron",
 			...sandboxArguments(),
 			"apps/electron-shell/dist/Main.js",
+			...process.argv.slice(2),
 		],
 		{
 			cwd: root,
@@ -65,6 +71,7 @@ function runApp(): void {
 				...process.env,
 				MYLOMAIL_RENDERER_PATH: join(root, "apps", "renderer", "dist"),
 				MYLOMAIL_BACKEND_ARGS: backendArguments,
+				MYLOMAIL_DEVELOPMENT_DESKTOP_NAME: developmentDesktopName,
 			},
 			stdio: "inherit",
 			shell: platform === "win32",

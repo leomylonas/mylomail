@@ -66,11 +66,15 @@ const userDataPath = app.getPath("userData");
 app.setName("Mylo Mail");
 app.setPath("userData", userDataPath);
 
-// The Linux notification server and StatusNotifier host resolve this stable desktop-file
-// identity to the user-facing Name.
+// GNOME matches an X11/Wayland window to its desktop entry by both of these values.
+// Development launches supply their checkout-owned filename; direct and packaged launches
+// retain the release identity.
 if (process.platform === "linux") {
-	app.setDesktopName("MyloMail.desktop");
-	app.commandLine.appendSwitch("class", "MyloMail");
+	const desktopName = app.isPackaged
+		? "MyloMail.desktop"
+		: (process.env.MYLOMAIL_DEVELOPMENT_DESKTOP_NAME ?? "MyloMail.desktop");
+	app.setDesktopName(desktopName);
+	app.commandLine.appendSwitch("class", basename(desktopName, ".desktop"));
 }
 if (process.platform === "win32") {
 	app.setAppUserModelId("com.mylomail.desktop");
