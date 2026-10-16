@@ -947,15 +947,26 @@ Serilog, async sink. Never log message bodies, subjects, or credentials — `Mes
   - Single backend process shared across all open windows, regardless of window count.
 - **`apps/renderer`** — the React SPA itself. No direct Node/OS access (Node integration disabled, standard Electron security practice); talks to the backend via SignalR/HTTP through the loopback connection using the shell-issued token.
 
-Native and in-app icons derive from the approved mark in `docs/branding/logos/mark-light.svg`.
+Native icons derive from the approved light mark in `docs/branding/logos/mark-light.svg`.
 `pnpm generate:icons` regenerates the PNG, Windows ICO, macOS ICNS, Linux size variants,
 and macOS template-tray assets under `assets/icons/`, using lower-kebab-case filenames.
+It also produces transparent, compact light/dark SVG marks for the renderer.
 `pnpm build:electron` runs it automatically and bundles the native files beside the
-main process in `Brand/`. The app header and favicon use the same generated PNG. All windows,
-native notifications, the tray, and the macOS Dock share the native artwork. Linux uses
-`MyloMail.desktop` with `StartupWMClass=MyloMail` and 16–512 px hicolor launcher icons; Windows retains the
-`com.mylomail.desktop` application identity. The public Markdown brand guide embeds the
-light/dark horizontal, square, and standalone SVGs directly.
+main process in `Brand/`. The favicon uses the generated PNG; the app header uses
+the transparent mark matching the resolved application theme on a neutral raised surface.
+Search uses a contrasting base surface, a subtle border, and a visible keyboard-focus outline.
+All windows, native notifications, the tray, and the macOS Dock share the native artwork.
+Packaged Linux uses `MyloMail.desktop` with `StartupWMClass=MyloMail` and 16–512 px
+hicolor launcher icons. On Linux, `pnpm app` installs
+`com.mylomail.desktop.dev.desktop` under `$XDG_DATA_HOME/applications` (default
+`~/.local/share/applications`), pointing at the checkout's icon and development launcher.
+The development window's desktop name and X11/Wayland class match that separate identity,
+without replacing the release launcher. Restart the development app to apply the identity.
+Windows retains the `com.mylomail.desktop` application identity.
+The public Markdown brand guide embeds illustrations of the approved logo arrangements,
+light/dark surfaces, spacing, native icon treatments, palette, and typography, with
+download links to the transparent logo SVGs. Its `logos/` and `illustrations/` directories
+travel with the guide; no separate HTML guide, installed fonts, or app build is required.
 
 ### Type generation (backend DTOs → frontend types)
 

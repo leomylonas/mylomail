@@ -23,13 +23,17 @@ Use the standalone mark when the full wordmark would be too small to read.
 
 ### Assets
 
+![Approved horizontal, square, and standalone logos shown on their intended light and dark surfaces.](illustrations/logo-variants.svg)
+
+Download the transparent artwork for the intended surface:
+
 | Artwork | Light surfaces | Dark surfaces |
 | --- | --- | --- |
-| Horizontal logo | [![Mylo Mail horizontal logo for light surfaces](logos/horizontal-light.svg)](logos/horizontal-light.svg) | [![Mylo Mail horizontal logo for dark surfaces](logos/horizontal-dark.svg)](logos/horizontal-dark.svg) |
-| Square logo | [![Mylo Mail square logo for light surfaces](logos/square-light.svg)](logos/square-light.svg) | [![Mylo Mail square logo for dark surfaces](logos/square-dark.svg)](logos/square-dark.svg) |
-| Standalone mark | [![Mylo Mail mark for light surfaces](logos/mark-light.svg)](logos/mark-light.svg) | [![Mylo Mail mark for dark surfaces](logos/mark-dark.svg)](logos/mark-dark.svg) |
+| Horizontal logo | [Light SVG](logos/horizontal-light.svg) | [Dark SVG](logos/horizontal-dark.svg) |
+| Square logo | [Light SVG](logos/square-light.svg) | [Dark SVG](logos/square-dark.svg) |
+| Standalone mark | [Light SVG](logos/mark-light.svg) | [Dark SVG](logos/mark-dark.svg) |
 
-All assets are transparent SVGs. Wordmark lettering is outlined, so no installed font is needed to render the logos. Keep the guide and `logos` folder together when sharing them; they require no application installation, build step, or external service.
+The downloadable logos are transparent SVGs. The illustrations include backgrounds to demonstrate correct placement; do not use those backgrounds as part of the logo. Wordmark and typography-specimen lettering is outlined, so no installed font is needed to view it. Keep this Markdown file, `logos`, and `illustrations` together when sharing the guide; they require no application installation, build step, or external service.
 
 ### Proportions and spacing
 
@@ -45,13 +49,19 @@ In the supplied artwork:
 
 These are proportional artwork measurements, not required display sizes. Scale the complete logo uniformly. Do not enlarge the square wordmark independently to fill the canvas.
 
+![Spacing diagram: the mark is 80 units wide, the horizontal and vertical wordmark gaps are 20 units, and minimum clear space is 40 units around the complete logo.](illustrations/logo-spacing.svg)
+
 ### Clear space and backgrounds
 
 Maintain clear space of at least half the visible mark width around the complete logo or standalone mark. The supplied files include this space; do not crop it away when placing the artwork next to text, controls, or other logos.
 
 Use the light assets on light surfaces and the dark assets on dark surfaces. Prefer plain backgrounds. Avoid placement over busy imagery or where either half of the mark lacks contrast.
 
+In application chrome, place the transparent mark and brand name on a neutral surface from the active light or dark palette. Keep blue for accents and primary actions rather than filling the header with it. Reserve the light backplate for native desktop icons, not the in-app logo.
+
 Native desktop icons use the same mark on a neutral light backplate so that both panes remain visible against light and dark desktop surfaces. The macOS menu-bar icon uses a monochrome template of the same silhouette, allowing the operating system to choose its contrast. These platform-specific treatments do not change the mark's geometry.
+
+![Desktop launcher icons retain the neutral light backplate on both desktop themes. The macOS menu-bar template uses system-selected monochrome contrast.](illustrations/platform-icons.svg)
 
 ### Do not
 
@@ -63,24 +73,28 @@ Native desktop icons use the same mark on a neutral light backplate so that both
 
 ## Colour
 
-The brand uses the same light and dark colours as the product. Use the corresponding palette for each surface rather than introducing a separate marketing palette.
+The brand uses the product's primary blue, `#0f62fe`, in both light and dark contexts. Only the neutral pane and wordmark change with the surface. Use the corresponding neutral palette rather than introducing a separate marketing palette.
+
+![Light and dark palette swatches for background, primary text, secondary text, primary blue, raised surface, and subtle border. Primary blue is identical in both palettes; exact values follow.](illustrations/colour-palette.svg)
 
 | Role | Light | Dark |
 | --- | --- | --- |
 | Background | `#ffffff` | `#161616` |
 | Primary text and first mark pane | `#161616` | `#f4f4f4` |
 | Secondary text | `#525252` | `#c6c6c6` |
-| Accent and second mark pane | `#0f62fe` | `#78a9ff` |
+| Primary blue and second mark pane | `#0f62fe` | `#0f62fe` |
 | Raised surface | `#f4f4f4` | `#262626` |
 | Subtle border | `#e0e0e0` | `#393939` |
 
-Use colour sparingly for emphasis and recognition. Primary text and accent colours meet a 4.5:1 contrast ratio against their corresponding base backgrounds. Check contrast again when using other background combinations. Do not rely on colour alone to communicate meaning.
+Use colour sparingly for emphasis and recognition. Primary text meets a 4.5:1 contrast ratio against the corresponding base background. Primary blue is for the logo, accents, and primary-action fills; it is not a dark-mode body-text colour. Links and secondary actions retain theme-specific colours, including `#78a9ff` on dark surfaces, for readability. Check contrast for each foreground/background combination. Do not rely on colour alone to communicate meaning.
 
 ## Typography
 
 Use **IBM Plex Sans** for brand communications: Regular for body copy and SemiBold for headings. Use sentence case and comfortable line heights. The wordmark uses IBM Plex Sans SemiBold with natural spacing; use the supplied outlined artwork rather than retyping it.
 
 Use **IBM Plex Mono** only for genuinely technical content, not primary brand headings. If distributing font files with a website or other material, include the font's applicable licence notices.
+
+![IBM Plex Sans SemiBold for headings, IBM Plex Sans Regular for body copy, and IBM Plex Mono Regular for technical content. Specimen lettering is outlined.](illustrations/typography.svg)
 
 ## Accessibility
 
