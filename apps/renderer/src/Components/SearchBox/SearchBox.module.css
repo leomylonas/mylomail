@@ -3,15 +3,22 @@
 	padding-inline: var(--cds-spacing-04);
 }
 
-/* An input set into the bar rather than a bar-height slab. */
+/* A quiet field set into the shell rather than a separate command-bar slab. */
 
 .search {
+	border: 1px solid var(--cds-border-subtle);
 	border-radius: 0.25rem;
 	overflow: hidden;
+	color: var(--cds-icon-secondary);
 }
 
 .search :global(input) {
 	border-bottom: none;
-	background: rgb(255 255 255 / 92%);
+	background: var(--cds-background);
 	color: var(--cds-text-primary);
+}
+
+.search :global(input:focus-visible) {
+	outline: 2px solid var(--cds-focus);
+	outline-offset: -2px;
 }

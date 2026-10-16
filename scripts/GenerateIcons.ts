@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(import.meta.dirname, "..");
 const markLightPath = resolve(root, "docs/branding/logos/mark-light.svg");
+const markDarkPath = resolve(root, "docs/branding/logos/mark-dark.svg");
 const iconDirectory = resolve(root, "assets/icons");
 const linuxIconDirectory = resolve(iconDirectory, "linux");
 const rendererBrandDirectory = resolve(root, "apps/renderer/src/Assets/Brand");
@@ -23,7 +24,8 @@ const icnsEntries = [
 
 export function generateIcons(): void {
 	const lightMark = readFileSync(markLightPath, "utf8");
-	const markGroup = extractMarkGroup(lightMark);
+	const darkMark = readFileSync(markDarkPath, "utf8");
+	const markGroup = extractMarkGroup(lightMark, markLightPath);
 	const iconSvg = createIconSvg(markGroup);
 	const traySvg = createTraySvg(markGroup);
 	const renderedSizes = new Map<number, Buffer>();
@@ -38,6 +40,14 @@ export function generateIcons(): void {
 	mkdirSync(iconDirectory, { recursive: true });
 	mkdirSync(linuxIconDirectory, { recursive: true });
 	mkdirSync(rendererBrandDirectory, { recursive: true });
+	writeFileSync(
+		resolve(rendererBrandDirectory, "MarkLight.svg"),
+		createHeaderMarkSvg(markGroup),
+	);
+	writeFileSync(
+		resolve(rendererBrandDirectory, "MarkDark.svg"),
+		createHeaderMarkSvg(extractMarkGroup(darkMark, markDarkPath)),
+	);
 
 	writeFileSync(resolve(iconDirectory, "app-icon.svg"), iconSvg);
 
@@ -64,11 +74,15 @@ export function generateIcons(): void {
 	);
 }
 
-function extractMarkGroup(svg: string): string {
+function extractMarkGroup(svg: string, sourcePath: string): string {
 	const markGroup = svg.match(/<g id="mark"[\s\S]*?<\/g>/)?.[0];
 	if (!markGroup)
-		throw new Error(`Approved mark does not contain #mark: ${markLightPath}`);
+		throw new Error(`Approved mark does not contain #mark: ${sourcePath}`);
 	return markGroup;
+}
+
+function createHeaderMarkSvg(markGroup: string): string {
+	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="30 30 100 100">${markGroup}</svg>`;
 }
 
 function createIconSvg(markGroup: string): string {

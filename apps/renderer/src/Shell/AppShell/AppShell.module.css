@@ -16,9 +16,9 @@
 	grid-column: 1 / -1;
 	grid-template-columns: 15rem minmax(18rem, 40rem) minmax(12rem, 1fr);
 	align-items: center;
-	background: var(--cds-button-primary, #0f62fe);
-	color: var(--cds-text-on-color, #fff);
-	box-shadow: 0 1px 0 rgb(0 0 0 / 18%);
+	border-bottom: 1px solid var(--cds-border-subtle);
+	background: var(--cds-layer);
+	color: var(--cds-text-primary);
 }
 
 .brand {
@@ -31,8 +31,8 @@
 
 .brandIcon {
 	display: block;
-	width: 2rem;
-	height: 2rem;
+	width: 1.625rem;
+	height: 1.625rem;
 	flex: 0 0 auto;
 }
 
@@ -65,11 +65,12 @@
 }
 
 .utilityButton {
-	color: var(--cds-text-on-color, #fff);
+	color: var(--cds-icon-primary);
 }
 
 .utilityButton:hover {
-	background: rgb(255 255 255 / 16%);
+	background: var(--cds-layer-hover);
+	color: var(--cds-icon-primary);
 }
 
 .appRail {

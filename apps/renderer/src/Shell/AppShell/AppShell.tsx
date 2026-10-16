@@ -6,7 +6,8 @@ import {
 	type PanelImperativeHandle,
 } from "react-resizable-panels";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import brandIcon from "@mylomail/renderer/Assets/Brand/Icon.png";
+import brandMarkDark from "@mylomail/renderer/Assets/Brand/MarkDark.svg";
+import brandMarkLight from "@mylomail/renderer/Assets/Brand/MarkLight.svg";
 import { Sidebar } from "@mylomail/renderer/Components/Sidebar/Sidebar";
 import { MessageList } from "@mylomail/renderer/Components/MessageList/MessageList";
 import { SearchBox } from "@mylomail/renderer/Components/SearchBox/SearchBox";
@@ -23,7 +24,12 @@ import { ReauthenticateAccount } from "@mylomail/renderer/Components/Reauthentic
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
 import { ConnectivityBanner } from "@mylomail/renderer/Components/ConnectivityBanner/ConnectivityBanner";
 import { Contacts } from "@mylomail/renderer/Components/Contacts/Contacts";
-import { ActionableNotification, Button, IconButton } from "@carbon/react";
+import {
+	ActionableNotification,
+	Button,
+	IconButton,
+	useTheme,
+} from "@carbon/react";
 import {
 	Calendar as CalendarIcon,
 	Email,
@@ -487,11 +493,17 @@ export function AppShell({
 		{ key: "c", description: "New message", run: openComposeShortcut },
 	]);
 
+	const { theme } = useTheme();
+
 	return (
 		<div className={styles.shell}>
 			<header className={styles.appBar}>
 				<div className={styles.brand}>
-					<img className={styles.brandIcon} src={brandIcon} alt="" />
+					<img
+						className={styles.brandIcon}
+						src={theme === "g100" ? brandMarkDark : brandMarkLight}
+						alt=""
+					/>
 					<h1 className={styles.title}>Mylo Mail</h1>
 				</div>
 				<div className={styles.globalSearch}>
