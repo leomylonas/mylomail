@@ -761,6 +761,34 @@ public sealed class MutationExecutionTests
 	/// A batch failing with something unclassified used to be released and claimed again at once,
 	/// hitting the provider every few seconds for as long as it lasted.
 	/// </summary>
+	/// <summary>
+	/// Emptying a folder over a delete that is already queued left two deletes for one message. The
+	/// second found nothing to delete and was reported to the user as a conflict, for something that
+	/// had worked.
+	/// </summary>
+	[Fact]
+	public async Task Deleting_a_message_twice_is_not_a_conflict()
+	{
+		await using var harness = await MutationHarness.CreateAsync();
+		var first = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId));
+		var second = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId));
+		harness.Events.Clear();
+
+		await ExecuteAsync(harness);
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var items = await services.GetRequiredService<MyloMailDbContext>().MutationItems.ToListAsync();
+			Assert.All(items, item => Assert.Equal(MutationState.Completed, item.State));
+			Assert.Equal(2, items.Count);
+		});
+		Assert.Empty(harness.Events.SyncFailures);
+		Assert.NotEqual(first.Id, second.Id);
+	}
+
 	[Fact]
 	public async Task A_failing_batch_is_retried_after_a_delay_not_at_once()
 	{

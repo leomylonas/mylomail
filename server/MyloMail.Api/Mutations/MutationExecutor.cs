@@ -82,6 +82,16 @@ public sealed class MutationExecutor(
 				continue;
 			}
 			var occurrence = await ResolveAsync(item, ct);
+			if (occurrence is null && item.OperationKind == MutationOperationKind.DeletePermanently)
+			{
+				// Deleting what is already gone has happened: the message the user wanted removed is
+				// not there. Two deletes of one message (emptying a folder over a delete already
+				// queued, say) are not a conflict, and reporting one made the user chase an error for
+				// something that had worked.
+				await chains.CompleteAlreadySatisfiedAsync(item, ct);
+				continue;
+			}
+
 			if (occurrence is null)
 			{
 				// The intent is no longer satisfiable. It is cancelled, never silently

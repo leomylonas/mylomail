@@ -65,6 +65,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 	{
 		var candidates = Eligible(account, upserted, m => m.ReceivedAt, m => m.IsRead, notificationBaseline);
 		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
+		candidates = await WithoutQuietFoldersAsync(account, candidates, ct);
 		if (candidates.Count == 0)
 		{
 			return [];
@@ -153,6 +154,7 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 			.Where(m => m.ProviderStableId is not null)
 			.ToList();
 		candidates = await WithoutOwnMailAsync(account, candidates, m => m.From, ct);
+		candidates = await WithoutQuietFoldersAsync(account, candidates, ct);
 		if (candidates.Count == 0)
 		{
 			return [];
@@ -317,6 +319,88 @@ public sealed class NotificationService(MyloMailDbContext context, IHubEvents ev
 		return candidates
 			.Where(message => from(message) is not { Count: > 0 } sender || !own.Contains(sender[0].Email))
 			.ToList();
+	}
+
+	/// <summary>
+	/// Folders whose arrivals are never news: spam, the bin, what the user sent, and drafts.
+	/// </summary>
+	private static bool IsQuiet(SpecialUse role) =>
+		role is SpecialUse.Junk or SpecialUse.Trash or SpecialUse.Sent or SpecialUse.Drafts;
+
+	/// <summary>
+	/// Drops messages that sit only in quiet folders. A message in a quiet folder and an ordinary one
+	/// (a Gmail message labelled both Inbox and Sent) still counts; one with no known folder is kept
+	/// rather than silenced on a guess.
+	/// </summary>
+	private async Task<List<Message>> WithoutQuietFoldersAsync(
+		Account account,
+		List<Message> candidates,
+		CancellationToken ct
+	)
+	{
+		if (candidates.Count == 0)
+		{
+			return candidates;
+		}
+
+		var roles = await context
+			.Mailboxes.Where(m => m.AccountId == account.Id)
+			.Select(m => new { m.Id, Role = m.SpecialUseOverride ?? m.SpecialUse })
+			.ToDictionaryAsync(m => m.Id, m => m.Role, ct);
+		var ids = candidates.Select(m => m.Id).ToList();
+		// Occurrences the caller has added but not yet saved are not in the database yet.
+		var memberships = context
+			.MessageMailboxes.Local.Where(o => ids.Contains(o.MessageId))
+			.Select(o => (o.MessageId, o.MailboxId))
+			.Concat(
+				(
+					await context
+						.MessageMailboxes.Where(o => ids.Contains(o.MessageId))
+						.Select(o => new { o.MessageId, o.MailboxId })
+						.ToListAsync(ct)
+				).Select(o => (o.MessageId, o.MailboxId))
+			)
+			.Distinct()
+			.ToLookup(o => o.MessageId, o => o.MailboxId);
+
+		return
+		[
+			.. candidates.Where(message =>
+			{
+				var known = memberships[message.Id].Where(roles.ContainsKey).Select(id => roles[id]).ToList();
+				return known.Count == 0 || known.Any(role => !IsQuiet(role));
+			}),
+		];
+	}
+
+	/// <summary>As above, for the provider's own description of a message, whose folders are provider ids.</summary>
+	private async Task<List<MessageDto>> WithoutQuietFoldersAsync(
+		Account account,
+		List<MessageDto> candidates,
+		CancellationToken ct
+	)
+	{
+		if (candidates.Count == 0)
+		{
+			return candidates;
+		}
+
+		var roles = await context
+			.Mailboxes.Where(m => m.AccountId == account.Id && m.ProviderMailboxId != null)
+			.Select(m => new { ProviderId = m.ProviderMailboxId!, Role = m.SpecialUseOverride ?? m.SpecialUse })
+			.ToDictionaryAsync(m => m.ProviderId, m => m.Role, StringComparer.Ordinal, ct);
+
+		return
+		[
+			.. candidates.Where(message =>
+			{
+				var known = message
+					.Occurrences.Where(o => roles.ContainsKey(o.ProviderMailboxId))
+					.Select(o => roles[o.ProviderMailboxId])
+					.ToList();
+				return known.Count == 0 || known.Any(role => !IsQuiet(role));
+			}),
+		];
 	}
 
 	private static List<T> Eligible<T>(

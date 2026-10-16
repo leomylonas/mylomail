@@ -91,6 +91,35 @@ public sealed class NotificationEligibilityTests
 		Assert.NotNull(unread);
 	}
 
+	/// <summary>Spam, the bin and what the user sent are never news, however recently they arrived.</summary>
+	[Theory]
+	[InlineData(SpecialUse.Junk)]
+	[InlineData(SpecialUse.Trash)]
+	[InlineData(SpecialUse.Sent)]
+	public async Task Mail_arriving_in_a_quiet_folder_does_not_notify_but_the_inbox_still_does(SpecialUse quiet)
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		harness.Provider.AddMailbox("QUIET", quiet);
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), Backlog);
+		// Its own backlog, so the folder's stream has its baseline and what follows is genuinely new.
+		harness.Provider.SeedMessage("QUIET", Guid.NewGuid(), Backlog);
+		await SyncTests.ReconcileAsync(harness);
+		await SyncTests.SyncAsync(harness);
+		await SyncTests.CoverAsync(harness);
+		await SyncTests.SyncAsync(harness, "QUIET");
+		await SyncTests.CoverAsync(harness, "QUIET");
+		Assert.Empty(harness.Events.Notifications);
+
+		harness.Provider.SeedMessage("QUIET", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(1));
+		await SyncTests.SyncAsync(harness, "QUIET");
+		Assert.Empty(harness.Events.Notifications);
+
+		harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch.AddMinutes(2));
+		await SyncTests.SyncAsync(harness);
+		Assert.Single(harness.Events.Notifications);
+	}
+
 	/// <summary>
 	/// Mail the account's own identity sent (its Sent copy) is not new mail. It used to alert with
 	/// the user's own address as the title, which read as the account name rather than a sender.

@@ -111,6 +111,20 @@ public sealed class MutationChainEvaluator(MyloMailDbContext context, TimeProvid
 		return await context.MessageMailboxes.AnyAsync(o => o.MessageId == item.MessageId, ct);
 	}
 
+	/// <summary>
+	/// Settles an intent whose outcome already holds: its desired state is the server-known state,
+	/// so there is nothing to revert and nothing to tell the user.
+	/// </summary>
+	public async Task CompleteAlreadySatisfiedAsync(MutationItem item, CancellationToken ct = default)
+	{
+		item.State = MutationState.Completed;
+		item.CompletedAt = clock.GetUtcNow();
+		item.LeaseOwner = null;
+		item.LeaseExpiresAt = null;
+		await ClearDesiredStateAsync(item, ct);
+		await context.SaveChangesAsync(ct);
+	}
+
 	/// <summary>Cancels an intent whose target no longer exists, and reverts its desired state.</summary>
 	public async Task<MutationFailureDto> CancelUnsatisfiableAsync(
 		MutationItem item,
