@@ -102,6 +102,9 @@ public interface IMailHub
 	/// <summary>The address/subject/date fields a reply or forward is built from (§13).</summary>
 	Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId);
 
+	/// <summary>Whether a message is read and flagged, with any change still on its way applied.</summary>
+	Task<MessageStateDto> GetMessageState(Guid messageId);
+
 	Task<IReadOnlyList<MessageSummaryDto>> Search(Guid accountId, string query, Guid? mailboxId);
 
 	/// <summary>Structured drafts, including drafts discovered from the server's Drafts mailbox.</summary>
@@ -729,6 +732,19 @@ public class MailHub(
 			.OrderBy(a => a.Filename)
 			.Select(a => new AttachmentDto(a.Id, a.MessageId, a.Filename, a.MimeType, a.Size, a.IsInline, a.ContentId))
 			.ToListAsync();
+
+	public async Task<MessageStateDto> GetMessageState(Guid messageId)
+	{
+		var message = await context.Messages.AsNoTracking().FirstAsync(m => m.Id == messageId);
+		var pending = await context
+			.MessagePendingChanges.AsNoTracking()
+			.Where(change => change.MessageId == messageId)
+			.ToListAsync();
+		return new MessageStateDto(
+			pending.FirstOrDefault(change => change.Field == MessageFlagField.IsRead)?.DesiredValue ?? message.IsRead,
+			pending.FirstOrDefault(change => change.Field == MessageFlagField.IsFlagged)?.DesiredValue ?? message.IsFlagged
+		);
+	}
 
 	public async Task<MessageReplyContextDto> GetMessageReplyContext(Guid messageId)
 	{

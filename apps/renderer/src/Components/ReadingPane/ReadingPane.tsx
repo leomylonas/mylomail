@@ -8,12 +8,14 @@ import {
 	IconButton,
 	SkeletonText,
 } from "@carbon/react";
+import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import { MessageSourceDialog } from "@mylomail/renderer/Components/MessageSourceDialog/MessageSourceDialog";
 import {
 	ChevronDown,
 	ChevronUp,
 	OverflowMenuVertical,
+	TrashCan,
 } from "@carbon/icons-react";
 import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
@@ -46,6 +48,8 @@ export function ReadingPane({
 	senderAddress,
 	onOpenInNewWindow,
 	onReply,
+	onDelete,
+	extraMenuActions,
 	printRequestId,
 	onPrintHandled,
 }: {
@@ -71,6 +75,12 @@ export function ReadingPane({
 	 * way to reply at all short of switching back to the main window.
 	 */
 	onReply?: (mode: "reply" | "replyAll" | "forward") => void;
+	/**
+	 * For a popped-out message window, which has no toolbar or list row to delete from: a Delete
+	 * button here, and the rest of what the main window's message menu offers in this one.
+	 */
+	onDelete?: () => void;
+	extraMenuActions?: MenuAction[];
 	/** A context-menu print request consumed only after headers and the final body are rendered. */
 	printRequestId?: string;
 	onPrintHandled?: (requestId: string) => void;
@@ -172,6 +182,16 @@ export function ReadingPane({
 			<div className={styles.subjectRow}>
 				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
 				<div className={styles.actions}>
+					{onDelete ? (
+						<Button
+							size="sm"
+							kind="ghost"
+							renderIcon={TrashCan}
+							onClick={onDelete}
+						>
+							Delete
+						</Button>
+					) : null}
 					{onReply ? (
 						<>
 							<Button size="sm" kind="ghost" onClick={() => onReply("reply")}>
@@ -233,6 +253,7 @@ export function ReadingPane({
 					y={optionsMenu.y}
 					onClose={() => setOptionsMenu(null)}
 					actions={[
+						...(extraMenuActions ?? []),
 						...(body.data?.html
 							? [
 									{

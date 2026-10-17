@@ -1,3 +1,4 @@
+import { signatureIdentityAttribute } from "@mylomail/renderer/Components/Editor/SignatureNode";
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
@@ -99,6 +100,21 @@ export function appendRecipient(value: string, email: string): string {
 	)
 		recipients.push(email);
 	return recipients.join(", ");
+}
+
+/**
+ * Whether a body holds nothing the user wrote: empty, or only the signature compose put there.
+ * An untouched compose pane is left alone rather than saved as a draft.
+ */
+export function isBlankComposeBody(html: string): boolean {
+	const document = new DOMParser().parseFromString(html, "text/html");
+	document.body
+		.querySelectorAll(`[${signatureIdentityAttribute}]`)
+		.forEach((signature) => signature.remove());
+	return (
+		(document.body.textContent ?? "").trim() === "" &&
+		document.body.querySelector("img") === null
+	);
 }
 
 export async function saveComposeBeforeClose({
@@ -510,6 +526,17 @@ export function Compose({
 
 	const saveBeforeClose = useCallback(async (): Promise<boolean> => {
 		await sendInFlight.current;
+		const fields = fieldsRef.current;
+		if (
+			!fields.draftId &&
+			!fields.to &&
+			!fields.cc &&
+			!fields.bcc &&
+			!fields.subject &&
+			isBlankComposeBody(fields.body)
+		) {
+			return true;
+		}
 		return saveComposeBeforeClose({
 			isDiscarding: discarding.current,
 			hasQueuedSend: queuedSend.current !== null,

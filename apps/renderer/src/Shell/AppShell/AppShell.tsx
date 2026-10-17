@@ -111,6 +111,14 @@ export function AppShell({
 	const [openDraft, setOpenDraft] = useState<OpenDraft | undefined>();
 	// The account chosen in compose's From menu, when it differs from the folder being viewed.
 	// Cleared whenever a different compose is opened, so a new message starts from the open folder.
+	// The inline compose pane's save-before-leaving, registered by `Compose` while it is mounted.
+	const composeSaver = useRef<(() => Promise<boolean>) | null>(null);
+	const registerComposeSaver = useCallback((save: () => Promise<boolean>) => {
+		composeSaver.current = save;
+		return () => {
+			if (composeSaver.current === save) composeSaver.current = null;
+		};
+	}, []);
 	const [composeAccountId, setComposeAccountId] = useState<string | null>(null);
 	// A reply/reply-all/forward's prefill, before any draft exists to hold it (§13). Cleared
 	// whenever an existing draft is opened instead, the same way `openDraft` is cleared for
@@ -784,12 +792,25 @@ export function AppShell({
 									}
 									onOpenInNewWindow={openMessageInNewWindow}
 									onSelect={(message) => {
-										store.setState("selectedMessageId", message.id);
-										store.setState("selectedMessageSubject", message.subject);
-										store.setState(
-											"selectedMessageSenderAddress",
-											message.from,
-										);
+										const show = () => {
+											store.setState("selectedMessageId", message.id);
+											store.setState("selectedMessageSubject", message.subject);
+											store.setState(
+												"selectedMessageSenderAddress",
+												message.from,
+											);
+											setPane("reading");
+										};
+										// Choosing another message while writing keeps what was written
+										// (as a draft) and then shows that message; if it cannot be kept,
+										// the writer stays where they are.
+										if (effectivePane === "compose" && composeSaver.current) {
+											void composeSaver.current().then((saved) => {
+												if (saved) show();
+											});
+										} else {
+											show();
+										}
 									}}
 									onPrint={(message) => {
 										store.setState("selectedMessageId", message.id);
@@ -834,6 +855,7 @@ export function AppShell({
 								hub={hub}
 								accountId={composeAccountId ?? selectedAccountId}
 								accounts={accounts.data}
+								registerCloseSaver={registerComposeSaver}
 								onAccountChange={(accountId, seed) => {
 									setOpenDraft(undefined);
 									setComposeSeed(seed);

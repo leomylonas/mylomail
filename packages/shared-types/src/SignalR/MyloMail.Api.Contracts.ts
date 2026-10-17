@@ -870,6 +870,14 @@ export enum MessageSortField {
     Flag = 5,
 }
 
+/** Transpiled from MyloMail.Api.Contracts.MessageStateDto */
+export type MessageStateDto = {
+    /** Transpiled from bool */
+    isRead: boolean;
+    /** Transpiled from bool */
+    isFlagged: boolean;
+}
+
 /** Transpiled from MyloMail.Api.Contracts.ProblemKind */
 export enum ProblemKind {
     MessageDownload = 0,

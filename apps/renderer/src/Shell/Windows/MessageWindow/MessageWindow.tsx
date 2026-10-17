@@ -1,3 +1,4 @@
+import { useMessageWindowActions } from "@mylomail/renderer/Shell/Windows/MessageWindow/UseMessageWindowActions";
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,6 +52,12 @@ export function MessageWindow({
 	const { store: notifications } = useWindowNotifications();
 	const queryClient = useQueryClient();
 	const [accountRemoved, setAccountRemoved] = useState(false);
+	const windowActions = useMessageWindowActions({
+		hub,
+		messageId,
+		accountId,
+		subject,
+	});
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async (): Promise<Account[]> => {
@@ -208,6 +215,8 @@ export function MessageWindow({
 					subject={subject}
 					senderAddress={senderAddress}
 					onReply={window.windows ? (mode) => void onReply(mode) : undefined}
+					onDelete={windowActions.onDelete}
+					extraMenuActions={windowActions.menu}
 				/>
 			) : (
 				<p className={styles.status}>

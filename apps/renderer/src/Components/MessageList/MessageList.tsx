@@ -1803,9 +1803,9 @@ async function printMessage(
  * anchor with a `blob:` URL and `download` set is what a browser's download manager — which
  * Electron's `BrowserWindow` already runs — is for (§13 Export).
  */
-async function saveAsEml(
+export async function saveAsEml(
 	hub: MailHubConnection,
-	message: MessageSummary,
+	message: { id: string; subject: string },
 ): Promise<void> {
 	const base64 = await hub.saveMessageAsEml(message.id);
 	const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));

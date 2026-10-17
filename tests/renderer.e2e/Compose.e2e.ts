@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
-import { clearInbox } from "@mylomail/renderer-e2e/SeedImap";
+import { appendMessage, clearInbox } from "@mylomail/renderer-e2e/SeedImap";
 
 /**
  * The Basic tier of the local matrix (`pnpm imap:up`).
@@ -197,6 +197,41 @@ test("writing starts at the top of the message, above the signature", async () =
 		await window.keyboard.type("Typed first");
 
 		await expect(message).toHaveText(/^Typed first[\s\S]*Bottom signature/);
+	} finally {
+		await app.close();
+	}
+});
+
+test("choosing another message while writing keeps the draft and shows that message", async () => {
+	await clearInbox(imapPort);
+	const subject = `Switch ${Date.now()}`;
+	await appendMessage(imapPort, subject);
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window
+			.getByRole("button", { name: /inbox/i })
+			.first()
+			.click({ timeout: 60_000 });
+		await expect(
+			window.getByRole("button", { name: new RegExp(subject) }),
+		).toBeVisible({ timeout: 60_000 });
+
+		await window.getByRole("button", { name: "New message" }).click();
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
+		await window.getByLabel("Subject").fill("Kept draft");
+
+		await window.getByRole("button", { name: new RegExp(subject) }).click();
+
+		await expect(window.getByLabel("To", { exact: true })).toHaveCount(0);
+		await expect(window.getByRole("heading", { name: subject })).toBeVisible();
+		await window
+			.getByRole("button", { name: /^Drafts/ })
+			.first()
+			.click();
+		await expect(
+			window.getByRole("button", { name: /Kept draft/ }),
+		).toBeVisible({ timeout: 30_000 });
 	} finally {
 		await app.close();
 	}

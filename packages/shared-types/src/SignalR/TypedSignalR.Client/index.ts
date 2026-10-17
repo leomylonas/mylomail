@@ -4,7 +4,7 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -132,6 +132,10 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly getMessageReplyContext = async (messageId: string): Promise<MessageReplyContextDto> => {
         return await this.connection.invoke("GetMessageReplyContext", messageId);
+    }
+
+    public readonly getMessageState = async (messageId: string): Promise<MessageStateDto> => {
+        return await this.connection.invoke("GetMessageState", messageId);
     }
 
     public readonly search = async (accountId: string, query: string, mailboxId: (string | undefined)): Promise<MessageSummaryDto[]> => {

@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -100,6 +100,12 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageReplyContextDto>
     */
     getMessageReplyContext(messageId: string): Promise<MessageReplyContextDto>;
+    /**
+    * Whether a message is read and flagged, with any change still on its way applied.
+    * @param messageId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MessageStateDto>
+    */
+    getMessageState(messageId: string): Promise<MessageStateDto>;
     /**
     * @param accountId Transpiled from System.Guid
     * @param query Transpiled from string
