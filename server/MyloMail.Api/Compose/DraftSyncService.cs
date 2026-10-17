@@ -38,7 +38,27 @@ public sealed class DraftSyncService(
 	// creation dispatch and its provider call without mistaking an active worker for a crash.
 	// A hard restart clears it, which is precisely when durable recovery is required (§6).
 	private static readonly ConcurrentDictionary<Guid, byte> activeInitialCreates = [];
+	// One push per account at a time. An update replaces the server's copy, so a second push that
+	// starts from the revision the first just replaced finds it gone and flags a conflict nobody
+	// caused — an autosave overlapping a Send was enough, and Send then refuses until the user
+	// resolves it. The second push waits, then reads the revision the first recorded.
+	private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> accountPushes = [];
+
 	public async Task<int> PushAsync(Guid accountId, CancellationToken ct = default)
+	{
+		var gate = accountPushes.GetOrAdd(accountId, static _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync(ct);
+		try
+		{
+			return await PushUnlockedAsync(accountId, ct);
+		}
+		finally
+		{
+			gate.Release();
+		}
+	}
+
+	private async Task<int> PushUnlockedAsync(Guid accountId, CancellationToken ct)
 	{
 		var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct);
 		if (account is null || !account.IsEnabled || account.AuthState is AuthState.NeedsReauth or AuthState.Error)

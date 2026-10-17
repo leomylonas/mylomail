@@ -879,13 +879,34 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 	public void SeedDraftContainer(string providerMessageId) =>
 		draftsByStableMessageId[providerMessageId] = new DraftResult(NextOccurrenceId(), "rev-1", providerMessageId);
 
-	public Task<DraftResult> CreateOrUpdateDraftAsync(
+	/// <summary>
+	/// Makes draft updates behave like a real server's: each push mints a new revision and an update
+	/// against any other revision than the current one is a conflict. Off by default, where every
+	/// push returns "rev-1".
+	/// </summary>
+	public bool EnforceDraftRevisions { get; set; }
+
+	/// <summary>Runs once a draft push has changed the server but before it returns, so a test can hold one there.</summary>
+	public Func<Task>? DuringDraftPushAsync { get; set; }
+
+	private int draftRevisionCounter;
+
+	public async Task<DraftResult> CreateOrUpdateDraftAsync(
 		Account account,
 		Draft draft,
 		string? expectedRevision,
 		CancellationToken ct
 	)
 	{
+		if (EnforceDraftRevisions && expectedRevision is not null)
+		{
+			var current = draft.StableMessageId is { } key ? draftsByStableMessageId.GetValueOrDefault(key) : null;
+			if (current?.ProviderRevision != expectedRevision)
+			{
+				throw new ProviderConflictException("This draft was changed somewhere else since it was opened.");
+			}
+		}
+
 		var providerId = NextOccurrenceId();
 		DraftProviderIdsIssued.Add(providerId);
 		if (draftPushFailure is Exception failure)
@@ -900,13 +921,29 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 				throw failure;
 			}
 		}
-		var result = new DraftResult(providerId, "rev-1", providerId);
+		var result = new DraftResult(
+			providerId,
+			EnforceDraftRevisions ? $"rev-{Interlocked.Increment(ref draftRevisionCounter) + 1}" : "rev-1",
+			providerId
+		);
 		if (draft.StableMessageId is { } stableMessageId)
 		{
 			draftsByStableMessageId[stableMessageId] = result;
 		}
-		return Task.FromResult(result);
+
+		// After the server has changed and before the caller has recorded it: the window in which
+		// a second push starts from a revision that no longer exists.
+		if (DuringDraftPushAsync is not null)
+		{
+			await DuringDraftPushAsync();
+		}
+
+		return result;
 	}
+
+	/// <summary>Puts a draft on the server as an earlier push would have left it.</summary>
+	public void SeedDraft(string stableMessageId, string providerDraftId, string revision) =>
+		draftsByStableMessageId[stableMessageId] = new DraftResult(providerDraftId, revision, providerDraftId);
 
 	public Task<DraftResult?> FindDraftAsync(
 		Account account,
