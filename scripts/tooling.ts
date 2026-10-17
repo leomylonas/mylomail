@@ -10,7 +10,8 @@ import { readdirSync, statSync } from "node:fs";
 import { join, extname, relative } from "node:path";
 import { createHash } from "node:crypto";
 
-export type ToolName = "tsc" | "eslint" | "dotnet";
+export const TOOL_NAMES = ["tsc", "website", "eslint", "dotnet"] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 export type ToolStatus = "pending" | "running" | "ok" | "error";
 
@@ -55,6 +56,8 @@ const SKIP_DIRECTORIES = new Set([
 	"bin",
 	"obj",
 	"dist",
+	".next",
+	"out",
 	".git",
 	".dev",
 ]);

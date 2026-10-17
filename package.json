@@ -30,6 +30,8 @@
     "generate:types": "tsx scripts/generate-types.ts",
     "generate:icons": "tsx scripts/GenerateIcons.ts",
     "build:electron": "tsx scripts/BuildElectron.ts",
+    "website:dev": "pnpm --filter @mylomail/website dev",
+    "website:build": "pnpm --filter @mylomail/website build",
     "app": "tsx scripts/LaunchApp.ts",
     "pretest:e2e": "pnpm build:electron && dotnet build --nologo -v q server/MyloMail.Api/MyloMail.Api.csproj",
     "e2e": "pnpm pretest:e2e && playwright test --config tests/renderer.e2e/Playwright.config.ts",

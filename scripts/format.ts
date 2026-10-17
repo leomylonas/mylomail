@@ -13,6 +13,7 @@ const paths = [
 	"packages",
 	"scripts",
 	"tests",
+	"website",
 	".github/workflows",
 	"package.json",
 	"pnpm-workspace.yaml",

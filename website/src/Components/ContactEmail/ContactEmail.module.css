@@ -1,0 +1,26 @@
+.contact {
+	margin-block: 1.5rem;
+}
+
+.reveal {
+	min-height: 2.75rem;
+	padding: 0.75rem 1.25rem;
+	border: 1px solid var(--site-primary);
+	background: var(--site-primary);
+	color: var(--site-on-primary);
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.reveal:hover {
+	filter: brightness(0.9);
+}
+
+.address {
+	margin-top: 0.75rem;
+	overflow-wrap: anywhere;
+}
+
+.address:empty {
+	margin: 0;
+}

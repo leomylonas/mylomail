@@ -15,7 +15,8 @@
       "@mylomail/ui/*": ["./packages/ui/src/*"],
       "@mylomail/renderer/*": ["./apps/renderer/src/*"],
       "@mylomail/electron-shell/*": ["./apps/electron-shell/src/*"],
-      "@mylomail/renderer-e2e/*": ["./tests/renderer.e2e/*"]
+      "@mylomail/renderer-e2e/*": ["./tests/renderer.e2e/*"],
+      "@mylomail/website/*": ["./website/src/*"]
     }
   },
   "include": [

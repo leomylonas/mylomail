@@ -15,6 +15,7 @@ import {
 	type StatusFile,
 	type ToolName,
 	STATUS_PATH,
+	TOOL_NAMES,
 	generation,
 } from "./tooling.ts";
 
@@ -69,6 +70,12 @@ function main(): number {
 		);
 		return 2;
 	}
+	if (TOOL_NAMES.some((name) => !status.tools[name])) {
+		console.log(
+			"NOT VERIFIED — watcher configuration changed. Restart `pnpm watch`.",
+		);
+		return 2;
+	}
 
 	if (status.generation !== generation(ROOT)) {
 		console.log(
@@ -78,7 +85,7 @@ function main(): number {
 	}
 
 	if (status.ok) {
-		console.log("✓ tsc · eslint · dotnet — clean");
+		console.log(`✓ ${TOOL_NAMES.join(" · ")} — clean`);
 		return 0;
 	}
 

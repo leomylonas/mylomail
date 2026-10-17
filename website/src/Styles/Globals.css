@@ -1,0 +1,88 @@
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/Fonts/IBMPlexSans-Regular.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/Fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
+}
+
+:root {
+	color-scheme: light dark;
+
+	--site-background: #fff;
+	--site-surface: #f4f4f4;
+	--site-text: #161616;
+	--site-muted: #525252;
+	--site-border: #e0e0e0;
+	--site-primary: #0f62fe;
+	--site-on-primary: #fff;
+	--site-link: #0f62fe;
+	--site-accent-soft: #edf5ff;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	scroll-padding-top: 6rem;
+}
+
+body {
+	margin: 0;
+	background: var(--site-background);
+	color: var(--site-text);
+	font-family: "IBM Plex Sans", sans-serif;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+	font: inherit;
+}
+
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+
+a {
+	color: var(--site-link);
+	text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+	outline: 2px solid var(--site-link);
+	outline-offset: 4px;
+}
+
+main {
+	flex: 1;
+	min-width: 0;
+}
+
+::selection {
+	background: var(--site-primary);
+	color: var(--site-on-primary);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--site-background: #161616;
+		--site-surface: #262626;
+		--site-text: #f4f4f4;
+		--site-muted: #c6c6c6;
+		--site-border: #393939;
+		--site-link: #78a9ff;
+		--site-accent-soft: #001d6c;
+	}
+}

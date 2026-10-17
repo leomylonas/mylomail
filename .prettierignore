@@ -4,3 +4,7 @@ node_modules/
 **/obj/
 **/dist/
 packages/shared-types/src/
+**/.next/
+**/out/
+website/next-env.d.ts
+website/public/

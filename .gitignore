@@ -18,6 +18,12 @@ build/
 out/
 bin/
 obj/
+.next/
+*.tsbuildinfo
+website/next-env.d.ts
+website/public/Brand/
+website/public/Fonts/
+website/public/favicon.ico
 
 # .NET
 [Bb]in/

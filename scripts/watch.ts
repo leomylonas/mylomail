@@ -1,5 +1,5 @@
 /**
- * Background watcher. Fans tsc, ESLint and dotnet build into ONE current-state file.
+ * Background watcher. Fans desktop/website TypeScript, ESLint and dotnet into one state file.
  *
  * Run once per session: `pnpm watch`. Readers call `pnpm status`, which is far cheaper
  * than invoking the tools themselves — and, because the compilers stay warm, faster.
@@ -37,6 +37,7 @@ interface MutableToolState {
 
 const state: Record<ToolName, MutableToolState> = {
 	tsc: { status: "pending", diagnostics: [] },
+	website: { status: "pending", diagnostics: [] },
 	eslint: { status: "pending", diagnostics: [] },
 	dotnet: { status: "pending", diagnostics: [] },
 };
@@ -159,6 +160,17 @@ function watch({
 	start();
 }
 
+function parseTypeScript(line: string): Diagnostic | null {
+	const match = PATTERNS.tsc.exec(line);
+	if (!match) return null;
+	return {
+		file: relativePath(ROOT, match[1]),
+		line: Number(match[2]),
+		code: match[4],
+		message: match[5],
+	};
+}
+
 watch({
 	name: "tsc",
 	command: "npx",
@@ -171,16 +183,26 @@ watch({
 		"--preserveWatchOutput",
 	],
 	cycleStart: /File change detected|Starting compilation/,
-	parse: (line) => {
-		const m = PATTERNS.tsc.exec(line);
-		if (!m) return null;
-		return {
-			file: relativePath(ROOT, m[1]),
-			line: Number(m[2]),
-			code: m[4],
-			message: m[5],
-		};
-	},
+	parse: parseTypeScript,
+});
+
+// Next.js adds framework-specific Node globals. Keep its compiler isolated while
+// inheriting the same strict base options, rather than changing desktop types.
+watch({
+	name: "website",
+	command: "npx",
+	args: [
+		"tsc",
+		"--project",
+		"website/tsconfig.json",
+		"--noEmit",
+		"--watch",
+		"--pretty",
+		"false",
+		"--preserveWatchOutput",
+	],
+	cycleStart: /File change detected|Starting compilation/,
+	parse: parseTypeScript,
 });
 
 watch({

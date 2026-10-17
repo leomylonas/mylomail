@@ -149,6 +149,22 @@ if (mode !== "native") {
 		parse: compileParser(PATTERNS.tsc),
 		fatal: true,
 	});
+	if (mode === "fast") {
+		steps.push({
+			name: "website",
+			command: "npx",
+			args: [
+				"tsc",
+				"--project",
+				"website/tsconfig.json",
+				"--noEmit",
+				"--pretty",
+				"false",
+			],
+			parse: compileParser(PATTERNS.tsc),
+			fatal: true,
+		});
+	}
 
 	if (mode !== "platform") {
 		steps.push(
@@ -187,6 +203,15 @@ if (mode !== "native") {
 				},
 			},
 		);
+	}
+	if (mode === "full" || mode === "deep" || mode === "platform") {
+		steps.push({
+			name: "website",
+			command: "pnpm",
+			args: ["website:build"],
+			parse: () => null,
+			fatal: true,
+		});
 	}
 
 	steps.push({

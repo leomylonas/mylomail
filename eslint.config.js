@@ -59,6 +59,9 @@ export default tseslint.config(
 			"**/bin/**",
 			"**/obj/**",
 			"**/dist/**",
+			"**/.next/**",
+			"**/out/**",
+			"website/next-env.d.ts",
 			"packages/shared-types/src/**",
 		],
 	},
@@ -80,7 +83,11 @@ export default tseslint.config(
 			"apps/**/*.{ts,tsx}",
 			"packages/ui/**/*.{ts,tsx}",
 			"tests/**/*.{ts,tsx}",
+			"website/src/**/*.{ts,tsx}",
+			"website/scripts/**/*.ts",
 		],
+		// Next.js requires lowercase route names; application components keep our casing.
+		ignores: ["website/src/app/**"],
 		plugins: { "check-file": checkFile },
 		rules: {
 			"check-file/filename-naming-convention": [
@@ -94,6 +101,7 @@ export default tseslint.config(
 					"apps/renderer/src/**/": "PASCAL_CASE",
 					"apps/electron-shell/src/**/": "PASCAL_CASE",
 					"packages/ui/src/**/": "PASCAL_CASE",
+					"website/src/**/": "PASCAL_CASE",
 				},
 			],
 			// No barrel files. Imports name the module they come from in full, so a symbol
@@ -116,24 +124,31 @@ export default tseslint.config(
 	//
 	// Entry points sitting directly in `src/` are exempt — they belong to no component.
 	{
-		files: ["apps/renderer/src/*/**/*.tsx", "packages/ui/src/*/**/*.tsx"],
+		files: [
+			"apps/renderer/src/*/**/*.tsx",
+			"packages/ui/src/*/**/*.tsx",
+			"website/src/Components/**/*.tsx",
+		],
 		plugins: { local: localPlugin },
 		rules: { "local/component-folder": "error" },
 	},
 
-	// React. Scoped to the renderer and the shared component library — the Electron main
-	// process and the tooling scripts are Node, and these rules do not apply there.
+	// React rules are shared by the renderer, component library, and public website.
+	// The Electron main process and tooling scripts remain Node-only.
 	{
-		files: ["apps/renderer/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
+		files: [
+			"apps/renderer/**/*.{ts,tsx}",
+			"packages/ui/**/*.{ts,tsx}",
+			"website/src/**/*.{ts,tsx}",
+		],
 		plugins: { react, "react-hooks": reactHooks, "jsx-a11y": jsxA11y },
 		languageOptions: {
 			globals: globals.browser,
 			parserOptions: { ecmaFeatures: { jsx: true } },
 		},
 		settings: {
-			// Pinned rather than "detect": React is not a dependency yet, and detection
-			// throws when it is absent. Update this when §12's React 19 lands.
-			react: { version: "19.0" },
+			// All React workspaces use the same React 19 release line.
+			react: { version: "19.2" },
 		},
 		rules: {
 			...react.configs.flat.recommended.rules,
@@ -166,7 +181,11 @@ export default tseslint.config(
 	// Components are function declarations, not arrow constants, so stack traces and React
 	// DevTools carry a name.
 	{
-		files: ["apps/renderer/**/*.tsx", "packages/ui/**/*.tsx"],
+		files: [
+			"apps/renderer/**/*.tsx",
+			"packages/ui/**/*.tsx",
+			"website/src/**/*.tsx",
+		],
 		rules: {
 			"react/function-component-definition": [
 				"error",
@@ -180,10 +199,20 @@ export default tseslint.config(
 	// Named exports only. A default export lets the same module be imported under different
 	// names, so the same component ends up with several names across the codebase.
 	{
-		files: ["apps/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
+		files: [
+			"apps/**/*.{ts,tsx}",
+			"packages/ui/**/*.{ts,tsx}",
+			"website/src/**/*.{ts,tsx}",
+		],
 		// Ambient module declarations are exempt: a CSS Module's default export is the
 		// bundler's contract, not ours to rename.
-		ignores: ["**/*.config.{ts,js}", "**/index.ts", "**/*.d.ts"],
+		ignores: [
+			"**/*.config.{ts,js}",
+			"**/index.ts",
+			"**/*.d.ts",
+			"website/src/app/**/{page,layout,not-found}.tsx",
+			"website/src/app/{robots,sitemap}.ts",
+		],
 		rules: {
 			"no-restricted-syntax": [
 				"error",
