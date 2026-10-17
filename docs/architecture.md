@@ -968,6 +968,27 @@ light/dark surfaces, spacing, native icon treatments, palette, and typography, w
 download links to the transparent logo SVGs. Its `logos/` and `illustrations/` directories
 travel with the guide; no separate HTML guide, installed fonts, or app build is required.
 
+### Public website
+
+`website/` is an independent pnpm workspace for the public brochure at
+`https://mylo.software`. Next.js statically exports the home page, privacy policy,
+404 page, robots file, and sitemap into `website/out/`; serving those files needs
+no Node.js server, .NET backend, or application credentials.
+
+The website shares the root TypeScript compiler options, ESLint React and
+accessibility rules, Prettier, Stylelint, React version, and approved branding.
+Its TypeScript program is separate because Next.js augments Node globals;
+`pnpm watch` tracks both compilers and `pnpm check` builds the export. Next-required
+route names/default exports are narrowly exempted from component naming rules.
+
+Both colour schemes use the same primary blue. Logo variants follow the visitor's
+colour-scheme preference, and fonts are served locally with their licence.
+Build-time asset preparation copies the canonical artwork rather than maintaining
+a second editable logo set. Next.js CLI telemetry is disabled by the wrapper.
+The site has no analytics, tracking cookies, forms, or access to desktop account
+data. Its contact email is revealed only after client-side interaction, which
+reduces basic harvesting but is not a security boundary against scrapers.
+
 ### Type generation (backend DTOs → frontend types)
 
 - **`TypedSignalR.Client.TypeScript`** — analyses C# hub/receiver interfaces directly and generates a fully typed TypeScript SignalR client (typed method calls and event handlers), replacing string-keyed/`any`-typed hub calls.
@@ -984,6 +1005,7 @@ travel with the guide; no separate HTML guide, installed fonts, or app build is 
   /packages
     /shared-types           # generated TS interfaces + Zod schemas
     /ui                       # shared component library (if warranted)
+  /website                    # static Next.js brochure and privacy policy
   /tests
     /renderer.unit             # Vitest
     /renderer.e2e                # Playwright (TypeScript), spawn-mode + attach-mode

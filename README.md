@@ -103,10 +103,50 @@ delegated `Mail.ReadWrite.Shared`, `Mail.Send.Shared` and `Calendars.ReadWrite.S
 permissions consented. They are available to work or school accounts only, and a
 shared mailbox has no personal contacts.
 
+## Public website
+
+The `website/` pnpm workspace is the static Next.js brochure at
+**https://mylo.software**, with the home page and `/privacy/`. It needs Node 24 and
+pnpm, but no .NET backend, database, or account credentials.
+
+```bash
+pnpm website:dev    # http://127.0.0.1:3000
+pnpm website:build  # generates website/out/
+```
+
+Deploy the contents of `website/out/` to any static HTTPS host. Preserve the
+directory structure: `/privacy/` is served by `privacy/index.html`. Configure the
+host to use `404.html` for unknown paths. `next start` is not used for static
+exports. The build also emits `robots.txt`, `sitemap.xml`, canonical metadata, and
+icons for the public domain. The origin is defined in
+`website/src/Lib/Site.ts`.
+
+The workspace reuses the root TypeScript options, ESLint/React/accessibility
+rules, Prettier, Stylelint, and the app's React and IBM Plex versions. Next.js has
+its own TypeScript compilation to keep its framework-specific Node globals out
+of the desktop app and tooling. Both compilers are covered by `pnpm watch` and
+`pnpm check:fast`; `pnpm check` also builds the static export. Only Next-required
+route/config filenames and default exports are exceptions to the normal naming
+rules.
+
+The website build copies approved logos from `docs/branding/logos`, native icons
+from `assets/icons`, and the installed IBM Plex font files and licence into the
+static output. Those generated public assets are ignored by Git; update the
+original artwork rather than editing copies. Fonts are self-hosted and Next.js
+CLI telemetry is disabled by the build/development wrapper.
+
+There are no analytics, tracking cookies, signup forms, or server-side contact
+handlers. The contact email is assembled in the browser after a button press,
+not embedded in the initial HTML. This deters simple address harvesters; it does
+not prevent JavaScript-capable scrapers or recovery from the open-source code.
+Provision the displayed project mailbox before publication, and review the
+privacy policy against the chosen host's access-log handling and any telemetry
+enabled by a distributor.
+
 ## Development loop
 
-Start the watcher once in a separate terminal. It keeps TypeScript, ESLint, and
-the backend build warm:
+Start the watcher once in a separate terminal. It keeps desktop and website
+TypeScript, ESLint, and the backend build warm:
 
 ```bash
 pnpm watch
