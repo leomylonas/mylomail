@@ -12,6 +12,7 @@ export default defineConfig({
 			"@mylomail/renderer": `${repositoryRoot}apps/renderer/src`,
 			"@mylomail/shared-types": `${repositoryRoot}packages/shared-types/src`,
 			"@mylomail/ui": `${repositoryRoot}packages/ui/src`,
+			"@mylomail/website": `${repositoryRoot}website/src`,
 		},
 	},
 	test: {
