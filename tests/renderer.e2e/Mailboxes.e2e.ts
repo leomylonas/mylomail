@@ -24,7 +24,7 @@ test("a folder is created, renamed and deleted on the server", async () => {
 
 	try {
 		await expect(
-			window.getByRole("heading", { name: "MyloMail" }),
+			window.getByRole("heading", { name: "Mylo Mail" }),
 		).toBeVisible();
 
 		await createImapAccount(window, imapPort);

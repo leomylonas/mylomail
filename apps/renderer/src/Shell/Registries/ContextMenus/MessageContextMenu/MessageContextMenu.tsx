@@ -32,6 +32,14 @@ export function MessageContextMenu({
 	actions: readonly MenuAction[];
 	onClose: () => void;
 }) {
+	// The menu is closed and painted before the action runs. An action that opens a native
+	// confirmation blocks the page until it is answered, and run at once it left the menu on screen
+	// behind the prompt, which looked frozen.
+	const invoke = (run: () => void) => {
+		onClose();
+		requestAnimationFrame(() => setTimeout(run, 0));
+	};
+
 	return (
 		<Menu open={open} x={x} y={y} onClose={onClose} label="Message actions">
 			{actions.map((action, index) =>
@@ -52,7 +60,7 @@ export function MessageContextMenu({
 									label={child.label}
 									disabled={Boolean(child.unavailable)}
 									kind={child.danger ? "danger" : "default"}
-									onClick={child.run}
+									onClick={() => invoke(child.run)}
 									{...unavailableAccessibility(child)}
 								/>
 							))}
@@ -64,7 +72,7 @@ export function MessageContextMenu({
 						label={action.label}
 						disabled={Boolean(action.unavailable)}
 						kind={action.danger ? "danger" : "default"}
-						onClick={action.run}
+						onClick={() => invoke(action.run)}
 						{...unavailableAccessibility(action)}
 					/>
 				),

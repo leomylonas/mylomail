@@ -40,7 +40,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 
 	try {
 		await expect(
-			window.getByRole("heading", { name: "MyloMail" }),
+			window.getByRole("heading", { name: "Mylo Mail" }),
 		).toBeVisible();
 
 		// Adding the account through the same API the settings UI will use.
