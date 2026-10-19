@@ -35,6 +35,29 @@ export async function appendMessage(
 	});
 }
 
+/** Seeds complete MIME through the real IMAP protocol for an isolated fixture user. */
+export async function appendRawMessage(
+	port: number,
+	userName: string,
+	message: string,
+	receivedAt: Date,
+): Promise<void> {
+	const timestamp = receivedAt
+		.toUTCString()
+		.slice(5)
+		.replace(/^(\d{2}) (\w{3}) (\d{4}) /, "$1-$2-$3 ")
+		.replace(/ GMT$/, " +0000");
+	await session(port, async (send, sendLiteral) => {
+		await send(`s1 LOGIN ${userName} password`);
+		await sendLiteral(
+			"s2",
+			`s2 APPEND INBOX "${timestamp}" {${Buffer.byteLength(message)}}`,
+			message,
+		);
+		await send("s3 LOGOUT");
+	});
+}
+
 /** Appends a real MIME attachment for the desktop OS-open lifecycle. */
 export async function appendAttachmentMessage(
 	port: number,

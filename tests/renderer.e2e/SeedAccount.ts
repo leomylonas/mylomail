@@ -36,6 +36,10 @@ export async function createImapAccount(
 		displayName: "Matrix",
 		emailAddress: "test@mylomail.local",
 	},
+	connection: { userName: string; smtpPort: number } = {
+		userName: "test@mylomail.local",
+		smtpPort,
+	},
 ): Promise<number> {
 	const request: AddAccountRequest = {
 		displayName: identity.displayName,
@@ -48,9 +52,9 @@ export async function createImapAccount(
 			port: imapPort,
 			imapSecurity: MailTransportSecurity.StartTls,
 			authMethod: ImapAuthMethod.Password,
-			userName: "test@mylomail.local",
+			userName: connection.userName,
 			smtpHost: "127.0.0.1",
-			smtpPort,
+			smtpPort: connection.smtpPort,
 			// Mailpit is a plaintext sink with no certificate, so STARTTLS is not on offer
 			// here. Unauthenticated is what it accepts and what the app allows on a
 			// plaintext transport — a password over one is refused outright (§2).
