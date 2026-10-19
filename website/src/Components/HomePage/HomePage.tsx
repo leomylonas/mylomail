@@ -45,98 +45,23 @@ function Icon({ name }: { name: IconName }) {
 	);
 }
 
-function ProductIllustration() {
+function ProductPreview() {
 	return (
-		<figure
-			className={styles.productFigure}
-			aria-labelledby="illustrationCaption"
-		>
-			<div className={styles.illustration}>
-				<div className={styles.windowBar}>
-					<span className={styles.windowTitle}>Mylo Mail</span>
-					<span className={styles.windowStatus}>Illustration</span>
-				</div>
-				<div className={styles.workspace}>
-					<aside className={styles.accountRail} aria-hidden="true">
-						<div
-							className={`${styles.accountDot} ${styles.accountDotPrimary}`}
-						/>
-						<div className={styles.accountDot} />
-						<div className={styles.accountDot} />
-					</aside>
-					<section className={styles.inboxPanel} aria-hidden="true">
-						<p className={styles.panelLabel}>Accounts</p>
-						<div className={styles.accountName}>Studio</div>
-						<div className={styles.mailboxActive}>
-							Inbox <span>3</span>
-						</div>
-						<div className={styles.mailbox}>Later</div>
-						<div className={styles.mailbox}>Archive</div>
-						<div className={styles.accountName}>Personal</div>
-						<div className={styles.mailbox}>
-							Inbox <span>1</span>
-						</div>
-						<div className={styles.accountName}>Volunteer work</div>
-						<div className={styles.mailbox}>Inbox</div>
-					</section>
-					<section className={styles.messagePanel} aria-hidden="true">
-						<div className={styles.messageHeading}>
-							<div>
-								<p className={styles.panelLabel}>Studio / Inbox</p>
-								<strong>3 conversations</strong>
-							</div>
-							<span className={styles.messageCount}>Today</span>
-						</div>
-						<div
-							className={`${styles.messageRow} ${styles.messageRowSelected}`}
-						>
-							<span className={styles.avatar}>A</span>
-							<span>
-								<strong>Aster Workshop</strong>
-								<small>Thursday’s materials</small>
-							</span>
-							<time>10:28</time>
-						</div>
-						<div className={styles.messageRow}>
-							<span className={styles.avatar}>M</span>
-							<span>
-								<strong>Marin</strong>
-								<small>Notes from the review</small>
-							</span>
-							<time>09:41</time>
-						</div>
-						<div className={styles.messageRow}>
-							<span className={styles.avatar}>T</span>
-							<span>
-								<strong>Team calendar</strong>
-								<small>Planning session</small>
-							</span>
-							<time>08:15</time>
-						</div>
-					</section>
-					<section className={styles.detailPanel} aria-hidden="true">
-						<p className={styles.panelLabel}>Aster Workshop</p>
-						<h3>Thursday’s materials</h3>
-						<p className={styles.detailMeta}>To Studio · 10:28</p>
-						<div className={styles.detailRule} />
-						<p className={styles.detailCopy}>Hi Studio,</p>
-						<p className={styles.detailCopy}>
-							Here is the reading list for Thursday. The agenda is in your
-							calendar too.
-						</p>
-						<div className={styles.eventNote}>
-							<Icon name="calendar" />
-							<span>
-								<strong>Planning session</strong>
-								<small>Thursday · 14:00</small>
-							</span>
-						</div>
-					</section>
-				</div>
-			</div>
-			<figcaption id="illustrationCaption">
-				Illustration with fictional account and message names.
-			</figcaption>
+		<figure className={styles.productFigure}>
+			<picture>
+				<source
+					media="(prefers-color-scheme: dark)"
+					srcSet="/Screenshots/MailDark.png"
+				/>
+				<img
+					className={styles.productImage}
+					src="/Screenshots/MailLight.png"
+					width="1440"
+					height="900"
+					decoding="async"
+					alt="Mylo Mail with three separate accounts, an inbox, and a workshop email open in the reading pane."
+				/>
+			</picture>
 		</figure>
 	);
 }
@@ -170,7 +95,7 @@ export function HomePage() {
 						In development
 					</p>
 				</div>
-				<ProductIllustration />
+				<ProductPreview />
 			</section>
 
 			<section

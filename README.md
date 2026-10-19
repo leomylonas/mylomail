@@ -135,6 +135,21 @@ static output. Those generated public assets are ignored by Git; update the
 original artwork rather than editing copies. Fonts are self-hosted and Next.js
 CLI telemetry is disabled by the build/development wrapper.
 
+The home page uses screenshots of the running desktop app in both themes.
+To refresh the committed images in `website/public/Screenshots/`:
+
+```bash
+pnpm website:screenshots
+```
+
+Regeneration requires Linux, .NET 10, OpenSSL, and a local Docker engine. It
+builds the app and uses the desktop E2E fixture with a temporary profile, dedicated
+Dovecot and Mailpit containers, and synthetic accounts at reserved `.example`
+addresses. It does not use an existing app profile or the shared IMAP matrix.
+The command removes its temporary profile and containers when it finishes.
+Normal website builds use the committed PNGs and need none of these additional
+runtime prerequisites.
+
 There are no analytics, tracking cookies, signup forms, or server-side contact
 handlers. The contact email is assembled in the browser after a button press,
 not embedded in the initial HTML. This deters simple address harvesters; it does

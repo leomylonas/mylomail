@@ -985,6 +985,13 @@ Both colour schemes use the same primary blue. Logo variants follow the visitor'
 colour-scheme preference, and fonts are served locally with their licence.
 Build-time asset preparation copies the canonical artwork rather than maintaining
 a second editable logo set. Next.js CLI telemetry is disabled by the wrapper.
+
+Product screenshots are captured from the actual desktop renderer with synthetic
+mail in an isolated profile and dedicated disposable IMAP/SMTP containers.
+`pnpm website:screenshots` regenerates the committed light/dark PNGs on Linux;
+the home page selects the matching image using the visitor's colour scheme.
+Screenshot capture is separate from the static website build and deployment.
+
 The site has no analytics, tracking cookies, forms, or access to desktop account
 data. Its contact email is revealed only after client-side interaction, which
 reduces basic harvesting but is not a security boundary against scrapers.
