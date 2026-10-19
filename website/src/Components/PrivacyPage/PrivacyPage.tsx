@@ -8,8 +8,7 @@ export function PrivacyPage() {
 				<p className={styles.eyebrow}>A little clarity about your data</p>
 				<h1>Privacy policy</h1>
 				<p className={styles.lead}>
-					This website is a brochure. Mylo Mail is a desktop client, not a
-					hosted mailbox.
+					Mylo Mail is a desktop client, not a hosted mailbox.
 				</p>
 				<p className={styles.updated}>
 					Last updated <time dateTime="2026-10-17">17 October 2026</time>
@@ -65,7 +64,7 @@ export function PrivacyPage() {
 					<p>
 						Mylo Mail does not provide a hosted account or a project-operated
 						mail relay. The app connects to the account services you configure.
-						It does not upload a copy of your mailbox to this brochure website.
+						It does not upload a copy of your mailbox to this website.
 					</p>
 					<p>
 						The mail and calendar database is not encrypted by Mylo Mail.

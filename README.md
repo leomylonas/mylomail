@@ -105,7 +105,7 @@ shared mailbox has no personal contacts.
 
 ## Public website
 
-The `website/` pnpm workspace is the static Next.js brochure at
+The `website/` pnpm workspace is the static Next.js website at
 **https://mylo.software**, with the home page and `/privacy/`. It needs Node 24 and
 pnpm, but no .NET backend, database, or account credentials.
 

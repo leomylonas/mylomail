@@ -970,7 +970,7 @@ travel with the guide; no separate HTML guide, installed fonts, or app build is 
 
 ### Public website
 
-`website/` is an independent pnpm workspace for the public brochure at
+`website/` is an independent pnpm workspace for the public website at
 `https://mylo.software`. Next.js statically exports the home page, privacy policy,
 404 page, robots file, and sitemap into `website/out/`; serving those files needs
 no Node.js server, .NET backend, or application credentials.
@@ -1005,7 +1005,7 @@ reduces basic harvesting but is not a security boundary against scrapers.
   /packages
     /shared-types           # generated TS interfaces + Zod schemas
     /ui                       # shared component library (if warranted)
-  /website                    # static Next.js brochure and privacy policy
+  /website                    # static Next.js website and privacy policy
   /tests
     /renderer.unit             # Vitest
     /renderer.e2e                # Playwright (TypeScript), spawn-mode + attach-mode
