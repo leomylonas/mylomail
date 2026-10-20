@@ -6,7 +6,15 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = process.cwd();
@@ -130,3 +138,24 @@ run(
 	// let the 10.x runtime satisfy it rather than requiring a 9.x install just for this tool.
 	{ DOTNET_ROLL_FORWARD: "LatestMajor" },
 );
+
+/**
+ * The generators write the platform's line endings, and TypeContractor mixes them within a file, so
+ * the same contracts came out differently on Windows and on Linux and CI's "are the generated types
+ * committed" check failed on whichever did not match. Everything under `shared-types/src` is LF.
+ */
+const normaliseLineEndings = (directory: string): void => {
+	for (const entry of readdirSync(directory, { withFileTypes: true })) {
+		const path = join(directory, entry.name);
+		if (entry.isDirectory()) {
+			normaliseLineEndings(path);
+			continue;
+		}
+
+		const text = readFileSync(path, "utf8");
+		const normalised = text.replace(/\r\n/g, "\n");
+		if (normalised !== text) writeFileSync(path, normalised);
+	}
+};
+
+normaliseLineEndings(join(root, "packages", "shared-types", "src"));
