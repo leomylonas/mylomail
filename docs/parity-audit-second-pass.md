@@ -14,14 +14,14 @@ A fresh architecture-to-code review found **two new architecture-parity defects*
 
 The review also found one lower-severity distribution defect: the built Carbon stylesheet retained unresolved IBM Plex package URLs and shipped no font files. This was remediated immediately after the audit by explicitly bundling the required local font faces.
 
-| Classification | Count | Status |
-| --- | ---: | --- |
-| Original confirmed gaps | 47 | Remediated |
-| Original verification-only items | 9 | Resolved |
-| Original verification-only items | 4 | Partially verified or externally blocked |
-| New architecture-parity defects | 2 | Remediated |
-| New build/distribution defects | 1 | Remediated |
-| Additional portability checks | 2 | Native hosts/runners required |
+| Classification                   | Count | Status                                   |
+| -------------------------------- | ----: | ---------------------------------------- |
+| Original confirmed gaps          |    47 | Remediated                               |
+| Original verification-only items |     9 | Resolved                                 |
+| Original verification-only items |     4 | Partially verified or externally blocked |
+| New architecture-parity defects  |     2 | Remediated                               |
+| New build/distribution defects   |     1 | Remediated                               |
+| Additional portability checks    |     2 | Native hosts/runners required            |
 
 ## Method
 
@@ -84,15 +84,15 @@ The renderer now has a direct `@ibm/plex` asset dependency. `Styles/Carbon.scss`
 
 ## Original audit remediation status
 
-| Original items | Area | Second-pass status |
-| --- | --- | --- |
-| 1–4 | Gmail/Graph/CalDAV onboarding | Closed in application UI and provider configuration; live cloud consent remains blocked below |
-| 5–10 | Provider correctness and contact deletion policy | Closed; Google contact deletion exception is now explicit architecture |
-| 11–17 | Sync, bounded coverage, fencing, availability | Closed; the newly found Graph **topology discovery** defect is separate from the original Graph bounded-message-sync finding |
-| 18–24 | SignalR events, cross-window convergence, notifications | Closed in source and deterministic tests |
-| 25–27 | Calendar reachability, recurrence/time zones, runtime CRUD/iTIP | Closed for UI and local CalDAV/iTIP; live Google/Graph calendar behavior remains blocked |
-| 28–37 | Reading, actions, settings, locale, signatures, mailto, layout | Closed; rich-text formatting and font packaging are new findings |
-| 38–47 | Error transport, offline scheduling, process/platform, tests, selected frontend stack | Closed in source and Linux/package workflows, subject to native portability checks below |
+| Original items | Area                                                                                  | Second-pass status                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1–4            | Gmail/Graph/CalDAV onboarding                                                         | Closed in application UI and provider configuration; live cloud consent remains blocked below                                |
+| 5–10           | Provider correctness and contact deletion policy                                      | Closed; Google contact deletion exception is now explicit architecture                                                       |
+| 11–17          | Sync, bounded coverage, fencing, availability                                         | Closed; the newly found Graph **topology discovery** defect is separate from the original Graph bounded-message-sync finding |
+| 18–24          | SignalR events, cross-window convergence, notifications                               | Closed in source and deterministic tests                                                                                     |
+| 25–27          | Calendar reachability, recurrence/time zones, runtime CRUD/iTIP                       | Closed for UI and local CalDAV/iTIP; live Google/Graph calendar behavior remains blocked                                     |
+| 28–37          | Reading, actions, settings, locale, signatures, mailto, layout                        | Closed; rich-text formatting and font packaging are new findings                                                             |
+| 38–47          | Error transport, offline scheduling, process/platform, tests, selected frontend stack | Closed in source and Linux/package workflows, subject to native portability checks below                                     |
 
 ## Verification matrix
 
@@ -110,12 +110,12 @@ The renderer now has a direct `@ibm/plex` asset dependency. `Styles/Carbon.scss`
 
 ### Partially verified or externally blocked original items
 
-| Item | Evidence obtained | Missing evidence |
-| --- | --- | --- |
-| Gmail and Graph mail conformance | Real Gmail browser authorization URL reached; provider registrations load | Interactive user consent/token, then live mail conformance and mutation runs for both providers |
-| Google and Graph calendars | Local CalDAV CRUD and iTIP request/reply workflows pass | Authorized Google/Graph accounts and live native calendar CRUD, recurrence, RSVP, delta, and conflict runs |
-| Three-OS native keychains | Linux Secret Service live contract passes store/retrieve/replace/delete; it exposed and drove a production fix | Windows Credential Manager/DPAPI and macOS Keychain live runs, including locked/unavailable behavior and account-removal cleanup |
-| Tray and last-window close | Headed Linux Electron proved `MinimizeToTray` intercepts last-window close, leaves one hidden window, and keeps the process alive | Safe observation/click of the native tray restoration and explicit Quit path in the available GNOME/Playwright session |
+| Item                             | Evidence obtained                                                                                                                 | Missing evidence                                                                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Gmail and Graph mail conformance | Real Gmail browser authorization URL reached; provider registrations load                                                         | Interactive user consent/token, then live mail conformance and mutation runs for both providers                                  |
+| Google and Graph calendars       | Local CalDAV CRUD and iTIP request/reply workflows pass                                                                           | Authorized Google/Graph accounts and live native calendar CRUD, recurrence, RSVP, delta, and conflict runs                       |
+| Three-OS native keychains        | Linux Secret Service live contract passes store/retrieve/replace/delete; it exposed and drove a production fix                    | Windows Credential Manager/DPAPI and macOS Keychain live runs, including locked/unavailable behavior and account-removal cleanup |
+| Tray and last-window close       | Headed Linux Electron proved `MinimizeToTray` intercepts last-window close, leaves one hidden window, and keeps the process alive | Safe observation/click of the native tray restoration and explicit Quit path in the available GNOME/Playwright session           |
 
 ### Additional portability verification still required
 

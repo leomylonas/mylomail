@@ -243,21 +243,21 @@ All source-code findings above are remediated in the current worktree. The origi
 
 ### High-severity findings
 
-| # | Resolution |
-|---|---|
-| 1 | Gmail history now applies permanent deletions and derives each message's final label state before advancing the cursor. |
-| 2 | Startup inventory owns durable staged history and schedules canonical replay even while polling is paused. |
-| 3 | IMAP coverage resumes from a stable UID high-water mark rather than a mutable ordinal. |
-| 4 | Graph tombstones are fenced by destination-stream progress before collection. |
-| 5 | Tombstone orphaning and deletion recheck membership and age inside their write transactions. |
-| 6 | Replay and integrity apply current topology generations; replacement mailbox generations remain monotonic. |
-| 7 | Ambiguous mutation reconciliation refuses non-unique remote candidates instead of binding an arbitrary one. |
-| 8 | Account deletion persists credential-cleanup intent and startup resumes every unfinished credential slot. |
-| 9 | Linux locality checks resolve symlinks before mount classification. |
-| 10 | Detached compose close now waits for the latest save, attachment mutations, and any send already in flight. |
-| 11 | Backend launch capabilities and fallback vault secrets use inherited file descriptors rather than child-environment values. |
-| 12 | Executable attachment classification includes Python scripts and the other common platform execution forms. |
-| 13 | Graph send persists and re-resolves the immutable remote draft boundary; ambiguous resend reuses the durable local item with a new stable Message-ID. |
+| #   | Resolution                                                                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Gmail history now applies permanent deletions and derives each message's final label state before advancing the cursor.                               |
+| 2   | Startup inventory owns durable staged history and schedules canonical replay even while polling is paused.                                            |
+| 3   | IMAP coverage resumes from a stable UID high-water mark rather than a mutable ordinal.                                                                |
+| 4   | Graph tombstones are fenced by destination-stream progress before collection.                                                                         |
+| 5   | Tombstone orphaning and deletion recheck membership and age inside their write transactions.                                                          |
+| 6   | Replay and integrity apply current topology generations; replacement mailbox generations remain monotonic.                                            |
+| 7   | Ambiguous mutation reconciliation refuses non-unique remote candidates instead of binding an arbitrary one.                                           |
+| 8   | Account deletion persists credential-cleanup intent and startup resumes every unfinished credential slot.                                             |
+| 9   | Linux locality checks resolve symlinks before mount classification.                                                                                   |
+| 10  | Detached compose close now waits for the latest save, attachment mutations, and any send already in flight.                                           |
+| 11  | Backend launch capabilities and fallback vault secrets use inherited file descriptors rather than child-environment values.                           |
+| 12  | Executable attachment classification includes Python scripts and the other common platform execution forms.                                           |
+| 13  | Graph send persists and re-resolves the immutable remote draft boundary; ambiguous resend reuses the durable local item with a new stable Message-ID. |
 
 ### Other implementation findings
 
@@ -269,19 +269,19 @@ All source-code findings above are remediated in the current worktree. The origi
 
 ### Verification-gap disposition
 
-| Original gap | Status |
-|---|---|
-| Sync crash boundaries | Added hard-process staged-page rollback/restart proof; the fault suite also covers cursor advancement and topology-generation rejection. |
-| Tombstone/FTS crash atomicity | Added a real process kill between deletion and commit, followed by restart and FTS integrity verification. |
-| Mixed partial mutation batch | Added a batch containing a successful member and an unreported sibling; only the unreported item remains ambiguous. |
-| Production startup dispatch | StartupScheduler now has observable mutation, outbox, staged-history, and content recovery dispatch coverage. |
-| FTS rebuild migration | The migration test now seeds before the rebuilding migration and verifies both search results and FTS integrity afterward. |
-| Packaged renderer bypass | Packaged smoke no longer overrides `MYLOMAIL_RENDERER_PATH`; it loads `resources/Renderer`. |
-| Generated-contract drift | CI regenerates contracts and fails on a dirty generated diff. |
-| Electron bundle coverage | normal and deep checks rebuild the current electron-vite graph before exercising it. |
-| Native provider RSVP | **Externally blocked:** deterministic proof requires an invitation owned by a second consenting Gmail and Microsoft 365 calendar account. |
-| Gmail expired history | **Externally blocked:** the provider does not expose a way to manufacture an expired history cursor; the live test runs when `GMAIL_EXPIRED_HISTORY_ID` names a known-expired cursor. |
-| Native notification/tray | **Host-interaction blocked:** headed Electron proved minimize-to-tray keeps the process and hidden window alive, but this session cannot safely click the GNOME notification or tray menu. No mock was retained as misleading native proof. |
+| Original gap                  | Status                                                                                                                                                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sync crash boundaries         | Added hard-process staged-page rollback/restart proof; the fault suite also covers cursor advancement and topology-generation rejection.                                                                                                    |
+| Tombstone/FTS crash atomicity | Added a real process kill between deletion and commit, followed by restart and FTS integrity verification.                                                                                                                                  |
+| Mixed partial mutation batch  | Added a batch containing a successful member and an unreported sibling; only the unreported item remains ambiguous.                                                                                                                         |
+| Production startup dispatch   | StartupScheduler now has observable mutation, outbox, staged-history, and content recovery dispatch coverage.                                                                                                                               |
+| FTS rebuild migration         | The migration test now seeds before the rebuilding migration and verifies both search results and FTS integrity afterward.                                                                                                                  |
+| Packaged renderer bypass      | Packaged smoke no longer overrides `MYLOMAIL_RENDERER_PATH`; it loads `resources/Renderer`.                                                                                                                                                 |
+| Generated-contract drift      | CI regenerates contracts and fails on a dirty generated diff.                                                                                                                                                                               |
+| Electron bundle coverage      | normal and deep checks rebuild the current electron-vite graph before exercising it.                                                                                                                                                        |
+| Native provider RSVP          | **Externally blocked:** deterministic proof requires an invitation owned by a second consenting Gmail and Microsoft 365 calendar account.                                                                                                   |
+| Gmail expired history         | **Externally blocked:** the provider does not expose a way to manufacture an expired history cursor; the live test runs when `GMAIL_EXPIRED_HISTORY_ID` names a known-expired cursor.                                                       |
+| Native notification/tray      | **Host-interaction blocked:** headed Electron proved minimize-to-tray keeps the process and hidden window alive, but this session cannot safely click the GNOME notification or tray menu. No mock was retained as misleading native proof. |
 
 ### Verification evidence
 

@@ -40,23 +40,17 @@ and the app never asks you to move your mail: your provider stays your provider.
   headers and encrypted parts survive.
 - **Free and open source.** No subscriptions, paid tiers or held-back features.
 
-Reliability is a design goal rather than a claim: changes you make (move, delete,
-flag, send) are recorded locally before any provider is called and reconciled
-afterwards, so a crash or lost connection cannot silently lose or duplicate them.
-[docs/architecture.md](docs/architecture.md) explains how, and fault-injection tests
-exercise it.
-
 ## Install
 
 No release has been published yet. Tagged versions are built by the release workflow as
 unsigned `.deb`, `.rpm`, `.AppImage`, `.exe`, `.msi` and `.dmg` packages and will appear on the
 [releases page](https://github.com/leomylonas/mylomail/releases). Verify a download against the
 release's `SHA256SUMS`; Windows and macOS will warn about an unknown publisher. Step-by-step
-instructions are in [DEVELOPMENT.md](DEVELOPMENT.md#installing-a-release-package). Until then, run it
+instructions are in [DEVELOPMENT.md](docs/DEVELOPMENT.md#installing-a-release-package). Until then, run it
 from source (below).
 
 Gmail and Microsoft 365 sign-in need a client registration supplied through
-configuration; see [DEVELOPMENT.md](DEVELOPMENT.md#run-the-desktop-app). IMAP needs nothing beyond
+configuration; see [DEVELOPMENT.md](docs/DEVELOPMENT.md#run-the-desktop-app). IMAP needs nothing beyond
 your server's details.
 
 ## Building and contributing
@@ -67,10 +61,10 @@ pnpm install --frozen-lockfile && pnpm generate:types
 pnpm app
 ```
 
-- [DEVELOPMENT.md](DEVELOPMENT.md): prerequisites, running, checks, tests and packaging.
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to report bugs, propose changes and open pull requests.
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md): prerequisites, running, checks, tests and packaging.
+- [CONTRIBUTING.md](docs/CONTRIBUTING.md): how to report bugs, propose changes and open pull requests.
 - [docs/architecture.md](docs/architecture.md): the design. Read the section you need.
-- [SECURITY.md](SECURITY.md): reporting a vulnerability.
+- [SECURITY.md](docs/SECURITY.md): reporting a vulnerability.
 - [Brand guidelines](docs/branding/brand-guidelines.md): name, logo and colour.
 
 ## Licence

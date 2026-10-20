@@ -27,7 +27,7 @@ reviewed against three principles:
 2. No local record of an attempt is evidence about what the server actually did.
 3. Never persist a cursor past changes that have not been durably persisted.
 
-[AGENTS.md](AGENTS.md) lists them in full, along with a table of things that look wrong and
+[AGENTS.md](../AGENTS.md) lists them in full, along with a table of things that look wrong and
 are deliberate. Read it before touching `Mutations`, `Sync`, `Outbox` or `Persistence`: the
 failures there are crash-window races that ordinary tests do not catch.
 
@@ -47,7 +47,7 @@ end-to-end tests.
   IMAP capability tiers (`pnpm imap:up` starts the local servers).
 - Anything touching mutation, sync or persistence has a fault-injection scenario, and the
   scenario has been shown to fail with the invariant removed. See
-  [docs/skills/fault-injection.md](docs/skills/fault-injection.md).
+  [skills/fault-injection.md](skills/fault-injection.md).
 - Generated types under `packages/shared-types` are produced by `pnpm generate:types`, never
   edited by hand.
 - User-facing strings are English only; dates, times and numbers are formatted for the user's locale.
@@ -60,9 +60,9 @@ changed and how you verified it.
 
 C# and TypeScript use tabs. The renderer uses PascalCase files and folders, a folder per
 component, named exports, no barrel files, CSS Modules and Carbon components, and
-accessibility lint rules are errors. [AGENTS.md](AGENTS.md#conventions) is the authority;
+accessibility lint rules are errors. [AGENTS.md](../AGENTS.md#conventions) is the authority;
 `pnpm check` enforces most of it.
 
 ## Licence
 
-By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+By contributing you agree that your contribution is licensed under the [MIT License](../LICENSE).

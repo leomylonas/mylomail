@@ -6,12 +6,12 @@ The application is not yet feature-parity with `docs/architecture.md`.
 
 Four independent high-reasoning SOL audits found substantial implemented coverage, but also confirmed missing behavior, partial implementations, structural deviations, and verification gaps.
 
-| Audit | Implemented | Partial | Missing | Unverified | Deferred / out of scope |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Epics and user features | 67 | 15 | 2 | 9 | 0 |
-| Backend, sync, mutation, events, search | 45 | 11 | 3 | 8 | 1 |
-| Providers, credentials, OAuth, send | 27 | 12 | 2 | 3 | 1 |
-| Platform, security, testing, packaging | 71 | 18 | 11 | 6 | 14 |
+| Audit                                   | Implemented | Partial | Missing | Unverified | Deferred / out of scope |
+| --------------------------------------- | ----------: | ------: | ------: | ---------: | ----------------------: |
+| Epics and user features                 |          67 |      15 |       2 |          9 |                       0 |
+| Backend, sync, mutation, events, search |          45 |      11 |       3 |          8 |                       1 |
+| Providers, credentials, OAuth, send     |          27 |      12 |       2 |          3 |                       1 |
+| Platform, security, testing, packaging  |          71 |      18 |      11 |          6 |                      14 |
 
 These audits overlap; the counts must not be added into a single percentage.
 

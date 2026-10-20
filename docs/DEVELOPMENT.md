@@ -1,20 +1,20 @@
 # Development
 
 How to build, run, test and package Mylo Mail from source. For what the project is,
-see the [README](README.md); for how to propose and submit changes, see
+see the [README](../README.md); for how to propose and submit changes, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 MyloMail is an Electron shell that starts a local .NET backend (ASP.NET Core, SignalR,
 SQLite via EF Core) and renders a React UI. Providers are IMAP, Gmail and Microsoft Graph.
-The design is documented in [docs/architecture.md](docs/architecture.md); the
-rules that keep it correct are in [AGENTS.md](AGENTS.md), which applies to human
+The design is documented in [architecture.md](architecture.md); the
+rules that keep it correct are in [AGENTS.md](../AGENTS.md), which applies to human
 contributors as much as to coding agents.
 
 ## Prerequisites
 
-- Node.js 24 (the exact major version is pinned in [`.nvmrc`](.nvmrc))
+- Node.js 24 (the exact major version is pinned in [`.nvmrc`](../.nvmrc))
 - pnpm 10, supplied through Corepack
-- .NET SDK 10, selected by [`global.json`](global.json)
+- .NET SDK 10, selected by [`global.json`](../global.json)
 - Docker Compose, only for the local IMAP matrix and end-to-end tests
 
 On a new checkout:
@@ -90,7 +90,7 @@ per-user (`~/.local/share/mylomail` on Linux, unless `XDG_DATA_HOME` is set); do
 not place its SQLite database on a network filesystem.
 
 For an IMAP account, use your own server or the local test account described in
-[the IMAP matrix guide](tests/imap-matrix/README.md). Gmail and Microsoft 365
+[the IMAP matrix guide](../tests/imap-matrix/README.md). Gmail and Microsoft 365
 need these deployment configuration values and must not have credentials
 committed to the repository:
 
@@ -206,7 +206,7 @@ pnpm imap:down
 ```
 
 `pnpm imap:down` discards the matrix's mail data and Docker volumes. See
-[tests/imap-matrix/README.md](tests/imap-matrix/README.md) for the test account,
+[tests/imap-matrix/README.md](../tests/imap-matrix/README.md) for the test account,
 ports, capability tiers, and environment variables.
 
 ## Useful commands
@@ -225,9 +225,9 @@ operating systems. Building the Linux RPM locally also requires `rpmbuild`
 
 ## Where to read next
 
-- [docs/architecture.md](docs/architecture.md): the design, by section.
-- [AGENTS.md](AGENTS.md): the three principles, the deliberate-looking-wrong table,
+- [architecture.md](architecture.md): the design, by section.
+- [AGENTS.md](../AGENTS.md): the three principles, the deliberate-looking-wrong table,
   conventions and the definition of done.
-- [docs/skills/](docs/skills): short guides for the areas where local changes break
+- [skills/](skills): short guides for the areas where local changes break
   non-local invariants (sync, mutation, providers, persistence, frontend shell, fault injection).
-- [docs/branding/brand-guidelines.md](docs/branding/brand-guidelines.md): name, voice, logos and colour.
+- [branding/brand-guidelines.md](branding/brand-guidelines.md): name, voice, logos and colour.
