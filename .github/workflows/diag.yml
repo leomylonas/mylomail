@@ -1,0 +1,44 @@
+name: Platform diagnostics (temporary)
+
+on:
+  push:
+    tags:
+      - "ci-diag-*"
+
+jobs:
+  windows-types:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: dotnet tool restore
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:types
+      - name: What differs
+        shell: bash
+        run: |
+          git config core.autocrlf || true
+          git status --porcelain --untracked-files=all -- packages/shared-types/src | head -30
+          git diff --stat -- packages/shared-types/src | tail -15
+          git diff -- packages/shared-types/src | head -60
+
+  macos-datadirectory:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet test server/MyloMail.Api.Tests --filter "FullyQualifiedName~DataDirectoryTests" --logger "console;verbosity=detailed"
+      - name: Filesystem facts
+        run: |
+          df -T "$TMPDIR" 2>/dev/null || true
+          mount | head -20
+          echo "TMPDIR=$TMPDIR"
