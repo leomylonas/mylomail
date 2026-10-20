@@ -152,9 +152,9 @@ and window-open interception, scripts/forms/iframes stripped (by the backend's `
 document context.
 
 Block remote content at the request layer, not by removing `<img src>`: CSS `url()`,
-`srcset`, SVG, and `<style>@import` also make requests. Fetch inline images through
-authenticated client code and rewrite them to `blob:` URLs. The launch token must never
-appear in a query string.
+`srcset`, SVG, and `<style>@import` also make requests. Inline images are resolved
+by the backend, which embeds bounded raster parts as `data:` URLs in the document it serves
+(`MessageHtmlController`). The launch token must never appear in a query string.
 
 ## UI state, reconnect, and accessibility
 

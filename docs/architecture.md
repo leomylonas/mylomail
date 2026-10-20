@@ -723,7 +723,7 @@ Resolved from operation type **and** the negotiated capabilities of that account
 - **`ReconcileThenRetry`** — moves, permanent deletion. Re-establish current location or existence first.
 - **`AmbiguousOutcome`** — send. Never blindly replayed; routes to reconciliation against the Sent mailbox using the pre-generated `Message-ID`, with a bounded retry window for eventual consistency (Graph does not guarantee the Sent copy is immediately available).
 
-**Reconciliation asks about the one message; it never walks the account.** Observing where a message is now goes through `IMailProvider.FindMessageAsync` — Gmail reads the message by id, Graph reads the immutable id (then one `internetMessageId` search), IMAP searches each folder for the `Message-ID` and reads the last-known UIDs — and the reconciler judges the answer with the same exact/heuristic matching as before (`Message-ID` stays a hint). An empty answer means the provider has no such message; a Gmail message with no labels is *found* with no occurrences, and a permanent delete is not settled as applied while it still exists. A failed lookup leaves the attempt unresolved (never replayed), and `DrainAsync` carries on with unrelated changes (items in an unresolved attempt are excluded from the claim) and retries settling after a minute. Walking every folder per item, as it once did, never finished under rate limiting on a large Gmail account and stalled every change behind it.
+**Reconciliation asks about the one message; it never walks the account.** Observing where a message is now goes through `IMailProvider.FindMessageAsync` — Gmail reads the message by id, Graph reads the immutable id (then one `internetMessageId` search), IMAP searches each folder for the `Message-ID` and reads the last-known UIDs — and the reconciler judges the answer with the same exact/heuristic matching as before (`Message-ID` stays a hint). An empty answer means the provider has no such message; a Gmail message with no labels is _found_ with no occurrences, and a permanent delete is not settled as applied while it still exists. A failed lookup leaves the attempt unresolved (never replayed), and `DrainAsync` carries on with unrelated changes (items in an unresolved attempt are excluded from the claim) and retries settling after a minute. Walking every folder per item, as it once did, never finished under rate limiting on a large Gmail account and stalled every change behind it.
 
 Capability is a **cost** input, not a safety one. IMAP UIDPLUS returns the destination UID and so improves the normal path, but it does not make post-crash recovery safe: after a crash the returned `COPYUID` is gone, and IMAP offers no way to ask what it previously returned. Nothing moves from `ReconcileThenRetry` to `RetrySafe` on the strength of a capability.
 
@@ -839,6 +839,7 @@ Hangfire supplies the worker pool, delayed execution and the dashboard, backed b
 | `WindowBoundsJson`               | string? | `null`    | Last-known size/position, inherited by newly opened windows                         |
 | `LastViewedMailboxId`            | Guid?   | `null`    | Folder last selected in a plain shell window; no FK (§13, Epic 11)                  |
 | `Theme`                          | enum    | `System`  | `System` \| `Light` \| `Dark`                                                       |
+| `TimeFormat`                     | enum    | `System`  | `System` \| `Hour12` \| `Hour24`; every displayed time follows it, in every window  |
 | `AttachmentTempCleanupOnStartup` | bool    | `true`    | Sweeps orphaned temp attachments left by a crash                                    |
 
 Sensible defaults throughout — no initialisation file is required, and a missing row is equivalent to all-defaults. `DataDirectoryOverride` is deliberately **not** here; it lives in the bootstrap file (§15) because it must be resolved before this table can be located.
@@ -880,7 +881,7 @@ Attachments opened via the OS default handler (§13, Epic 5) are written to an *
 - Permissions set **at creation** (via `FileStreamOptions.UnixFileMode`, avoiding a window where the file exists world-readable): `0700` on directories, `0600` on files. On Windows the location inherits the user-profile ACL.
 - The executable bit is never set, regardless of file type.
 - **MIME filenames are untrusted input and are sanitised before any filesystem use**: path separators and traversal sequences stripped, control characters removed, Windows reserved device names rejected, trailing dots and spaces trimmed — and the resolved path verified to still lie beneath the GUID directory.
-- **Clearing the executable bit does not make opening safe.** `shell.openPath` invokes the OS-registered handler, which will happily execute `.exe`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.desktop` and script files. Dangerous extensions get an explicit "this attachment may run code" confirmation before opening.
+- **Clearing the executable bit does not make opening safe.** Opening (`shell.openPath`, or `xdg-open` on Linux) invokes the OS-registered handler, which will happily execute `.exe`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.desktop` and script files. Dangerous extensions get an explicit "this attachment may run code" confirmation before opening.
 - Cleanup on graceful shutdown, plus a full sweep of `tmp/attachments/` at startup — nothing in it needs to survive a restart.
 
 ### Time zone handling
@@ -940,7 +941,7 @@ Serilog, async sink. Never log message bodies, subjects, or credentials — `Mes
 
 ### Process structure
 
-- **`apps/electron-shell`** — Electron main process + preload script. Owns: window creation, the spawn-mode .NET backend child process (health-check, graceful shutdown, crash-restart), OS-level integration (native notifications, system tray, `shell.openPath` for attachments), the preload bridge exposing a whitelisted API to the renderer, and spawn-mode per-launch random auth token generation.
+- **`apps/electron-shell`** — Electron main process + preload script. Owns: window creation, the spawn-mode .NET backend child process (health-check, graceful shutdown, crash-restart), OS-level integration (native notifications, system tray, `shell.openPath`, or detached `xdg-open` on Linux, for attachments), the preload bridge exposing a whitelisted API to the renderer, and spawn-mode per-launch random auth token generation.
   - **Spawn mode** (default/production/full E2E): shell spawns the backend itself and writes one JSON launch-secret envelope (`launchToken`, optional fallback `masterPassword`) to the child's private standard-input pipe before closing it. Neither secret is placed in argv or the child environment.
   - **Attach mode** (dev workflow, isolated E2E): shell connects to an already-running backend (e.g. started independently from an IDE with a debugger attached), toggled via env var (`ELECTRON_BACKEND_MODE=attach`, `BACKEND_URL=...`).
     - The independently launched backend receives the same JSON envelope on standard input; `MYLOMAIL_LAUNCH_TOKEN` is supplied only to the attaching Electron process so it can authenticate health checks and install the launch cookie. Attach mode accepts only an explicit `http://127.0.0.1:<port>` origin and never restarts or terminates the external process.
@@ -1058,6 +1059,12 @@ No MVP/phased cut — built continuously, kanban-style, epic by epic.
 - **Folder management**: create, rename, delete (with confirmation), reorder, reparent/nest via drag and drop.
 - Drag a message onto a sidebar folder to move it.
 - Sensible handling/error messaging where a provider doesn't support an operation (e.g. Gmail's lack of true nesting).
+- **Folder organisation**, all local presentation preferences that are never pushed to a provider:
+  - **Pinned folders** (`Mailbox.IsPinned`, `PinnedSortOrder`) form one sticky section above every account, ordered across accounts and reorderable by drag; pinning does not move the folder in its tree.
+  - **Hidden folders** (`Mailbox.IsHidden`) leave the tree together with their subtree and are shown again in place, italic and dimmed, from the account's context menu ("Show hidden folders"; that choice is per window and not persisted). Hiding changes only what the sidebar shows: the folder keeps syncing and notifying.
+  - **Multi-select**: Ctrl/Cmd-click toggles and Shift-click ranges folders within an account's tree without navigating; a context menu on a marked folder acts on all of them (mark all as read, empty Trash/Spam, pin/unpin, hide/show, delete deepest-first). Rename, move and sync settings stay single-folder.
+  - **Mark all as read** queues one `SetFlags` mutation per unread message, exactly as marking one message does.
+  - Unread counts are a pure projection (`MailboxUnreadProjection`): the local count for a complete mailbox, otherwise the provider's snapshot moved by local change since it was taken (`UnreadAtProviderCount`) — never the raw snapshot, which lagged every local action.
 
 ### Epic 3 — Initial Sync
 
@@ -1076,10 +1083,11 @@ No MVP/phased cut — built continuously, kanban-style, epic by epic.
 
 - Open a message, read plain text or rendered HTML body.
 - Inline images render correctly via `cid:` resolution.
-- **Attachments open via the OS default file handler** (`shell.openPath` on a temp-written copy, with sensible temp-file cleanup) — not an in-app viewer.
-- **HTML isolation is a hard security requirement**, and the most security-sensitive surface in the app — the renderer also holds the capability to invoke mail mutations. Required: `contextIsolation` on, Electron sandboxing, a strict CSP, navigation and window-open interception, scripts/forms/iframes stripped, DOMPurify sanitisation, and message content rendered in an isolated document context. Message HTML is prepared **by the backend**, in the process that holds the mail, not by the renderer that also holds the capability to mutate it: `MessageHtmlPreparer` (HtmlSanitizer on AngleSharp) removes scripts, forms and their controls, frames, objects, base/meta, SVG, event handlers, `target`/`ping`/`data-*`, relative URLs and non-raster `data:` URLs; withholds remote content (`src`, `background`, `srcset`/`poster`, CSS `url()`, `@import`) unless the persisted sender/domain rules (`RemoteContentDecider`) or the reader's request for that view allow it, dropping only the offending CSS declarations so the rest of a newsletter's styling survives; and replaces `cid:` references with the stored part as a data URL (`InlineImageResolver`, raster types only, size-bounded). The result is served as a document (`GET /messages/{id}/frame`) under a content policy set by `MessageHtmlController` — inline styles allowed, no scripts, forms or base URLs, images from `data:` only (remote only when allowed), `sandbox allow-same-origin`, `frame-ancestors 'self'` — in a sandboxed same-origin iframe, so it does not inherit the app page's stricter policy. The renderer only learns counts and the decision (`/html-info`), receives a quote-ready copy for replies and forwards (`/quote-html`: remote content withheld, `cid:` kept for the draft to re-attach) and a print copy whose styles are separated from the markup (`/print-html`, applied through the CSSOM because the app page refuses style markup).
+- **Attachments open via the OS default file handler** on a temp-written copy, with sensible temp-file cleanup — not an in-app viewer. Windows and macOS use `shell.openPath`; Linux starts `xdg-open` detached with no output pipes (`OpenPath.ts`), because `shell.openPath` waits on pipes the launched application inherits and so never settled for a long-lived viewer.
+- **List previews are derived, not authoritative.** `SnippetBuilder` decodes entities and strips style/head and filler text from the text or HTML part, preferring a preheader; previews are rebuilt by a one-off versioned startup job (`SnippetBackfillVersion`) when the builder changes.
+- **HTML isolation is a hard security requirement**, and the most security-sensitive surface in the app — the renderer also holds the capability to invoke mail mutations. Required: `contextIsolation` on, Electron sandboxing, a strict CSP, navigation and window-open interception, scripts/forms/iframes stripped, sanitisation (done by the backend, see below), and message content rendered in an isolated document context. Message HTML is prepared **by the backend**, in the process that holds the mail, not by the renderer that also holds the capability to mutate it: `MessageHtmlPreparer` (HtmlSanitizer on AngleSharp) removes scripts, forms and their controls, frames, objects, base/meta, SVG, event handlers, `target`/`ping`/`data-*`, relative URLs and non-raster `data:` URLs; withholds remote content (`src`, `background`, `srcset`/`poster`, CSS `url()`, `@import`) unless the persisted sender/domain rules (`RemoteContentDecider`) or the reader's request for that view allow it, dropping only the offending CSS declarations so the rest of a newsletter's styling survives; and replaces `cid:` references with the stored part as a data URL (`InlineImageResolver`, raster types only, size-bounded). The result is served as a document (`GET /messages/{id}/frame`) under a content policy set by `MessageHtmlController` — inline styles allowed, no scripts, forms or base URLs, images from `data:` only (remote only when allowed), `sandbox allow-same-origin`, `frame-ancestors 'self'` — in a sandboxed same-origin iframe, so it does not inherit the app page's stricter policy. The renderer only learns counts and the decision (`/html-info`), receives a quote-ready copy for replies and forwards (`/quote-html`: remote content withheld, `cid:` kept for the draft to re-attach) and a print copy whose styles are separated from the markup (`/print-html`, applied through the CSSOM because the app page refuses style markup).
 - **Remote content blocked by default**, with a clear prompt to load and a per-sender/domain allow/block list. **Enforced at the request layer, not merely by removing `<img src>`** — CSS `url()`, `srcset`, SVG and `<style>@import` all trigger requests too.
-- **Inline images are fetched through authenticated client code and rewritten to `blob:` URLs.** An `<img src>` request cannot carry a bearer token via SignalR's access token factory, and the launch token must never appear in a query string.
+- **Inline images are resolved by the backend** while it prepares the message: bounded raster `cid:` parts are embedded as `data:` URLs in the document it serves (`InlineImageResolver`), so no image request needs a token and the launch token never appears in a query string. The frame's own content policy allows `img-src data:` (plus remote origins only when remote content is allowed).
 - Outlook-style sortable/filterable message list columns (sender, subject, snippet, date, read/flag state).
 - Virtualised scrolling for long lists.
 - Print a message (rendered HTML/plain text, sensibly formatted — headers, body, no app chrome) via Electron's `webContents.print()`/`printToPDF`, with a dedicated print stylesheet.
@@ -1093,10 +1101,19 @@ No MVP/phased cut — built continuously, kanban-style, epic by epic.
 - Optimistic updates — actions feel instant, server confirmation follows.
 - **Multi-select**: select multiple messages (shift/ctrl-click, standard convention) and apply an action (move, delete, mark read/unread, flag) to the whole selection at once, including via the right-click context menu.
 - Compose (plain text or HTML), To/Cc/Bcc, subject, body, attachments.
-- Reply/Reply All/Forward.
-- Save and resume drafts.
+- Reply/Reply All/Forward. A reply or forward is laid out as Outlook does: the cursor on an empty first line, the signature above a rule (`________________________________`), then a header block (**From / Sent / To / Cc / Subject**, `Sent` in the user's time format) and the original, and a forward's subject is prefixed `Fw:`. The quote is prepared by the backend (remote content withheld, `cid:` kept so the new draft re-attaches the images).
+- **Compose layout** is Outlook's: a command bar (Send with send-later menu, Attach, Save draft, Discard, Open in new window), ruled From / To / Cc / Bcc / Subject rows, and the editor, with typing starting at the top of the body. The **From** menu lists every account's send identities; choosing another account's identity moves the draft there — the old copy is deleted, the same fields are re-seeded on the new account with that identity's signature — and is offered only while the draft has no attachments, since attachments belong to one account's draft.
+- Save and resume drafts. Pushes to the provider run **one at a time per account**: an update replaces the server's copy, so two overlapping pushes (an autosave and a Send) would otherwise flag a conflict nobody caused.
 - Duplicate-resistant send: a stable `Message-ID` generated before the first attempt, ambiguous-outcome reconciliation against the Sent mailbox after a crash, and clear failure feedback. Exactly-once delivery is **not** claimed — no local transaction can span an external SMTP/Graph/Gmail send.
 - **Missing-attachment detection**: on send, if the body contains attachment-indicating language (e.g. "attached," "see attachment") but no file is attached, show a dismissable warning before sending. Client-side heuristic only, no backend involvement.
+
+### Background activity
+
+Everything running or waiting in the background is visible, with how long and how far along: the status bar says "Syncing…" while any of it runs ("Changes waiting…" when there is only queued work), and the **Background activity** dialog groups it per account as cards with a running/waiting state, an elapsed timer and a progress bar where progress is measurable. Mail and content downloads keep their own per-account detail there. `GetBackgroundTasks` assembles the rest from two sources that must not be confused: **durable rows** (queued mutation items grouped by operation, items in an unresolved attempt shown as "Checking with <provider> whether N changes went through", running exports) and **process-local reporting** (`BackgroundActivityTracker`, fed by a Hangfire server filter over an explicit allow-list of jobs plus the preview rebuild's own progress). The tracker is a display only: nothing is decided from it and it does not survive a restart, which is why queued work is read from its rows.
+
+### Failure details
+
+A failed change's notification offers **Details**, which opens a dialog naming what the user asked for, the message, the account and the full reason (`MutationFailureDto`), rather than only the one-line summary.
 
 ### Epic 7 — Calendar
 
@@ -1118,7 +1135,8 @@ No MVP/phased cut — built continuously, kanban-style, epic by epic.
 ### Epic 8 — Settings
 
 - Per-account settings (polling interval, initial sync mode/bound, notifications enabled).
-- Theme (light/dark) — scope TBD.
+- Theme (light/dark/system).
+- **Time format** (system / 12-hour / 24-hour): one app-wide preference (`AppSettings.TimeFormat`), broadcast with `ShellSettingsChanged` so every window and every date or time (list, reading pane, calendar, invites, problems, compose, quote headers) follows it. Typed event input fields stay ISO 24-hour.
 - Visibility into credential storage security state (e.g. warn if only the weaker SQLite fallback is available on this OS).
 - Close behaviour: **quit app** vs **minimise to tray** (global app setting).
 
@@ -1144,9 +1162,12 @@ On cursor invalidation the **new stream baseline is captured before resynchronis
 
 **Delivery is at-least-once, by explicit policy.** The SQLite transaction covers the notification record; it cannot cover the OS call. So: transactionally create one durable record keyed `(AccountId, MessageId, NotificationKind)`, dispatch pending records, mark delivered afterwards. A crash can therefore duplicate a notification. That is the chosen direction — an occasional duplicate is a minor annoyance, a silently missed new-mail notification defeats the feature.
 
+**Exclusions.** Even inside the baseline and epoch, these never notify: mail the server already marks read; mail from the account's own send identities (its Sent copies); and messages whose only folders are Junk, Trash, Sent or Drafts. A message in an ordinary folder as well (a Gmail message labelled Inbox and Sent) still notifies, and one with no known folder is kept rather than silenced on a guess.
+
 ### Epic 10 — Multi-Window Support
 
-- Open a message in its own window.
+- Open a message in its own window. It offers everything the main window does to one message: Delete (Trash), Reply / Reply all / Forward, and in the overflow menu mark read or unread, flag, move to, delete permanently, save as `.eml`, invert colours, view source and print.
+- In the main window, choosing another message while composing saves the draft (an untouched compose pane is left alone) and shows that message; if the save fails the writer stays in compose.
 - Open a single calendar in its own window (double-click it in the Calendar view's left panel): the same month/agenda view restricted to that calendar, without the panel, reached by the `calendar` + `account` window query like the message and compose windows.
 - Open an additional independent main window.
 - Detach compose into its own window (pop-out), surviving window close without discarding (autosave semantics).
@@ -1185,7 +1206,7 @@ in Google.
 
 - Conversation membership is account-scoped. Provider-native thread/conversation ids are preferred; messages without one use RFC 5322 `References`/`In-Reply-To` relationships. `HasProviderThreadId` preserves that provenance so fallback ids can be recomputed when duplicate-header cardinality changes.
 - A nullable or duplicated RFC `Message-ID` is never sufficient evidence to merge messages. Header fallback can associate only a uniquely resolved known ancestor; otherwise it creates a distinct local conversation. A restart-safe, one-time startup backfill assigns fallback threads to rows created before threading was introduced.
-- The message list supports both flat and collapsed-conversation views. This is a persisted per-window setting. Collapsed rows expose an expandable member list; actions, pending state, unread state, and failures remain per message.
+- The message list supports both flat and collapsed-conversation views. This is a persisted per-account setting (`Account.GroupConversations`), so every window shows an account the same way. Collapsed rows expose an expandable member list; actions, pending state, unread state, and failures remain per message.
 
 ### Epic 14 — IMAP IDLE
 
