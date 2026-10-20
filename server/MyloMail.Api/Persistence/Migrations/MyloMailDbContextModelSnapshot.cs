@@ -903,6 +903,9 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<int?>("UnreadAtProviderCount")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("UnreadConfirmedDelta")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ParentId");

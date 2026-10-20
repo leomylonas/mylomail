@@ -107,13 +107,15 @@ public sealed class TopologySyncService(
 				{
 					epoch.Generation = mailbox.TopologyGeneration;
 				}
-				var previousCounts = (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount);
+				var previousCounts = (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount, mailbox.UnreadConfirmedDelta);
 				Update(mailbox, effectiveDto);
 				mailbox.UnreadAtProviderCount = coveredNow.Contains(mailbox.Id)
 					&& mailbox.EffectiveSpecialUse != SpecialUse.Drafts
 					? localUnreadNow.GetValueOrDefault(mailbox.Id)
 					: null;
-				if (previousCounts != (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount))
+				// A fresh provider reading already includes what was confirmed before it was taken.
+				mailbox.UnreadConfirmedDelta = 0;
+				if (previousCounts != (mailbox.ProviderUnreadCount, mailbox.ProviderTotalCount, mailbox.UnreadAtProviderCount, mailbox.UnreadConfirmedDelta))
 				{
 					countsChanged.Add(mailbox.Id);
 				}

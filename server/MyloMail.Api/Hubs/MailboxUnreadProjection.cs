@@ -22,9 +22,9 @@ namespace MyloMail.Api.Hubs;
 /// own size.</item>
 /// <item><b>Otherwise</b> (backfilling, or no baseline): the snapshot plus the net effect of
 /// intents still pending, because backfill adds old messages locally that never changed the
-/// provider's count. <c>MutationExecutor</c> moves the snapshot and baseline together when it
-/// confirms a read change, removal or arrival, so a confirmed change does not fall back to a
-/// stale snapshot.</item>
+/// provider's count. Settlement adds a confirmed read change, removal or arrival to
+/// <see cref="Mailbox.UnreadConfirmedDelta"/>, so a confirmed change does not fall back to a stale
+/// snapshot; the provider-reported counts themselves are written only by topology sync.</item>
 /// </list>
 /// A Drafts mailbox is always the third case: drafts never materialise as <see cref="Message"/>
 /// rows (§1), so the local relation cannot represent what the provider counts there.
@@ -49,7 +49,8 @@ internal static class MailboxUnreadProjection
 		int? providerUnread,
 		int? unreadAtProviderCount,
 		int serverKnownUnread,
-		int pendingDelta
+		int pendingDelta,
+		int confirmedDelta = 0
 	)
 	{
 		var effectiveLocal = serverKnownUnread + pendingDelta;
@@ -57,7 +58,7 @@ internal static class MailboxUnreadProjection
 			? effectiveLocal
 			: covered && unreadAtProviderCount is { } baseline
 				? providerUnread.Value + (effectiveLocal - baseline)
-				: providerUnread.Value + pendingDelta;
+				: providerUnread.Value + pendingDelta + confirmedDelta;
 		return Math.Max(shown, 0);
 	}
 

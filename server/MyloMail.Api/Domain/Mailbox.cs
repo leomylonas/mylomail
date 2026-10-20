@@ -82,6 +82,15 @@ public class Mailbox
 	public int? UnreadAtProviderCount { get; set; }
 
 	/// <summary>
+	/// How far confirmed local mutations have moved this folder's unread count since the provider's
+	/// snapshot was read. Written by mutation settlement; <see cref="ProviderUnreadCount"/> and
+	/// <see cref="UnreadAtProviderCount"/> stay provider-reported and are written only by topology
+	/// sync, which also resets this to zero with each new snapshot. Used where local rows cannot
+	/// stand in for the provider's figure (a bounded or still-backfilling folder).
+	/// </summary>
+	public int UnreadConfirmedDelta { get; set; }
+
+	/// <summary>
 	/// Incremented whenever this mailbox is deleted, recreated or replaced by topology
 	/// reconciliation. Work carries the generation it was issued under and is discarded on
 	/// mismatch, so a late page cannot mutate a mailbox that has since been recreated (§1).

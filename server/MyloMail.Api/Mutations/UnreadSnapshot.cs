@@ -4,19 +4,19 @@ using MyloMail.Api.Persistence;
 namespace MyloMail.Api.Mutations;
 
 /// <summary>
-/// Keeps a mailbox's provider unread snapshot consistent with a change a confirmed mutation just
-/// made to the server-known state, in the same transaction as that change.
+/// Records, in the same transaction as the change, how far a confirmed mutation has moved a
+/// mailbox's unread count since the provider's snapshot was read.
 /// </summary>
 /// <remarks>
 /// <c>MailboxUnreadProjection</c> shows the provider's snapshot projected over local state. Once
-/// a pending intent is confirmed it stops being a pending delta, so the snapshot has to move with
-/// the server-known flag or membership at the same moment, or the displayed count falls back to
-/// a figure that predates the change until topology sync next reads the provider. The snapshot
-/// and its local baseline move by exactly the same amount and are not clamped: the displayed
-/// figure depends on their difference, and clamping one at zero would destroy it. The next
-/// topology sync overwrites both with the provider's own numbers. Every path that settles an
-/// outcome — the executor and crash reconciliation — must call this, or recovery would show a
-/// different count from the normal path.
+/// a pending intent is confirmed it stops being a pending delta, so the confirmed movement has to
+/// be kept at the same moment, or the displayed count falls back to a figure that predates the
+/// change until topology sync next reads the provider. It is kept in
+/// <see cref="Domain.Mailbox.UnreadConfirmedDelta"/>, never in the provider-reported counts, which
+/// only topology sync writes (AGENTS.md: the two counts stay separate); the next topology sync
+/// resets it with the snapshot it takes. Every path that settles an outcome — the executor and
+/// crash reconciliation — must call this, or recovery would show a different count from the
+/// normal path.
 /// </remarks>
 internal static class UnreadSnapshot
 {
@@ -31,14 +31,6 @@ internal static class UnreadSnapshot
 			return;
 		}
 
-		if (mailbox.ProviderUnreadCount is { } snapshot)
-		{
-			mailbox.ProviderUnreadCount = snapshot + delta;
-		}
-
-		if (mailbox.UnreadAtProviderCount is { } baseline)
-		{
-			mailbox.UnreadAtProviderCount = baseline + delta;
-		}
+		mailbox.UnreadConfirmedDelta += delta;
 	}
 }

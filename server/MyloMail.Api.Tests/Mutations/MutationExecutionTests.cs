@@ -158,7 +158,9 @@ public sealed class MutationExecutionTests
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
 			Assert.Empty(await context.MessageMailboxes.ToListAsync());
-			Assert.Equal(4, (await context.Mailboxes.SingleAsync(m => m.ProviderMailboxId == "OTHER")).ProviderUnreadCount);
+			var other = await context.Mailboxes.SingleAsync(m => m.ProviderMailboxId == "OTHER");
+			// Recorded beside the provider's figure, which is left as the provider reported it.
+			Assert.Equal((5, -1), (other.ProviderUnreadCount, other.UnreadConfirmedDelta));
 		});
 	}
 
@@ -887,34 +889,35 @@ public sealed class MutationExecutionTests
 			await context.SaveChangesAsync();
 		});
 
-	private static Task<(int Shown, int? Snapshot, int? Baseline)> UnreadAsync(MutationHarness harness, Guid mailboxId) =>
+	private static Task<(int Shown, int? Snapshot, int? Baseline, int Delta)> UnreadAsync(MutationHarness harness, Guid mailboxId) =>
 		harness.UsingAsync(async services =>
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
 			var summary = (await MyloMail.Api.Hubs.MailboxSummaryDtoFactory.GetAsync(context, mailboxId))!;
 			var mailbox = await context.Mailboxes.AsNoTracking().SingleAsync(m => m.Id == mailboxId);
-			return (summary.UnreadCount, mailbox.ProviderUnreadCount, mailbox.UnreadAtProviderCount);
+			return (summary.UnreadCount, mailbox.ProviderUnreadCount, mailbox.UnreadAtProviderCount, mailbox.UnreadConfirmedDelta);
 		});
 
 	/// <summary>
 	/// The count a user watches must not move when an action merely stops being pending: it was
-	/// already counted while queued, and confirmation moves the snapshot with the server-known flag.
+	/// already counted while queued, and confirmation records it beside the snapshot without rewriting
+	/// the provider-reported count.
 	/// </summary>
 	[Fact]
-	public async Task A_confirmed_read_keeps_the_displayed_count_and_moves_the_provider_snapshot_with_it()
+	public async Task A_confirmed_read_keeps_the_displayed_count_and_leaves_the_provider_snapshot_alone()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
 		await SetSnapshotAsync(harness, harness.InboxId, providerUnread: 5);
 		await MutationOrderingTests.EnqueueFlagAsync(harness, isRead: true);
-		Assert.Equal((4, 5, null), await UnreadAsync(harness, harness.InboxId));
+		Assert.Equal((4, 5, (int?)null, 0), await UnreadAsync(harness, harness.InboxId));
 
 		await ExecuteAsync(harness);
 
-		Assert.Equal((4, 4, null), await UnreadAsync(harness, harness.InboxId));
+		Assert.Equal((4, 5, (int?)null, -1), await UnreadAsync(harness, harness.InboxId));
 	}
 
 	[Fact]
-	public async Task A_confirmed_move_takes_the_unread_message_out_of_one_snapshot_and_into_the_other()
+	public async Task A_confirmed_move_records_the_unread_message_leaving_one_folder_and_entering_the_other()
 	{
 		await using var harness = await MutationHarness.CreateAsync();
 		await SetSnapshotAsync(harness, harness.InboxId, providerUnread: 5, baseline: 1);
@@ -924,10 +927,11 @@ public sealed class MutationExecutionTests
 
 		await ExecuteAsync(harness);
 
-		var (_, inboxSnapshot, inboxBaseline) = await UnreadAsync(harness, harness.InboxId);
-		var (_, archiveSnapshot, archiveBaseline) = await UnreadAsync(harness, harness.ArchiveId);
-		Assert.Equal((4, 0), (inboxSnapshot, inboxBaseline));
-		Assert.Equal((4, 1), (archiveSnapshot, archiveBaseline));
+		var (_, inboxSnapshot, inboxBaseline, inboxDelta) = await UnreadAsync(harness, harness.InboxId);
+		var (_, archiveSnapshot, archiveBaseline, archiveDelta) = await UnreadAsync(harness, harness.ArchiveId);
+		// The provider-reported figures are untouched; the confirmed movement sits beside them.
+		Assert.Equal((5, 1, -1), (inboxSnapshot, inboxBaseline, inboxDelta));
+		Assert.Equal((3, 0, 1), (archiveSnapshot, archiveBaseline, archiveDelta));
 	}
 
 	internal static async Task ExecuteAsync(MutationHarness harness)
