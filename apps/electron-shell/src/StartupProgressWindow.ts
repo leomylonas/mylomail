@@ -3,8 +3,8 @@ import type { StartupProgress } from "@mylomail/electron-shell/BackendHealthProb
 import { getAppIcon } from "@mylomail/electron-shell/AppIcon";
 
 const titles: Record<string, string> = {
-	backup: "Backing up your database",
-	migrating: "Upgrading your database",
+	backup: "Updating your database",
+	migrating: "Updating your database",
 };
 
 /**
@@ -35,7 +35,7 @@ export function createStartupProgressWindow(showAfterMs = 2000): {
 </style>
 <header class="brand"><img src="${getAppIcon().toDataURL()}" width="32" height="32" alt=""><h1 id="title">Preparing Mylo Mail</h1></header>
 <progress id="bar"></progress>
-<p id="detail">Your database is being upgraded. This can take a while for a large mailbox.</p>`;
+<p id="detail">Your mailbox database is being backed up and upgraded. This may take some time for larger mailboxes.</p>`;
 			window = new BrowserWindow({
 				useContentSize: true,
 				width: 440,
