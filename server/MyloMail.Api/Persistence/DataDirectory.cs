@@ -155,6 +155,19 @@ public static class DataDirectory
 	internal static string ReadDarwinFileSystemType(string path)
 	{
 		var existingPath = ResolveExistingAncestorThroughLinks(path);
+		// The resolved path keeps any suffix that does not exist yet (the data directory is created
+		// after this check), and statfs needs something that exists: climb to what does.
+		while (!Directory.Exists(existingPath) && !File.Exists(existingPath))
+		{
+			var parent = Path.GetDirectoryName(existingPath);
+			if (string.IsNullOrEmpty(parent) || parent == existingPath)
+			{
+				throw LocalityUnknown(path);
+			}
+
+			existingPath = parent;
+		}
+
 		try
 		{
 			// On Unix the DriveInfo name may be any existing path. DriveFormat calls statfs

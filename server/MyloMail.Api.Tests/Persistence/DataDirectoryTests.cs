@@ -112,6 +112,24 @@ public sealed class DataDirectoryTests
 		}
 	}
 
+	/// <summary>
+	/// The data directory does not exist when it is checked — it is created afterwards — so volume
+	/// discovery has to climb to the nearest directory that does, as it did before the runtime started
+	/// refusing a path that is not there.
+	/// </summary>
+	[Fact]
+	public void Darwin_mount_discovery_finds_the_volume_of_a_path_that_does_not_exist_yet()
+	{
+		if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+		{
+			return;
+		}
+
+		var notYet = Path.Combine(Path.GetTempPath(), "mylomail-tests", Guid.NewGuid().ToString("n"), "data");
+
+		Assert.NotEmpty(DataDirectory.ReadDarwinFileSystemType(notYet));
+	}
+
 	[Fact]
 	public void Darwin_mount_discovery_reports_the_current_volume()
 	{
