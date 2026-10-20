@@ -274,6 +274,8 @@ public sealed class SendExecutor(
 
 		if (contactSuggestionsChanged)
 			await events.ContactsChangedAsync(account.Id);
+		// The draft is gone: open Drafts lists would otherwise keep showing it.
+		await events.DraftUpdatedAsync(draft.Id);
 		await outbox.AnnounceStatusAsync(item.Id, ct);
 	}
 

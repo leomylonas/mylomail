@@ -200,6 +200,7 @@ public static class PersistenceServiceCollectionExtensions
 				.UseRecommendedSerializerSettings()
 				.UseInMemoryStorage()
 				.UseFilter(new BackgroundActivityFilter(provider.GetRequiredService<BackgroundActivityTracker>()))
+				.UseFilter(new AccountQueueFilter(provider))
 		);
 		return services;
 	}
@@ -215,7 +216,12 @@ public static class PersistenceServiceCollectionExtensions
 	/// </remarks>
 	public static IServiceCollection AddSchedulingWorkers(this IServiceCollection services)
 	{
-		services.AddHangfireServer();
+		// The default queue serves work that is not tied to one account; each account's own jobs
+		// run on a queue and workers of their own (AccountQueues), started on first use.
+		services.AddHangfireServer(options => options.Queues = ["default"]);
+		services.AddSingleton<AccountQueueServers>(provider => new AccountQueueServers(
+			provider.GetRequiredService<JobStorage>()
+		));
 		return services;
 	}
 }

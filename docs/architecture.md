@@ -757,7 +757,7 @@ A local `Message` row may become a tombstone after server deletion and **persist
 
 ### Job execution
 
-Hangfire supplies the worker pool, delayed execution and the dashboard, backed by `Hangfire.InMemory`. It supplies nothing else: retry is disabled (`[AutomaticRetry(Attempts = 0)]`, §3), recurring scheduling is replaced by self-scheduling delayed jobs, and persistence is provided by the tables above.
+Hangfire supplies the worker pool, delayed execution and the dashboard, backed by `Hangfire.InMemory`. Each account has its own queue and its own four workers (`AccountQueues`: a job whose first parameter is `accountId` is routed by `AccountQueueFilter` as it is enqueued, and `AccountQueueServers` starts that account's server on first use), so one account's backlog or rate limit cannot occupy the workers another account needs; work not tied to an account runs on the shared default queue. It supplies nothing else: retry is disabled (`[AutomaticRetry(Attempts = 0)]`, §3), recurring scheduling is replaced by self-scheduling delayed jobs, and persistence is provided by the tables above.
 
 **Startup reconciliation is the sole recovery mechanism**, not a safety net behind a durable queue. It must enumerate every source of outstanding work, and it warrants direct tests rather than being assumed correct:
 

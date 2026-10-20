@@ -238,3 +238,40 @@ test("choosing another message while writing keeps the draft and shows that mess
 		await app.close();
 	}
 });
+
+test("opening a draft does not save it again, and a sent draft leaves the list", async () => {
+	await clearInbox(imapPort);
+	const draftSubject = `Reopened ${Date.now()}`;
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "New message" }).click();
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
+		await window.getByLabel("Subject").fill(draftSubject);
+		await expect(window.getByText(/Draft saved at/)).toBeVisible({
+			timeout: 15_000,
+		});
+
+		await window
+			.getByRole("button", { name: /^Drafts/ })
+			.first()
+			.click();
+		const row = window.getByRole("button", {
+			name: new RegExp(draftSubject),
+		});
+		await expect(row).toContainText("someone@example.org");
+		await row.click();
+		await expect(window.getByLabel("Subject")).toHaveValue(draftSubject);
+		// The autosave debounce is two seconds; an unedited draft must outlast it unsaved.
+		await window.waitForTimeout(4_000);
+		await expect(window.getByText(/Draft saved at/)).toHaveCount(0);
+
+		await window.getByRole("button", { name: "Send", exact: true }).click();
+		await expect(row).toHaveCount(0, { timeout: 60_000 });
+		// And nothing puts it back once the send has been queued.
+		await window.waitForTimeout(4_000);
+		await expect(row).toHaveCount(0);
+	} finally {
+		await app.close();
+	}
+});

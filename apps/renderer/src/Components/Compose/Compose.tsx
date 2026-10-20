@@ -470,6 +470,14 @@ export function Compose({
 	// A ref, rather than React state, is the close barrier's source of truth: the native
 	// close request can arrive between SetState and its next render.
 	const queuedSend = useRef<Sent | null>(null);
+	// What the server holds already: the draft as opened, then whatever was last saved.
+	const lastSaved = useRef({
+		to: draft ? to : "",
+		cc: draft ? cc : "",
+		bcc: draft ? bcc : "",
+		subject: draft ? subject : "",
+		body: draft ? body : "",
+	});
 	const sendInFlight = useRef<Promise<void> | null>(null);
 	const earlyStatuses = useRef(new Map<string, OutboxItemDto>());
 	const attachmentMutations = useRef(new Set<Promise<unknown>>());
@@ -478,6 +486,13 @@ export function Compose({
 		const run = async (): Promise<string> => {
 			if (discarding.current) return fieldsRef.current.draftId ?? "";
 			const fields = fieldsRef.current;
+			lastSaved.current = {
+				to: fields.to,
+				cc: fields.cc,
+				bcc: fields.bcc,
+				subject: fields.subject,
+				body: fields.body,
+			};
 			const saved = await hub.saveDraft({
 				draftId: fields.draftId ?? undefined,
 				accountId,
@@ -621,6 +636,21 @@ export function Compose({
 	// response to it. Skipped while empty: an untouched compose pane should not litter Drafts.
 	useEffect(() => {
 		if (!to && !cc && !bcc && !subject && !body) return;
+		// Opening a draft is not an edit: only what differs from what is already saved is saved,
+		// so looking at a draft does not change its modified time.
+		const saved = lastSaved.current;
+		if (
+			saved.to === to &&
+			saved.cc === cc &&
+			saved.bcc === bcc &&
+			saved.subject === subject &&
+			saved.body === body
+		)
+			return;
+		// Once a send is queued the draft belongs to the outbox, and is deleted when the message
+		// goes; saving it again would put a copy of the sent message back in Drafts. Undoing the
+		// send hands it back.
+		if (queuedSend.current && !queuedSend.current.cancelled) return;
 		const timer = setTimeout(
 			() => void save().catch(reportFailure("This draft could not be saved")),
 			2000,
@@ -926,6 +956,8 @@ export function Compose({
 			// OutboxStatusChanged can land while this call is still in flight, and overwriting
 			// it with a stale copy here would revert a real "Sent"/"Failed" back to whatever
 			// this closure saw when undo() was first called.
+			if (queuedSend.current?.outboxItemId === sent.outboxItemId)
+				queuedSend.current = { ...queuedSend.current, cancelled };
 			setSent((current) =>
 				current ? { ...current, cancelled, undoRejected: !cancelled } : current,
 			);
