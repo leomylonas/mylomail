@@ -306,6 +306,18 @@ public sealed class MutationReconciler(
 		}
 	}
 
+	/// <summary>
+	/// Whether the provider, asked now, has no such message at all — no copy in any folder and none
+	/// without a folder. Only that observation lets a permanent delete count as done when the local
+	/// copy has no occurrences left: a Gmail message with no labels has none either, and still exists.
+	/// An indeterminate or failed lookup is not "gone".
+	/// </summary>
+	public async Task<bool> ConfirmGoneAsync(Account account, Guid messageId, CancellationToken ct = default)
+	{
+		var observation = await ObserveAsync(account, messageId, ct);
+		return !observation.IsIndeterminate && observation.Locations.Count == 0 && !observation.ExistsWithoutLocation;
+	}
+
 	private async Task<MutationObservation> ObserveAsync(
 		Account account,
 		Guid messageId,

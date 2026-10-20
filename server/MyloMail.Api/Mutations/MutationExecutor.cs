@@ -21,6 +21,7 @@ public sealed class MutationExecutor(
 	TimeProvider clock,
 	IFaultInjector faults,
 	MutationChainEvaluator chains,
+	MutationReconciler reconciler,
 	IHubEvents events,
 	ILogger<MutationExecutor> logger
 )
@@ -82,12 +83,17 @@ public sealed class MutationExecutor(
 				continue;
 			}
 			var occurrence = await ResolveAsync(item, ct);
-			if (occurrence is null && item.OperationKind == MutationOperationKind.DeletePermanently)
+			if (
+				occurrence is null
+				&& item.OperationKind == MutationOperationKind.DeletePermanently
+				&& await reconciler.ConfirmGoneAsync(account, item.MessageId, ct)
+			)
 			{
-				// Deleting what is already gone has happened: the message the user wanted removed is
-				// not there. Two deletes of one message (emptying a folder over a delete already
+				// No local occurrence is not evidence the message is gone (a Gmail message with no
+				// labels has none and still exists), so the provider is asked. Gone, the delete has
+				// happened: two deletes of one message (emptying a folder over a delete already
 				// queued, say) are not a conflict, and reporting one made the user chase an error for
-				// something that had worked.
+				// something that had worked. Anything else falls through to the cancellation below.
 				await chains.CompleteAlreadySatisfiedAsync(item, ct);
 				continue;
 			}

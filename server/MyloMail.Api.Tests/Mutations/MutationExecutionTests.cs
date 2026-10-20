@@ -789,6 +789,34 @@ public sealed class MutationExecutionTests
 		Assert.NotEqual(first.Id, second.Id);
 	}
 
+	/// <summary>
+	/// A Gmail message with no labels has no local occurrences either. A permanent delete queued for
+	/// it must not be completed on that absence alone: Google still holds the message.
+	/// </summary>
+	[Fact]
+	public async Task A_delete_for_a_message_with_no_occurrences_is_not_completed_while_the_provider_still_has_it()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Gmail);
+		var item = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId));
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.MessageMailboxes.RemoveRange(await context.MessageMailboxes.ToListAsync());
+			await context.SaveChangesAsync();
+		});
+		harness.Provider.SeedMessageWithoutLabels(harness.MessageId, DateTimeOffset.UnixEpoch);
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+			Assert.NotEqual(
+				MutationState.Completed,
+				(await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync(i => i.Id == item.Id)).State
+			)
+		);
+	}
+
 	[Fact]
 	public async Task A_failing_batch_is_retried_after_a_delay_not_at_once()
 	{
