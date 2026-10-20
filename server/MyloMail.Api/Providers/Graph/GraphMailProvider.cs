@@ -39,9 +39,21 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		DeletingMailboxDeletesMessages = true,
 	};
 
-	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: false, ct);
+
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: true, ct);
+
+	private async Task<AuthResult> AuthenticateCoreAsync(
+		Account account,
+		bool reauthenticate,
+		CancellationToken ct
+	)
 	{
-		var result = await oauth.AuthenticateAsync(account, ct);
+		var result = reauthenticate
+			? await oauth.ReauthenticateAsync(account, ct)
+			: await oauth.AuthenticateAsync(account, ct);
 		return result.Succeeded && GraphMailbox.For(account).IsShared
 			? await VerifySharedMailboxAsync(account, ct)
 			: result;

@@ -212,6 +212,8 @@ public sealed partial class ImapMailProvider : IMailProvider
 			);
 		}
 	}
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateAsync(account, ct);
 
 	public async Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
 		Account account,

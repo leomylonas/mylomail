@@ -371,6 +371,9 @@ export function AppShell({
 	const selectedAccount = accounts.data?.find(
 		(a) => a.id === selectedAccountId,
 	);
+	const reauthenticatingAccount = accounts.data?.find(
+		(account) => account.id === reauthenticatingAccountId,
+	);
 	// CredentialStoreUnavailable gets its own banner below: reauthenticating cannot fix a
 	// locked OS keychain, so it must not offer the same "Reauthenticate" action as the other
 	// non-Connected states.
@@ -639,7 +642,7 @@ export function AppShell({
 				{needsAttention ? (
 					<ActionableNotification
 						kind="warning"
-						title="This account needs attention"
+						title={`This account needs attention: ${accountIdentity(selectedAccount!)}`}
 						subtitle={
 							selectedAccount!.lastAuthError ??
 							"MyloMail could not sign in to this account."
@@ -647,7 +650,12 @@ export function AppShell({
 						lowContrast
 						hideCloseButton
 						inline
-						actionButtonLabel="Reauthenticate"
+						actionButtonLabel={
+							selectedAccount!.providerType === ProviderType.Gmail ||
+							selectedAccount!.providerType === ProviderType.Microsoft365
+								? "Sign in again"
+								: "Reauthenticate"
+						}
 						onActionButtonClick={() =>
 							setReauthenticatingAccountId(selectedAccountId ?? null)
 						}
@@ -989,6 +997,14 @@ export function AppShell({
 				<ReauthenticateAccount
 					hub={hub}
 					accountId={reauthenticatingAccountId}
+					accountLabel={
+						reauthenticatingAccount
+							? accountIdentity(reauthenticatingAccount)
+							: null
+					}
+					providerType={
+						reauthenticatingAccount?.providerType ?? ProviderType.Imap
+					}
 					onReauthenticated={() => setReauthenticatingAccountId(null)}
 					onClose={() => setReauthenticatingAccountId(null)}
 				/>
@@ -1002,6 +1018,11 @@ function paneTitle(pane: string): string {
 	if (pane === "contacts") return "People";
 	if (pane === "add-account") return "Add account";
 	return "Mail";
+}
+function accountIdentity(account: Account): string {
+	return account.displayName === account.emailAddress
+		? account.displayName
+		: `${account.displayName} (${account.emailAddress})`;
 }
 
 /** What is wrong with the backend or account list, if anything; nothing when all is well. */

@@ -304,11 +304,10 @@ public class AccountsController(
 	}
 
 	/// <summary>
-	/// Re-verifies an account stuck in <see cref="AuthState.NeedsReauth"/> or
+	/// Re-runs authentication for an account stuck in <see cref="AuthState.NeedsReauth"/> or
 	/// <see cref="AuthState.Error"/> and, on success, immediately requeues its blocked work
-	/// (§3). A password-changed rejection and a certificate-untrusted rejection surface
-	/// identically to <see cref="Add"/>'s own failure response, extensions included, so the
-	/// renderer can offer the same "trust this certificate" prompt either place.
+	/// (§3). IMAP may supply a replacement password; Gmail and Microsoft 365 start interactive
+	/// OAuth sign-in and take no password.
 	/// </summary>
 	[HttpPost("{accountId:guid}/reauthenticate")]
 	public async Task<IActionResult> Reauthenticate(

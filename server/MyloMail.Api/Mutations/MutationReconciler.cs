@@ -307,6 +307,16 @@ public sealed class MutationReconciler(
 	}
 
 	/// <summary>
+	/// Observes the provider for execution-time recovery of a permanent delete whose local
+	/// membership is temporarily absent.
+	/// </summary>
+	internal Task<MutationObservation> ObserveForExecutionAsync(
+		Account account,
+		Guid messageId,
+		CancellationToken ct = default
+	) => ObserveAsync(account, messageId, ct);
+
+	/// <summary>
 	/// Whether the provider, asked now, has no such message at all — no copy in any folder and none
 	/// without a folder. Only that observation lets a permanent delete count as done when the local
 	/// copy has no occurrences left: a Gmail message with no labels has none either, and still exists.
@@ -415,7 +425,7 @@ public sealed class MutationReconciler(
 	/// The provider still has the message but in none of the account's folders — a Gmail message with
 	/// no labels (archived mail). It is not gone, so a permanent delete cannot count as applied.
 	/// </param>
-	private sealed record MutationObservation(
+	internal sealed record MutationObservation(
 		IReadOnlyDictionary<Guid, string> Locations,
 		bool IsIndeterminate,
 		bool ExistsWithoutLocation = false

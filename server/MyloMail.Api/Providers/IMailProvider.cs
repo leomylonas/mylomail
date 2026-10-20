@@ -32,6 +32,12 @@ public interface IMailProvider
 	Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct);
 
 	/// <summary>
+	/// Re-runs the provider's interactive authentication flow when the account needs user
+	/// attention. OAuth providers must not treat this as a password submission.
+	/// </summary>
+	Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct);
+
+	/// <summary>
 	/// Topology discovery is not a by-product of message sync — Gmail's history stream is a
 	/// message stream and does not report labels created, renamed or deleted elsewhere. The
 	/// prior cursor is provider-owned; the returned cursor must be persisted in the same

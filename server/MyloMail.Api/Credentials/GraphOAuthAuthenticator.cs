@@ -42,33 +42,50 @@ public sealed class GraphOAuthAuthenticator
 			.Build();
 	}
 
-	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: false, ct);
+
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: true, ct);
+
+	private async Task<AuthResult> AuthenticateCoreAsync(
+		Account account,
+		bool reauthenticate,
+		CancellationToken ct
+	)
 	{
 		ConfigureCache(account.Id);
 
 		try
 		{
-			var cachedAccount = (await application.GetAccountsAsync()).SingleOrDefault();
-			if (cachedAccount is not null)
+			if (!reauthenticate)
 			{
-				try
+				var cachedAccount = (await application.GetAccountsAsync()).SingleOrDefault();
+				if (cachedAccount is not null)
 				{
-					await application.AcquireTokenSilent(ScopesFor(account), cachedAccount).ExecuteAsync(ct);
-					return new AuthResult(true, AuthState.Connected, null);
-				}
-				catch (MsalUiRequiredException)
-				{
-					// MSAL uses this for every silent-cache state the user can recover by
-					// signing in again (expired/revoked refresh tokens, password changes and
-					// incremental consent). The interactive request below remains responsible
-					// for distinguishing an actual administrator-consent policy denial.
+					try
+					{
+						await application.AcquireTokenSilent(ScopesFor(account), cachedAccount).ExecuteAsync(ct);
+						return new AuthResult(true, AuthState.Connected, null);
+					}
+					catch (MsalUiRequiredException)
+					{
+						// MSAL uses this for every silent-cache state the user can recover by
+						// signing in again (expired/revoked refresh tokens, password changes and
+						// incremental consent). The interactive request below remains responsible
+						// for distinguishing an actual administrator-consent policy denial.
+					}
 				}
 			}
 
-			await application
+			var interactive = application
 				.AcquireTokenInteractive(ScopesFor(account))
-				.WithUseEmbeddedWebView(false)
-				.ExecuteAsync(ct);
+				.WithUseEmbeddedWebView(false);
+			if (reauthenticate)
+			{
+				interactive = interactive.WithPrompt(Prompt.SelectAccount);
+			}
+			await interactive.ExecuteAsync(ct);
 			return new AuthResult(true, AuthState.Connected, null);
 		}
 		catch (MsalException ex) when (IsAdminConsentRequired(ex))

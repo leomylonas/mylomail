@@ -78,6 +78,40 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 			gate.Release();
 		}
 	}
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(() => AuthorizeForReauthenticationAsync(account, ct));
+
+	private async Task<UserCredential> AuthorizeForReauthenticationAsync(
+		Account account,
+		CancellationToken ct
+	)
+	{
+		var gate = ScopeUpgradeLocks.GetOrAdd(account.Id, static _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync(ct);
+		try
+		{
+			var prior = await credentials.RetrieveAsync(account.Id, ct);
+			var dataStore = new GoogleCredentialDataStore(credentials, account.Id);
+			await dataStore.ClearAsync();
+			try
+			{
+				return await AuthorizeUnlockedAsync(account, "https://www.googleapis.com/auth/gmail.modify", ct);
+			}
+			catch
+			{
+				if (prior is not null)
+				{
+					await credentials.StoreAsync(account.Id, prior, CancellationToken.None);
+				}
+				throw;
+			}
+		}
+		finally
+		{
+			gate.Release();
+		}
+	}
+
 
 	private async Task<UserCredential> AuthorizeUnlockedAsync(
 		Account account,
@@ -140,11 +174,14 @@ public sealed class GmailOAuthAuthenticator(ICredentialStore credentials, Client
 		return credential;
 	}
 
-	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(() => AuthorizeAsync(account, ct));
+
+	private async Task<AuthResult> AuthenticateCoreAsync(Func<Task<UserCredential>> authorize)
 	{
 		try
 		{
-			await AuthorizeAsync(account, ct);
+			await authorize();
 			return new AuthResult(true, AuthState.Connected, null);
 		}
 		catch (TokenResponseException ex)

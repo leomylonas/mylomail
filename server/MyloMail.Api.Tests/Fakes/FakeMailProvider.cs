@@ -220,6 +220,8 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 					)
 					: new AuthResult(true, AuthState.Connected, null)
 		);
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateAsync(account, ct);
 
 	public Task<MailboxTopologyResult> SyncMailboxTopologyAsync(
 		Account account,

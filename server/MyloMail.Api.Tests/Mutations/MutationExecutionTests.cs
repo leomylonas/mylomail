@@ -7,6 +7,7 @@ using MyloMail.Api.FaultInjection;
 using MyloMail.Api.Mutations;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
+using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Tests.Fakes;
 using Xunit;
@@ -801,6 +802,8 @@ public sealed class MutationExecutionTests
 		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Gmail);
 		var item = await harness.UsingAsync(services =>
 			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId));
+		var occurrenceId = await OccurrenceIdAsync(harness);
+		harness.Provider.RemoveMessage(occurrenceId);
 		await harness.UsingAsync(async services =>
 		{
 			var context = services.GetRequiredService<MyloMailDbContext>();
@@ -815,6 +818,48 @@ public sealed class MutationExecutionTests
 			Assert.NotEqual(
 				MutationState.Completed,
 				(await services.GetRequiredService<MyloMailDbContext>().MutationItems.SingleAsync(i => i.Id == item.Id)).State
+			)
+		);
+	}
+
+	/// <summary>
+	/// A provider copy can survive while local membership is briefly absent during sync. A
+	/// message-scoped permanent delete must recover that current occurrence rather than cancel
+	/// the user's intent as if the message had moved somewhere else.
+	/// </summary>
+	[Fact]
+	public async Task A_delete_recovers_a_provider_occurrence_when_local_membership_is_missing()
+	{
+		await using var harness = await MutationHarness.CreateAsync(ProviderShapes.Graph);
+		var item = await harness.UsingAsync(services =>
+			services.GetRequiredService<MutationQueue>().DeletePermanentlyAsync(harness.AccountId, harness.MessageId));
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.MessageMailboxes.RemoveRange(await context.MessageMailboxes.ToListAsync());
+			await context.SaveChangesAsync();
+		});
+
+		await ExecuteAsync(harness);
+
+		await harness.UsingAsync(async services =>
+		{
+			var mutation = await services
+				.GetRequiredService<MyloMailDbContext>()
+				.MutationItems
+				.SingleAsync(i => i.Id == item.Id);
+			Assert.Equal(MutationState.Completed, mutation.State);
+		});
+		Assert.Empty(
+			await harness.Provider.FindMessageAsync(
+				harness.Account,
+				new MessageLookup(
+					$"message-{harness.MessageId}",
+					$"<{harness.MessageId:N}@fake.test>",
+					[],
+					[]
+				),
+				CancellationToken.None
 			)
 		);
 	}

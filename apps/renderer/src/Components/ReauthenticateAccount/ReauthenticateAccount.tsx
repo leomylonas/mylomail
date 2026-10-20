@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	ActionableNotification,
@@ -16,18 +17,21 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 
 /**
- * Re-verifies an account stuck in `NeedsReauth`/`Error` (§3). A password field that is fine
- * left blank: a certificate-only rejection (the server's certificate rotated, since pinned via
- * `TrustCertificate`) needs nothing resupplied — the stored credential was never wrong.
+ * Re-verifies an account stuck in `NeedsReauth`/`Error` (§3). OAuth accounts launch their
+ * provider's interactive sign-in flow; IMAP accounts may receive a replacement password.
  */
 export function ReauthenticateAccount({
 	hub,
 	accountId,
+	accountLabel,
+	providerType,
 	onReauthenticated,
 	onClose,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	accountLabel: string | null;
+	providerType: ProviderType;
 	onReauthenticated: () => void;
 	onClose: () => void;
 }) {
@@ -80,26 +84,46 @@ export function ReauthenticateAccount({
 		attempt.isError && attempt.error instanceof MutationTransportError
 			? attempt.error
 			: null;
+	const isOAuth =
+		providerType === ProviderType.Gmail ||
+		providerType === ProviderType.Microsoft365;
+	const providerName =
+		providerType === ProviderType.Gmail ? "Google" : "Microsoft";
+	const accountDescription = accountLabel
+		? `"${accountLabel}"`
+		: "this account";
 
 	return (
 		<Modal
 			open
-			modalHeading="Reauthenticate account"
-			primaryButtonText="Reauthenticate"
+			modalHeading={
+				isOAuth
+					? `Sign in again to ${accountDescription}`
+					: `Reauthenticate ${accountDescription}`
+			}
+			primaryButtonText={
+				isOAuth ? `Sign in with ${providerName}` : "Reauthenticate"
+			}
 			secondaryButtonText="Cancel"
 			primaryButtonDisabled={attempt.isPending || trustAndRetry.isPending}
 			onRequestSubmit={() => attempt.mutate()}
 			onRequestClose={onClose}
 			onSecondarySubmit={onClose}
 		>
-			<p>This account needs attention before it can sync again.</p>
-			<PasswordInput
-				id="reauthenticate-secret"
-				labelText="Password"
-				helperText="Leave blank to just retry — enough if only the server's certificate changed."
-				value={secret}
-				onChange={(event) => setSecret(event.target.value)}
-			/>
+			<p>
+				{isOAuth
+					? `Continue to open the ${providerName} sign-in flow for ${accountDescription}.`
+					: `${accountDescription} needs attention before it can sync again.`}
+			</p>
+			{isOAuth ? null : (
+				<PasswordInput
+					id="reauthenticate-secret"
+					labelText="Password"
+					helperText="Leave blank to just retry — enough if only the server's certificate changed."
+					value={secret}
+					onChange={(event) => setSecret(event.target.value)}
+				/>
+			)}
 			{error ? (
 				error.presentation.action === "trust-certificate" &&
 				error.presentation.certificate ? (

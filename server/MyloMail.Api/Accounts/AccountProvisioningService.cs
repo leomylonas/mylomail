@@ -175,9 +175,9 @@ public sealed class AccountProvisioningService(
 	}
 
 	/// <summary>
-	/// Re-verifies an account that fell into <see cref="AuthState.NeedsReauth"/> or
-	/// <see cref="AuthState.Error"/> — a changed password, or a server whose certificate
-	/// rotated and whose new fingerprint the user has since pinned via <c>TrustCertificate</c>.
+	/// Re-runs authentication for an account that fell into <see cref="AuthState.NeedsReauth"/> or
+	/// <see cref="AuthState.Error"/>. IMAP may receive a replacement password; OAuth providers
+	/// start their interactive sign-in flow and never receive a password.
 	/// </summary>
 	/// <remarks>
 	/// <para>
@@ -188,11 +188,9 @@ public sealed class AccountProvisioningService(
 	/// specific fingerprint is finally possible here — the account id it needs now exists).
 	/// </para>
 	/// <para>
-	/// Except the credential: a rejection for a reason unrelated to the password — a transient
-	/// network failure, or a certificate the user has not pinned yet — must not cost the
-	/// account its last known-working one. The prior payload is read back before a new secret
-	/// overwrites it and restored if this attempt fails, so a still-correct password survives
-	/// an unrelated rejection rather than being silently destroyed by it.
+	/// For IMAP, a rejection unrelated to the replacement password — a transient network failure
+	/// or an unpinned certificate — must not cost the account its last known-working credential.
+	/// The prior payload is restored if this attempt fails.
 	/// </para>
 	/// </remarks>
 	public async Task ReauthenticateAsync(Guid accountId, string? secret, CancellationToken ct = default)
@@ -232,7 +230,7 @@ public sealed class AccountProvisioningService(
 		AuthResult result;
 		try
 		{
-			result = await providers.For(account).AuthenticateAsync(account, ct);
+			result = await providers.For(account).ReauthenticateAsync(account, ct);
 		}
 		catch
 		{

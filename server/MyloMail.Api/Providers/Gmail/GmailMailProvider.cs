@@ -58,9 +58,21 @@ public sealed partial class GmailMailProvider(
 		DeletingMailboxDeletesMessages = false,
 	};
 
-	public async Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct)
+	public Task<AuthResult> AuthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: false, ct);
+
+	public Task<AuthResult> ReauthenticateAsync(Account account, CancellationToken ct) =>
+		AuthenticateCoreAsync(account, reauthenticate: true, ct);
+
+	private async Task<AuthResult> AuthenticateCoreAsync(
+		Account account,
+		bool reauthenticate,
+		CancellationToken ct
+	)
 	{
-		var authorization = await oauth.AuthenticateAsync(account, ct);
+		var authorization = reauthenticate
+			? await oauth.ReauthenticateAsync(account, ct)
+			: await oauth.AuthenticateAsync(account, ct);
 		if (!authorization.Succeeded)
 		{
 			return authorization;

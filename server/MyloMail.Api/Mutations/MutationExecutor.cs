@@ -83,19 +83,31 @@ public sealed class MutationExecutor(
 				continue;
 			}
 			var occurrence = await ResolveAsync(item, ct);
-			if (
-				occurrence is null
-				&& item.OperationKind == MutationOperationKind.DeletePermanently
-				&& await reconciler.ConfirmGoneAsync(account, item.MessageId, ct)
-			)
+			if (occurrence is null && item.OperationKind == MutationOperationKind.DeletePermanently)
 			{
-				// No local occurrence is not evidence the message is gone (a Gmail message with no
-				// labels has none and still exists), so the provider is asked. Gone, the delete has
-				// happened: two deletes of one message (emptying a folder over a delete already
-				// queued, say) are not a conflict, and reporting one made the user chase an error for
-				// something that had worked. Anything else falls through to the cancellation below.
-				await chains.CompleteAlreadySatisfiedAsync(item, ct);
-				continue;
+				// A sync can temporarily lose the local membership while the provider still has the
+				// message. Permanent deletion is message-scoped, so recover the current provider
+				// occurrence instead of turning that transient local gap into a user-visible conflict.
+				var observation = await reconciler.ObserveForExecutionAsync(account, item.MessageId, ct);
+				if (!observation.IsIndeterminate && observation.Locations.Count > 0)
+				{
+					var location = observation.Locations.OrderBy(entry => entry.Key).First();
+					occurrence = new MessageOccurrenceRef(item.MessageId, location.Key, location.Value);
+				}
+
+				if (occurrence is null
+					&& !observation.IsIndeterminate
+					&& observation.Locations.Count == 0
+					&& !observation.ExistsWithoutLocation)
+				{
+					// No local occurrence is not evidence the message is gone (a Gmail message with no
+					// labels has none and still exists), so the provider is asked. Gone, the delete has
+					// happened: two deletes of one message (emptying a folder over a delete already
+					// queued, say) are not a conflict, and reporting one made the user chase an error
+					// for something that had worked.
+					await chains.CompleteAlreadySatisfiedAsync(item, ct);
+					continue;
+				}
 			}
 
 			if (occurrence is null)
