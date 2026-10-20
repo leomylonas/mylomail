@@ -49,6 +49,12 @@ public sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
 		await base.ConnectionOpenedAsync(connection, eventData, cancellationToken).ConfigureAwait(false);
 	}
 
+	/// <summary>
+	/// For a connection opened outside EF, which never reaches this interceptor — the pre-migration
+	/// backup's two handles — so they too carry the pragmas every connection must (§9).
+	/// </summary>
+	public static void ApplyTo(DbConnection connection) => Apply(connection);
+
 	private static void Apply(DbConnection connection)
 	{
 		using var command = connection.CreateCommand();

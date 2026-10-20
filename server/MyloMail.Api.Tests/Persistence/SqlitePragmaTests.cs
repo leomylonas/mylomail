@@ -34,6 +34,25 @@ public sealed class SqlitePragmaTests
 	}
 
 	/// <summary>
+	/// A connection opened outside EF — the pre-migration backup's two handles — never reaches the
+	/// interceptor, so it is given the same pragmas explicitly.
+	/// </summary>
+	[Fact]
+	public async Task A_connection_opened_outside_ef_can_be_given_the_same_pragmas()
+	{
+		await using var database = new TestDatabase();
+		await using var connection = new SqliteConnection($"Data Source={Path.Combine(database.Directory, "outside.db")}");
+		await connection.OpenAsync();
+
+		SqlitePragmaInterceptor.ApplyTo(connection);
+
+		foreach (var (pragma, expected) in SqlitePragmaInterceptor.Pragmas)
+		{
+			Assert.Equal(expected, await ReadPragmaAsync(connection, pragma));
+		}
+	}
+
+	/// <summary>
 	/// <c>synchronous=FULL</c> is the durability guarantee the dispatch boundary depends on
 	/// (§6). <c>NORMAL</c> — value 1 — explicitly trades power-loss durability for speed, so
 	/// this asserts the exact value rather than merely "not OFF".

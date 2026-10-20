@@ -148,6 +148,7 @@ public sealed class DatabaseBootstrapper(
 		if (openedHere)
 		{
 			source.Open();
+			SqlitePragmaInterceptor.ApplyTo(source);
 		}
 
 		try
@@ -155,6 +156,7 @@ public sealed class DatabaseBootstrapper(
 			using (var destination = new SqliteConnection($"Data Source={partialPath}"))
 			{
 				destination.Open();
+				SqlitePragmaInterceptor.ApplyTo(destination);
 				CopyPages(source, destination, cancellationToken);
 			}
 
