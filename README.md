@@ -121,6 +121,17 @@ exports. The build also emits `robots.txt`, `sitemap.xml`, canonical metadata, a
 icons for the public domain. The origin is defined in
 `website/src/Lib/Site.ts`.
 
+The home page covers the free, subscription-free and ad-free model, account and
+calendar features, privacy defaults, desktop platforms, and public development.
+Its FAQ uses native HTML disclosures rather than client-side state. Source and
+issue links share `sourceRepository` in `website/src/Lib/Site.ts`.
+Availability copy describes active development, not a published release; keep
+the FAQ and packaging descriptions aligned with actual releases.
+
+The source repository is public, but no project licence is declared yet. The
+site describes public development without promising specific reuse rights;
+choose and add a licence before making formal open-source licensing claims.
+
 The workspace reuses the root TypeScript options, ESLint/React/accessibility
 rules, Prettier, Stylelint, and the app's React and IBM Plex versions. Next.js has
 its own TypeScript compilation to keep its framework-specific Node globals out

@@ -1,3 +1,4 @@
 export const siteOrigin = "https://mylo.software";
 export const siteDescription =
-	"A desktop home for mail and calendars. Bring your IMAP, Gmail, and Microsoft 365 accounts together while keeping each in its own place.";
+	"Free desktop mail and calendar for Windows, macOS, and Linux. No ads, advertising trackers, or subscriptions. Built in the open, for your existing accounts.";
+export const sourceRepository = "https://github.com/leomylonas/mylomail";
