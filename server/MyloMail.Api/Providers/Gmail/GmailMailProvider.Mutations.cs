@@ -179,15 +179,50 @@ public sealed partial class GmailMailProvider
 		GmailService service;
 		try
 		{
-			service = BuildService(account, await oauth.AuthorizeForPermanentDeleteAsync(account, ct));
+			service = BuildService(
+				account,
+				await WithConsentTimeoutAsync(token => oauth.AuthorizeForPermanentDeleteAsync(account, token), ConsentTimeout, ct)
+			);
 		}
 		catch (Google.Apis.Auth.OAuth2.Responses.TokenResponseException ex) when (ex.Error?.Error == "insufficient_scope")
 		{
 			// The user declined the wider permission, or Google withheld it: a definite refusal.
 			return new BatchResult([.. refs.Select(MissingScope)]);
 		}
+		catch (TimeoutException)
+		{
+			// Nobody answered the consent screen. The delete is refused rather than left holding its
+			// lease, and asking again brings the consent screen back.
+			return new BatchResult([.. refs.Select(MissingScope)]);
+		}
 
 		return await DeletePermanentlyBatchAsync(service, refs, ct);
+	}
+
+	/// <summary>How long the consent screen for the wider permission is waited for before the delete is refused.</summary>
+	internal static readonly TimeSpan ConsentTimeout = TimeSpan.FromMinutes(3);
+
+	/// <summary>
+	/// Runs interactive authorisation with a deadline. The browser flow has none of its own, so
+	/// without one a delete queued while nobody is at the screen (or under a test with no user)
+	/// held its lease for ever.
+	/// </summary>
+	internal static async Task<T> WithConsentTimeoutAsync<T>(
+		Func<CancellationToken, Task<T>> authorise,
+		TimeSpan timeout,
+		CancellationToken ct
+	)
+	{
+		using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		deadline.CancelAfter(timeout);
+		try
+		{
+			return await authorise(deadline.Token);
+		}
+		catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+		{
+			throw new TimeoutException("The consent screen was not answered in time.");
+		}
 	}
 
 	private static BatchItemResult MissingScope(MessageOccurrenceRef reference) =>

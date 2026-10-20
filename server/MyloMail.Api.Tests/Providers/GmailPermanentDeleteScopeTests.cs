@@ -41,6 +41,41 @@ public sealed class GmailPermanentDeleteScopeTests
 		});
 	}
 
+	[Fact]
+	public async Task An_unanswered_consent_screen_ends_in_a_timeout_instead_of_waiting_for_ever()
+	{
+		await Assert.ThrowsAsync<TimeoutException>(() =>
+			GmailMailProvider.WithConsentTimeoutAsync<int>(
+				async token =>
+				{
+					await Task.Delay(Timeout.Infinite, token);
+					return 0;
+				},
+				TimeSpan.FromMilliseconds(50),
+				default
+			)
+		);
+	}
+
+	[Fact]
+	public async Task A_cancelled_job_still_cancels_rather_than_reporting_a_timeout()
+	{
+		using var cancelled = new CancellationTokenSource();
+		await cancelled.CancelAsync();
+
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+			GmailMailProvider.WithConsentTimeoutAsync<int>(
+				async token =>
+				{
+					await Task.Delay(Timeout.Infinite, token);
+					return 0;
+				},
+				TimeSpan.FromMinutes(5),
+				cancelled.Token
+			)
+		);
+	}
+
 	private static GmailService Service(HttpMessageHandler handler)
 	{
 		var service = new GmailService(
