@@ -205,6 +205,8 @@ test("writing starts at the top of the message, above the signature", async () =
 test("choosing another message while writing keeps the draft and shows that message", async () => {
 	await clearInbox(imapPort);
 	const subject = `Switch ${Date.now()}`;
+	// The matrix server keeps its Drafts across runs, and a fresh app imports every one of them.
+	const draftSubject = `Kept ${Date.now()}`;
 	await appendMessage(imapPort, subject);
 	const { app, window } = await launchApp();
 	try {
@@ -219,7 +221,7 @@ test("choosing another message while writing keeps the draft and shows that mess
 
 		await window.getByRole("button", { name: "New message" }).click();
 		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
-		await window.getByLabel("Subject").fill("Kept draft");
+		await window.getByLabel("Subject").fill(draftSubject);
 
 		await window.getByRole("button", { name: new RegExp(subject) }).click();
 
@@ -230,7 +232,7 @@ test("choosing another message while writing keeps the draft and shows that mess
 			.first()
 			.click();
 		await expect(
-			window.getByRole("button", { name: /Kept draft/ }),
+			window.getByRole("button", { name: new RegExp(draftSubject) }),
 		).toBeVisible({ timeout: 30_000 });
 	} finally {
 		await app.close();
