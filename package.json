@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Private cross-platform desktop mail and calendar client",
   "author": "MyloMail contributors",
+  "license": "MIT",
   "main": "apps/electron-shell/dist/Main.js",
   "desktopName": "MyloMail.desktop",
   "private": true,
