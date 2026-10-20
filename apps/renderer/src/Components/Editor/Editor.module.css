@@ -8,6 +8,8 @@
 
 .toolbar {
 	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
 	gap: var(--cds-spacing-02);
 	padding: var(--cds-spacing-02);
 	border-bottom: 1px solid var(--cds-border-subtle);
@@ -41,4 +43,44 @@
 .italic,
 .input :global(em) {
 	font-style: italic;
+}
+
+.separator {
+	align-self: stretch;
+	width: 1px;
+	margin: var(--cds-spacing-02) var(--cds-spacing-01);
+	background: var(--cds-border-subtle);
+}
+
+.linkForm {
+	display: flex;
+	flex: 1 1 20rem;
+	gap: var(--cds-spacing-02);
+}
+
+.input :global(u) {
+	text-decoration: underline;
+}
+
+.input :global(s) {
+	text-decoration: line-through;
+}
+
+.input :global(a) {
+	color: var(--cds-link-primary);
+	text-decoration: underline;
+}
+
+.input :global(ul),
+.input :global(ol) {
+	margin: 0;
+	padding-inline-start: var(--cds-spacing-07);
+}
+
+.input :global(ul) {
+	list-style: disc;
+}
+
+.input :global(ol) {
+	list-style: decimal;
 }

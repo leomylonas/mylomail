@@ -1,18 +1,39 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { LinkNode } from "@lexical/link";
-import { ListItemNode, ListNode } from "@lexical/list";
+import { LinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
+import {
+	INSERT_ORDERED_LIST_COMMAND,
+	INSERT_UNORDERED_LIST_COMMAND,
+	ListItemNode,
+	ListNode,
+} from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
+import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
+import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
-import { Button } from "@carbon/react";
+import { Button, IconButton, TextInput } from "@carbon/react";
+import {
+	type CarbonIconType,
+	Link,
+	ListBulleted,
+	ListNumbered,
+	Redo,
+	TextBold,
+	TextItalic,
+	TextStrikethrough,
+	TextUnderline,
+	Undo,
+} from "@carbon/icons-react";
 import {
 	FORMAT_TEXT_COMMAND,
+	REDO_COMMAND,
+	UNDO_COMMAND,
 	TextNode,
 	$getRoot,
 	$insertNodes,
@@ -135,6 +156,8 @@ export function Editor({
 				</div>
 			</div>
 			<HistoryPlugin />
+			<ListPlugin />
+			<LinkPlugin />
 			<HtmlChangePlugin onChange={onChange} />
 		</LexicalComposer>
 	);
@@ -158,28 +181,85 @@ function HtmlChangePlugin({ onChange }: { onChange: (html: string) => void }) {
 	return <OnChangePlugin onChange={handle} ignoreSelectionChange />;
 }
 
-/** A deliberately small formatting set: compose needs bold and italic, not a word processor. */
+/** Inline and list formatting plus links and undo: what mail needs, not a word processor. */
 function Toolbar() {
 	const [editor] = useLexicalComposerContext();
+	const [linkUrl, setLinkUrl] = useState<string | null>(null);
+
+	const format = (label: string, Icon: CarbonIconType, run: () => void) => (
+		<IconButton
+			size="sm"
+			kind="ghost"
+			label={label}
+			onClick={run}
+			// Keep the selection in the editor when the button is pressed.
+			onMouseDown={(event) => event.preventDefault()}
+		>
+			<Icon />
+		</IconButton>
+	);
+
+	const text =
+		(name: "bold" | "italic" | "underline" | "strikethrough") => () =>
+			editor.dispatchCommand(FORMAT_TEXT_COMMAND, name);
+
+	const applyLink = () => {
+		const url = linkUrl?.trim();
+		editor.dispatchCommand(
+			TOGGLE_LINK_COMMAND,
+			url ? (/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`) : null,
+		);
+		setLinkUrl(null);
+		editor.focus();
+	};
 
 	return (
-		<div className={styles.toolbar}>
-			<Button
-				size="sm"
-				kind="ghost"
-				aria-label="Bold"
-				onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold")}
-			>
-				Bold
-			</Button>
-			<Button
-				size="sm"
-				kind="ghost"
-				aria-label="Italic"
-				onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic")}
-			>
-				Italic
-			</Button>
+		<div className={styles.toolbar} role="toolbar" aria-label="Formatting">
+			{format("Bold", TextBold, text("bold"))}
+			{format("Italic", TextItalic, text("italic"))}
+			{format("Underline", TextUnderline, text("underline"))}
+			{format("Strikethrough", TextStrikethrough, text("strikethrough"))}
+			<span className={styles.separator} />
+			{format("Bulleted list", ListBulleted, () =>
+				editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
+			)}
+			{format("Numbered list", ListNumbered, () =>
+				editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
+			)}
+			<span className={styles.separator} />
+			{format("Link", Link, () => setLinkUrl(linkUrl === null ? "" : null))}
+			<span className={styles.separator} />
+			{format("Undo", Undo, () =>
+				editor.dispatchCommand(UNDO_COMMAND, undefined),
+			)}
+			{format("Redo", Redo, () =>
+				editor.dispatchCommand(REDO_COMMAND, undefined),
+			)}
+			{linkUrl === null ? null : (
+				<form
+					className={styles.linkForm}
+					onSubmit={(event) => {
+						event.preventDefault();
+						applyLink();
+					}}
+				>
+					<TextInput
+						id="compose-link-url"
+						size="sm"
+						labelText="Link address"
+						hideLabel
+						placeholder="Link address; empty removes the link"
+						value={linkUrl}
+						onChange={(event) => setLinkUrl(event.target.value)}
+						ref={(input: HTMLInputElement | null) => {
+							if (input && document.activeElement !== input) input.focus();
+						}}
+					/>
+					<Button size="sm" type="submit">
+						Apply
+					</Button>
+				</form>
+			)}
 		</div>
 	);
 }

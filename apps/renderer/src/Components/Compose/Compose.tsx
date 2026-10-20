@@ -471,6 +471,7 @@ export function Compose({
 	// close request can arrive between SetState and its next render.
 	const queuedSend = useRef<Sent | null>(null);
 	const sendInFlight = useRef<Promise<void> | null>(null);
+	const earlyStatuses = useRef(new Map<string, OutboxItemDto>());
 	const attachmentMutations = useRef(new Set<Promise<unknown>>());
 	const attachmentFailure = useRef<unknown>(undefined);
 	const save = (): Promise<string> => {
@@ -796,7 +797,22 @@ export function Compose({
 					id,
 					scheduledFor ? scheduledFor.toISOString() : undefined,
 				);
-				const queued = { outboxItemId, cancelled: false, scheduledFor };
+				const early = earlyStatuses.current.get(outboxItemId);
+				earlyStatuses.current.delete(outboxItemId);
+				const queued: Sent = {
+					outboxItemId,
+					cancelled: false,
+					scheduledFor,
+					...(early
+						? {
+								status: early.status,
+								lastError: early.lastError ?? undefined,
+								reconcilingSince: early.reconcilingSince
+									? new Date(early.reconcilingSince)
+									: undefined,
+							}
+						: {}),
+				};
 				queuedSend.current = queued;
 				setSent(queued);
 			} catch (error) {
@@ -921,7 +937,13 @@ export function Compose({
 	useEffect(() => {
 		const onStatusChanged = (item: OutboxItemDto) => {
 			const current = queuedSend.current;
-			if (!current || item.id !== current.outboxItemId) return;
+			if (!current || item.id !== current.outboxItemId) {
+				// A send with no undo delay can finish before sendDraft's own reply reaches this
+				// window; keep the update so it is applied once the item id is known, rather than
+				// leaving "Sending…" on screen for good.
+				earlyStatuses.current.set(item.id, item);
+				return;
+			}
 			const updated = {
 				...current,
 				status: item.status,

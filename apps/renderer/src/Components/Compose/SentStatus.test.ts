@@ -12,6 +12,18 @@ describe("describeSentState", () => {
 		});
 	});
 
+	it("offers no Undo once the worker has claimed the send", () => {
+		const display = describeSentState({
+			cancelled: false,
+			status: OutboxStatus.Sending,
+		});
+		expect(display).toEqual({
+			message: "Sending…",
+			failed: false,
+			canUndo: false,
+		});
+	});
+
 	it("shows the scheduled time instead of Sending for a genuine future schedule", () => {
 		const display = describeSentState({
 			cancelled: false,

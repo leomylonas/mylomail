@@ -84,6 +84,11 @@ export function describeSentState(
 			canUndo: false,
 		};
 	}
+	if (sent.status === OutboxStatus.Sending) {
+		// Claimed by the send worker: the compare-and-swap in cancel can no longer win, so offering
+		// Undo here only invites a "too late" answer.
+		return { message: "Sending…", failed: false, canUndo: false };
+	}
 	if (sent.undoRejected) {
 		return {
 			message: "Too late to undo — this message is already being sent.",
