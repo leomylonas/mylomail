@@ -111,18 +111,21 @@ public abstract class ImapConformanceTests : MailProviderConformanceTests
 }
 
 /// <summary>CONDSTORE, QRESYNC, UIDPLUS and MOVE.</summary>
+[Collection(MyloMail.Api.Tests.Providers.LiveProviderTestCollections.Imap)]
 public sealed class ImapQResyncConformanceTests : ImapConformanceTests
 {
 	protected override string Tier => "QRESYNC";
 }
 
 /// <summary>CONDSTORE without QRESYNC, and a `.` delimiter behind an `INBOX.` prefix.</summary>
+[Collection(MyloMail.Api.Tests.Providers.LiveProviderTestCollections.Imap)]
 public sealed class ImapCondStoreConformanceTests : ImapConformanceTests
 {
 	protected override string Tier => "CONDSTORE";
 }
 
 /// <summary>Neither, and no UIDPLUS or MOVE — a move cannot report its destination UID.</summary>
+[Collection(MyloMail.Api.Tests.Providers.LiveProviderTestCollections.Imap)]
 public sealed class ImapBasicConformanceTests : ImapConformanceTests
 {
 	protected override string Tier => "BASIC";

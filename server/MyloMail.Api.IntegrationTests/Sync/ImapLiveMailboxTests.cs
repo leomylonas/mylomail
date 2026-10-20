@@ -22,6 +22,7 @@ namespace MyloMail.Api.Tests.Sync;
 /// </remarks>
 [Trait("Category", "Conformance")]
 [Trait("Category", "Deep")]
+[Collection(MyloMail.Api.Tests.Providers.LiveProviderTestCollections.Imap)]
 public sealed class ImapLiveMailboxTests
 {
 	private static string? Host => Environment.GetEnvironmentVariable("TEST_IMAP_QRESYNC_HOST");
