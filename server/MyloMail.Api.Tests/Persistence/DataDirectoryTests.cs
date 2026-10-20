@@ -25,6 +25,11 @@ public sealed class DataDirectoryTests
 	[Fact]
 	public void Rejects_the_innermost_network_mount_on_unix()
 	{
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		{
+			return;
+		}
+
 		var mounts = new (string Point, string Type)[]
 		{
 			("/", "apfs"),
@@ -43,6 +48,11 @@ public sealed class DataDirectoryTests
 	[InlineData("osxfuse_sshfs")]
 	public void Rejects_macOS_FUSE_filesystem_names(string fileSystemType)
 	{
+		if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		{
+			return;
+		}
+
 		Assert.Throws<InvalidOperationException>(() =>
 			DataDirectory.EnsureLocalUnix(
 				"/Volumes/team/MyloMail",
