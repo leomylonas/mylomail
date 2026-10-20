@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, Windows, macOS]
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Account type
+      options: [IMAP, Gmail, Microsoft 365, Not account related]
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: IMAP server software, if relevant
+      placeholder: Dovecot, Fastmail, iCloud, ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: Logs omit message content, but check before pasting. Never include credentials.
+      render: text
