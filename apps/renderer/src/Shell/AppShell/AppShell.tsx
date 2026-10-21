@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import {
 	Group,
 	Panel,
@@ -145,6 +146,7 @@ export function AppShell({
 	>(null);
 	const store = useWindowStore();
 	const { store: notifications } = useWindowNotifications();
+	const messageActions = useRef<readonly MenuAction[]>([]);
 	const selectedAccountId = useStoreValue(store, "selectedAccountId");
 	const selectedMailboxId = useStoreValue(store, "selectedMailboxId");
 	const selectedMessageId = useStoreValue(store, "selectedMessageId");
@@ -857,6 +859,7 @@ export function AppShell({
 										setPane("compose");
 									}}
 									commandHost={commandHost}
+									actionsRef={messageActions}
 								/>
 							) : (
 								<div className={styles.listEmpty}>
@@ -927,6 +930,19 @@ export function AppShell({
 								messageId={selectedMessageId}
 								subject={selectedMessageSubject}
 								senderAddress={selectedMessageSenderAddress}
+								onReply={(mode) =>
+									messageActions.current
+										.find(
+											(action) =>
+												action.label ===
+												(mode === "reply"
+													? "Reply"
+													: mode === "replyAll"
+														? "Reply all"
+														: "Forward"),
+										)
+										?.run()
+								}
 								printRequestId={
 									printRequest?.messageId === selectedMessageId
 										? printRequest.requestId

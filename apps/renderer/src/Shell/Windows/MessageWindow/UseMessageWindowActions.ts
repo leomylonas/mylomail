@@ -5,12 +5,14 @@ import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/Notifi
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { mailboxesQuery } from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
+import { SpecialUse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { saveAsEml } from "@mylomail/renderer/Components/MessageList/MessageList";
 
 /**
- * What a popped-out message window can do to its one message, so it offers everything the main
- * window's toolbar and message menu do: delete, mark read or unread, flag, move, delete for good,
- * save. `onDelete` is the toolbar button; `menu` goes into the overflow menu.
+ * What a popped-out message window can do to its one message, as the same labelled actions the main
+ * window's toolbar is built from (`MessageCommands`): delete, archive, move, report junk, mark
+ * read or unread, flag, delete for good, save. Reply, forward and print are added by the window,
+ * which owns them.
  */
 export function useMessageWindowActions({
 	hub,
@@ -22,7 +24,7 @@ export function useMessageWindowActions({
 	messageId: string;
 	accountId: string | undefined;
 	subject: string;
-}): { onDelete: () => void; menu: MenuAction[] } {
+}): MenuAction[] {
 	const { store: notifications } = useWindowNotifications();
 	const queryClient = useQueryClient();
 	const state = useQuery({
@@ -71,79 +73,117 @@ export function useMessageWindowActions({
 		.filter((mailbox) => !mailbox.isSynthesized)
 		.sort((a, b) => a.name.localeCompare(b.name));
 
-	return {
-		onDelete: toTrash,
-		menu: [
-			{
-				label: isRead ? "Mark unread" : "Mark read",
+	const folderWith = (specialUse: SpecialUse) =>
+		(mailboxes.data ?? []).find((mailbox) => mailbox.specialUse === specialUse);
+	const moveTo = (
+		title: string,
+		folderId: string | undefined,
+		missing: string,
+	) => ({
+		run: () =>
+			hub !== null &&
+			accountId !== undefined &&
+			folderId !== undefined &&
+			run(
+				title,
+				() => hub!.moveMessages(accountId, [messageId], folderId),
+				true,
+			),
+		unavailable: noAccount ?? (folderId === undefined ? missing : undefined),
+	});
+
+	return [
+		{
+			label: "Move to trash",
+			danger: true,
+			run: toTrash,
+			unavailable: noAccount,
+		},
+		{
+			label: "Archive",
+			...moveTo(
+				"The message could not be archived",
+				folderWith(SpecialUse.Archive)?.id,
+				"This account has no Archive folder.",
+			),
+		},
+		{
+			label: "Report junk",
+			...moveTo(
+				"The message could not be reported",
+				folderWith(SpecialUse.Junk)?.id,
+				"This account has no Junk folder.",
+			),
+		},
+		{
+			label: isRead ? "Mark unread" : "Mark read",
+			run: () =>
+				hub !== null &&
+				accountId !== undefined &&
+				run("The message could not be updated", () =>
+					hub!.setFlags(accountId, [messageId], !isRead, undefined),
+				),
+			unavailable: noAccount,
+		},
+		{
+			label: isFlagged ? "Remove flag" : "Flag",
+			run: () =>
+				hub !== null &&
+				accountId !== undefined &&
+				run("The message could not be updated", () =>
+					hub!.setFlags(accountId, [messageId], undefined, !isFlagged),
+				),
+			unavailable: noAccount,
+		},
+		{
+			label: "Move to",
+			run: () => undefined,
+			unavailable:
+				noAccount ??
+				(folders.length === 0 ? "No other folders yet." : undefined),
+			children: folders.map((folder) => ({
+				label: folder.name,
 				run: () =>
 					hub !== null &&
 					accountId !== undefined &&
-					run("The message could not be updated", () =>
-						hub!.setFlags(accountId, [messageId], !isRead, undefined),
+					run("The message could not be moved", () =>
+						hub!.moveMessages(accountId, [messageId], folder.id),
 					),
-				unavailable: noAccount,
-			},
-			{
-				label: isFlagged ? "Remove flag" : "Flag",
-				run: () =>
+			})),
+		},
+		{ label: "-", run: () => undefined },
+		{
+			label: "Delete permanently",
+			danger: true,
+			run: () => {
+				if (
 					hub !== null &&
 					accountId !== undefined &&
-					run("The message could not be updated", () =>
-						hub!.setFlags(accountId, [messageId], undefined, !isFlagged),
-					),
-				unavailable: noAccount,
+					window.confirm(
+						"Permanently delete this message? This cannot be undone.",
+					)
+				) {
+					run(
+						"The message could not be deleted",
+						() => hub!.deletePermanently(accountId, [messageId]),
+						true,
+					);
+				}
 			},
-			{
-				label: "Move to",
-				run: () => undefined,
-				unavailable:
-					noAccount ??
-					(folders.length === 0 ? "No other folders yet." : undefined),
-				children: folders.map((folder) => ({
-					label: folder.name,
-					run: () =>
-						hub !== null &&
-						accountId !== undefined &&
-						run("The message could not be moved", () =>
-							hub!.moveMessages(accountId, [messageId], folder.id),
+			unavailable: noAccount,
+		},
+		{
+			label: "Save as .eml",
+			run: () =>
+				hub !== null &&
+				void saveAsEml(hub, { id: messageId, subject }).catch(
+					(error: unknown) =>
+						notify(
+							notifications,
+							notificationForError(error, "The message could not be saved"),
 						),
-				})),
-			},
-			{ label: "-", run: () => undefined },
-			{
-				label: "Delete permanently",
-				danger: true,
-				run: () => {
-					if (
-						hub !== null &&
-						accountId !== undefined &&
-						window.confirm(
-							"Permanently delete this message? This cannot be undone.",
-						)
-					) {
-						run(
-							"The message could not be deleted",
-							() => hub!.deletePermanently(accountId, [messageId]),
-							true,
-						);
-					}
-				},
-				unavailable: noAccount,
-			},
-			{
-				label: "Save as .eml",
-				run: () =>
-					hub !== null &&
-					void saveAsEml(hub, { id: messageId, subject }).catch(
-						(error: unknown) =>
-							notify(
-								notifications,
-								notificationForError(error, "The message could not be saved"),
-							),
-					),
-			},
-			{ label: "-", run: () => undefined },
-		],
-	};
+				),
+		},
+		{ label: "-", run: () => undefined },
+	];
 }

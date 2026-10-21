@@ -156,7 +156,9 @@ export function Editor({
 							/>
 						}
 						placeholder={
-							<div className={styles.placeholder}>{placeholder}</div>
+							<div className={`${styles.placeholder} messageContent`}>
+								{placeholder}
+							</div>
 						}
 						ErrorBoundary={LexicalErrorBoundary}
 					/>

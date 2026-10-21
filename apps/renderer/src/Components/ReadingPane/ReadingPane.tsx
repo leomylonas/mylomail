@@ -9,14 +9,15 @@ import {
 	IconButton,
 	SkeletonText,
 } from "@carbon/react";
-import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
 import { MessageSourceDialog } from "@mylomail/renderer/Components/MessageSourceDialog/MessageSourceDialog";
 import {
 	ChevronDown,
 	ChevronUp,
-	OverflowMenuVertical,
-	TrashCan,
+	OverflowMenuHorizontal,
+	ArrowRight,
+	Reply,
+	ReplyAll,
 } from "@carbon/icons-react";
 import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { InviteResponse } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
@@ -49,8 +50,6 @@ export function ReadingPane({
 	senderAddress,
 	onOpenInNewWindow,
 	onReply,
-	onDelete,
-	extraMenuActions,
 	printRequestId,
 	onPrintHandled,
 }: {
@@ -70,18 +69,10 @@ export function ReadingPane({
 	/** Absent inside a window that is already just this one message (§13 Epic 10). */
 	onOpenInNewWindow?: () => void;
 	/**
-	 * Absent in the main window, where the message list's own context menu already offers
-	 * Reply/Reply all/Forward — present only for a popped-out message window (§13 Epic 10),
-	 * which has no list row of its own to hang a context menu off, and would otherwise offer no
-	 * way to reply at all short of switching back to the main window.
+	 * Reply, Reply all and Forward, offered beside the sender as Outlook does. Absent when the
+	 * caller cannot start a reply (a window outside the desktop app).
 	 */
 	onReply?: (mode: "reply" | "replyAll" | "forward") => void;
-	/**
-	 * For a popped-out message window, which has no toolbar or list row to delete from: a Delete
-	 * button here, and the rest of what the main window's message menu offers in this one.
-	 */
-	onDelete?: () => void;
-	extraMenuActions?: MenuAction[];
 	/** A context-menu print request consumed only after headers and the final body are rendered. */
 	printRequestId?: string;
 	onPrintHandled?: (requestId: string) => void;
@@ -182,49 +173,56 @@ export function ReadingPane({
 		<article className={styles.pane} aria-label="Message">
 			<div className={styles.subjectRow}>
 				<h2 className={styles.subject}>{subject || "(no subject)"}</h2>
-				<div className={styles.actions}>
-					{onDelete ? (
-						<Button
-							size="sm"
-							kind="ghost"
-							renderIcon={TrashCan}
-							onClick={onDelete}
-						>
-							Delete
-						</Button>
-					) : null}
-					{onReply ? (
-						<>
-							<Button size="sm" kind="ghost" onClick={() => onReply("reply")}>
-								Reply
-							</Button>
-							<Button
-								size="sm"
-								kind="ghost"
-								onClick={() => onReply("replyAll")}
-							>
-								Reply all
-							</Button>
-							<Button size="sm" kind="ghost" onClick={() => onReply("forward")}>
-								Forward
-							</Button>
-						</>
-					) : null}
-					<IconButton
-						label="Message options"
-						kind="ghost"
-						size="sm"
-						align="bottom-end"
-						onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-							const rect = event.currentTarget.getBoundingClientRect();
-							setOptionsMenu({ x: rect.right - 160, y: rect.bottom });
-						}}
-					>
-						<OverflowMenuVertical size={16} />
-					</IconButton>
-				</div>
 			</div>
-			{context.data ? <MessageHeaders context={context.data} /> : null}
+			{context.data ? (
+				<MessageHeaders
+					context={context.data}
+					actions={
+						<div className={styles.actions}>
+							{onReply ? (
+								<>
+									<Button
+										size="sm"
+										kind="ghost"
+										renderIcon={Reply}
+										onClick={() => onReply("reply")}
+									>
+										Reply
+									</Button>
+									<Button
+										size="sm"
+										kind="ghost"
+										renderIcon={ReplyAll}
+										onClick={() => onReply("replyAll")}
+									>
+										Reply all
+									</Button>
+									<Button
+										size="sm"
+										kind="ghost"
+										renderIcon={ArrowRight}
+										onClick={() => onReply("forward")}
+									>
+										Forward
+									</Button>
+								</>
+							) : null}
+							<IconButton
+								label="Message options"
+								kind="ghost"
+								size="sm"
+								align="bottom-end"
+								onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setOptionsMenu({ x: rect.right - 160, y: rect.bottom });
+								}}
+							>
+								<OverflowMenuHorizontal size={16} />
+							</IconButton>
+						</div>
+					}
+				/>
+			) : null}
 			{body.data?.isFetched ? (
 				<AttachmentList hub={hub} messageId={messageId} />
 			) : null}
@@ -254,7 +252,6 @@ export function ReadingPane({
 					y={optionsMenu.y}
 					onClose={() => setOptionsMenu(null)}
 					actions={[
-						...(extraMenuActions ?? []),
 						...(body.data?.html
 							? [
 									{
@@ -292,7 +289,13 @@ export function ReadingPane({
 	);
 }
 
-function MessageHeaders({ context }: { context: MessageReplyContext }) {
+function MessageHeaders({
+	context,
+	actions,
+}: {
+	context: MessageReplyContext;
+	actions: React.ReactNode;
+}) {
 	const dateFormats = useDateFormats();
 	const [expanded, setExpanded] = useState(false);
 	const hasDistinctReplyTo =
@@ -335,6 +338,7 @@ function MessageHeaders({ context }: { context: MessageReplyContext }) {
 					{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
 				</button>
 			) : null}
+			{actions}
 		</div>
 	);
 }

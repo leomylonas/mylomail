@@ -125,7 +125,10 @@ test("the compose editor shows message content the way the reading pane does", a
 			.locator("body")
 			.evaluate(inline, [...formatted]);
 
-		await window.getByRole("button", { name: "Reply", exact: true }).click();
+		await window
+			.getByRole("button", { name: "Reply", exact: true })
+			.first()
+			.click();
 		const editor = window.getByLabel("Message", { exact: true });
 		await expect(editor.locator("h1")).toBeVisible({ timeout: 60_000 });
 

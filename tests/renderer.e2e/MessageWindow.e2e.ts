@@ -22,19 +22,37 @@ test("a message opened in its own window offers delete and the rest of the messa
 
 		await expect.poll(() => app.windows().length, { timeout: 30_000 }).toBe(2);
 		const own = app.windows().find((candidate) => candidate !== window)!;
+		// The same commands, in the same order, as the main window's toolbar.
+		const toolbar = own.getByRole("toolbar", { name: "Message actions" });
 		await expect(
-			own.getByRole("button", { name: "Delete", exact: true }),
+			toolbar.getByRole("button", { name: "Delete", exact: true }),
 		).toBeVisible({ timeout: 30_000 });
-		await own.getByRole("button", { name: "Message options" }).click();
-		for (const item of [
+		const order = [
+			"Delete",
+			"Archive",
+			"Move to",
+			"Report junk",
+			"Reply",
+			"Reply all",
+			"Forward",
 			"Mark unread",
 			"Flag",
-			"Move to",
-			"Delete permanently",
-			"Save as .eml",
-			"View source",
 			"Print",
-		]) {
+		];
+		const names = await toolbar
+			.getByRole("button")
+			.evaluateAll((buttons) =>
+				buttons.map((button) => button.textContent?.trim() ?? ""),
+			);
+		expect(names.filter((name) => order.includes(name))).toEqual(order);
+
+		await toolbar.getByRole("button", { name: "More message actions" }).click();
+		for (const item of ["Delete permanently", "Save as .eml"]) {
+			await expect(own.getByRole("menuitem", { name: item })).toBeVisible();
+		}
+		await own.keyboard.press("Escape");
+		await own.getByRole("button", { name: "Message options" }).click();
+		for (const item of ["View source", "Print"]) {
 			await expect(own.getByRole("menuitem", { name: item })).toBeVisible();
 		}
 	} finally {

@@ -298,6 +298,7 @@ export function MessageList({
 	onPrint,
 	onCompose,
 	commandHost,
+	actionsRef,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
@@ -329,6 +330,11 @@ export function MessageList({
 	 * this list owns the selection and the mutations the commands run.
 	 */
 	commandHost: HTMLElement | null;
+	/**
+	 * Kept pointing at the selected message's commands, so the reading pane can offer Reply,
+	 * Reply all and Forward without owning a second implementation of them.
+	 */
+	actionsRef?: { current: readonly MenuAction[] };
 }) {
 	const dateFormats = useDateFormats();
 	const store = useWindowStore();
@@ -1089,6 +1095,8 @@ export function MessageList({
 		columnFilters.read !== "all" ||
 		columnFilters.flag !== "all";
 
+	if (actionsRef) actionsRef.current = buildActions(selectedMessages);
+
 	return (
 		<section className={styles.messageList} aria-label="Messages">
 			<header className={styles.listHeader}>
@@ -1669,6 +1677,35 @@ export function messageActions(
 					run: () =>
 						moveMessages({ messages: targets, targetMailboxId: mailbox.id }),
 				})),
+		},
+		{
+			label: `Archive${suffix}`,
+			run: () => {
+				const archive = mailboxOptions.find(
+					(mailbox) => mailbox.specialUse === SpecialUse.Archive,
+				);
+				if (archive)
+					moveMessages({ messages: targets, targetMailboxId: archive.id });
+			},
+			unavailable: mailboxOptions.some(
+				(mailbox) => mailbox.specialUse === SpecialUse.Archive,
+			)
+				? undefined
+				: "This account has no Archive folder.",
+		},
+		{
+			label: `Report junk${suffix}`,
+			run: () => {
+				const junk = mailboxOptions.find(
+					(mailbox) => mailbox.specialUse === SpecialUse.Junk,
+				);
+				if (junk) moveMessages({ messages: targets, targetMailboxId: junk.id });
+			},
+			unavailable: mailboxOptions.some(
+				(mailbox) => mailbox.specialUse === SpecialUse.Junk,
+			)
+				? undefined
+				: "This account has no Junk folder.",
 		},
 		{
 			label: `Move to trash${suffix}`,

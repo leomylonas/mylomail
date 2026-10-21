@@ -2,6 +2,7 @@ import { useMessageWindowActions } from "@mylomail/renderer/Shell/Windows/Messag
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { MessageCommands } from "@mylomail/renderer/Components/MessageCommands/MessageCommands";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
 import {
 	buildForwardSeed,
@@ -16,6 +17,7 @@ import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import { fetchApi } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { useShortcuts } from "@mylomail/renderer/Shell/Registries/Shortcuts/UseShortcuts";
 import styles from "@mylomail/renderer/Shell/Windows/StandaloneWindow.module.css";
 
@@ -52,6 +54,7 @@ export function MessageWindow({
 	const { store: notifications } = useWindowNotifications();
 	const queryClient = useQueryClient();
 	const [accountRemoved, setAccountRemoved] = useState(false);
+	const [printRequestId, setPrintRequestId] = useState<string | undefined>();
 	const windowActions = useMessageWindowActions({
 		hub,
 		messageId,
@@ -206,8 +209,40 @@ export function MessageWindow({
 		);
 	}
 
+	const replyUnavailable = window.windows
+		? undefined
+		: "Replying is only available in the desktop app.";
+	const actions: MenuAction[] = [
+		...windowActions,
+		{
+			label: "Reply",
+			run: () => void onReply("reply"),
+			unavailable: replyUnavailable,
+		},
+		{
+			label: "Reply all",
+			run: () => void onReply("replyAll"),
+			unavailable: replyUnavailable,
+		},
+		{
+			label: "Forward",
+			run: () => void onReply("forward"),
+			unavailable: replyUnavailable,
+		},
+		{ label: "Print", run: () => setPrintRequestId(crypto.randomUUID()) },
+	];
+
 	return (
 		<div className={styles.window}>
+			{hub ? (
+				<div
+					className={styles.toolbar}
+					role="toolbar"
+					aria-label="Message actions"
+				>
+					<MessageCommands actions={actions} disabled={false} />
+				</div>
+			) : null}
 			{hub ? (
 				<ReadingPane
 					hub={hub}
@@ -215,8 +250,8 @@ export function MessageWindow({
 					subject={subject}
 					senderAddress={senderAddress}
 					onReply={window.windows ? (mode) => void onReply(mode) : undefined}
-					onDelete={windowActions.onDelete}
-					extraMenuActions={windowActions.menu}
+					printRequestId={printRequestId}
+					onPrintHandled={() => setPrintRequestId(undefined)}
 				/>
 			) : (
 				<p className={styles.status}>

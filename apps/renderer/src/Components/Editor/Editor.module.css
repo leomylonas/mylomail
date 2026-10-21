@@ -18,9 +18,11 @@
 	outline: none;
 }
 
+/* Where the first line of the message starts: the editor's padding plus the first paragraph's own
+ * top margin (1em at the shared 16px), so the placeholder and the caret share a baseline. */
 .placeholder {
 	position: absolute;
-	top: var(--cds-spacing-04);
+	top: calc(var(--cds-spacing-04) + 1em);
 	left: var(--cds-spacing-04);
 	color: var(--cds-text-placeholder);
 	pointer-events: none;

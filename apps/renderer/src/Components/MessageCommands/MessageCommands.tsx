@@ -1,13 +1,16 @@
 import { useState } from "react";
 import {
 	ArrowRight,
+	Archive,
 	Email,
 	Flag,
 	FolderMoveTo,
 	OverflowMenuHorizontal,
+	Printer,
 	Reply,
 	ReplyAll,
 	TrashCan,
+	Warning,
 } from "@carbon/icons-react";
 import { Button } from "@carbon/react";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
@@ -21,8 +24,9 @@ type OpenMenu = {
 } | null;
 
 /**
- * The toolbar's message commands — Outlook's Delete / Reply / Reply all / Forward / read /
- * flag / Move row. Built from the same {@link MenuAction} list as the right-click menu, so
+ * The message commands, in Outlook's order: Delete, Archive, Move to | Report junk | Reply,
+ * Reply all, Forward | Read/Unread, Flag | Print | more. Shown in the app toolbar and in a message's
+ * own window. Built from the same {@link MenuAction} list as the right-click menu, so
  * the two can never disagree about what a command does or when it is unavailable.
  */
 export function MessageCommands({
@@ -44,9 +48,12 @@ export function MessageCommands({
 		(action) =>
 			action.label.startsWith("Flag") || action.label.startsWith("Remove flag"),
 	);
+	const archive = byLabel("Archive");
+	const junk = byLabel("Report junk");
+	const print = byLabel("Print");
 	const move = actions.find((action) => action.children);
 	const overflow = actions.filter((action) =>
-		["Delete permanently", "Save as .eml", "Print"].some((prefix) =>
+		["Delete permanently", "Save as .eml"].some((prefix) =>
 			action.label.startsWith(prefix),
 		),
 	);
@@ -69,9 +76,34 @@ export function MessageCommands({
 		</Button>
 	);
 
+	const moveTo = (
+		<Button
+			className={styles.command}
+			size="sm"
+			kind="ghost"
+			renderIcon={FolderMoveTo}
+			disabled={disabled || !move || Boolean(move.unavailable)}
+			title={move?.unavailable}
+			onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+				const rect = event.currentTarget.getBoundingClientRect();
+				setMenu({
+					x: rect.left,
+					y: rect.bottom,
+					actions: move?.children ?? [],
+				});
+			}}
+		>
+			Move to
+		</Button>
+	);
+
 	return (
 		<>
 			{command("Delete", TrashCan, trash)}
+			{command("Archive", Archive, archive)}
+			{moveTo}
+			<span className={styles.divider} aria-hidden="true" />
+			{command("Report junk", Warning, junk)}
 			<span className={styles.divider} aria-hidden="true" />
 			{command("Reply", Reply, reply)}
 			{command("Reply all", ReplyAll, replyAll)}
@@ -87,24 +119,8 @@ export function MessageCommands({
 				Flag,
 				flag,
 			)}
-			<Button
-				className={styles.command}
-				size="sm"
-				kind="ghost"
-				renderIcon={FolderMoveTo}
-				disabled={disabled || !move || Boolean(move.unavailable)}
-				title={move?.unavailable}
-				onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-					const rect = event.currentTarget.getBoundingClientRect();
-					setMenu({
-						x: rect.left,
-						y: rect.bottom,
-						actions: move?.children ?? [],
-					});
-				}}
-			>
-				Move to
-			</Button>
+			<span className={styles.divider} aria-hidden="true" />
+			{command("Print", Printer, print)}
 			<Button
 				size="sm"
 				kind="ghost"

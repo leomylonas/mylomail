@@ -410,3 +410,23 @@ test("Tab goes from the subject into the message, and the toolbar is reached wit
 		await app.close();
 	}
 });
+
+test("the placeholder sits where the first line is typed", async () => {
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "New message" }).click();
+		const editor = window.getByLabel("Message", { exact: true });
+		const placeholder = window.getByText("Write your message");
+		await expect(placeholder).toBeVisible();
+		const [typed, hint] = await Promise.all([
+			editor.locator("p").first().boundingBox(),
+			placeholder.boundingBox(),
+		]);
+		expect(typed).not.toBeNull();
+		expect(hint).not.toBeNull();
+		expect(Math.abs(typed!.y - hint!.y)).toBeLessThanOrEqual(1.5);
+	} finally {
+		await app.close();
+	}
+});
