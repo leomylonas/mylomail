@@ -152,7 +152,7 @@ export function HomePage() {
 						<div className={styles.iconWrap}>
 							<Icon name="mail" />
 						</div>
-						<h3>Every account in context</h3>
+						<h3>Every account in view</h3>
 						<p>
 							Work, personal, and shared mail each keep their own place. See
 							accounts, folders, and unread counts in one persistent sidebar,
@@ -165,8 +165,8 @@ export function HomePage() {
 						</div>
 						<h3>Calendars alongside your mail</h3>
 						<p>
-							Bring supported calendars into a single view while keeping their
-							account context. Move between conversations and plans without
+							Bring supported calendars into a single view and see which account
+							each belongs to. Move between conversations and plans without
 							moving to another app.
 						</p>
 					</article>
@@ -282,7 +282,7 @@ export function HomePage() {
 					<h2 id="platformsHeading">Your desktop. Your choice.</h2>
 					<p className={styles.sectionIntro}>
 						Built for Windows, macOS, and Linux, with a familiar workspace on
-						each. Pick your operating system, not a different mail client.
+						each.
 					</p>
 				</div>
 				<ul
@@ -315,9 +315,7 @@ export function HomePage() {
 			>
 				<div className={styles.sectionLead}>
 					<p className={styles.eyebrow}>Open source</p>
-					<h2 id="sourceHeading">
-						Your email client shouldn’t be a black box.
-					</h2>
+					<h2 id="sourceHeading">Take a look behind the scenes.</h2>
 				</div>
 				<div className={styles.principleCopy}>
 					<p>
@@ -405,7 +403,7 @@ export function HomePage() {
 			</section>
 
 			<section className={styles.closing} aria-labelledby="closingHeading">
-				<p className={styles.eyebrow}>A little more space for what matters</p>
+				<p className={styles.eyebrow}>Follow our progress</p>
 				<h2 id="closingHeading">
 					Your accounts. Your desktop. No subscription.
 				</h2>
