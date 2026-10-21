@@ -1,4 +1,5 @@
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
+import { addressLabel } from "@mylomail/renderer/Lib/AddressDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -306,7 +307,7 @@ function MessageHeaders({ context }: { context: MessageReplyContext }) {
 	const many = context.to.length + context.cc.length > 2;
 	return (
 		<div className={styles.headerCard}>
-			<Avatar name={sender ? (sender.name ?? sender.email) : "?"} size="md" />
+			<Avatar name={sender ? addressLabel(sender) : "?"} size="md" />
 			<dl className={`${styles.headers} ${expanded ? styles.expanded : ""}`}>
 				<Header name="From" value={formatAddresses(context.from)} />
 				<Header name="To" value={formatAddresses(context.to)} />
@@ -546,8 +547,7 @@ function InviteBanner({
 			<p className={styles.inviteWhen}>{when}</p>
 			{invite.data.organizer ? (
 				<p className={styles.inviteFrom}>
-					{invite.data.organizer.name ?? invite.data.organizer.email} invited
-					you
+					{addressLabel(invite.data.organizer)} invited you
 				</p>
 			) : null}
 			{invite.data.eventId ? (

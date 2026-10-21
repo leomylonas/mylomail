@@ -1,4 +1,5 @@
 import { useCalendarFormatters } from "@mylomail/renderer/Hooks/UseCalendarFormatters";
+import { addressLabel } from "@mylomail/renderer/Lib/AddressDisplay";
 import { useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -590,7 +591,7 @@ export function EventModal({
 						<ul>
 							{detail.data.organizer ? (
 								<li>
-									{detail.data.organizer.name ?? detail.data.organizer.email}
+									{addressLabel(detail.data.organizer)}
 									<Tag type="blue" size="sm">
 										Organiser
 									</Tag>
@@ -598,7 +599,7 @@ export function EventModal({
 							) : null}
 							{detail.data.attendees.map((attendee) => (
 								<li key={attendee.email}>
-									{attendee.name ?? attendee.email}
+									{addressLabel(attendee)}
 									<Tag size="sm">
 										{responseStatusLabel[attendee.responseStatus]}
 									</Tag>

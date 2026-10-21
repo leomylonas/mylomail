@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { addressLabel } from "@mylomail/renderer/Lib/AddressDisplay";
 import { WarningAltFilled } from "@carbon/icons-react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { useQuery } from "@tanstack/react-query";
@@ -52,9 +53,7 @@ export function DraftList({
 			) : (
 				<ul className={styles.drafts}>
 					{drafts.data!.map((draft) => {
-						const recipients = draft.to
-							.map((address) => address.name ?? address.email)
-							.join(", ");
+						const recipients = draft.to.map(addressLabel).join(", ");
 						return (
 							<li key={draft.id}>
 								<button

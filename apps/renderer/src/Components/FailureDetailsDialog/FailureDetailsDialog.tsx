@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { addressLabel } from "@mylomail/renderer/Lib/AddressDisplay";
 import { Modal } from "@carbon/react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import { present } from "@mylomail/renderer/Shell/Registries/Errors/ErrorPresentation";
@@ -67,7 +68,7 @@ export function FailureDetailsDialog({
 					{message.data ? (
 						<>
 							{message.data.subject || "(no subject)"}
-							{from ? ` — from ${from.name ?? from.email}` : ""}
+							{from ? ` — from ${addressLabel(from)}` : ""}
 							{message.data.receivedAt
 								? `, ${dateFormats.dateTime(new Date(message.data.receivedAt))}`
 								: ""}

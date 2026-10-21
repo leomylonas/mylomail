@@ -1,4 +1,5 @@
 import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
+import { addressLabel } from "@mylomail/renderer/Lib/AddressDisplay";
 import {
 	type ClockPreference,
 	type DateFormats,
@@ -1863,7 +1864,7 @@ function normalizeMessage(message: MessageSummaryDto): MessageSummary {
 function describeSender(message: MessageSummary): string {
 	const [first] = message.from;
 	if (!first) return "(unknown sender)";
-	return first.name ?? first.email;
+	return addressLabel(first);
 }
 
 /**
