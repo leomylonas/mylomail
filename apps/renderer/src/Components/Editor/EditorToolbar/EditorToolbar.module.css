@@ -1,0 +1,44 @@
+.toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--cds-spacing-02);
+	padding: var(--cds-spacing-02);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.select {
+	min-width: 8.5rem;
+}
+
+.separator {
+	align-self: stretch;
+	width: 1px;
+	margin: var(--cds-spacing-02) var(--cds-spacing-01);
+	background: var(--cds-border-subtle);
+}
+
+.colour {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--cds-spacing-02);
+	padding: 0 var(--cds-spacing-03);
+	height: 2rem;
+	color: var(--cds-icon-primary);
+}
+
+.colour input {
+	width: 1.25rem;
+	height: 1.25rem;
+	padding: 0;
+	border: 1px solid var(--cds-border-strong);
+	background: none;
+	cursor: pointer;
+}
+
+.linkForm {
+	display: flex;
+	flex: 1 1 20rem;
+	gap: var(--cds-spacing-02);
+}

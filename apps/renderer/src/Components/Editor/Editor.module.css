@@ -6,15 +6,6 @@
 	background: var(--cds-field);
 }
 
-.toolbar {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--cds-spacing-02);
-	padding: var(--cds-spacing-02);
-	border-bottom: 1px solid var(--cds-border-subtle);
-}
-
 .surface {
 	position: relative;
 	flex: 1;
@@ -45,19 +36,6 @@
 	font-style: italic;
 }
 
-.separator {
-	align-self: stretch;
-	width: 1px;
-	margin: var(--cds-spacing-02) var(--cds-spacing-01);
-	background: var(--cds-border-subtle);
-}
-
-.linkForm {
-	display: flex;
-	flex: 1 1 20rem;
-	gap: var(--cds-spacing-02);
-}
-
 .input :global(u) {
 	text-decoration: underline;
 }
@@ -83,4 +61,40 @@
 
 .input :global(ol) {
 	list-style: decimal;
+}
+
+.input :global(h1),
+.input :global(h2),
+.input :global(h3) {
+	margin: 0 0 var(--cds-spacing-03);
+	font-weight: 600;
+}
+
+.input :global(h1) {
+	font-size: 1.75rem;
+}
+
+.input :global(h2) {
+	font-size: 1.375rem;
+}
+
+.input :global(h3) {
+	font-size: 1.125rem;
+}
+
+.input :global(blockquote) {
+	margin: 0 0 var(--cds-spacing-03);
+	padding-inline-start: var(--cds-spacing-05);
+	border-inline-start: 3px solid var(--cds-border-strong);
+	color: var(--cds-text-secondary);
+}
+
+.input :global(sub) {
+	vertical-align: sub;
+	font-size: 0.75em;
+}
+
+.input :global(sup) {
+	vertical-align: super;
+	font-size: 0.75em;
 }

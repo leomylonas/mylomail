@@ -6,6 +6,7 @@ import {
 	type DOMConversionOutput,
 	type DOMExportOutput,
 	type LexicalEditor,
+	type LexicalNode,
 	type NodeKey,
 	type SerializedElementNode,
 } from "lexical";
@@ -101,4 +102,10 @@ function convertSignatureElement(element: HTMLElement): DOMConversionOutput {
 
 function $createSignatureNode(identityId: string): SignatureNode {
 	return $applyNodeReplacement(new SignatureNode(identityId));
+}
+
+export function $isSignatureNode(
+	node: LexicalNode | null | undefined,
+): node is SignatureNode {
+	return node instanceof SignatureNode;
 }

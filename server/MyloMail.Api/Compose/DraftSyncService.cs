@@ -77,10 +77,12 @@ public sealed class DraftSyncService(
 
 		foreach (var draft in pending)
 		{
-			draft.FromAddress = await context
+			var fromIdentity = await context
 				.SendIdentities.Where(i => i.Id == draft.SendIdentityId)
-				.Select(i => i.EmailAddress)
+				.Select(i => new { i.EmailAddress, i.DisplayName })
 				.FirstAsync(ct);
+			draft.FromAddress = fromIdentity.EmailAddress;
+			draft.FromName = Draft.SenderName(fromIdentity.DisplayName, fromIdentity.EmailAddress);
 
 			// Captured before the call: a save landing while this push is in flight must leave
 			// the draft dirty, so the timestamp recorded is the one that was actually sent.

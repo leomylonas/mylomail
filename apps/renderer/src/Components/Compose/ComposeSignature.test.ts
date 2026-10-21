@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { applyIdentitySignature } from "@mylomail/renderer/Components/Compose/ComposeSignature";
+import {
+	applyIdentitySignature,
+	signatureMarkup,
+} from "@mylomail/renderer/Components/Compose/ComposeSignature";
 
 const first = {
 	id: "first",
@@ -62,5 +65,20 @@ describe("applyIdentitySignature", () => {
 			swapped.indexOf("________"),
 		);
 		expect(swapped).not.toContain("Alice");
+	});
+});
+
+describe("signatureMarkup", () => {
+	it("keeps the line breaks of a signature typed as plain text", () => {
+		expect(signatureMarkup("Cheers,\nLeo")).toBe("Cheers,<br>Leo");
+		expect(signatureMarkup("Cheers,\r\nLeo & Co")).toBe(
+			"Cheers,<br>Leo &amp; Co",
+		);
+	});
+
+	it("leaves a signature that already has markup alone", () => {
+		expect(signatureMarkup("<p>Regards,<br>Alice</p>")).toBe(
+			"<p>Regards,<br>Alice</p>",
+		);
 	});
 });

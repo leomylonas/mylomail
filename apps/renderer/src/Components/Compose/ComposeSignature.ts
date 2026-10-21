@@ -29,7 +29,7 @@ export function applyIdentitySignature(
 	spacer.append(document.createElement("br"));
 	const signature = document.createElement("div");
 	signature.setAttribute(signatureIdentityAttribute, identity.id);
-	signature.innerHTML = identity.signatureHtml;
+	signature.innerHTML = signatureMarkup(identity.signatureHtml);
 	// Above the rule that starts a quoted reply or forward, as Outlook puts it; at the end otherwise.
 	const rule = [...document.body.children].find(
 		(element) =>
@@ -50,4 +50,21 @@ function removeManagedSpacer(signature: Element): void {
 	) {
 		spacer.remove();
 	}
+}
+
+/**
+ * Signatures are typed into a plain text box, so one without any markup is text, not HTML: its
+ * line breaks are the author's, and HTML would fold them into a single line.
+ */
+export function signatureMarkup(signature: string): string {
+	if (/<[a-z][^>]*>/i.test(signature)) return signature;
+	const container = document.createElement("div");
+	signature
+		.replace(/\r\n?/g, "\n")
+		.split("\n")
+		.forEach((line, index) => {
+			if (index > 0) container.append(document.createElement("br"));
+			container.append(document.createTextNode(line));
+		});
+	return container.innerHTML;
 }

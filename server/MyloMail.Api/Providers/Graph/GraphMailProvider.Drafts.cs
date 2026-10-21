@@ -207,7 +207,7 @@ public sealed partial class GraphMailProvider
 			BccRecipients = [.. draft.Bcc.Select(ToRecipient)],
 			From = string.IsNullOrWhiteSpace(draft.FromAddress)
 				? null
-				: ToRecipient(new Address(null, draft.FromAddress)),
+				: ToRecipient(new Address(draft.FromName, draft.FromAddress)),
 			Subject = draft.Subject,
 			InternetMessageId = stableMessageId,
 			Body = new Microsoft.Graph.Models.ItemBody

@@ -169,7 +169,7 @@ public sealed partial class ImapMailProvider
 	{
 		var message = new MimeMessage { MessageId = stableMessageId.Trim('<', '>') };
 
-		message.From.Add(MailboxAddress.Parse(draft.FromAddress));
+		message.From.Add(draft.FromMailbox());
 		foreach (var address in draft.To)
 		{
 			message.To.Add(new MailboxAddress(address.Name, address.Email));

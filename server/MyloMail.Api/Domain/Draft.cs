@@ -82,6 +82,25 @@ public class Draft
 	public string FromAddress { get; set; } = string.Empty;
 
 	/// <summary>
+	/// The name shown beside <see cref="FromAddress"/>, from the send identity's display name.
+	/// Null when the identity has none (or only repeats its address), so no name is sent.
+	/// Not persisted, for the same reason as <see cref="FromAddress"/>.
+	/// </summary>
+	[NotMapped]
+	public string? FromName { get; set; }
+
+	/// <summary>A display name worth sending: not blank, and not just the address again.</summary>
+	public static string? SenderName(string? displayName, string emailAddress) =>
+		string.IsNullOrWhiteSpace(displayName)
+		|| string.Equals(displayName.Trim(), emailAddress, StringComparison.OrdinalIgnoreCase)
+			? null
+			: displayName.Trim();
+
+	/// <summary>The From mailbox: the identity's name, when it has one, and its address.</summary>
+	public MimeKit.MailboxAddress FromMailbox() =>
+		new(FromName, FromAddress);
+
+	/// <summary>
 	/// The RFC 5322 <c>Message-ID</c> of the message being replied to, resolved at send time
 	/// from <see cref="InReplyToMessageId"/>. Not persisted, for the same reason.
 	/// </summary>

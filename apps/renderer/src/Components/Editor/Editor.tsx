@@ -1,12 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { LinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
-import {
-	INSERT_ORDERED_LIST_COMMAND,
-	INSERT_UNORDERED_LIST_COMMAND,
-	ListItemNode,
-	ListNode,
-} from "@lexical/list";
+import { LinkNode } from "@lexical/link";
+import { ListItemNode, ListNode } from "@lexical/list";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
@@ -15,34 +11,25 @@ import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
-import { Button, IconButton, TextInput } from "@carbon/react";
 import {
-	type CarbonIconType,
-	Link,
-	ListBulleted,
-	ListNumbered,
-	Redo,
-	TextBold,
-	TextItalic,
-	TextStrikethrough,
-	TextUnderline,
-	Undo,
-} from "@carbon/icons-react";
-import {
-	FORMAT_TEXT_COMMAND,
-	REDO_COMMAND,
-	UNDO_COMMAND,
 	TextNode,
 	$getRoot,
+	$getSelection,
+	$isRangeSelection,
+	COMMAND_PRIORITY_LOW,
+	INSERT_PARAGRAPH_COMMAND,
 	$insertNodes,
 	$isTextNode,
 	type DOMExportOutputMap,
 	type EditorState,
 	type LexicalEditor,
 } from "lexical";
-import { SignatureNode } from "@mylomail/renderer/Components/Editor/SignatureNode";
+import { EditorToolbar } from "@mylomail/renderer/Components/Editor/EditorToolbar/EditorToolbar";
+import {
+	SignatureNode,
+	$isSignatureNode,
+} from "@mylomail/renderer/Components/Editor/SignatureNode";
 import styles from "@mylomail/renderer/Components/Editor/Editor.module.css";
 
 const composeHtmlExport: DOMExportOutputMap = new Map([
@@ -57,6 +44,16 @@ const composeHtmlExport: DOMExportOutputMap = new Map([
 
 			let element = document.createElement("span");
 			element.textContent = text;
+			// Property by property: assigning the whole style string counts as setting the style
+			// attribute, which the strict CSP refuses even on a detached element.
+			for (const declaration of node.getStyle().split(";")) {
+				const colon = declaration.indexOf(":");
+				if (colon > 0)
+					element.style.setProperty(
+						declaration.slice(0, colon).trim(),
+						declaration.slice(colon + 1).trim(),
+					);
+			}
 
 			if (node.hasFormat("code")) element = wrapText(element, "code");
 			else if (node.hasFormat("highlight")) element = wrapText(element, "mark");
@@ -142,7 +139,7 @@ export function Editor({
 			}}
 		>
 			<div className={styles.shell}>
-				<Toolbar />
+				<EditorToolbar />
 				<div className={styles.surface}>
 					<RichTextPlugin
 						contentEditable={
@@ -156,6 +153,7 @@ export function Editor({
 				</div>
 			</div>
 			<HistoryPlugin />
+			<SignatureLineBreakPlugin />
 			<ListPlugin />
 			<LinkPlugin />
 			<HtmlChangePlugin onChange={onChange} />
@@ -181,85 +179,29 @@ function HtmlChangePlugin({ onChange }: { onChange: (html: string) => void }) {
 	return <OnChangePlugin onChange={handle} ignoreSelectionChange />;
 }
 
-/** Inline and list formatting plus links and undo: what mail needs, not a word processor. */
-function Toolbar() {
+/**
+ * Enter inside the signature starts a new line of it. The signature is one block, so the default
+ * (split the block) has nowhere to put the cursor and the line was never made.
+ */
+function SignatureLineBreakPlugin() {
 	const [editor] = useLexicalComposerContext();
-	const [linkUrl, setLinkUrl] = useState<string | null>(null);
-
-	const format = (label: string, Icon: CarbonIconType, run: () => void) => (
-		<IconButton
-			size="sm"
-			kind="ghost"
-			label={label}
-			onClick={run}
-			// Keep the selection in the editor when the button is pressed.
-			onMouseDown={(event) => event.preventDefault()}
-		>
-			<Icon />
-		</IconButton>
+	useEffect(
+		() =>
+			editor.registerCommand(
+				INSERT_PARAGRAPH_COMMAND,
+				() => {
+					const selection = $getSelection();
+					if (
+						!$isRangeSelection(selection) ||
+						!$isSignatureNode(selection.anchor.getNode().getTopLevelElement())
+					)
+						return false;
+					selection.insertLineBreak();
+					return true;
+				},
+				COMMAND_PRIORITY_LOW,
+			),
+		[editor],
 	);
-
-	const text =
-		(name: "bold" | "italic" | "underline" | "strikethrough") => () =>
-			editor.dispatchCommand(FORMAT_TEXT_COMMAND, name);
-
-	const applyLink = () => {
-		const url = linkUrl?.trim();
-		editor.dispatchCommand(
-			TOGGLE_LINK_COMMAND,
-			url ? (/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`) : null,
-		);
-		setLinkUrl(null);
-		editor.focus();
-	};
-
-	return (
-		<div className={styles.toolbar} role="toolbar" aria-label="Formatting">
-			{format("Bold", TextBold, text("bold"))}
-			{format("Italic", TextItalic, text("italic"))}
-			{format("Underline", TextUnderline, text("underline"))}
-			{format("Strikethrough", TextStrikethrough, text("strikethrough"))}
-			<span className={styles.separator} />
-			{format("Bulleted list", ListBulleted, () =>
-				editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
-			)}
-			{format("Numbered list", ListNumbered, () =>
-				editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
-			)}
-			<span className={styles.separator} />
-			{format("Link", Link, () => setLinkUrl(linkUrl === null ? "" : null))}
-			<span className={styles.separator} />
-			{format("Undo", Undo, () =>
-				editor.dispatchCommand(UNDO_COMMAND, undefined),
-			)}
-			{format("Redo", Redo, () =>
-				editor.dispatchCommand(REDO_COMMAND, undefined),
-			)}
-			{linkUrl === null ? null : (
-				<form
-					className={styles.linkForm}
-					onSubmit={(event) => {
-						event.preventDefault();
-						applyLink();
-					}}
-				>
-					<TextInput
-						id="compose-link-url"
-						size="sm"
-						labelText="Link address"
-						hideLabel
-						placeholder="Link address; empty removes the link"
-						value={linkUrl}
-						onChange={(event) => setLinkUrl(event.target.value)}
-						ref={(input: HTMLInputElement | null) => {
-							if (input && document.activeElement !== input) input.focus();
-						}}
-					/>
-					<Button size="sm" type="submit">
-						Apply
-					</Button>
-				</form>
-			)}
-		</div>
-	);
+	return null;
 }

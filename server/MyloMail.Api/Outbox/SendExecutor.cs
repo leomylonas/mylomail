@@ -115,10 +115,12 @@ public sealed class SendExecutor(
 		// Resolved here rather than stored on the draft: the identity is the stored fact and
 		// its address is derived from it, so there is one answer to which address a draft
 		// sends from (§1).
-		draft.FromAddress = await context
+		var fromIdentity = await context
 			.SendIdentities.Where(i => i.Id == draft.SendIdentityId)
-			.Select(i => i.EmailAddress)
+			.Select(i => new { i.EmailAddress, i.DisplayName })
 			.FirstAsync(ct);
+		draft.FromAddress = fromIdentity.EmailAddress;
+		draft.FromName = Draft.SenderName(fromIdentity.DisplayName, fromIdentity.EmailAddress);
 
 		if (draft.InReplyToMessageId is Guid inReplyTo)
 		{

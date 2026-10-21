@@ -275,3 +275,113 @@ test("opening a draft does not save it again, and a sent draft leaves the list",
 		await app.close();
 	}
 });
+
+test("the sender's name, a plain-text signature and the full formatting set reach the recipient", async () => {
+	await clearInbox(imapPort);
+	await fetch(`${mailpitApi}/messages`, { method: "DELETE" });
+	const subject = `Formatted ${Date.now()}`;
+	const { app, window } = await launchApp();
+	const violations: string[] = [];
+	window.on("console", (message) => {
+		if (message.text().includes("Content Security Policy"))
+			violations.push(message.text());
+	});
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await window
+			.getByRole("dialog")
+			.getByRole("button", { name: "Matrix" })
+			.click();
+		await window.getByRole("button", { name: "Edit", exact: true }).click();
+		await window.getByLabel("Display name").fill("Leo Mylonas");
+		// Typed as text, the way the settings box takes it: the break between the lines is real.
+		await window.getByLabel("Signature (HTML)").fill("Cheers,\nLeo");
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
+		await window.getByRole("button", { name: "Close settings" }).click();
+
+		await expect(
+			window.getByRole("button", { name: "New message" }),
+		).toBeEnabled({ timeout: 60_000 });
+		await window.getByRole("button", { name: "New message" }).click();
+		const message = window.getByLabel("Message", { exact: true });
+		await expect(message).toContainText("Cheers,");
+		await expect(message.locator("[data-mylomail-signature] br")).toHaveCount(
+			1,
+		);
+
+		// A new line can be made between the two signature lines.
+		await message.getByText("Cheers,").click();
+		await message.evaluate(() => {
+			const text = document.querySelector(
+				"[data-mylomail-signature] span",
+			)?.firstChild;
+			if (!text) throw new Error("no signature text");
+			document.getSelection()?.setBaseAndExtent(text, 7, text, 7);
+		});
+		await window.keyboard.press("Enter");
+		await window.keyboard.type("(and thanks)");
+		await expect(message.locator("[data-mylomail-signature] br")).toHaveCount(
+			2,
+		);
+
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
+		await window.getByLabel("Subject").fill(subject);
+		await message.evaluate(() => {
+			const first = document.querySelector('[aria-label="Message"] p');
+			if (!first) throw new Error("no first paragraph");
+			document.getSelection()?.setBaseAndExtent(first, 0, first, 0);
+		});
+		await window.getByLabel("Paragraph style").selectOption("h1");
+		await window.keyboard.type("Big heading");
+		await window.getByRole("button", { name: "Align centre" }).click();
+		await window.keyboard.press("Enter");
+		await window.getByLabel("Paragraph style").selectOption("paragraph");
+		await window.getByLabel("Text colour").fill("#ff0000");
+		await window.keyboard.type("red words");
+		await window.getByRole("button", { name: "Underline" }).click();
+		await window.keyboard.type(" and underlined");
+		await window.getByRole("button", { name: "Send", exact: true }).click();
+
+		await expect
+			.poll(
+				async () => {
+					const response = await fetch(`${mailpitApi}/messages`);
+					const body = (await response.json()) as {
+						messages: { ID: string; Subject: string }[];
+					};
+					return body.messages.filter((m) => m.Subject === subject).length;
+				},
+				{
+					timeout: 90_000,
+					message: "the message never reached the SMTP server",
+				},
+			)
+			.toBe(1);
+		const list = (await (await fetch(`${mailpitApi}/messages`)).json()) as {
+			messages: { ID: string; Subject: string }[];
+		};
+		const id = list.messages.find((m) => m.Subject === subject)!.ID;
+		const received = (await (
+			await fetch(`${mailpitApi}/message/${id}`)
+		).json()) as {
+			HTML: string;
+			From: { Name: string };
+		};
+		expect(received.From.Name).toBe("Leo Mylonas");
+		expect(received.HTML).toContain("<h1");
+		expect(received.HTML).toMatch(/text-align:\s*center/);
+		expect(received.HTML).toMatch(/color:\s*(#ff0000|rgb\(255, 0, 0\))/);
+		expect(received.HTML).toContain("<u>");
+
+		expect(received.HTML).toContain(
+			"Cheers,</span><br><span>(and thanks)</span><br><span>Leo",
+		);
+		expect(violations).toEqual([]);
+	} finally {
+		await app.close();
+	}
+});
