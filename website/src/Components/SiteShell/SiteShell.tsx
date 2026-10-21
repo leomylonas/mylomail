@@ -37,7 +37,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
 				<div className={styles.footerInner}>
 					<div>
 						<strong>Mylo Mail</strong>
-						<p>Free mail and calendar. Built in the open.</p>
+						<p>Free, open-source mail and calendar.</p>
 					</div>
 					<nav aria-label="Footer navigation">
 						<a href="/#platforms">Platforms</a>

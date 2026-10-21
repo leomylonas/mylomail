@@ -72,9 +72,7 @@ export function HomePage() {
 		<main id="main-content">
 			<section className={styles.hero} aria-labelledby="homeHeading">
 				<div className={styles.heroCopy}>
-					<p className={styles.eyebrow}>
-						Free mail and calendar. Built in the open.
-					</p>
+					<p className={styles.eyebrow}>Free, open-source mail and calendar.</p>
 					<h1 id="homeHeading">
 						All your accounts.
 						<br />
@@ -112,14 +110,12 @@ export function HomePage() {
 				aria-labelledby="principleHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>A different starting point</p>
-					<h2 id="principleHeading">
-						A mail client. Not another business model.
-					</h2>
+					<p className={styles.eyebrow}>Why Mylo Mail</p>
+					<h2 id="principleHeading">Everything’s included.</h2>
 				</div>
 				<dl className={styles.promiseList}>
 					<div>
-						<dt>Free, not freemium.</dt>
+						<dt>Completely free.</dt>
 						<dd>
 							Completely free to use. No subscriptions, paid tiers, or features
 							held back behind an upgrade.
@@ -149,9 +145,7 @@ export function HomePage() {
 			>
 				<div className={styles.sectionLead}>
 					<p className={styles.eyebrow}>Inside Mylo Mail</p>
-					<h2 id="featuresHeading">
-						Less juggling. More getting on with your day.
-					</h2>
+					<h2 id="featuresHeading">For busy inboxes and full calendars.</h2>
 				</div>
 				<div className={styles.featureGrid}>
 					<article className={styles.feature}>
@@ -320,7 +314,7 @@ export function HomePage() {
 				aria-labelledby="sourceHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Built in the open</p>
+					<p className={styles.eyebrow}>Open source</p>
 					<h2 id="sourceHeading">
 						Your email client shouldn’t be a black box.
 					</h2>
@@ -416,8 +410,8 @@ export function HomePage() {
 					Your accounts. Your desktop. No subscription.
 				</h2>
 				<p>
-					Free mail and calendar, built in the open. Follow the project, take a
-					look at the code, and help make a better everyday inbox.
+					Free, open-source mail and calendar. Follow the project, take a look
+					at the code, and help make a better everyday inbox.
 				</p>
 				<a className={styles.textLink} href={sourceRepository}>
 					Follow Mylo Mail on GitHub <Icon name="arrow" />
