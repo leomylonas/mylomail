@@ -72,16 +72,18 @@ export function HomePage() {
 		<main id="main-content">
 			<section className={styles.hero} aria-labelledby="homeHeading">
 				<div className={styles.heroCopy}>
-					<p className={styles.eyebrow}>Free, open-source email and calendar</p>
+					<p className={styles.eyebrow}>
+						Free mail and calendar. Built in the open.
+					</p>
 					<h1 id="homeHeading">
 						All your accounts.
 						<br />
 						Each in its own place.
 					</h1>
 					<p className={styles.heroIntro}>
-						Work mail, personal mail, and the calendars that go with them. Mylo
-						Mail brings them together on Windows, macOS, and Linux, with each
-						account’s folders and unread counts in view.
+						A calmer home for your email and calendars on Windows, macOS, and
+						Linux. Keep work, personal, and shared accounts together without
+						mixing them up.
 					</p>
 					<div className={styles.heroActions}>
 						<a className={styles.primaryLink} href="#features">
@@ -110,26 +112,31 @@ export function HomePage() {
 				aria-labelledby="principleHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Free to use</p>
-					<h2 id="principleHeading">Everything’s included.</h2>
+					<p className={styles.eyebrow}>A different starting point</p>
+					<h2 id="principleHeading">
+						A mail client. Not another business model.
+					</h2>
 				</div>
 				<dl className={styles.promiseList}>
 					<div>
-						<dt>No subscriptions or paid upgrades</dt>
-						<dd>Mylo Mail is completely free. Every feature is included.</dd>
-					</div>
-					<div>
-						<dt>No ads or advertising trackers</dt>
+						<dt>Free, not freemium.</dt>
 						<dd>
-							The app contains no ads or advertising trackers. This website also
-							has no analytics or tracking cookies.
+							Completely free to use. No subscriptions, paid tiers, or features
+							held back behind an upgrade.
 						</dd>
 					</div>
 					<div>
-						<dt>Open source</dt>
+						<dt>Your inbox is not ad space.</dt>
 						<dd>
-							The code is available under the MIT licence. You can read, modify,
-							and share it.
+							No ads added to your workspace and no advertising trackers. Mylo
+							Mail is here to help you handle your email, not profile you.
+						</dd>
+					</div>
+					<div>
+						<dt>Development you can see.</dt>
+						<dd>
+							The source code and development history are public. Look under the
+							hood, follow changes, and help shape what comes next.
 						</dd>
 					</div>
 				</dl>
@@ -141,18 +148,21 @@ export function HomePage() {
 				aria-labelledby="featuresHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Features</p>
-					<h2 id="featuresHeading">For busy inboxes and full calendars.</h2>
+					<p className={styles.eyebrow}>Inside Mylo Mail</p>
+					<h2 id="featuresHeading">
+						Less juggling. More getting on with your day.
+					</h2>
 				</div>
 				<div className={styles.featureGrid}>
 					<article className={styles.feature}>
 						<div className={styles.iconWrap}>
 							<Icon name="mail" />
 						</div>
-						<h3>Every account at hand</h3>
+						<h3>Every account in context</h3>
 						<p>
-							Keep work, personal, and shared accounts in the same sidebar. Each
-							has its own folders, unread counts, and sync status.
+							Work, personal, and shared mail each keep their own place. See
+							accounts, folders, and unread counts in one persistent sidebar,
+							without disappearing behind an account switcher.
 						</p>
 					</article>
 					<article className={styles.feature}>
@@ -161,15 +171,16 @@ export function HomePage() {
 						</div>
 						<h3>Calendars alongside your mail</h3>
 						<p>
-							View supported calendars together and see which account each
-							belongs to. Switch between mail and calendar views in the app.
+							Bring supported calendars into a single view while keeping their
+							account context. Move between conversations and plans without
+							moving to another app.
 						</p>
 					</article>
 					<article className={styles.feature}>
 						<div className={styles.iconWrap}>
 							<Icon name="layers" />
 						</div>
-						<h3>Find the message you need</h3>
+						<h3>Find the conversation</h3>
 						<p>
 							Search your mail, narrow the message list with filters, and use
 							flags to keep important messages easy to return to.
@@ -181,29 +192,31 @@ export function HomePage() {
 						</div>
 						<h3>Room to read and reply</h3>
 						<p>
-							Read messages in the pane or open them in separate windows.
-							Compose replies, save drafts, and add attachments.
+							Read in the pane or open a message in its own window. Compose
+							replies, save drafts, and work with attachments without losing
+							your place in the inbox.
 						</p>
 					</article>
 					<article className={styles.feature}>
 						<div className={styles.iconWrap}>
 							<Icon name="layers" />
 						</div>
-						<h3>Make yourself comfortable</h3>
+						<h3>A workspace that fits</h3>
 						<p>
-							Choose a light or dark theme and resize the panes to suit your
-							screen. The interface is consistent across desktop platforms.
+							Choose light or dark, resize your panes, and keep the layout
+							comfortable for the way you work, with a consistent design across
+							desktop platforms.
 						</p>
 					</article>
 					<article className={styles.feature}>
 						<div className={styles.iconWrap}>
 							<Icon name="check" />
 						</div>
-						<h3>Keep a copy for later</h3>
+						<h3>Keep the original</h3>
 						<p>
-							Save messages as original .eml files with their headers and
-							attachments. Open them in another mail app or keep them as a local
-							archive.
+							Export messages as original .eml files, including their headers
+							and attachments. Keep a copy outside the app, instead of relying
+							on a reconstructed message.
 						</p>
 					</article>
 				</div>
@@ -211,19 +224,20 @@ export function HomePage() {
 
 			<section className={styles.principle} aria-labelledby="privacyHeading">
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Privacy</p>
-					<h2 id="privacyHeading">Know where your mail goes.</h2>
+					<p className={styles.eyebrow}>Privacy is part of the design</p>
+					<h2 id="privacyHeading">Your mail doesn’t need another middleman.</h2>
 				</div>
 				<div className={styles.principleCopy}>
 					<p>
-						Mylo Mail connects to the account services you configure and stores
-						messages and settings on your device. You sign in with your existing
-						accounts.
+						Mylo Mail connects directly to the account services you choose.
+						Messages and settings are stored on your device, not copied to a
+						Mylo Mail cloud service. There is no extra Mylo Mail account to
+						create.
 					</p>
 					<p>
-						Remote images are blocked by default. You choose when to load them,
-						since loading an image can tell its sender that you opened the
-						message.
+						Remote message images are blocked by default, so opening an email
+						doesn’t automatically load a sender’s tracking pixel. You decide
+						when to allow remote content.
 					</p>
 					<p>
 						This website has no analytics or tracking cookies. The app’s remote
@@ -240,11 +254,12 @@ export function HomePage() {
 				aria-labelledby="compatibilityHeading"
 			>
 				<div>
-					<p className={styles.eyebrow}>Account support</p>
+					<p className={styles.eyebrow}>No need to move your email</p>
 					<h2 id="compatibilityHeading">Bring the accounts you already use.</h2>
 					<p className={styles.sectionIntro}>
-						Keep your existing email addresses and providers. Calendar support
-						depends on your account and service.
+						Connect Gmail, Microsoft 365, or an IMAP mailbox. Your provider
+						stays your provider; Mylo Mail gives you a desktop home for it.
+						Calendar support depends on your account and service.
 					</p>
 				</div>
 				<ul
@@ -269,10 +284,11 @@ export function HomePage() {
 				aria-labelledby="platformsHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Desktop platforms</p>
-					<h2 id="platformsHeading">At home on Windows, macOS, and Linux.</h2>
+					<p className={styles.eyebrow}>Cross-platform by design</p>
+					<h2 id="platformsHeading">Your desktop. Your choice.</h2>
 					<p className={styles.sectionIntro}>
-						The desktop app uses the same interface across all three platforms.
+						Built for Windows, macOS, and Linux, with a familiar workspace on
+						each. Pick your operating system, not a different mail client.
 					</p>
 				</div>
 				<ul
@@ -304,19 +320,21 @@ export function HomePage() {
 				aria-labelledby="sourceHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>Source code</p>
-					<h2 id="sourceHeading">Take a look behind the scenes.</h2>
+					<p className={styles.eyebrow}>Built in the open</p>
+					<h2 id="sourceHeading">
+						Your email client shouldn’t be a black box.
+					</h2>
 				</div>
 				<div className={styles.principleCopy}>
 					<p>
-						Curious how Mylo Mail works? The code, build instructions, and
-						development history are on GitHub. The{" "}
-						<a href={`${sourceRepository}/blob/main/LICENSE`}>MIT licence</a>{" "}
-						allows you to use, modify, and share the software.
+						The code is public on GitHub. See how Mylo Mail works, read about
+						its architecture, and follow development as it happens. You don’t
+						have to take the website’s word for how things work.
 					</p>
 					<p>
-						You can help by reporting bugs, suggesting features, or testing the
-						app. Accessibility feedback is welcome too.
+						You don’t need to write code to help. Report a bug, describe a
+						workflow that could be better, or suggest an accessibility
+						improvement. Useful feedback starts with the way you use email.
 					</p>
 					<p>
 						<a href={sourceRepository}>Explore the source code</a>
@@ -332,8 +350,8 @@ export function HomePage() {
 				aria-labelledby="faqHeading"
 			>
 				<div className={styles.sectionLead}>
-					<p className={styles.eyebrow}>FAQ</p>
-					<h2 id="faqHeading">Got a question?</h2>
+					<p className={styles.eyebrow}>A few useful answers</p>
+					<h2 id="faqHeading">Before you make yourself at home.</h2>
 				</div>
 				<div className={styles.faqList}>
 					<details>
@@ -347,15 +365,16 @@ export function HomePage() {
 					<details>
 						<summary>Do I need a new email address?</summary>
 						<p>
-							No. Connect your existing Gmail, Microsoft 365, or IMAP account
-							and keep using your current address. You don’t need a separate
-							Mylo Mail account.
+							No. Mylo Mail is a client for your existing accounts, not a mail
+							hosting service. Connect Gmail, Microsoft 365, or IMAP and keep
+							using your current address. There is no separate Mylo Mail login.
 						</p>
 					</details>
 					<details>
 						<summary>Which computers does it support?</summary>
 						<p>
-							Mylo Mail is a desktop application for Windows, macOS, and Linux.
+							Mylo Mail is being built for Windows, macOS, and Linux. It is a
+							desktop application, not a browser-based inbox or a mobile app.
 						</p>
 					</details>
 					<details>
@@ -392,12 +411,13 @@ export function HomePage() {
 			</section>
 
 			<section className={styles.closing} aria-labelledby="closingHeading">
-				<p className={styles.eyebrow}>In development</p>
-				<h2 id="closingHeading">Come see what we’re building.</h2>
+				<p className={styles.eyebrow}>A little more space for what matters</p>
+				<h2 id="closingHeading">
+					Your accounts. Your desktop. No subscription.
+				</h2>
 				<p>
-					Mylo Mail is in active development. Take a look at the code, try a
-					build, or tell us what would make your day-to-day email a little
-					easier.
+					Free mail and calendar, built in the open. Follow the project, take a
+					look at the code, and help make a better everyday inbox.
 				</p>
 				<a className={styles.textLink} href={sourceRepository}>
 					Follow Mylo Mail on GitHub <Icon name="arrow" />

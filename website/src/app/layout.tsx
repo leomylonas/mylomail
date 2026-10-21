@@ -7,7 +7,7 @@ import "@mylomail/website/Styles/Globals.css";
 export const metadata: Metadata = {
 	metadataBase: new URL(siteOrigin),
 	title: {
-		default: "Mylo Mail — Free, open-source email and calendar",
+		default: "Mylo Mail — Free mail. No ads. No subscriptions.",
 		template: "%s | Mylo Mail",
 	},
 	description: siteDescription,

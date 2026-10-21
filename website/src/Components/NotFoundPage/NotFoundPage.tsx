@@ -4,8 +4,11 @@ export function NotFoundPage() {
 	return (
 		<main id="main-content" className={styles.page}>
 			<p>404</p>
-			<h1>Page not found</h1>
-			<p>Check the address or return to the home page.</p>
+			<h1>This page is not here.</h1>
+			<p>
+				The address may have changed, but there is still a place for your
+				accounts.
+			</p>
 			<a href="/">Back to Mylo Mail</a>
 		</main>
 	);
