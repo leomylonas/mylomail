@@ -46,12 +46,15 @@ test("a composed message is sent and arrives at the server", async () => {
 		await window
 			.getByLabel("Signature (HTML)")
 			.fill("<p>Primary signature</p>");
-		await window.getByRole("button", { name: "Save identity" }).first().click();
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
 		await window.getByRole("button", { name: "Add identity" }).click();
 		await window.getByLabel("Display name").fill("Alias");
 		await window.getByLabel("Email address").fill("alias@example.org");
 		await window.getByLabel("Signature (HTML)").fill("<p>Alias signature</p>");
-		await window.getByRole("button", { name: "Add", exact: true }).click();
+		await window.getByRole("button", { name: "Save", exact: true }).click();
 		await expect(window.getByText(/Alias <alias@example\.org>/)).toBeVisible();
 		await window.getByRole("button", { name: "Close settings" }).click();
 
@@ -179,7 +182,10 @@ test("writing starts at the top of the message, above the signature", async () =
 			.click();
 		await window.getByRole("button", { name: "Edit", exact: true }).click();
 		await window.getByLabel("Signature (HTML)").fill("<p>Bottom signature</p>");
-		await window.getByRole("button", { name: "Save identity" }).first().click();
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
 		await window.getByRole("button", { name: "Close settings" }).click();
 		await expect(
 			window.getByRole("button", { name: "New message" }),
@@ -292,7 +298,10 @@ test("the sender's name, a plain-text signature and the full formatting set reac
 		await window.getByLabel("Display name").fill("Leo Mylonas");
 		// Typed as text, the way the settings box takes it: the break between the lines is real.
 		await window.getByLabel("Signature (HTML)").fill("Cheers,\nLeo");
-		await window.getByRole("button", { name: "Save identity" }).first().click();
+		await window
+			.getByRole("button", { name: "Save", exact: true })
+			.first()
+			.click();
 		await window.getByRole("button", { name: "Close settings" }).click();
 
 		await expect(

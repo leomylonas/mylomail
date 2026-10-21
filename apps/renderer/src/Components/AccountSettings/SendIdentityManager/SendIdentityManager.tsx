@@ -31,15 +31,26 @@ export function confirmDeleteSendIdentity(
 /**
  * Send-as identity management (§1, §15): a real alias scenario (e.g. an address on the same
  * account distinct from the default) needs its own display name, address and signature —
- * added, edited, deleted, or promoted to default here, independently of the rest of the
- * account settings form above it, so a mistake here never risks the unsaved edits there.
+ * added, edited, deleted, or promoted to default here. Deleting and promoting act at once (the
+ * first asks to confirm); an add or an edit is written by the settings page's own Save, so the
+ * page has one Save whatever was changed.
  */
 export function SendIdentityManager({
 	hub,
 	accountId,
+	registerCommit,
+	onPendingChange,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	/**
+	 * Hands the owner the function that writes an open add/edit form. The account settings' one
+	 * Save button calls it, so changing an identity is saved the same way as everything else on
+	 * the page rather than by a second button with its own meaning.
+	 */
+	registerCommit: (commit: (() => Promise<boolean>) | null) => void;
+	/** Whether an add/edit form is open and so not yet saved. */
+	onPendingChange: (pending: boolean) => void;
 }) {
 	const [identities, setIdentities] = useState<SendIdentityDto[] | null>(null);
 	const [editing, setEditing] = useState<EditingIdentity | null>(null);
@@ -86,20 +97,49 @@ export function SendIdentityManager({
 		}
 	};
 
-	const saveEditing = () => {
-		if (!editing) return;
+	/** Writes the open form. False when it could not be written, with the reason shown here. */
+	const commit = useCallback(async (): Promise<boolean> => {
+		if (!editing) return true;
 		const { id, displayName, emailAddress, signatureHtml } = editing;
-		void run(() =>
-			id
-				? hub.updateSendIdentity(id, displayName, emailAddress, signatureHtml)
-				: hub.addSendIdentity(
-						accountId,
-						displayName,
-						emailAddress,
-						signatureHtml,
-					),
-		);
-	};
+		if (!displayName.trim() || !emailAddress.trim()) {
+			setError("An identity needs a display name and an email address.");
+			return false;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			if (id)
+				await hub.updateSendIdentity(
+					id,
+					displayName,
+					emailAddress,
+					signatureHtml,
+				);
+			else
+				await hub.addSendIdentity(
+					accountId,
+					displayName,
+					emailAddress,
+					signatureHtml,
+				);
+			await reload();
+			setEditing(null);
+			return true;
+		} catch (thrown) {
+			setError(thrown instanceof Error ? thrown.message : String(thrown));
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	}, [accountId, editing, hub, reload]);
+
+	useEffect(() => {
+		registerCommit(commit);
+		return () => registerCommit(null);
+	}, [commit, registerCommit]);
+	useEffect(() => {
+		onPendingChange(editing !== null);
+	}, [editing, onPendingChange]);
 
 	return (
 		<div className={styles.manager}>
@@ -197,18 +237,11 @@ export function SendIdentityManager({
 					<div className={styles.formActions}>
 						<Button
 							size="sm"
-							disabled={busy || !editing.displayName || !editing.emailAddress}
-							onClick={saveEditing}
-						>
-							{editing.id ? "Save identity" : "Add"}
-						</Button>
-						<Button
-							size="sm"
 							kind="ghost"
 							disabled={busy}
 							onClick={() => setEditing(null)}
 						>
-							Cancel
+							Discard changes
 						</Button>
 					</div>
 				</div>

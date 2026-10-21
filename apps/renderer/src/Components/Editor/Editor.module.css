@@ -26,80 +26,58 @@
 	pointer-events: none;
 }
 
-.bold,
-.input :global(strong) {
+/*
+ * The app's resets (Carbon zeroes paragraph, heading and list spacing) are rolled back for the
+ * elements a message is made of, so the browser's own defaults apply, exactly as they do in the
+ * reading pane's frame. Typeface and size come from the shared MessageContent.css.
+ */
+.input
+	:is(
+		p,
+		h1,
+		h2,
+		h3,
+		h4,
+		h5,
+		h6,
+		blockquote,
+		ul,
+		ol,
+		li,
+		sub,
+		sup,
+		strong,
+		em,
+		u,
+		s,
+		a,
+		code,
+		pre
+	) {
+	all: revert;
+}
+
+.bold {
 	font-weight: 700;
 }
 
-.italic,
-.input :global(em) {
+.italic {
 	font-style: italic;
 }
 
-.input :global(u) {
+.underline {
 	text-decoration: underline;
 }
 
-.input :global(s) {
+.strikethrough {
 	text-decoration: line-through;
 }
 
+.underlineStrikethrough {
+	text-decoration: underline line-through;
+}
+
+/* After the revert: a link keeps the theme's colour rather than the default blue. */
 .input :global(a) {
 	color: var(--cds-link-primary);
-	text-decoration: underline;
-}
-
-.input :global(ul),
-.input :global(ol) {
-	margin: 0;
-	padding-inline-start: var(--cds-spacing-07);
-}
-
-.input :global(ul) {
-	list-style: disc;
-}
-
-.input :global(ol) {
-	list-style: decimal;
-}
-
-.input :global(h1),
-.input :global(h2),
-.input :global(h3) {
-	margin: 0 0 var(--cds-spacing-03);
-	font-weight: 600;
-}
-
-.input :global(h1) {
-	font-size: 1.75rem;
-}
-
-.input :global(h2) {
-	font-size: 1.375rem;
-}
-
-.input :global(h3) {
-	font-size: 1.125rem;
-}
-
-.input :global(blockquote) {
-	margin: 0 0 var(--cds-spacing-03);
-	padding-inline-start: var(--cds-spacing-05);
-	border-inline-start: 3px solid var(--cds-border-strong);
-	color: var(--cds-text-secondary);
-}
-
-.input :global(sub) {
-	vertical-align: sub;
-	font-size: 0.75em;
-}
-
-.input :global(sup) {
-	vertical-align: super;
-	font-size: 0.75em;
-}
-
-/* The same paragraph spacing the recipient's mail client (and the reading pane) applies. */
-.input :global(p) {
-	margin: 1em 0;
 }

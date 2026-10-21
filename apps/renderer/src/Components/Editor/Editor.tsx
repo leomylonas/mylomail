@@ -133,7 +133,13 @@ export function Editor({
 						}
 					: undefined,
 				theme: {
-					text: { bold: styles.bold, italic: styles.italic },
+					text: {
+						bold: styles.bold,
+						italic: styles.italic,
+						underline: styles.underline,
+						strikethrough: styles.strikethrough,
+						underlineStrikethrough: styles.underlineStrikethrough,
+					},
 				},
 				html: { export: composeHtmlExport },
 			}}
@@ -144,7 +150,7 @@ export function Editor({
 					<RichTextPlugin
 						contentEditable={
 							<ContentEditable
-								className={styles.input}
+								className={`${styles.input} messageContent`}
 								aria-label="Message"
 								tabIndex={0}
 							/>

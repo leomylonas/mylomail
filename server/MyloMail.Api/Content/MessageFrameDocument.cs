@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace MyloMail.Api.Content;
@@ -20,7 +21,7 @@ public static partial class MessageFrameDocument
 	/// message cannot out-rank the dark-mode or print rules.
 	/// </summary>
 	public static string Build(string fragment, bool dark, bool invertColours) =>
-		$"<!doctype html><html><head><meta charset=\"utf-8\"></head><body>{fragment}<style>{DefaultFontCss.Value}{DarkModeStyle(fragment, dark, invertColours)}{PrintStyle}</style></body></html>";
+		$"<!doctype html><html><head><meta charset=\"utf-8\"></head><body class=\"messageContent\">{fragment}<style>{DefaultFontCss.Value}{DarkModeStyle(fragment, dark, invertColours)}{PrintStyle}</style></body></html>";
 
 	/// <summary>Whether the message sets any background of its own — one it was designed against and is shown as authored.</summary>
 	public static bool DeclaresBackground(string html) => AuthoredBackground().IsMatch(html);
@@ -54,8 +55,8 @@ public static partial class MessageFrameDocument
 	/// <summary>
 	/// What a message with no font of its own is shown in: the app's own typeface, so it reads as part
 	/// of the interface rather than the browser's default serif. Embedded as data URLs because the
-	/// document's policy lets fonts load from <c>data:</c> only. Written with no specificity, so
-	/// anything the message declares overrides it.
+	/// document's policy lets fonts load from <c>data:</c> only. Layered, so anything the
+	/// message declares overrides it.
 	/// </summary>
 	private static readonly Lazy<string> DefaultFontCss = new(() =>
 	{
@@ -67,8 +68,9 @@ public static partial class MessageFrameDocument
 			Face("IBMPlexSans-Regular.woff2", "normal", 400),
 			Face("IBMPlexSans-Italic.woff2", "italic", 400),
 			Face("IBMPlexSans-Bold.woff2", "normal", 700),
-			// :where() has no specificity, so any rule the message writes for body wins whatever its order.
-			":where(body) { font-family: \"IBM Plex Sans\", system-ui, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif; }"
+			// In a cascade layer, which every rule outside a layer beats: the message's own fonts win
+			// whatever their specificity or order.
+			$"@layer messageDefaults {{ {Encoding.UTF8.GetString(Resource("MessageContent.css"))} }}"
 		);
 	});
 

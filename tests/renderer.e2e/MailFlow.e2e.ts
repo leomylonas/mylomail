@@ -296,7 +296,7 @@ test("a real account syncs, lists mail, and its flag changes reach the server", 
 		await window.getByText("Last N messages", { exact: true }).click();
 		const syncBound = window.getByLabel("Messages", { exact: true });
 		await syncBound.fill("1");
-		await window.getByRole("button", { name: "Save account settings" }).click();
+		await window.getByRole("button", { name: "Save", exact: true }).click();
 		await expect(window.getByText("Saved.", { exact: true })).toBeVisible();
 		await window.getByRole("button", { name: "Close settings" }).click();
 		await window.getByRole("button", { name: "Settings", exact: true }).click();

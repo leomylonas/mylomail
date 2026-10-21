@@ -54,7 +54,10 @@ public sealed class MessageFrameDocumentTests
 
 		Assert.StartsWith("<!doctype html>", document);
 		Assert.True(document.IndexOf("p{color:red}", StringComparison.Ordinal) < document.IndexOf("@media screen", StringComparison.Ordinal));
-		Assert.Contains(":where(body) { font-family: \"IBM Plex Sans\"", document);
+		Assert.Contains("@layer messageDefaults", document);
+		Assert.Contains(".messageContent {", document);
+		Assert.Contains("<body class=\"messageContent\">", document);
+		Assert.Contains("font-family:", document);
 		Assert.Contains("data:font/woff2;base64,", document);
 		Assert.Contains("@media print", document);
 	}

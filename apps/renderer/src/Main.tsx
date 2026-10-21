@@ -5,6 +5,7 @@ import { WindowScope } from "@mylomail/renderer/Shell/WindowScope/WindowScope";
 import { DateFormatsProvider } from "@mylomail/renderer/Shell/DateFormats/DateFormats";
 import { ThemeProvider } from "@mylomail/renderer/Shell/ThemeProvider/ThemeProvider";
 import "@mylomail/renderer/Styles/Carbon.scss";
+import "@mylomail/renderer/Styles/MessageContent.css";
 
 export const applicationName = "MyloMail";
 

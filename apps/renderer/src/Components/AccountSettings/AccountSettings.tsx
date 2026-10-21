@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	Button,
@@ -146,7 +146,15 @@ export function AccountSettings({
 	const [savedValues, setSavedValues] = useState<AccountSettingsValues | null>(
 		null,
 	);
-	const saved = savedValues === values;
+	const identityCommit = useRef<(() => Promise<boolean>) | null>(null);
+	const [identityPending, setIdentityPending] = useState(false);
+	const registerIdentityCommit = useCallback(
+		(commit: (() => Promise<boolean>) | null) => {
+			identityCommit.current = commit;
+		},
+		[],
+	);
+	const saved = savedValues === values && !identityPending;
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	// Set only when a first, unforced removal attempt reports a still-running export — a
@@ -161,6 +169,9 @@ export function AccountSettings({
 			values.initialSyncBoundValue > 0);
 
 	const save = async () => {
+		// An identity being added or edited is written first; if it cannot be, the manager says
+		// why and nothing else is saved on top of a half-finished change.
+		if (identityCommit.current && !(await identityCommit.current())) return;
 		try {
 			// The server clamps the poll interval and undo window and returns what it
 			// applied, so the form shows the value in force rather than the one asked for.
@@ -426,7 +437,12 @@ export function AccountSettings({
 					Slowed down by the provider — retrying automatically
 				</Tag>
 			) : null}
-			<SendIdentityManager hub={hub} accountId={values.id} />
+			<SendIdentityManager
+				hub={hub}
+				accountId={values.id}
+				registerCommit={registerIdentityCommit}
+				onPendingChange={setIdentityPending}
+			/>
 			<ExportAccount hub={hub} accountId={values.id} />
 			<section className={styles.dangerZone}>
 				<h4>Remove account</h4>
@@ -491,7 +507,7 @@ export function AccountSettings({
 					disabled={!initialSyncBoundValid}
 					onClick={() => void save()}
 				>
-					Save account settings
+					Save
 				</Button>
 				<span className={styles.saved} role="status">
 					{saved ? (

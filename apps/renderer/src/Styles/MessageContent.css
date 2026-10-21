@@ -1,0 +1,20 @@
+/*
+ * The base presentation of a message's content: its typeface and size, and nothing else.
+ *
+ * One file, used twice. The reading pane's frame embeds it (the backend ships this very file
+ * inside the document it serves) and the compose editor loads it as an ordinary stylesheet, so a
+ * message looks the same while it is written as when it is read. Block elements (paragraphs,
+ * headings, lists, quotes) are left to the browser's own defaults in both places; the editor
+ * reverts the app's resets for them (Editor.module.css) so those defaults apply there too.
+ *
+ * Written as an ordinary rule so it outranks the app's element resets in the editor. The reading
+ * pane's frame wraps it in a cascade layer instead (MessageFrameDocument), which loses to every
+ * rule the message itself declares: a message's own fonts always win, whatever their specificity.
+ */
+.messageContent {
+	font-family:
+		"IBM Plex Sans", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+		sans-serif;
+	font-size: 16px;
+	line-height: normal;
+}

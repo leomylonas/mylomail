@@ -12,3 +12,6 @@ declare module "*.module.css" {
 
 /** Carbon ships its styles as Sass, imported for side effects only. */
 declare module "*.scss";
+
+/** Plain global stylesheets shared with the backend (see Styles/MessageContent.css). */
+declare module "*.css";

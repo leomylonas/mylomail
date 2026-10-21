@@ -38,6 +38,8 @@
 	</ItemGroup>
 	<ItemGroup>
 		<EmbeddedResource Include="Content\Fonts\*" />
+		<!-- The base presentation shared with the compose editor: one file, so writing and reading agree. -->
+		<EmbeddedResource Include="..\..\apps\renderer\src\Styles\MessageContent.css" LogicalName="MessageContent.css" />
 		<InternalsVisibleTo Include="MyloMail.Api.Tests" />
 	</ItemGroup>
 </Project>
