@@ -133,6 +133,11 @@ issue links share `sourceRepository` in `website/src/Lib/Site.ts`.
 Availability copy describes active development, not a published release; keep
 the FAQ and packaging descriptions aligned with actual releases.
 
+Website copy should be conversational and specific. Keep the account-focused
+opening and give readers a reason to explore the app. Avoid forced “not X, but
+Y” contrasts and vague promises without stripping out warmth or personality.
+Keep factual qualifications about providers, remote content, and diagnostics.
+
 The workspace reuses the root TypeScript options, ESLint/React/accessibility
 rules, Prettier, Stylelint, and the app's React and IBM Plex versions. Next.js has
 its own TypeScript compilation to keep its framework-specific Node globals out

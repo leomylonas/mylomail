@@ -5,13 +5,13 @@ export function PrivacyPage() {
 	return (
 		<main id="main-content" className={styles.page}>
 			<header className={styles.introduction}>
-				<p className={styles.eyebrow}>A little clarity about your data</p>
+				<p className={styles.eyebrow}>Website and desktop app</p>
 				<h1>Privacy policy</h1>
 				<p className={styles.lead}>
-					Mylo Mail is a desktop client, not a hosted mailbox.
+					How Mylo Mail handles account data, local storage, and diagnostics.
 				</p>
 				<p className={styles.updated}>
-					Last updated <time dateTime="2026-10-17">17 October 2026</time>
+					Last updated <time dateTime="2026-10-20">20 October 2026</time>
 				</p>
 			</header>
 			<div className={styles.content}>
