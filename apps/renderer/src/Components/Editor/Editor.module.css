@@ -98,3 +98,8 @@
 	vertical-align: super;
 	font-size: 0.75em;
 }
+
+/* The same paragraph spacing the recipient's mail client (and the reading pane) applies. */
+.input :global(p) {
+	margin: 1em 0;
+}

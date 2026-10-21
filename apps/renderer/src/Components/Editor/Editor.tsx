@@ -143,7 +143,11 @@ export function Editor({
 				<div className={styles.surface}>
 					<RichTextPlugin
 						contentEditable={
-							<ContentEditable className={styles.input} aria-label="Message" />
+							<ContentEditable
+								className={styles.input}
+								aria-label="Message"
+								tabIndex={0}
+							/>
 						}
 						placeholder={
 							<div className={styles.placeholder}>{placeholder}</div>

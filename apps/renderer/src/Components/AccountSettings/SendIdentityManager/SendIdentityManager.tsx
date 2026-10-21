@@ -200,7 +200,7 @@ export function SendIdentityManager({
 							disabled={busy || !editing.displayName || !editing.emailAddress}
 							onClick={saveEditing}
 						>
-							{editing.id ? "Save" : "Add"}
+							{editing.id ? "Save identity" : "Add"}
 						</Button>
 						<Button
 							size="sm"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { TOGGLE_LINK_COMMAND } from "@lexical/link";
 import {
 	INSERT_ORDERED_LIST_COMMAND,
@@ -89,6 +89,47 @@ export function EditorToolbar() {
 	const [editor] = useLexicalComposerContext();
 	const [linkUrl, setLinkUrl] = useState<string | null>(null);
 	const [blockType, setBlockType] = useState<BlockType>("paragraph");
+	const toolbar = useRef<HTMLDivElement>(null);
+
+	// Tab goes from the subject straight into the message: the toolbar's controls are not tab
+	// stops. They are reached with Alt+F10 from the message, move with the arrow keys, and
+	// Escape returns to writing.
+	const controls = () =>
+		[
+			...(toolbar.current?.querySelectorAll<HTMLElement>(
+				"button, select, input",
+			) ?? []),
+		].filter((control) => !control.closest("form"));
+	useEffect(
+		() =>
+			editor.registerRootListener((root, previous) => {
+				const onKeyDown = (event: globalThis.KeyboardEvent) => {
+					if (event.altKey && event.key === "F10") {
+						event.preventDefault();
+						controls()[0]?.focus();
+					}
+				};
+				previous?.removeEventListener("keydown", onKeyDown);
+				root?.addEventListener("keydown", onKeyDown);
+				return () => root?.removeEventListener("keydown", onKeyDown);
+			}),
+		[editor],
+	);
+	const onToolbarKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			editor.getRootElement()?.focus();
+			return;
+		}
+		const step =
+			event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+		if (!step || event.target instanceof HTMLTextAreaElement) return;
+		const all = controls();
+		const index = all.indexOf(event.target as HTMLElement);
+		if (index < 0) return;
+		event.preventDefault();
+		all[(index + step + all.length) % all.length]?.focus();
+	};
 
 	useEffect(() => {
 		const read = () => {
@@ -124,6 +165,7 @@ export function EditorToolbar() {
 		<IconButton
 			size="sm"
 			kind="ghost"
+			tabIndex={-1}
 			label={label}
 			onClick={run}
 			// Keep the selection in the editor when the button is pressed.
@@ -192,13 +234,20 @@ export function EditorToolbar() {
 	};
 
 	return (
-		<div className={styles.toolbar} role="toolbar" aria-label="Formatting">
+		<div
+			ref={toolbar}
+			className={styles.toolbar}
+			role="toolbar"
+			aria-label="Formatting (Alt+F10 to reach, Escape to return to the message)"
+			onKeyDownCapture={onToolbarKeyDown}
+		>
 			<div className={styles.select}>
 				<Select
 					id="compose-block-type"
 					size="sm"
 					labelText="Paragraph style"
 					hideLabel
+					tabIndex={-1}
 					value={blockType}
 					onChange={(event) => setBlock(event.target.value as BlockType)}
 				>
@@ -213,6 +262,7 @@ export function EditorToolbar() {
 					size="sm"
 					labelText="Text size"
 					hideLabel
+					tabIndex={-1}
 					defaultValue=""
 					onChange={(event) =>
 						style("font-size", event.target.value || null, true)
@@ -235,6 +285,7 @@ export function EditorToolbar() {
 				<input
 					type="color"
 					aria-label="Text colour"
+					tabIndex={-1}
 					defaultValue="#161616"
 					onChange={(event) => style("color", event.target.value)}
 				/>
@@ -244,6 +295,7 @@ export function EditorToolbar() {
 				<input
 					type="color"
 					aria-label="Highlight colour"
+					tabIndex={-1}
 					defaultValue="#f1c21b"
 					onChange={(event) => style("background-color", event.target.value)}
 				/>

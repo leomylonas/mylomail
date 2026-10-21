@@ -491,7 +491,7 @@ export function AccountSettings({
 					disabled={!initialSyncBoundValid}
 					onClick={() => void save()}
 				>
-					Save
+					Save account settings
 				</Button>
 				<span className={styles.saved} role="status">
 					{saved ? (

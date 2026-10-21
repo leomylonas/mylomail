@@ -71,12 +71,14 @@ import {
 } from "@mylomail/renderer/Shell/NotificationNavigation";
 import {
 	AuthState,
+	OutboxStatus,
 	ProviderType,
 	SpecialUse,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import {
 	SyncNowOutcome,
 	type MutationFailureDto,
+	type OutboxItemDto,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { FailureDetailsDialog } from "@mylomail/renderer/Components/FailureDetailsDialog/FailureDetailsDialog";
 import styles from "@mylomail/renderer/Shell/AppShell/AppShell.module.css";
@@ -275,6 +277,21 @@ export function AppShell({
 			setPane("reading");
 		}).dispose;
 	}, [hub, queryClient, selectedAccountId, selectedMessageId]);
+
+	// Compose hands a send to the outbox and closes, so what happens to it afterwards is reported
+	// here: a message that could not be sent is the one outcome the user has to hear about.
+	useEffect(() => {
+		if (!hub) return;
+		return hub.subscribe("outboxStatusChanged", (item: OutboxItemDto) => {
+			if (item.status !== OutboxStatus.Failed) return;
+			notify(notifications, {
+				kind: "error",
+				title: "A message could not be sent",
+				detail: item.lastError ?? "The server did not accept it.",
+				persistent: true,
+			});
+		}).dispose;
+	}, [hub, notifications]);
 
 	// IMAP IDLE is deliberately limited to Inbox plus the mailbox this window is viewing.
 	// This is a non-durable wakeup hint only; the backend's normal poll loop remains the

@@ -20,12 +20,7 @@ import {
 	TimePicker,
 } from "@carbon/react";
 import { Editor } from "@mylomail/renderer/Components/Editor/Editor";
-import type {
-	OutboxItemDto,
-	SendIdentityDto,
-} from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
-import { OutboxStatus } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
-import { describeSentState } from "@mylomail/renderer/Components/Compose/SentStatus";
+import type { SendIdentityDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import {
 	mentionsAttachmentOutsideQuote,
 	type ComposeSeed,
@@ -39,22 +34,10 @@ import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Noti
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import styles from "@mylomail/renderer/Components/Compose/Compose.module.css";
 
-interface Sent {
+/** A send handed to the outbox: from here the draft belongs to the server, not to this window. */
+interface QueuedSend {
 	outboxItemId: string;
-	cancelled: boolean;
-	/** Absent for a normal send (the undo-send delay applies); set for a genuine schedule. */
 	scheduledFor?: Date;
-	/**
-	 * The item's live status, kept in sync via `OutboxStatusChanged` (§7, §15) so this window
-	 * reflects what actually happened rather than sitting on "Sending…" forever once the
-	 * worker takes the item — undefined only in the instant between `SendDraft` returning and
-	 * the first announcement arriving.
-	 */
-	status?: OutboxStatus;
-	lastError?: string;
-	reconcilingSince?: Date;
-	/** An undo attempt lost its compare-and-swap against the send worker; see `SentState`. */
-	undoRejected?: boolean;
 }
 
 interface DraftAttachment {
@@ -230,7 +213,12 @@ export function Compose({
 	hub: MailHubConnection;
 	accountId: string;
 	/** Every account, for the From menu. */
-	accounts?: { id: string; displayName: string; emailAddress: string }[];
+	accounts?: {
+		id: string;
+		displayName: string;
+		emailAddress: string;
+		undoSendDelaySeconds?: number;
+	}[];
 	/**
 	 * Moves this message to another account: the parent remounts compose there with the given
 	 * seed. Absent in a window that is already just one account's draft, which then offers only
@@ -271,7 +259,6 @@ export function Compose({
 	);
 	const [subject, setSubject] = useState(draft?.subject ?? seed?.subject ?? "");
 	const [body, setBody] = useState(draft?.bodyHtml ?? seed?.bodyHtml ?? "");
-	const [sent, setSent] = useState<Sent | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
 	const dateFormats = useDateFormats();
@@ -469,7 +456,7 @@ export function Compose({
 	const discarding = useRef(false);
 	// A ref, rather than React state, is the close barrier's source of truth: the native
 	// close request can arrive between SetState and its next render.
-	const queuedSend = useRef<Sent | null>(null);
+	const queuedSend = useRef<QueuedSend | null>(null);
 	// What the server holds already: the draft as opened, then whatever was last saved.
 	const lastSaved = useRef({
 		to: draft ? to : "",
@@ -479,7 +466,6 @@ export function Compose({
 		body: draft ? body : "",
 	});
 	const sendInFlight = useRef<Promise<void> | null>(null);
-	const earlyStatuses = useRef(new Map<string, OutboxItemDto>());
 	const attachmentMutations = useRef(new Set<Promise<unknown>>());
 	const attachmentFailure = useRef<unknown>(undefined);
 	const save = (): Promise<string> => {
@@ -650,7 +636,7 @@ export function Compose({
 		// Once a send is queued the draft belongs to the outbox, and is deleted when the message
 		// goes; saving it again would put a copy of the sent message back in Drafts. Undoing the
 		// send hands it back.
-		if (queuedSend.current && !queuedSend.current.cancelled) return;
+		if (queuedSend.current) return;
 		const timer = setTimeout(
 			() => void save().catch(reportFailure("This draft could not be saved")),
 			2000,
@@ -827,24 +813,11 @@ export function Compose({
 					id,
 					scheduledFor ? scheduledFor.toISOString() : undefined,
 				);
-				const early = earlyStatuses.current.get(outboxItemId);
-				earlyStatuses.current.delete(outboxItemId);
-				const queued: Sent = {
-					outboxItemId,
-					cancelled: false,
-					scheduledFor,
-					...(early
-						? {
-								status: early.status,
-								lastError: early.lastError ?? undefined,
-								reconcilingSince: early.reconcilingSince
-									? new Date(early.reconcilingSince)
-									: undefined,
-							}
-						: {}),
-				};
-				queuedSend.current = queued;
-				setSent(queued);
+				queuedSend.current = { outboxItemId, scheduledFor };
+				offerUndo(outboxItemId, scheduledFor);
+				// Sending carries on in the background; failures are reported by the shell. This
+				// window has nothing left to show.
+				onClose();
 			} catch (error) {
 				reportFailure(
 					scheduledFor
@@ -862,6 +835,56 @@ export function Compose({
 		} finally {
 			if (sendInFlight.current === operation) sendInFlight.current = null;
 		}
+	};
+
+	/**
+	 * While the undo window is open (or for as long as a scheduled message is waiting) a notice
+	 * offers Undo. Undo is a compare-and-swap against the worker: it can lose, and when it does
+	 * the honest answer is that the message has gone (§15).
+	 */
+	const offerUndo = (outboxItemId: string, scheduledFor?: Date) => {
+		const delay = scheduledFor
+			? 0
+			: (accounts?.find((account) => account.id === accountId)
+					?.undoSendDelaySeconds ?? 0);
+		if (!scheduledFor && delay <= 0) return;
+		const subjectText = fieldsRef.current.subject.trim();
+		const title = scheduledFor
+			? `Scheduled${subjectText ? `: ${subjectText}` : " message"}`
+			: `Sending${subjectText ? `: ${subjectText}` : " message"}`;
+		const clear = () =>
+			notifications.setState(
+				"notifications",
+				notifications
+					.getState("notifications")
+					.filter((notification) => notification.title !== title),
+			);
+		notify(notifications, {
+			kind: "info",
+			title,
+			detail: scheduledFor
+				? `Scheduled for ${dateFormats.dateTime(scheduledFor)}.`
+				: "You can still undo this.",
+			action: {
+				label: "Undo send",
+				run: () => {
+					clear();
+					void hub
+						.cancelScheduledSend(outboxItemId)
+						.then((cancelled) =>
+							notify(notifications, {
+								kind: cancelled ? "success" : "info",
+								title: cancelled ? "Send cancelled" : "Too late to undo",
+								detail: cancelled
+									? "The message is back in Drafts."
+									: "This message is already being sent.",
+							}),
+						)
+						.catch(reportFailure("The send could not be undone"));
+				},
+			},
+		});
+		if (!scheduledFor) setTimeout(clear, delay * 1000);
 	};
 
 	const scheduleForPreset = (preset: "tomorrow" | "monday") => {
@@ -946,54 +969,6 @@ export function Compose({
 		}
 	};
 
-	// Undo is a compare-and-swap against the worker, not a check: it can lose, and when it
-	// does the honest answer is that the message has gone (§15).
-	const undo = async () => {
-		if (!sent) return;
-		try {
-			const cancelled = await hub.cancelScheduledSend(sent.outboxItemId);
-			// Functional update, not a spread of the closure-captured `sent`: a genuine
-			// OutboxStatusChanged can land while this call is still in flight, and overwriting
-			// it with a stale copy here would revert a real "Sent"/"Failed" back to whatever
-			// this closure saw when undo() was first called.
-			if (queuedSend.current?.outboxItemId === sent.outboxItemId)
-				queuedSend.current = { ...queuedSend.current, cancelled };
-			setSent((current) =>
-				current ? { ...current, cancelled, undoRejected: !cancelled } : current,
-			);
-		} catch (error) {
-			reportFailure("The send could not be undone")(error);
-		}
-	};
-
-	useEffect(() => {
-		const onStatusChanged = (item: OutboxItemDto) => {
-			const current = queuedSend.current;
-			if (!current || item.id !== current.outboxItemId) {
-				// A send with no undo delay can finish before sendDraft's own reply reaches this
-				// window; keep the update so it is applied once the item id is known, rather than
-				// leaving "Sending…" on screen for good.
-				earlyStatuses.current.set(item.id, item);
-				return;
-			}
-			const updated = {
-				...current,
-				status: item.status,
-				lastError: item.lastError ?? undefined,
-				reconcilingSince: item.reconcilingSince
-					? new Date(item.reconcilingSince)
-					: undefined,
-			};
-			queuedSend.current = updated;
-			setSent((rendered) =>
-				rendered && rendered.outboxItemId === item.id
-					? { ...rendered, ...updated }
-					: updated,
-			);
-		};
-		return hub.subscribe("outboxStatusChanged", onStatusChanged).dispose;
-	}, [hub]);
-
 	// A draft already open here can be flagged SyncConflict by a background sync running
 	// concurrently (a remote materialisation, or another client's own push) — DraftSyncService
 	// then correctly refuses to push this window's edits until it's resolved (§1, §15), but
@@ -1041,7 +1016,7 @@ export function Compose({
 	// Send button's own disabled condition exactly so this can't send something the
 	// button itself would refuse to, and does nothing once a send has already gone out.
 	useEffect(() => {
-		if (sent) return;
+		if (queuedSend.current) return;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (
 				event.key === "Enter" &&
@@ -1054,31 +1029,7 @@ export function Compose({
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [sent, busy, to, syncConflict, send]);
-
-	if (sent) {
-		const display = describeSentState(sent, undefined, dateFormats);
-		return (
-			<div className={styles.compose}>
-				<p
-					className={display.failed ? styles.sendFailed : styles.sent}
-					role={display.failed ? "alert" : undefined}
-				>
-					{display.message}
-				</p>
-				<div className={styles.actions}>
-					{display.canUndo ? (
-						<Button size="sm" kind="tertiary" onClick={() => void undo()}>
-							Undo send
-						</Button>
-					) : null}
-					<Button size="sm" kind="ghost" onClick={onClose}>
-						Close
-					</Button>
-				</div>
-			</div>
-		);
-	}
+	}, [busy, to, syncConflict, send]);
 
 	return (
 		<div

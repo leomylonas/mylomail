@@ -46,10 +46,7 @@ test("a composed message is sent and arrives at the server", async () => {
 		await window
 			.getByLabel("Signature (HTML)")
 			.fill("<p>Primary signature</p>");
-		await window
-			.getByRole("button", { name: "Save", exact: true })
-			.first()
-			.click();
+		await window.getByRole("button", { name: "Save identity" }).first().click();
 		await window.getByRole("button", { name: "Add identity" }).click();
 		await window.getByLabel("Display name").fill("Alias");
 		await window.getByLabel("Email address").fill("alias@example.org");
@@ -98,7 +95,8 @@ test("a composed message is sent and arrives at the server", async () => {
 		await window.keyboard.type("italic ones");
 		await window.getByRole("button", { name: "Send", exact: true }).click();
 
-		await expect(window.getByText("Sending…")).toBeVisible();
+		// Sending carries on in the background: compose closes rather than waiting on it.
+		await expect(window.getByLabel("Subject")).toHaveCount(0);
 
 		// The receiving server is the only witness that matters: everything before this point
 		// is the app agreeing with itself.
@@ -181,10 +179,7 @@ test("writing starts at the top of the message, above the signature", async () =
 			.click();
 		await window.getByRole("button", { name: "Edit", exact: true }).click();
 		await window.getByLabel("Signature (HTML)").fill("<p>Bottom signature</p>");
-		await window
-			.getByRole("button", { name: "Save", exact: true })
-			.first()
-			.click();
+		await window.getByRole("button", { name: "Save identity" }).first().click();
 		await window.getByRole("button", { name: "Close settings" }).click();
 		await expect(
 			window.getByRole("button", { name: "New message" }),
@@ -297,10 +292,7 @@ test("the sender's name, a plain-text signature and the full formatting set reac
 		await window.getByLabel("Display name").fill("Leo Mylonas");
 		// Typed as text, the way the settings box takes it: the break between the lines is real.
 		await window.getByLabel("Signature (HTML)").fill("Cheers,\nLeo");
-		await window
-			.getByRole("button", { name: "Save", exact: true })
-			.first()
-			.click();
+		await window.getByRole("button", { name: "Save identity" }).first().click();
 		await window.getByRole("button", { name: "Close settings" }).click();
 
 		await expect(
@@ -381,6 +373,30 @@ test("the sender's name, a plain-text signature and the full formatting set reac
 			"Cheers,</span><br><span>(and thanks)</span><br><span>Leo",
 		);
 		expect(violations).toEqual([]);
+	} finally {
+		await app.close();
+	}
+});
+
+test("Tab goes from the subject into the message, and the toolbar is reached with Alt+F10", async () => {
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "New message" }).click();
+		await expect(window.getByLabel("Message", { exact: true })).toBeVisible();
+		await window.getByLabel("Subject").focus();
+		await window.keyboard.press("Tab");
+		await expect(window.getByLabel("Message", { exact: true })).toBeFocused();
+
+		await window.keyboard.press("Alt+F10");
+		await expect(window.getByLabel("Paragraph style")).toBeFocused();
+		await window.keyboard.press("ArrowRight");
+		await window.keyboard.press("ArrowRight");
+		await expect(window.getByRole("button", { name: "Bold" })).toBeFocused();
+		await window.keyboard.press("ArrowRight");
+		await expect(window.getByRole("button", { name: "Italic" })).toBeFocused();
+		await window.keyboard.press("Escape");
+		await expect(window.getByLabel("Message", { exact: true })).toBeFocused();
 	} finally {
 		await app.close();
 	}
