@@ -251,6 +251,8 @@ function createFixtureEnvironment(
 		XDG_CONFIG_HOME: configHome,
 		XDG_DATA_HOME: join(root, "share"),
 		MYLOMAIL_MASTER_PASSWORD: "e2e-master-password",
+		// No "make default mail app" dialog over the user's screen on every launch.
+		MYLOMAIL_SKIP_MAILTO_PROMPT: "1",
 	};
 	if (useLocalRenderer) {
 		inherited.MYLOMAIL_RENDERER_PATH = join(

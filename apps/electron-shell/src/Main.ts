@@ -612,6 +612,9 @@ async function promptForMailtoDefaultAsync(
 	window: BrowserWindow,
 ): Promise<void> {
 	if (app.isDefaultProtocolClient("mailto")) return;
+	// Automated runs (end-to-end tests, screenshot capture) launch many instances and must not put a
+	// dialog on the screen of whoever is working alongside them.
+	if (process.env.MYLOMAIL_SKIP_MAILTO_PROMPT === "1") return;
 
 	try {
 		const response = await session.defaultSession.fetch(
