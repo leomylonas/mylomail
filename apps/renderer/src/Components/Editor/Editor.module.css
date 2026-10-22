@@ -18,7 +18,7 @@
 .input {
 	display: flow-root;
 	min-height: 12rem;
-	padding: 0 var(--cds-spacing-04) var(--cds-spacing-04);
+	padding: 0 var(--cds-spacing-05) var(--cds-spacing-05);
 	outline: none;
 }
 
@@ -27,7 +27,7 @@
 .placeholder {
 	position: absolute;
 	top: 1em;
-	left: var(--cds-spacing-04);
+	left: var(--cds-spacing-05);
 	color: var(--cds-text-placeholder);
 	pointer-events: none;
 }

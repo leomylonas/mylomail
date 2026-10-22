@@ -1032,6 +1032,41 @@ public class MailHub(
 			tasks.Add(new BackgroundTaskDto(DescribeQueuedChange(group.OperationKind, group.Count), NameOf(group.AccountId), null, null, group.Since, group.Running));
 		}
 
+		// Messages handed to the outbox: waiting for their undo window or turn, scheduled for later, or
+		// sent with the outcome not yet confirmed. The send itself shows as the running job.
+		var outbox = await context
+			.OutboxItems.AsNoTracking()
+			.Where(item =>
+				item.Status == OutboxStatus.Scheduled
+				|| item.Status == OutboxStatus.Pending
+				|| item.Status == OutboxStatus.AmbiguousOutcome
+			)
+			.Select(item => new
+			{
+				item.AccountId,
+				item.Status,
+				item.ScheduledSendAt,
+				item.CreatedAt,
+			})
+			.ToListAsync();
+		var laterThan = DateTimeOffset.UtcNow.AddMinutes(1);
+		foreach (var group in outbox
+			.GroupBy(row => (row.AccountId, Kind: row.Status == OutboxStatus.AmbiguousOutcome ? 2 : row.ScheduledSendAt > laterThan ? 1 : 0))
+			.Select(rows => new { rows.Key.AccountId, rows.Key.Kind, Count = rows.Count(), Since = rows.Min(row => row.CreatedAt) })
+			.OrderBy(g => g.AccountId)
+			.ThenBy(g => g.Kind))
+		{
+			var messages = group.Count == 1 ? "1 message" : $"{group.Count:N0} messages";
+			var label = group.Kind switch
+			{
+				2 => $"Checking with the mail server whether {messages} was sent",
+				1 => $"{messages} scheduled to send later",
+				_ => $"Sending {messages}",
+			};
+			// Scheduled for later is not being worked on; the others are in hand.
+			tasks.Add(new BackgroundTaskDto(label, NameOf(group.AccountId), null, null, group.Since, group.Kind != 1));
+		}
+
 		var exports = await context
 			.ExportJobs.AsNoTracking()
 			.Where(job => job.Status == ExportJobStatus.Running)

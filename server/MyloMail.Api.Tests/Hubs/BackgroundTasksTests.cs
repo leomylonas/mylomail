@@ -42,6 +42,39 @@ public sealed class BackgroundTasksTests
 	}
 
 	[Fact]
+	public async Task Mail_in_the_outbox_is_listed_while_it_waits_and_is_gone_once_sent()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);
+		var now = DateTimeOffset.UtcNow;
+		OutboxItem Item(OutboxStatus status, TimeSpan due) =>
+			new()
+			{
+				Id = Guid.NewGuid(),
+				AccountId = harness.Account.Id,
+				DraftId = Guid.NewGuid(),
+				Status = status,
+				ScheduledSendAt = now + due,
+				CreatedAt = now,
+				StableMessageId = $"<{Guid.NewGuid():N}@example.test>",
+			};
+		var waiting = Item(OutboxStatus.Scheduled, TimeSpan.FromSeconds(10));
+		var later = Item(OutboxStatus.Scheduled, TimeSpan.FromHours(20));
+		var sent = Item(OutboxStatus.Sent, TimeSpan.Zero);
+		await harness.UsingAsync(async services =>
+		{
+			var context = services.GetRequiredService<MyloMailDbContext>();
+			context.OutboxItems.AddRange(waiting, later, sent);
+			await context.SaveChangesAsync();
+		});
+
+		var tasks = await harness.UsingAsync(services => services.GetRequiredService<MailHub>().GetBackgroundTasks());
+
+		Assert.Contains(tasks, task => task.Label == "Sending 1 message" && task.Running);
+		Assert.Contains(tasks, task => task.Label == "1 message scheduled to send later" && !task.Running);
+		Assert.Equal(2, tasks.Count);
+	}
+
+	[Fact]
 	public async Task Running_work_shows_with_its_progress_until_it_ends()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Gmail);

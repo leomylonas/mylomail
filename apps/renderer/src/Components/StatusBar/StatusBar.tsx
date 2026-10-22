@@ -78,6 +78,14 @@ export function StatusBar({
 	// Provider rate limits are informational and clear on their own, so they are a muted note in
 	// the activity area rather than an entry in the problems list. Polled while one is active so
 	// the countdown and its disappearance are both seen.
+	// A message handed to the outbox shows at once rather than at the next poll, and again as it
+	// is sent or fails.
+	useEffect(() => {
+		if (!hub) return;
+		return hub.subscribe("outboxStatusChanged", () => {
+			void queryClient.invalidateQueries({ queryKey: ["background-tasks"] });
+		}).dispose;
+	}, [hub, queryClient]);
 	const throttled = useQuery({
 		queryKey: ["throttled-accounts"],
 		queryFn: () => hub!.getThrottledAccounts(),
@@ -97,6 +105,13 @@ export function StatusBar({
 	const problemList =
 		problems.data?.filter((p) => p.kind !== ProblemKind.MessageRetrying) ?? [];
 	const problemCount = problemList.length;
+	// Only mail going out: say so, rather than calling it syncing.
+	const isSending = (label: string) =>
+		/^(Sending|Checking with the mail server whether .* sent|\d.* scheduled to send)/.test(
+			label,
+		);
+	const sendingOnly =
+		otherWork.length > 0 && otherWork.every((task) => isSending(task.label));
 	const [, refresh] = useReducer((count: number) => count + 1, 0);
 	useEffect(
 		() =>
@@ -187,12 +202,19 @@ export function StatusBar({
 							aria-haspopup="dialog"
 							onClick={() => setActivityOpen(true)}
 						>
-							{activity.syncing ||
-							pendingContent > 0 ||
-							retrying > 0 ||
-							workRunning
-								? "Syncing…"
-								: "Changes waiting…"}
+							{sendingOnly &&
+							!activity.syncing &&
+							pendingContent === 0 &&
+							retrying === 0
+								? workRunning
+									? "Sending…"
+									: "Scheduled to send…"
+								: activity.syncing ||
+									  pendingContent > 0 ||
+									  retrying > 0 ||
+									  workRunning
+									? "Syncing…"
+									: "Changes waiting…"}
 						</button>
 					</Tooltip>
 				) : null}

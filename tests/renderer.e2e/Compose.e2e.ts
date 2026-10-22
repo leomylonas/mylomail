@@ -425,13 +425,40 @@ test("the placeholder sits where the first line is typed", async () => {
 			editor.boundingBox(),
 		]);
 		// The gap above the first line is the gap at its side.
-		expect(
-			Math.abs(typed!.y - box!.y - (typed!.x - box!.x)),
-		).toBeLessThanOrEqual(1.5);
+		const above = typed!.y - box!.y;
+		const beside = typed!.x - box!.x;
+		expect({ above, beside }).toEqual({ above: beside, beside });
 		expect(typed).not.toBeNull();
 		expect(hint).not.toBeNull();
 		expect(Math.abs(typed!.y - hint!.y)).toBeLessThanOrEqual(1.5);
 	} finally {
+		await app.close();
+	}
+});
+
+test("a message waiting to be sent shows in the status bar and the background activity list", async () => {
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, imapPort);
+		await window.getByRole("button", { name: "New message" }).click();
+		await window.getByLabel("To", { exact: true }).fill("someone@example.org");
+		await window.getByLabel("Subject").fill(`Later ${Date.now()}`);
+		await window.getByRole("button", { name: "Send later" }).click();
+		await window.getByRole("menuitem", { name: "Tomorrow morning" }).click();
+
+		// Only mail going out, so the bar says so rather than "Syncing…".
+		const status = window.getByText("Scheduled to send…", { exact: true });
+		await expect(status).toBeVisible({ timeout: 30_000 });
+		await status.click();
+		await expect(
+			window.getByRole("dialog").getByText("1 message scheduled to send later"),
+		).toBeVisible();
+	} finally {
+		// Quitting with a message still waiting asks first; answer "Quit Anyway".
+		await app.evaluate(({ dialog }) => {
+			dialog.showMessageBox = () =>
+				Promise.resolve({ response: 0, checkboxChecked: false });
+		});
 		await app.close();
 	}
 });

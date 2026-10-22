@@ -1056,6 +1056,7 @@ export function Compose({
 					</Button>
 					<OverflowMenu
 						aria-label="Send later"
+						iconDescription="Send later"
 						size="sm"
 						disabled={busy || (!to && !cc && !bcc) || syncConflict}
 						flipped
