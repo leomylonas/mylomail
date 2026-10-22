@@ -306,13 +306,13 @@ public interface IMailHub
 	/// (<see cref="CrossAccountTransfer"/>). Returns at once; the work runs in the background and is
 	/// listed under background activity until it is done.
 	/// </summary>
-	/// <returns>How many moves were started; a message already being moved is not started twice.</returns>
+	/// <returns>The moves started, as the id each original will be removed under; a message already being moved is rejected.</returns>
 	/// <exception cref="HubException">
 	/// The folder is not in the target account, it is a Drafts folder, or the target is a Microsoft 365
 	/// account whose organisation has not granted the mailbox import permission (the call waits for the
 	/// user's answer to the consent screen first).
 	/// </exception>
-	Task<int> MoveMessagesToAccount(
+	Task<MutationEnqueueResultDto> MoveMessagesToAccount(
 		Guid sourceAccountId,
 		IReadOnlyList<Guid> messageIds,
 		Guid targetAccountId,
@@ -1841,12 +1841,19 @@ public class MailHub(
 			messageId => mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged))
 		);
 
-	public Task<int> MoveMessagesToAccount(
+	public async Task<MutationEnqueueResultDto> MoveMessagesToAccount(
 		Guid sourceAccountId,
 		IReadOnlyList<Guid> messageIds,
 		Guid targetAccountId,
 		Guid targetMailboxId
-	) => transfers.EnqueueAsync(sourceAccountId, messageIds, targetAccountId, targetMailboxId);
+	)
+	{
+		var started = await transfers.EnqueueAsync(sourceAccountId, messageIds, targetAccountId, targetMailboxId);
+		return new MutationEnqueueResultDto(
+			started,
+			[.. messageIds.Distinct().Except(started.Select(item => item.MessageId))]
+		);
+	}
 
 	public async Task<MutationEnqueueResultDto> MoveMessages(
 		Guid accountId,

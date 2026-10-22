@@ -682,12 +682,15 @@ export function MessageList({
 	});
 
 	// Moving to another account: copied there first, and the original goes to the Trash only once
-	// the copy is known to exist, so there is nothing optimistic to show or to roll back here.
+	// the copy is known to exist. The message leaves this list at once (hidden, as for any move);
+	// the transfer's id is the id of the mutation that later trashes the original, so that
+	// mutation's settlement releases the claim, and a failed transfer releases it too.
 	const moveToAccount = useMutation({
 		mutationFn: (input: {
 			messages: MessageSummary[];
 			targetAccountId: string;
 			targetMailboxId: string;
+			claims: OptimisticMessageClaim[];
 		}) =>
 			hub.moveMessagesToAccount(
 				accountId,
@@ -695,19 +698,21 @@ export function MessageList({
 				input.targetAccountId,
 				input.targetMailboxId,
 			),
-		onSuccess: (started) => {
-			if (started > 0)
-				notify(notifications, {
-					kind: "info",
-					title:
-						started === 1 ? "Moving 1 message" : `Moving ${started} messages`,
-					detail:
-						"Copied there first; the original goes to its Trash once the copy is safe.",
-				});
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, mailboxId, input.claims),
+		onSuccess: (result, input) =>
+			acceptOptimisticMessages(
+				queryClient,
+				mailboxId,
+				input.claims,
+				result.accepted,
+			),
+		onError: (error, input) => {
+			restoreOptimisticMessages(queryClient, mailboxId, input.claims);
+			reportFailure("The messages could not be moved to the other account")(
+				error,
+			);
 		},
-		onError: reportFailure(
-			"The messages could not be moved to the other account",
-		),
 	});
 
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
@@ -1134,7 +1139,13 @@ export function MessageList({
 							mailbox.specialUse !== SpecialUse.Drafts,
 					),
 				})),
-			(input) => moveToAccount.mutate(input),
+			(input) =>
+				moveToAccount.mutate({
+					...input,
+					claims: createOptimisticMessageClaims(
+						input.messages.map((message) => message.id),
+					),
+				}),
 			trashUnavailable,
 			hub,
 			queryClient,

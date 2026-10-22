@@ -49,6 +49,7 @@ import {
 import type { Account } from "@mylomail/renderer/Types/Account";
 import { StatusBar } from "@mylomail/renderer/Components/StatusBar/StatusBar";
 import { ReadingPane } from "@mylomail/renderer/Components/ReadingPane/ReadingPane";
+import { settleOptimisticMutation } from "@mylomail/renderer/Shell/Backend/OptimisticMessageState";
 import { useHub } from "@mylomail/renderer/Shell/Backend/UseHub";
 import {
 	queryKeys,
@@ -300,7 +301,17 @@ export function AppShell({
 		if (!hub) return;
 		return hub.subscribe(
 			"transferFailed",
-			(_sourceAccountId: string, _messageId: string, reason: string) => {
+			(
+				_sourceAccountId: string,
+				messageId: string,
+				transferId: string,
+				reason: string,
+			) => {
+				// Back into the list it was hidden from.
+				settleOptimisticMutation(queryClient, {
+					mutationItemId: transferId,
+					messageId,
+				});
 				notify(notifications, {
 					kind: "error",
 					title: "A message could not be moved to the other account",
@@ -309,7 +320,7 @@ export function AppShell({
 				});
 			},
 		).dispose;
-	}, [hub, notifications]);
+	}, [hub, notifications, queryClient]);
 
 	// IMAP IDLE is deliberately limited to Inbox plus the mailbox this window is viewing.
 	// This is a non-durable wakeup hint only; the backend's normal poll loop remains the

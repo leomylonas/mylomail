@@ -58,7 +58,7 @@ public interface IMailClient
 	/// A message could not be moved to another account (<c>MoveMessagesToAccount</c>); its original
 	/// has not been touched. The reason is for the user, not a diagnostic.
 	/// </summary>
-	Task TransferFailed(Guid sourceAccountId, Guid messageId, string reason);
+	Task TransferFailed(Guid sourceAccountId, Guid messageId, Guid transferId, string reason);
 
 	Task CalendarEventUpdated(Guid eventId);
 

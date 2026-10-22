@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using MyloMail.Api.Contracts;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
@@ -64,8 +65,12 @@ public sealed class CrossAccountTransferService(
 	/// Records the intent to move these messages and asks for it to be carried out. Rejects the whole
 	/// request, before anything is recorded, when it cannot work.
 	/// </summary>
-	/// <returns>How many transfers were started; a message already being moved is not started twice.</returns>
-	public async Task<int> EnqueueAsync(
+	/// <returns>
+	/// One entry per transfer started (a message already being moved is not started twice), carrying the
+	/// transfer's id. That id is also the id of the mutation that later moves the original to Trash, so
+	/// the renderer can hide the message under it and let that mutation's settlement release it.
+	/// </returns>
+	public async Task<IReadOnlyList<MutationEnqueueAcceptanceDto>> EnqueueAsync(
 		Guid sourceAccountId,
 		IReadOnlyList<Guid> messageIds,
 		Guid targetAccountId,
@@ -132,7 +137,7 @@ public sealed class CrossAccountTransferService(
 			.Select(t => t.MessageId)
 			.ToListAsync(ct);
 
-		var started = 0;
+		var started = new List<MutationEnqueueAcceptanceDto>();
 		foreach (var message in messages.Where(m => !active.Contains(m.Id)))
 		{
 			var transfer = new CrossAccountTransfer
@@ -152,7 +157,7 @@ public sealed class CrossAccountTransferService(
 			try
 			{
 				await context.SaveChangesAsync(ct);
-				started++;
+				started.Add(new MutationEnqueueAcceptanceDto(message.Id, transfer.Id));
 			}
 			catch (DbUpdateException)
 			{
@@ -162,7 +167,7 @@ public sealed class CrossAccountTransferService(
 			}
 		}
 
-		if (started > 0)
+		if (started.Count > 0)
 		{
 			dispatcher.RequestRun(targetAccountId);
 		}
@@ -490,7 +495,7 @@ public sealed class CrossAccountTransferService(
 		transfer.CompletedAt = clock.GetUtcNow();
 		await context.SaveChangesAsync(ct);
 		logger.LogWarning("Transfer {TransferId} failed: {Reason}", transfer.Id, reason);
-		await events.TransferFailedAsync(transfer.SourceAccountId, transfer.MessageId, reason);
+		await events.TransferFailedAsync(transfer.SourceAccountId, transfer.MessageId, transfer.Id, reason);
 	}
 }
 

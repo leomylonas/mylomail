@@ -205,7 +205,9 @@ export function MailboxTree({
 		mutationFn: (input: {
 			sourceAccountId: string;
 			messageIds: string[];
+			sourceMailboxId: string;
 			targetMailboxId: string;
+			claims: OptimisticMessageClaim[];
 		}) =>
 			hub.moveMessagesToAccount(
 				input.sourceAccountId,
@@ -213,17 +215,23 @@ export function MailboxTree({
 				accountId,
 				input.targetMailboxId,
 			),
-		onSuccess: (started) => {
-			if (started > 0)
-				notify(notifications, {
-					kind: "info",
-					title:
-						started === 1 ? "Moving 1 message" : `Moving ${started} messages`,
-					detail:
-						"Copied here first; the original goes to its Trash once the copy is safe.",
-				});
+		onMutate: (input) =>
+			hideOptimisticMessages(queryClient, input.sourceMailboxId, input.claims),
+		onSuccess: (result, input) =>
+			acceptOptimisticMessages(
+				queryClient,
+				input.sourceMailboxId,
+				input.claims,
+				result.accepted,
+			),
+		onError: (error, input) => {
+			restoreOptimisticMessages(
+				queryClient,
+				input.sourceMailboxId,
+				input.claims,
+			);
+			reportFailure("The messages could not be moved to this account")(error);
 		},
-		onError: reportFailure("The messages could not be moved to this account"),
 	});
 
 	// Drag-a-message-onto-a-folder and folder drag-reorder (§13 Epic 2). Native HTML5 DnD: no
@@ -467,7 +475,9 @@ export function MailboxTree({
 				moveToAccount.mutate({
 					sourceAccountId: messagePayload.accountId,
 					messageIds: messagePayload.messageIds,
+					sourceMailboxId: messagePayload.sourceMailboxId,
 					targetMailboxId: target.id,
+					claims: createOptimisticMessageClaims(messagePayload.messageIds),
 				});
 				return;
 			}

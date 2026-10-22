@@ -50,9 +50,9 @@ test("a message dragged to another account's folder is copied there and leaves t
 		await row.dispatchEvent("dragstart", { dataTransfer: transfer });
 		await target.dispatchEvent("dragover", { dataTransfer: transfer });
 		await target.dispatchEvent("drop", { dataTransfer: transfer });
-		await row.dispatchEvent("dragend", { dataTransfer: transfer });
 
-		await expect(window.getByText("Moving 1 message")).toBeVisible();
+		// Gone from the list straight away, with no notice; the move carries on in the background.
+		await expect(row).toBeHidden();
 		await expect
 			.poll(() => countWithSubject(targetPort, "INBOX", subject), {
 				timeout: 90_000,

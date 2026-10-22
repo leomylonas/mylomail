@@ -113,11 +113,11 @@ internal sealed class TransferHarness : IAsyncDisposable
 			return await scope.GetRequiredService<CrossAccountTransferService>().RunAsync(account);
 		});
 
-	public Task<int> EnqueueAsync(params Guid[] messageIds) =>
-		UsingAsync(scope =>
+	public async Task<int> EnqueueAsync(params Guid[] messageIds) =>
+		(await UsingAsync(scope =>
 			scope
 				.GetRequiredService<CrossAccountTransferService>()
-				.EnqueueAsync(SourceAccountId, messageIds, TargetAccountId, TargetInboxId));
+				.EnqueueAsync(SourceAccountId, messageIds, TargetAccountId, TargetInboxId))).Count;
 
 	/// <summary>A message in the source inbox, with its raw bytes stored, as a downloaded message is.</summary>
 	public async Task<Guid> AddMessageAsync(string? messageId = "<one@example.test>", bool isRead = true, bool isFlagged = false, bool withRaw = true)

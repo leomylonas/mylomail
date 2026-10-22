@@ -423,9 +423,9 @@ export type IMailHub = {
     * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
     * @param targetAccountId Transpiled from System.Guid
     * @param targetMailboxId Transpiled from System.Guid
-    * @returns How many moves were started; a message already being moved is not started twice. (Transpiled from System.Threading.Tasks.Task<int>)
+    * @returns The moves started, as the id each original will be removed under; a message already being moved is rejected. (Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.MutationEnqueueResultDto>)
     */
-    moveMessagesToAccount(sourceAccountId: string, messageIds: string[], targetAccountId: string, targetMailboxId: string): Promise<number>;
+    moveMessagesToAccount(sourceAccountId: string, messageIds: string[], targetAccountId: string, targetMailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
     * Drops one membership without deleting the message (§6) — meaningful only where a
     * message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
@@ -650,10 +650,11 @@ export type IMailClient = {
     * has not been touched. The reason is for the user, not a diagnostic.
     * @param sourceAccountId Transpiled from System.Guid
     * @param messageId Transpiled from System.Guid
+    * @param transferId Transpiled from System.Guid
     * @param reason Transpiled from string
     * @returns Transpiled from System.Threading.Tasks.Task
     */
-    transferFailed(sourceAccountId: string, messageId: string, reason: string): Promise<void>;
+    transferFailed(sourceAccountId: string, messageId: string, transferId: string, reason: string): Promise<void>;
     /**
     * @param eventId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task
