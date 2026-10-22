@@ -12,17 +12,21 @@
 	min-height: 12rem;
 }
 
+/* No top padding: the first paragraph's own 1em margin (1rem at the shared 16px) is the gap
+ * above the first line, the same as the padding at its sides. flow-root keeps that margin
+ * inside the editable area instead of collapsing out of it. */
 .input {
+	display: flow-root;
 	min-height: 12rem;
-	padding: var(--cds-spacing-04);
+	padding: 0 var(--cds-spacing-04) var(--cds-spacing-04);
 	outline: none;
 }
 
-/* Where the first line of the message starts: the editor's padding plus the first paragraph's own
- * top margin (1em at the shared 16px), so the placeholder and the caret share a baseline. */
+/* Where the first line of the message starts: the first paragraph's own top margin (1em at the
+ * shared 16px), so the placeholder and the caret share a baseline. */
 .placeholder {
 	position: absolute;
-	top: calc(var(--cds-spacing-04) + 1em);
+	top: 1em;
 	left: var(--cds-spacing-04);
 	color: var(--cds-text-placeholder);
 	pointer-events: none;

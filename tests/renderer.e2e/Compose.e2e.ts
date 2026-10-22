@@ -419,10 +419,15 @@ test("the placeholder sits where the first line is typed", async () => {
 		const editor = window.getByLabel("Message", { exact: true });
 		const placeholder = window.getByText("Write your message");
 		await expect(placeholder).toBeVisible();
-		const [typed, hint] = await Promise.all([
+		const [typed, hint, box] = await Promise.all([
 			editor.locator("p").first().boundingBox(),
 			placeholder.boundingBox(),
+			editor.boundingBox(),
 		]);
+		// The gap above the first line is the gap at its side.
+		expect(
+			Math.abs(typed!.y - box!.y - (typed!.x - box!.x)),
+		).toBeLessThanOrEqual(1.5);
 		expect(typed).not.toBeNull();
 		expect(hint).not.toBeNull();
 		expect(Math.abs(typed!.y - hint!.y)).toBeLessThanOrEqual(1.5);
