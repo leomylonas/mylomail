@@ -631,11 +631,34 @@ public sealed partial class GmailMailProvider(
 			.ToList();
 	}
 
+	/// <summary>
+	/// Gmail names its system labels in capitals (<c>DRAFT</c>, <c>SPAM</c>, <c>CATEGORY_PROMOTIONS</c>).
+	/// Shown as words; a user's own labels are left exactly as typed.
+	/// </summary>
+	internal static string DisplayName(Label label)
+	{
+		var name = label.Name ?? throw new InvalidOperationException("Gmail did not return a label name.");
+		if (label.Type != "system")
+		{
+			return name;
+		}
+
+		return name switch
+		{
+			"DRAFT" => "Drafts",
+			_ => string.Join(
+				' ',
+				name.Split('_', StringSplitOptions.RemoveEmptyEntries)
+					.Select(word => char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant())
+			),
+		};
+	}
+
 	internal static MailboxDto ToMailboxDto(Label label) =>
 		new()
 		{
 			ProviderMailboxId = label.Id ?? throw new InvalidOperationException("Gmail did not return a label id."),
-			Name = label.Name ?? throw new InvalidOperationException("Gmail did not return a label name."),
+			Name = DisplayName(label),
 			// Gmail's labels are flat. Any visual hierarchy is local and derived (§1).
 			ParentProviderMailboxId = null,
 			SpecialUse = SpecialUseOf(label.Id!),
