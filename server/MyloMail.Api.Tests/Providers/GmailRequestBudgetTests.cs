@@ -22,8 +22,8 @@ namespace MyloMail.Api.Tests.Providers;
 public sealed class GmailRequestBudgetTests
 {
 	// 600 units/min is 10 units/second, which keeps the arithmetic in these tests legible.
-	private static GmailRequestBudget Budget(FakeTimeProvider clock, int burst) =>
-		new(clock, unitsPerMinute: 600, burstUnits: burst);
+	private static GmailRequestBudget Budget(FakeTimeProvider clock, int burst, int unitsPerMinute = 600) =>
+		new(clock, unitsPerMinute: unitsPerMinute, burstUnits: burst);
 
 	[Fact]
 	public async Task Spending_within_the_burst_is_not_delayed()
@@ -75,6 +75,32 @@ public sealed class GmailRequestBudgetTests
 		Assert.False(spend.IsCompleted);
 		clock.Advance(TimeSpan.FromSeconds(0.2));
 		await spend.WaitAsync(TimeSpan.FromSeconds(5));
+	}
+
+	/// <summary>
+	/// After a refusal the rate climbs back, but not to the rate that was refused: it stops just under
+	/// it and probes upward slowly, so the account is not locked out again every few minutes.
+	/// </summary>
+	[Fact]
+	public async Task After_a_refusal_the_rate_recovers_to_just_under_what_was_refused_not_to_it()
+	{
+		var clock = new FakeTimeProvider();
+		var budget = Budget(clock, burst: 10_000, unitsPerMinute: 6_000);
+		var account = Guid.NewGuid();
+		await budget.AcquireAsync(account, 600, CancellationToken.None);
+
+		budget.NoteRefused(account);
+		var cut = budget.CurrentUnitsPerMinute(account);
+		clock.Advance(TimeSpan.FromMinutes(10));
+		var after10 = budget.CurrentUnitsPerMinute(account);
+		clock.Advance(TimeSpan.FromHours(3));
+		var afterHours = budget.CurrentUnitsPerMinute(account);
+
+		// Refused at 600 in the minute: cut to half of it, healed only to under 600 (0.8 of it, grown
+		// two percent a minute), and in the end back to the configured rate.
+		Assert.Equal(300, cut, 1);
+		Assert.InRange(after10, 400, 600);
+		Assert.Equal(6_000, afterHours, 1);
 	}
 
 	[Fact]

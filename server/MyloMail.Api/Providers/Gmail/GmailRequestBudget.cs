@@ -114,10 +114,14 @@ public sealed class GmailRequestBudget
 		var now = clock.GetTimestamp();
 		var elapsed = clock.GetElapsedTime(bucket.Timestamp, now);
 		bucket.Timestamp = now;
-		// A rate cut after a refusal heals by a tenth of the way back to the configured rate per
-		// minute, so the budget finds the limit the provider actually enforces and drifts back up
-		// if it was a passing condition.
-		bucket.Scale = Math.Min(1, bucket.Scale * Math.Pow(1.1, elapsed.TotalMinutes));
+		// A rate cut after a refusal heals by a tenth per minute, but only up to a ceiling just under
+		// the rate it was refused at; that ceiling itself rises by two percent a minute. The rate
+		// therefore settles near what the provider enforces and probes upward slowly, instead of
+		// climbing straight back to the rate that was refused and paying a minute's lockout for it
+		// every few minutes. A passing condition still heals: the ceiling reaches the configured
+		// rate in the end.
+		bucket.Ceiling = Math.Min(1, bucket.Ceiling * Math.Pow(CeilingGrowthPerMinute, elapsed.TotalMinutes));
+		bucket.Scale = Math.Min(bucket.Ceiling, bucket.Scale * Math.Pow(1.1, elapsed.TotalMinutes));
 		bucket.Available = Math.Min(
 			burstUnits * bucket.Scale,
 			bucket.Available + elapsed.TotalSeconds * unitsPerSecond * bucket.Scale
@@ -147,12 +151,31 @@ public sealed class GmailRequestBudget
 			Refill(bucket);
 			var target = Math.Max(MinimumScale, spent / 2.0 / (unitsPerSecond * 60));
 			bucket.Scale = Math.Min(bucket.Scale, target);
+			// Never again to be spent at the rate it was refused at: the next probe stays below it.
+			bucket.Ceiling = Math.Min(bucket.Ceiling, Math.Max(MinimumScale, CeilingFraction * spent / (unitsPerSecond * 60)));
 			// Nothing in hand: the next request waits at the slower rate from a standing start.
 			bucket.Available = Math.Min(bucket.Available, 0);
 		}
 	}
 
 	private const double MinimumScale = 0.02;
+	private const double CeilingFraction = 0.8;
+	private const double CeilingGrowthPerMinute = 1.02;
+
+	/// <summary>The rate the account is being paced at now, in units a minute.</summary>
+	internal double CurrentUnitsPerMinute(Guid accountId)
+	{
+		if (!buckets.TryGetValue(accountId, out var bucket))
+		{
+			return unitsPerSecond * 60;
+		}
+
+		lock (bucket)
+		{
+			Refill(bucket);
+			return unitsPerSecond * 60 * bucket.Scale;
+		}
+	}
 
 	/// <summary>
 	/// Units this process has charged to the account in the last minute — what the bucket believes
@@ -181,6 +204,7 @@ public sealed class GmailRequestBudget
 	{
 		public readonly Queue<(long Timestamp, int Units)> Spent = new();
 		public double Scale = 1;
+		public double Ceiling = 1;
 		public double Available = available;
 		public long Timestamp = timestamp;
 	}

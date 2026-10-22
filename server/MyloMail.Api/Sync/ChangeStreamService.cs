@@ -522,6 +522,14 @@ public sealed class ChangeStreamService(
 		);
 	}
 
+	/// <summary>Whether a page holds anything replay would apply.</summary>
+	internal static bool CarriesChanges(SyncResult result, IReadOnlyList<RemoteDraftPayload> remoteDrafts) =>
+		result.Upserted.Count > 0
+		|| result.FlagChanges.Count > 0
+		|| result.Removed.Count > 0
+		|| result.PermanentlyDeletedProviderMessageIds is { Count: > 0 }
+		|| remoteDrafts.Count > 0;
+
 	/// <summary>
 	/// Stages a page durably without applying it, advancing the cursor in the same
 	/// transaction. The cursor may advance here precisely because the page <i>is</i> durably
@@ -543,23 +551,31 @@ public sealed class ChangeStreamService(
 		{
 			await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-			var highest = await context
-				.StagedChangeEvents.Where(s => s.AccountId == account.Id)
-				.MaxAsync(s => (long?)s.Ordinal, ct);
+			// A poll that found nothing carries nothing to replay, so it advances the cursor
+			// without leaving an event behind: an hours-long backfill would otherwise queue one
+			// empty page a minute and report each as a change waiting to be applied. Any content
+			// at all (a message, a flag change, a removal, a permanent deletion, a remote draft)
+			// is staged, so nothing is ever skipped.
+			if (CarriesChanges(result, remoteDrafts))
+			{
+				var highest = await context
+					.StagedChangeEvents.Where(s => s.AccountId == account.Id)
+					.MaxAsync(s => (long?)s.Ordinal, ct);
 
-			context.StagedChangeEvents.Add(
-				new StagedChangeEvent
-				{
-					Id = Guid.NewGuid(),
-					AccountId = account.Id,
-					Ordinal = (highest ?? 0) + 1,
-					// The generations are staged with the page. Replay may be hours later, and
-					// the check has to be against the topology the page was observed under,
-					// not the topology that exists when it is finally applied.
-					Payload = SyncPagePayload.Serialize(result, remoteDrafts, generations),
-					StagedAt = clock.GetUtcNow(),
-				}
-			);
+				context.StagedChangeEvents.Add(
+					new StagedChangeEvent
+					{
+						Id = Guid.NewGuid(),
+						AccountId = account.Id,
+						Ordinal = (highest ?? 0) + 1,
+						// The generations are staged with the page. Replay may be hours later, and
+						// the check has to be against the topology the page was observed under,
+						// not the topology that exists when it is finally applied.
+						Payload = SyncPagePayload.Serialize(result, remoteDrafts, generations),
+						StagedAt = clock.GetUtcNow(),
+					}
+				);
+			}
 
 			if (result.NewCursor is not null)
 			{
