@@ -22,6 +22,8 @@ public interface IHubEvents
 
 	Task OutboxStatusChangedAsync(OutboxItemDto item);
 
+	Task TransferFailedAsync(Guid sourceAccountId, Guid messageId, string reason);
+
 	Task MessageSyncFailedAsync(MutationFailureDto failure);
 	Task MessageMutationQueuedAsync(MutationQueuedDto queued);
 
@@ -105,6 +107,9 @@ public sealed class HubEvents(IHubContext<MailHub, IMailClient> hub) : IHubEvent
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => hub.Clients.All.OutboxStatusChanged(item);
 
+	public Task TransferFailedAsync(Guid sourceAccountId, Guid messageId, string reason) =>
+		hub.Clients.All.TransferFailed(sourceAccountId, messageId, reason);
+
 	public Task MessageMutationQueuedAsync(MutationQueuedDto queued) =>
 		hub.Clients.All.MessageMutationQueued(queued);
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) =>
@@ -159,6 +164,8 @@ public sealed class NoHubEvents : IHubEvents
 	public Task MailboxTreeChangedAsync(Guid accountId) => Task.CompletedTask;
 
 	public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
+
+	public Task TransferFailedAsync(Guid sourceAccountId, Guid messageId, string reason) => Task.CompletedTask;
 	public Task MessageMutationQueuedAsync(MutationQueuedDto queued) => Task.CompletedTask;
 
 	public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;

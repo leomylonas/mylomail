@@ -41,6 +41,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 		Set<MutationExecutionAttemptItem>();
 	public DbSet<MessagePendingChange> MessagePendingChanges => Set<MessagePendingChange>();
 	public DbSet<OutboxItem> OutboxItems => Set<OutboxItem>();
+	public DbSet<CrossAccountTransfer> CrossAccountTransfers => Set<CrossAccountTransfer>();
 
 	public DbSet<Draft> Drafts => Set<Draft>();
 	public DbSet<Calendar> Calendars => Set<Calendar>();
@@ -326,6 +327,25 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 				.WithOne()
 				.HasForeignKey<IntegrityReconciliationState>(x => x.MailboxId)
 				.OnDelete(DeleteBehavior.Cascade);
+		});
+
+		model.Entity<CrossAccountTransfer>(e =>
+		{
+			e.HasKey(x => x.Id);
+			// Either account being removed ends the transfer; there is nothing left to move it to or from.
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.SourceAccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasOne<Account>()
+				.WithMany()
+				.HasForeignKey(x => x.TargetAccountId)
+				.OnDelete(DeleteBehavior.Cascade);
+			e.HasIndex(x => new { x.TargetAccountId, x.State });
+			// One unfinished move per message, enforced here rather than by a check that two callers
+			// could both pass: two copies would otherwise be imported. States 0-2 are Pending,
+			// Dispatched and Imported.
+			e.HasIndex(x => x.MessageId).IsUnique().HasFilter("\"State\" IN (0, 1, 2)");
 		});
 
 		model.Entity<StagedChangeEvent>(e =>

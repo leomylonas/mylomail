@@ -117,6 +117,23 @@ public interface IMailProvider
 	/// </returns>
 	Task<IReadOnlyList<MessageDto>> FindMessageAsync(Account account, MessageLookup lookup, CancellationToken ct);
 
+	/// <summary>
+	/// Stores a complete message, exactly as received, in <paramref name="target"/> with the read and
+	/// starred state it had — the receiving half of moving mail from another account. It creates a
+	/// copy and nothing else: no id comes back, because the new copy is found by the next sync of
+	/// that mailbox like any other mail, and the caller recovers an uncertain outcome by looking for
+	/// the message's <c>Message-ID</c> (<see cref="FindMessageAsync"/>), never by retrying blindly.
+	/// </summary>
+	/// <exception cref="NotSupportedException">The provider cannot store an arbitrary message (see <see cref="ProviderCapabilities"/>).</exception>
+	Task ImportMessageAsync(
+		Account account,
+		Mailbox target,
+		byte[] rawMime,
+		bool isRead,
+		bool isFlagged,
+		CancellationToken ct
+	);
+
 	Task<AttachmentConstraints> GetAttachmentConstraintsAsync(Account account, CancellationToken ct);
 
 	// Mutations — operate on occurrences and stable intent, never on captured provider ids.

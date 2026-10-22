@@ -47,6 +47,10 @@ import {
 	TextInput,
 } from "@carbon/react";
 import { createPortal } from "react-dom";
+import {
+	canReceiveMovedMail,
+	microsoft365CannotReceive,
+} from "@mylomail/renderer/Lib/MovedMail";
 import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { MessageCommands } from "@mylomail/renderer/Components/MessageCommands/MessageCommands";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
@@ -89,6 +93,7 @@ import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.
 import {
 	MessageFlagField,
 	SpecialUse,
+	type ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/SearchSnippet";
 import {
@@ -136,6 +141,14 @@ interface MailboxOption {
 	 * excluded from "Move to" the same way it's excluded as a drag-and-drop target. */
 	isSynthesized: boolean;
 	specialUse: SpecialUse;
+}
+
+/** Another account, as a place a message can be moved to. */
+export interface MoveTargetAccount {
+	id: string;
+	name: string;
+	canReceive: boolean;
+	folders: MailboxOption[];
 }
 
 interface MembershipMutationInput {
@@ -299,6 +312,7 @@ export function MessageList({
 	onCompose,
 	commandHost,
 	actionsRef,
+	moveTargets,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
@@ -335,6 +349,8 @@ export function MessageList({
 	 * Reply all and Forward without owning a second implementation of them.
 	 */
 	actionsRef?: { current: readonly MenuAction[] };
+	/** Every account, so mail can be moved to a folder of another one. */
+	moveTargets?: { id: string; name: string; providerType?: ProviderType }[];
 }) {
 	const dateFormats = useDateFormats();
 	const store = useWindowStore();
@@ -669,6 +685,35 @@ export function MessageList({
 			restoreOptimisticMessages(queryClient, mailboxId, input.claims);
 			reportFailure("The message could not be moved")(error);
 		},
+	});
+
+	// Moving to another account: copied there first, and the original goes to the Trash only once
+	// the copy is known to exist, so there is nothing optimistic to show or to roll back here.
+	const moveToAccount = useMutation({
+		mutationFn: (input: {
+			messages: MessageSummary[];
+			targetAccountId: string;
+			targetMailboxId: string;
+		}) =>
+			hub.moveMessagesToAccount(
+				accountId,
+				input.messages.map((message) => message.id),
+				input.targetAccountId,
+				input.targetMailboxId,
+			),
+		onSuccess: (started) => {
+			if (started > 0)
+				notify(notifications, {
+					kind: "info",
+					title:
+						started === 1 ? "Moving 1 message" : `Moving ${started} messages`,
+					detail:
+						"Copied there first; the original goes to its Trash once the copy is safe.",
+				});
+		},
+		onError: reportFailure(
+			"The messages could not be moved to the other account",
+		),
 	});
 
 	// Selection tracks the full, unfiltered list: a message shift/ctrl-selected before a local
@@ -1080,6 +1125,23 @@ export function MessageList({
 								),
 				}),
 			mailboxes.data ?? [],
+			(moveTargets ?? [])
+				.filter((account) => account.id !== accountId)
+				.map((account) => ({
+					id: account.id,
+					name: account.name,
+					canReceive: canReceiveMovedMail(account.providerType),
+					folders: (
+						queryClient.getQueryData<MailboxOption[]>(
+							queryKeys.mailboxes(account.id),
+						) ?? []
+					).filter(
+						(mailbox) =>
+							!mailbox.isSynthesized &&
+							mailbox.specialUse !== SpecialUse.Drafts,
+					),
+				})),
+			(input) => moveToAccount.mutate(input),
 			trashUnavailable,
 			hub,
 			queryClient,
@@ -1611,6 +1673,12 @@ export function messageActions(
 		targetMailboxId: string;
 	}) => void,
 	mailboxOptions: MailboxOption[],
+	otherAccounts: MoveTargetAccount[],
+	moveToAccount: (input: {
+		messages: MessageSummary[];
+		targetAccountId: string;
+		targetMailboxId: string;
+	}) => void,
 	trashUnavailable: string | undefined,
 	hub: MailHubConnection,
 	queryClient: QueryClient,
@@ -1678,6 +1746,26 @@ export function messageActions(
 						moveMessages({ messages: targets, targetMailboxId: mailbox.id }),
 				})),
 		},
+		...otherAccounts.map((account): MenuAction => ({
+			label: `Move to ${account.name}${suffix}`,
+			run: () => undefined,
+			unavailable: !account.canReceive
+				? microsoft365CannotReceive
+				: account.folders.length === 0
+					? "That account's folders have not loaded yet."
+					: undefined,
+			children: [...account.folders]
+				.sort((a, b) => a.name.localeCompare(b.name))
+				.map((folder) => ({
+					label: folder.name,
+					run: () =>
+						moveToAccount({
+							messages: targets,
+							targetAccountId: account.id,
+							targetMailboxId: folder.id,
+						}),
+				})),
+		})),
 		{
 			label: `Archive${suffix}`,
 			run: () => {

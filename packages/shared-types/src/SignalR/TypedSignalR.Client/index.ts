@@ -318,6 +318,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("MoveMessages", accountId, messageIds, targetMailboxId);
     }
 
+    public readonly moveMessagesToAccount = async (sourceAccountId: string, messageIds: string[], targetAccountId: string, targetMailboxId: string): Promise<number> => {
+        return await this.connection.invoke("MoveMessagesToAccount", sourceAccountId, messageIds, targetAccountId, targetMailboxId);
+    }
+
     public readonly removeFromMailbox = async (accountId: string, messageIds: string[], mailboxId: string): Promise<MutationEnqueueResultDto> => {
         return await this.connection.invoke("RemoveFromMailbox", accountId, messageIds, mailboxId);
     }
@@ -421,6 +425,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         const __messageMutationSettled = (...args: [MutationSettledDto]) => receiver.messageMutationSettled(...args);
         const __draftUpdated = (...args: [string]) => receiver.draftUpdated(...args);
         const __outboxStatusChanged = (...args: [OutboxItemDto]) => receiver.outboxStatusChanged(...args);
+        const __transferFailed = (...args: [string, string, string]) => receiver.transferFailed(...args);
         const __calendarEventUpdated = (...args: [string]) => receiver.calendarEventUpdated(...args);
         const __calendarConflictDetected = (...args: [string]) => receiver.calendarConflictDetected(...args);
         const __calendarCollectionChanged = (...args: [string]) => receiver.calendarCollectionChanged(...args);
@@ -445,6 +450,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
         connection.on("MessageMutationSettled", __messageMutationSettled);
         connection.on("DraftUpdated", __draftUpdated);
         connection.on("OutboxStatusChanged", __outboxStatusChanged);
+        connection.on("TransferFailed", __transferFailed);
         connection.on("CalendarEventUpdated", __calendarEventUpdated);
         connection.on("CalendarConflictDetected", __calendarConflictDetected);
         connection.on("CalendarCollectionChanged", __calendarCollectionChanged);
@@ -470,6 +476,7 @@ class IMailClient_Binder implements ReceiverRegister<IMailClient> {
             { methodName: "MessageMutationSettled", method: __messageMutationSettled },
             { methodName: "DraftUpdated", method: __draftUpdated },
             { methodName: "OutboxStatusChanged", method: __outboxStatusChanged },
+            { methodName: "TransferFailed", method: __transferFailed },
             { methodName: "CalendarEventUpdated", method: __calendarEventUpdated },
             { methodName: "CalendarConflictDetected", method: __calendarConflictDetected },
             { methodName: "CalendarCollectionChanged", method: __calendarCollectionChanged },

@@ -664,6 +664,70 @@ namespace MyloMail.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MyloMail.Api.Domain.CrossAccountTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BaselineCopies")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("DispatchedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("ImportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsFlagged")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageIdHeader")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SourceAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("TargetAccountId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TargetMailboxId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique()
+                        .HasFilter("\"State\" IN (0, 1, 2)");
+
+                    b.HasIndex("SourceAccountId");
+
+                    b.HasIndex("TargetAccountId", "State");
+
+                    b.ToTable("CrossAccountTransfers");
+                });
+
             modelBuilder.Entity("MyloMail.Api.Domain.Draft", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1651,6 +1715,21 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.HasOne("MyloMail.Api.Domain.Account", null)
                         .WithMany()
                         .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MyloMail.Api.Domain.CrossAccountTransfer", b =>
+                {
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SourceAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MyloMail.Api.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("TargetAccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

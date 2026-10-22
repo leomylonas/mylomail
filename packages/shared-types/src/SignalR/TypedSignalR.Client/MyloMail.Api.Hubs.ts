@@ -415,6 +415,18 @@ export type IMailHub = {
     */
     moveMessages(accountId: string, messageIds: string[], targetMailboxId: string): Promise<MutationEnqueueResultDto>;
     /**
+    * Moves messages to a folder of a different account: each is copied into the target and,
+    * once the copy is known to exist, its original is moved to the source account's Trash
+    * (). Returns at once; the work runs in the background and is
+    * listed under background activity until it is done.
+    * @param sourceAccountId Transpiled from System.Guid
+    * @param messageIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @param targetAccountId Transpiled from System.Guid
+    * @param targetMailboxId Transpiled from System.Guid
+    * @returns How many moves were started; a message already being moved is not started twice. (Transpiled from System.Threading.Tasks.Task<int>)
+    */
+    moveMessagesToAccount(sourceAccountId: string, messageIds: string[], targetAccountId: string, targetMailboxId: string): Promise<number>;
+    /**
     * Drops one membership without deleting the message (§6) — meaningful only where a
     * message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
     * from : this never touches the message itself.
@@ -633,6 +645,15 @@ export type IMailClient = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     outboxStatusChanged(item: OutboxItemDto): Promise<void>;
+    /**
+    * A message could not be moved to another account (MoveMessagesToAccount); its original
+    * has not been touched. The reason is for the user, not a diagnostic.
+    * @param sourceAccountId Transpiled from System.Guid
+    * @param messageId Transpiled from System.Guid
+    * @param reason Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    transferFailed(sourceAccountId: string, messageId: string, reason: string): Promise<void>;
     /**
     * @param eventId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task

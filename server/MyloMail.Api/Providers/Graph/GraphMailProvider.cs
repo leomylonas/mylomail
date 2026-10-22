@@ -25,6 +25,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 
 	public ProviderCapabilities Capabilities { get; } = new()
 	{
+		CanImportMessages = false,
 		Type = ProviderType.Microsoft365,
 		ChangeStreamScope = ChangeStreamScope.Mailbox,
 		ImapTier = ImapCapabilityTier.NotApplicable,

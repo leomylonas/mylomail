@@ -29,6 +29,13 @@ public record ProviderCapabilities
 	public required bool ReportsMailboxCounts { get; init; }
 
 	/// <summary>
+	/// Whether <see cref="IMailProvider.ImportMessageAsync"/> can store a received message exactly as
+	/// it was. Microsoft Graph cannot: creating a message from MIME always yields a draft, and the
+	/// documented workaround rebuilds it from parsed JSON and loses what MIME carried.
+	/// </summary>
+	public bool CanImportMessages { get; init; } = true;
+
+	/// <summary>
 	/// Whether a move reports the destination identity. IMAP does so only with UIDPLUS or
 	/// MOVE; where false, the batch result flags that destination reconciliation is
 	/// required rather than guessing (§2).

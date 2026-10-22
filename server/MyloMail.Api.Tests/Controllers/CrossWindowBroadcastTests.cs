@@ -214,6 +214,8 @@ public sealed class CrossWindowBroadcastTests
 		public Task MailboxUpdatedAsync(MailboxSummaryDto mailbox) => Task.CompletedTask;
 		public Task MailboxTreeChangedAsync(Guid accountId) => Task.CompletedTask;
 		public Task OutboxStatusChangedAsync(OutboxItemDto item) => Task.CompletedTask;
+
+		public Task TransferFailedAsync(Guid sourceAccountId, Guid messageId, string reason) => Task.CompletedTask;
 		public Task MessageSyncFailedAsync(MutationFailureDto failure) => Task.CompletedTask;
 		public Task MessageMutationQueuedAsync(MutationQueuedDto queued) => Task.CompletedTask;
 		public Task MessageMutationSettledAsync(MutationSettledDto settlement) => Task.CompletedTask;

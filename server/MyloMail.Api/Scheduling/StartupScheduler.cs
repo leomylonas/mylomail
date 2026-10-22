@@ -167,6 +167,12 @@ public sealed class StartupScheduler(
 			// anything new goes out.
 			jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
 
+			// Mail being moved in from another account: unknown outcomes are looked for first, then
+			// anything still waiting is imported and the originals removed.
+			if (work.TransferAccounts.Contains(accountId))
+			{
+				jobs.Enqueue<TransferJobs>(j => j.RunAsync(accountId, default));
+			}
 		}
 		foreach (var accountId in accounts)
 			jobs.Enqueue<ContactJobs>(job => job.StartRefreshAsync(accountId));
@@ -240,6 +246,21 @@ public sealed class StartupScheduler(
 		}
 		jobs.Enqueue<MutationJobs>(j => j.DrainAsync(accountId, default));
 		jobs.Enqueue<OutboxJobs>(j => j.RunAsync(accountId, default));
+		jobs.Enqueue<TransferJobs>(j => j.RunAsync(accountId, default));
+		// Mail waiting to be read from this account, for another account's transfers.
+		foreach (var targetAccountId in await context
+			.CrossAccountTransfers.Where(t =>
+				t.SourceAccountId == accountId
+				&& (t.State == CrossAccountTransferState.Pending
+					|| t.State == CrossAccountTransferState.Dispatched
+					|| t.State == CrossAccountTransferState.Imported)
+			)
+			.Select(t => t.TargetAccountId)
+			.Distinct()
+			.ToListAsync(ct))
+		{
+			jobs.Enqueue<TransferJobs>(j => j.RunAsync(targetAccountId, default));
+		}
 		// Authentication/configuration failures leave queued content unattempted. Resume its
 		// bounded job immediately; waiting for a later live-sync page could leave cached-out
 		// accounts stalled indefinitely.

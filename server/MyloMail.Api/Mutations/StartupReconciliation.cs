@@ -23,7 +23,9 @@ public sealed record OutstandingWork(
 	IReadOnlyList<Guid> DraftAccountsNeedingPush,
 	IReadOnlyList<Guid> PendingCalendarCreationAccounts,
 	IReadOnlyList<Guid> StagedChangeAccounts,
-	IReadOnlyList<Guid> UndeliveredNotificationAccounts
+	IReadOnlyList<Guid> UndeliveredNotificationAccounts,
+	/// <summary>Accounts with mail still being moved into them from another account.</summary>
+	IReadOnlyList<Guid> TransferAccounts
 );
 
 public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvider clock, ILogger<StartupReconciliation> logger)
@@ -106,6 +108,18 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			.Select(job => job.Id)
 			.ToListAsync(ct);
 
+		// Mail being moved in from another account: its jobs are gone with the process, and a copy
+		// whose outcome is unknown has to be looked for before anything is imported again.
+		var transferAccounts = await context
+			.CrossAccountTransfers.Where(t =>
+				t.State == CrossAccountTransferState.Pending
+				|| t.State == CrossAccountTransferState.Dispatched
+				|| t.State == CrossAccountTransferState.Imported
+			)
+			.Select(t => t.TargetAccountId)
+			.Distinct()
+			.ToListAsync(ct);
+
 		var notificationAccounts = await context
 			.NotificationRecords.Where(record => record.DeliveredAt == null)
 			.Select(record => record.AccountId)
@@ -142,7 +156,8 @@ public sealed class StartupReconciliation(MyloMailDbContext context, TimeProvide
 			draftAccounts,
 			calendarCreationAccounts,
 			stagedChangeAccounts,
-			notificationAccounts
+			notificationAccounts,
+			transferAccounts
 		);
 	}
 

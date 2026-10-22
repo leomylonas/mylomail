@@ -27,11 +27,11 @@ Use the standalone mark when the full wordmark would be too small to read.
 
 Download the transparent artwork for the intended surface:
 
-| Artwork | Light surfaces | Dark surfaces |
-| --- | --- | --- |
+| Artwork         | Light surfaces                          | Dark surfaces                         |
+| --------------- | --------------------------------------- | ------------------------------------- |
 | Horizontal logo | [Light SVG](logos/horizontal-light.svg) | [Dark SVG](logos/horizontal-dark.svg) |
-| Square logo | [Light SVG](logos/square-light.svg) | [Dark SVG](logos/square-dark.svg) |
-| Standalone mark | [Light SVG](logos/mark-light.svg) | [Dark SVG](logos/mark-dark.svg) |
+| Square logo     | [Light SVG](logos/square-light.svg)     | [Dark SVG](logos/square-dark.svg)     |
+| Standalone mark | [Light SVG](logos/mark-light.svg)       | [Dark SVG](logos/mark-dark.svg)       |
 
 The downloadable logos are transparent SVGs. The illustrations include backgrounds to demonstrate correct placement; do not use those backgrounds as part of the logo. Wordmark and typography-specimen lettering is outlined, so no installed font is needed to view it. Keep this Markdown file, `logos`, and `illustrations` together when sharing the guide; they require no application installation, build step, or external service.
 
@@ -77,14 +77,14 @@ The brand uses the product's primary blue, `#0f62fe`, in both light and dark con
 
 ![Light and dark palette swatches for background, primary text, secondary text, primary blue, raised surface, and subtle border. Primary blue is identical in both palettes; exact values follow.](illustrations/colour-palette.svg)
 
-| Role | Light | Dark |
-| --- | --- | --- |
-| Background | `#ffffff` | `#161616` |
-| Primary text and first mark pane | `#161616` | `#f4f4f4` |
-| Secondary text | `#525252` | `#c6c6c6` |
+| Role                              | Light     | Dark      |
+| --------------------------------- | --------- | --------- |
+| Background                        | `#ffffff` | `#161616` |
+| Primary text and first mark pane  | `#161616` | `#f4f4f4` |
+| Secondary text                    | `#525252` | `#c6c6c6` |
 | Primary blue and second mark pane | `#0f62fe` | `#0f62fe` |
-| Raised surface | `#f4f4f4` | `#262626` |
-| Subtle border | `#e0e0e0` | `#393939` |
+| Raised surface                    | `#f4f4f4` | `#262626` |
+| Subtle border                     | `#e0e0e0` | `#393939` |
 
 Use colour sparingly for emphasis and recognition. Primary text meets a 4.5:1 contrast ratio against the corresponding base background. Primary blue is for the logo, accents, and primary-action fills; it is not a dark-mode body-text colour. Links and secondary actions retain theme-specific colours, including `#78a9ff` on dark surfaces, for readability. Check contrast for each foreground/background combination. Do not rely on colour alone to communicate meaning.
 

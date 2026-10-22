@@ -183,6 +183,42 @@ public abstract class MailProviderConformanceTests : IAsyncLifetime
 	}
 
 	/// <summary>
+	/// A message imported from another account arrives exactly as received, in the mailbox asked for,
+	/// with the read and starred state it was given, and can be found again by its <c>Message-ID</c>
+	/// — which is how an interrupted move is recovered without copying it twice. A provider that
+	/// cannot do this says so (<see cref="ProviderCapabilities.CanImportMessages"/>) and refuses.
+	/// </summary>
+	[SkippableFact]
+	public async Task Import_stores_a_findable_copy_with_its_state_or_the_provider_says_it_cannot()
+	{
+		Available();
+		var messageId = $"<import-{Guid.NewGuid():N}@conformance.test>";
+		var raw = System.Text.Encoding.ASCII.GetBytes(
+			$"From: a@example.test\r\nTo: b@example.test\r\nSubject: Imported\r\nDate: Thu, 01 Jan 2026 00:00:00 +0000\r\nMessage-ID: {messageId}\r\n\r\nBody\r\n"
+		);
+
+		if (!Harness.Provider.Capabilities.CanImportMessages)
+		{
+			await Assert.ThrowsAsync<NotSupportedException>(() =>
+				Harness.Provider.ImportMessageAsync(Harness.Account, Harness.Destination, raw, false, true, CancellationToken.None));
+			return;
+		}
+
+		await Harness.Provider.ImportMessageAsync(Harness.Account, Harness.Destination, raw, isRead: false, isFlagged: true, CancellationToken.None);
+
+		var found = Assert.Single(
+			await Harness.Provider.FindMessageAsync(
+				Harness.Account,
+				new MessageLookup(null, messageId, [], [Harness.Source, Harness.Destination]),
+				CancellationToken.None
+			)
+		);
+		Assert.Contains(found.Occurrences, o => o.ProviderMailboxId == Harness.Destination.ProviderMailboxId);
+		Assert.False(found.IsRead);
+		Assert.True(found.IsFlagged);
+	}
+
+	/// <summary>
 	/// The canonical message survives a move. Only the occurrence changes.
 	/// </summary>
 	[SkippableFact]

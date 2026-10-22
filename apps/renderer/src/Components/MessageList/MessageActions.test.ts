@@ -76,6 +76,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			deletePermanently,
 			vi.fn(),
 			[],
+			[],
+			vi.fn(),
 			undefined,
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -103,6 +105,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			deletePermanently,
 			vi.fn(),
 			[],
+			[],
+			vi.fn(),
 			undefined,
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -128,6 +132,8 @@ describe("messageActions — Delete permanently confirmation", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
+			[],
+			vi.fn(),
 			undefined,
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -179,6 +185,8 @@ describe("messageActions — Move to", () => {
 					specialUse: SpecialUse.None,
 				},
 			],
+			[],
+			vi.fn(),
 			undefined,
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -207,6 +215,8 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
+			[],
+			vi.fn(),
 			undefined,
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -228,6 +238,8 @@ describe("messageActions — Move to", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
+			[],
+			vi.fn(),
 			"Already in Trash.",
 			{} as MailHubConnection,
 			{} as QueryClient,
@@ -241,5 +253,76 @@ describe("messageActions — Move to", () => {
 		expect(action.unavailable).toBe("Already in Trash.");
 		action.run();
 		expect(trash).not.toHaveBeenCalled();
+	});
+});
+
+describe("messageActions — moving to another account", () => {
+	const build = (
+		moveToAccount: ReturnType<typeof vi.fn>,
+		canReceive = true,
+		folders = [
+			{
+				id: "g-inbox",
+				name: "Inbox",
+				isSynthesized: false,
+				specialUse: SpecialUse.Inbox,
+			},
+			{
+				id: "g-bills",
+				name: "Bills",
+				isSynthesized: false,
+				specialUse: SpecialUse.None,
+			},
+		],
+	) =>
+		messageActions(
+			[message({ id: "m1" }), message({ id: "m2" })],
+			vi.fn(),
+			vi.fn(),
+			vi.fn(),
+			vi.fn(),
+			[],
+			[{ id: "other", name: "Work", canReceive, folders }],
+			moveToAccount,
+			undefined,
+			{} as MailHubConnection,
+			{} as QueryClient,
+			vi.fn(),
+			vi.fn(),
+			"me@example.test",
+			() => () => undefined,
+		);
+
+	it("offers each other account's folders and moves the selection to the one chosen", () => {
+		const moveToAccount = vi.fn();
+		const entry = findAction(build(moveToAccount), "Move to Work");
+
+		expect(entry.unavailable).toBeUndefined();
+		expect(entry.children?.map((child) => child.label)).toEqual([
+			"Bills",
+			"Inbox",
+		]);
+		entry.children?.find((child) => child.label === "Bills")?.run();
+
+		expect(moveToAccount).toHaveBeenCalledWith({
+			messages: [
+				expect.objectContaining({ id: "m1" }),
+				expect.objectContaining({ id: "m2" }),
+			],
+			targetAccountId: "other",
+			targetMailboxId: "g-bills",
+		});
+	});
+
+	it("says why an account that cannot receive mail is unavailable", () => {
+		const entry = findAction(build(vi.fn(), false), "Move to Work");
+
+		expect(entry.unavailable).toMatch(/Microsoft 365/);
+	});
+
+	it("is unavailable until that account's folders have loaded", () => {
+		const entry = findAction(build(vi.fn(), true, []), "Move to Work");
+
+		expect(entry.unavailable).toMatch(/not loaded/);
 	});
 });

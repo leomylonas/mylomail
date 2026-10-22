@@ -43,6 +43,8 @@ public static class ProviderShapes
 	public static ProviderCapabilities Graph { get; } =
 		new()
 		{
+			// Creating a message from MIME always yields a draft (see ProviderCapabilities.CanImportMessages).
+			CanImportMessages = false,
 			Type = ProviderType.Microsoft365,
 			ChangeStreamScope = ChangeStreamScope.Mailbox,
 			ImapTier = ImapCapabilityTier.NotApplicable,

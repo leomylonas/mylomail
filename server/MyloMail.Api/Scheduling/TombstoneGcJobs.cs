@@ -94,6 +94,13 @@ public sealed class TombstoneGcJobs(
 				)
 				&& !context.MessagePendingChanges.Any(change => change.MessageId == message.Id)
 				&& !context.Drafts.Any(draft => draft.InReplyToMessageId == message.Id)
+				// A move to another account still has to read this message and queue its removal.
+				&& !context.CrossAccountTransfers.Any(transfer =>
+					transfer.MessageId == message.Id
+					&& (transfer.State == CrossAccountTransferState.Pending
+						|| transfer.State == CrossAccountTransferState.Dispatched
+						|| transfer.State == CrossAccountTransferState.Imported)
+				)
 				&& !(
 					from membership in context.MutationExecutionAttemptItems
 					join attempt in context.MutationExecutionAttempts on membership.AttemptId equals attempt.Id
@@ -232,6 +239,18 @@ public sealed class TombstoneGcJobs(
 				deliveredAt is null || deliveredAt > navigationCutoff
 			)
 		)
+		{
+			return false;
+		}
+
+		if (await context.CrossAccountTransfers.AnyAsync(
+			transfer =>
+				transfer.MessageId == messageId
+				&& (transfer.State == CrossAccountTransferState.Pending
+					|| transfer.State == CrossAccountTransferState.Dispatched
+					|| transfer.State == CrossAccountTransferState.Imported),
+			ct
+		))
 		{
 			return false;
 		}

@@ -377,6 +377,14 @@ internal sealed class RecordingHubEvents : IHubEvents
 		return Task.CompletedTask;
 	}
 
+	public List<(Guid SourceAccountId, Guid MessageId, string Reason)> TransferFailures { get; } = [];
+
+	public Task TransferFailedAsync(Guid sourceAccountId, Guid messageId, string reason)
+	{
+		TransferFailures.Add((sourceAccountId, messageId, reason));
+		return Task.CompletedTask;
+	}
+
 	public Task OutboxStatusChangedAsync(OutboxItemDto item)
 	{
 		if (

@@ -25,6 +25,40 @@ public sealed partial class GmailMailProvider
 		await service.Users.Messages.Send(message, UserId).ExecuteThrottleAwareAsync(ct);
 	}
 
+	public async Task ImportMessageAsync(
+		Account account,
+		Mailbox target,
+		byte[] rawMime,
+		bool isRead,
+		bool isFlagged,
+		CancellationToken ct
+	)
+	{
+		var service = await ServiceAsync(account, ct);
+		var labels = new List<string> { ProviderMailboxId(target) };
+		if (!isRead)
+		{
+			labels.Add("UNREAD");
+		}
+
+		if (isFlagged)
+		{
+			labels.Add("STARRED");
+		}
+
+		var message = new GmailMessage
+		{
+			Raw = Convert.ToBase64String(rawMime).TrimEnd('=').Replace('+', '-').Replace('/', '_'),
+			LabelIds = labels,
+		};
+		var request = service.Users.Messages.Import(message, UserId);
+		// The message keeps the date it was sent, and a message that was filed here on purpose is
+		// not second-guessed by the spam filter.
+		request.InternalDateSource = UsersResource.MessagesResource.ImportRequest.InternalDateSourceEnum.DateHeader;
+		request.NeverMarkSpam = true;
+		await request.ExecuteThrottleAwareAsync(ct);
+	}
+
 	/// <summary>Builds the MIME message from the draft's structured fields (§1).</summary>
 	internal static MimeMessage Compose(Draft draft, string stableMessageId)
 	{

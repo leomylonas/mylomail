@@ -41,6 +41,11 @@ import { FolderNameModal } from "@mylomail/renderer/Components/MailboxTree/Folde
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import {
+	canReceiveMovedMail,
+	microsoft365CannotReceive,
+} from "@mylomail/renderer/Lib/MovedMail";
+import type { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
 	mailboxDragType,
 	messageDragType,
 	parseMessageDrag,
@@ -139,11 +144,13 @@ export function mailboxesQuery(hub: MailHubConnection, accountId: string) {
 export function MailboxTree({
 	hub,
 	accountId,
+	providerType,
 	showHidden = false,
 	onMailboxSelected,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
+	providerType?: ProviderType;
 	/** Hidden folders appear in place, dimmed and italic, instead of being left out. */
 	showHidden?: boolean;
 	/** Called only for the user's own click on a folder, never when selection is restored. */
@@ -199,6 +206,31 @@ export function MailboxTree({
 			hub.renameMailbox(id, name),
 		onSuccess: refresh,
 		onError: reportFailure("The folder could not be renamed"),
+	});
+
+	const moveToAccount = useMutation({
+		mutationFn: (input: {
+			sourceAccountId: string;
+			messageIds: string[];
+			targetMailboxId: string;
+		}) =>
+			hub.moveMessagesToAccount(
+				input.sourceAccountId,
+				input.messageIds,
+				accountId,
+				input.targetMailboxId,
+			),
+		onSuccess: (started) => {
+			if (started > 0)
+				notify(notifications, {
+					kind: "info",
+					title:
+						started === 1 ? "Moving 1 message" : `Moving ${started} messages`,
+					detail:
+						"Copied here first; the original goes to its Trash once the copy is safe.",
+				});
+		},
+		onError: reportFailure("The messages could not be moved to this account"),
 	});
 
 	// Drag-a-message-onto-a-folder and folder drag-reorder (§13 Epic 2). Native HTML5 DnD: no
@@ -426,18 +458,31 @@ export function MailboxTree({
 			// A synthesized intermediate has no real label to add — the same reason
 			// Rename/Delete are unavailable on it (§13 Epic 2). Caught here, before the
 			// mutation, rather than left to fail with a raw provider error.
-			if (
-				messagePayload.accountId !== accountId ||
-				messagePayload.sourceMailboxId === target.id
-			) {
-				return;
-			}
+			if (messagePayload.sourceMailboxId === target.id) return;
 			if (target.isSynthesized) {
 				notify(notifications, {
 					kind: "error",
 					title: "Can't move a message here",
 					detail:
 						"This is a nested label group, not a real Gmail label — move the message into one of the labels inside it instead.",
+				});
+				return;
+			}
+			if (messagePayload.accountId !== accountId) {
+				// Dropped on another account's folder: copied there, and the original goes to the
+				// Trash once the copy is known to exist.
+				if (!canReceiveMovedMail(providerType)) {
+					notify(notifications, {
+						kind: "error",
+						title: "Can't move mail here",
+						detail: microsoft365CannotReceive,
+					});
+					return;
+				}
+				moveToAccount.mutate({
+					sourceAccountId: messagePayload.accountId,
+					messageIds: messagePayload.messageIds,
+					targetMailboxId: target.id,
 				});
 				return;
 			}

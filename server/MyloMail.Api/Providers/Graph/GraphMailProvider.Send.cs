@@ -51,6 +51,18 @@ public sealed partial class GraphMailProvider
 		await ThrottleAwareAsync(() => client.Me.Messages[draftId].Send.PostAsync(cancellationToken: ct));
 	}
 
+	public Task ImportMessageAsync(
+		Account account,
+		MyloMail.Api.Domain.Mailbox target,
+		byte[] rawMime,
+		bool isRead,
+		bool isFlagged,
+		CancellationToken ct
+	) =>
+		throw new NotSupportedException(
+			"Microsoft 365 cannot store a received message as it was: creating one from MIME always makes a draft."
+		);
+
 	/// <summary>
 	/// Uploads one attachment above the inline limit in fixed-size slices against a Graph
 	/// upload session, per Graph's own large-file-attachment protocol.

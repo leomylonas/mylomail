@@ -295,6 +295,22 @@ export function AppShell({
 		}).dispose;
 	}, [hub, notifications]);
 
+	// Mail moved to another account that could not be: its original has not been touched.
+	useEffect(() => {
+		if (!hub) return;
+		return hub.subscribe(
+			"transferFailed",
+			(_sourceAccountId: string, _messageId: string, reason: string) => {
+				notify(notifications, {
+					kind: "error",
+					title: "A message could not be moved to the other account",
+					detail: `${reason} The original has not been touched.`,
+					persistent: true,
+				});
+			},
+		).dispose;
+	}, [hub, notifications]);
+
 	// IMAP IDLE is deliberately limited to Inbox plus the mailbox this window is viewing.
 	// This is a non-durable wakeup hint only; the backend's normal poll loop remains the
 	// authoritative cursor-owning sync path.
@@ -860,6 +876,11 @@ export function AppShell({
 									}}
 									commandHost={commandHost}
 									actionsRef={messageActions}
+									moveTargets={accounts.data?.map((account) => ({
+										id: account.id,
+										name: account.displayName,
+										providerType: account.providerType,
+									}))}
 								/>
 							) : (
 								<div className={styles.listEmpty}>

@@ -26,6 +26,30 @@ public static class FaultPoints
 	public const string AfterProviderCallBeforeResults = "mutation.after-provider-call-before-results";
 
 	/// <summary>
+	/// Cross-account move: after the transfer is durably marked dispatched, before the import is
+	/// requested. The window the dispatched write exists for.
+	/// </summary>
+	public const string TransferAfterDispatchedBeforeImport = "transfer.after-dispatched-before-import";
+
+	/// <summary>
+	/// Cross-account move: the target has stored the copy, but the transfer does not yet say so. A
+	/// crash here must be settled by finding the copy, never by importing it again.
+	/// </summary>
+	public const string TransferAfterImportBeforeRecorded = "transfer.after-import-before-recorded";
+
+	/// <summary>
+	/// Cross-account move: the copy is recorded as existing, the original has not yet been queued for
+	/// removal. A crash here must not lose the removal or queue it twice.
+	/// </summary>
+	public const string TransferAfterImportedBeforeSourceRemoval = "transfer.after-imported-before-source-removal";
+
+	/// <summary>
+	/// Cross-account move: the original has been queued for removal, the transfer is not yet marked
+	/// completed. Running it again must not queue the removal a second time.
+	/// </summary>
+	public const string TransferAfterSourceRemovalQueuedBeforeCompleted = "transfer.after-source-removal-queued-before-completed";
+
+	/// <summary>
 	/// Mid-page: the page has been read from the provider, and neither it nor the cursor that
 	/// covers it has been committed.
 	/// </summary>

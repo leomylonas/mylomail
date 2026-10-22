@@ -23,7 +23,10 @@ import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextM
 import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
-import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import {
+	AuthState,
+	type ProviderType,
+} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import styles from "@mylomail/renderer/Components/Sidebar/Sidebar.module.css";
 
 interface SidebarAccount {
@@ -32,6 +35,7 @@ interface SidebarAccount {
 	color: string;
 	sidebarCollapsed?: boolean;
 	authState?: AuthState;
+	providerType?: ProviderType;
 }
 
 /**
@@ -415,6 +419,7 @@ export function Sidebar({
 							<MailboxTree
 								hub={hub}
 								accountId={account.id}
+								providerType={account.providerType}
 								showHidden={accountsShowingHidden.has(account.id)}
 								onMailboxSelected={onMailboxSelected}
 							/>

@@ -16,6 +16,7 @@ using MyloMail.Api.Providers.Contracts;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
+using MyloMail.Api.Transfers;
 using TypedSignalR.Client;
 
 namespace MyloMail.Api.Hubs;
@@ -300,6 +301,24 @@ public interface IMailHub
 	);
 
 	/// <summary>
+	/// Moves messages to a folder of a <i>different</i> account: each is copied into the target and,
+	/// once the copy is known to exist, its original is moved to the source account's Trash
+	/// (<see cref="CrossAccountTransfer"/>). Returns at once; the work runs in the background and is
+	/// listed under background activity until it is done.
+	/// </summary>
+	/// <returns>How many moves were started; a message already being moved is not started twice.</returns>
+	/// <exception cref="HubException">
+	/// The target account cannot receive mail (Microsoft 365 cannot store a received message as it
+	/// was), the folder is not in it, or a message has not finished downloading yet.
+	/// </exception>
+	Task<int> MoveMessagesToAccount(
+		Guid sourceAccountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid targetAccountId,
+		Guid targetMailboxId
+	);
+
+	/// <summary>
 	/// Drops one membership without deleting the message (§6) — meaningful only where a
 	/// message can belong to several mailboxes at once, e.g. un-labelling in Gmail. Distinct
 	/// from <see cref="MoveToTrash"/>: this never touches the message itself.
@@ -395,6 +414,7 @@ public interface IMailHub
 }
 
 public class MailHub(
+	CrossAccountTransferService transfers,
 	MyloMailDbContext context,
 	MutationQueue mutations,
 	MessageSearch search,
@@ -1065,6 +1085,31 @@ public class MailHub(
 			};
 			// Scheduled for later is not being worked on; the others are in hand.
 			tasks.Add(new BackgroundTaskDto(label, NameOf(group.AccountId), null, null, group.Since, group.Kind != 1));
+		}
+
+		// Mail being moved in from another account, until its original has been handed off for removal.
+		var moving = await context
+			.CrossAccountTransfers.AsNoTracking()
+			.Where(t =>
+				t.State == CrossAccountTransferState.Pending
+				|| t.State == CrossAccountTransferState.Dispatched
+				|| t.State == CrossAccountTransferState.Imported
+			)
+			.Select(t => new { t.TargetAccountId, t.State, t.CreatedAt })
+			.ToListAsync();
+		foreach (var group in moving
+			.GroupBy(row => row.TargetAccountId)
+			.Select(rows => new
+			{
+				AccountId = rows.Key,
+				Count = rows.Count(),
+				Started = rows.Any(row => row.State != CrossAccountTransferState.Pending),
+				Since = rows.Min(row => row.CreatedAt),
+			})
+			.OrderBy(g => g.AccountId))
+		{
+			var messages = group.Count == 1 ? "1 message" : $"{group.Count:N0} messages";
+			tasks.Add(new BackgroundTaskDto($"Moving {messages} in from another account", NameOf(group.AccountId), null, null, group.Since, group.Started));
 		}
 
 		var exports = await context
@@ -1794,6 +1839,13 @@ public class MailHub(
 			messageIds,
 			messageId => mutations.SetFlagsAsync(accountId, messageId, new FlagUpdate(isRead, isFlagged))
 		);
+
+	public Task<int> MoveMessagesToAccount(
+		Guid sourceAccountId,
+		IReadOnlyList<Guid> messageIds,
+		Guid targetAccountId,
+		Guid targetMailboxId
+	) => transfers.EnqueueAsync(sourceAccountId, messageIds, targetAccountId, targetMailboxId);
 
 	public async Task<MutationEnqueueResultDto> MoveMessages(
 		Guid accountId,

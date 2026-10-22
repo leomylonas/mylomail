@@ -1,5 +1,6 @@
 using MailKit;
 using MailKit.Net.Imap;
+using MimeKit;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Errors;
 using MyloMail.Api.Providers.Contracts;
@@ -313,5 +314,37 @@ public sealed partial class ImapMailProvider
 
 		await client.DisconnectAsync(true, ct);
 		return new BatchResult(items);
+	}
+
+	public async Task ImportMessageAsync(
+		Account account,
+		Mailbox target,
+		byte[] rawMime,
+		bool isRead,
+		bool isFlagged,
+		CancellationToken ct
+	)
+	{
+		using var client = await ConnectAsync(ct);
+		var folder = await client.GetFolderAsync(
+			target.ProviderMailboxId ?? throw new InvalidOperationException("IMAP mailboxes always have a provider id"),
+			ct
+		);
+		await folder.OpenAsync(FolderAccess.ReadWrite, ct);
+
+		using var stream = new MemoryStream(rawMime, writable: false);
+		var message = await MimeMessage.LoadAsync(stream, ct);
+		var flags = MessageFlags.None;
+		if (isRead)
+		{
+			flags |= MessageFlags.Seen;
+		}
+
+		if (isFlagged)
+		{
+			flags |= MessageFlags.Flagged;
+		}
+
+		await folder.AppendAsync(message, flags, ct);
 	}
 }

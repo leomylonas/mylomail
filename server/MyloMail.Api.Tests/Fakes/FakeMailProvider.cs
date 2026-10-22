@@ -855,6 +855,61 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 			Subject = message.Subject,
 		};
 
+	private Exception? importFailure;
+	private Exception? importFailureAfterStoring;
+
+	/// <summary>Every message <see cref="ImportMessageAsync"/> stored, in order.</summary>
+	public List<(string ProviderMailboxId, byte[] Raw, bool IsRead, bool IsFlagged)> Imported { get; } = [];
+
+	/// <summary>The next import throws before anything is stored: a definite failure.</summary>
+	public void FailImportWith(Exception failure) => importFailure = failure;
+
+	/// <summary>The next import stores the message and then throws: the server did it, the answer was lost.</summary>
+	public void FailImportAfterStoringWith(Exception failure) => importFailureAfterStoring = failure;
+
+	public Task ImportMessageAsync(
+		Account account,
+		Mailbox target,
+		byte[] rawMime,
+		bool isRead,
+		bool isFlagged,
+		CancellationToken ct
+	)
+	{
+		if (!Capabilities.CanImportMessages)
+		{
+			throw new NotSupportedException("This provider cannot store a received message as it was.");
+		}
+
+		if (importFailure is Exception failure)
+		{
+			importFailure = null;
+			throw failure;
+		}
+
+		var mailbox = Require(ProviderIdOf(target));
+		using var stream = new MemoryStream(rawMime);
+		var parsed = MimeKit.MimeMessage.Load(stream);
+		var occurrenceId = NextOccurrenceId();
+		mailbox.Messages[occurrenceId] = new FakeMessage(Guid.NewGuid(), DateTimeOffset.UtcNow)
+		{
+			MessageIdHeader = parsed.MessageId is { Length: > 0 } id ? $"<{id}>" : null,
+			Subject = parsed.Subject ?? string.Empty,
+			IsRead = isRead,
+			IsFlagged = isFlagged,
+			RawBytes = rawMime,
+		};
+		Imported.Add((mailbox.ProviderMailboxId, rawMime, isRead, isFlagged));
+
+		if (importFailureAfterStoring is Exception afterStoring)
+		{
+			importFailureAfterStoring = null;
+			throw afterStoring;
+		}
+
+		return Task.CompletedTask;
+	}
+
 	/// <summary>What the last <see cref="SendAsync"/> call was given, for tests that assert on send content.</summary>
 	public Draft? LastSentDraft { get; private set; }
 

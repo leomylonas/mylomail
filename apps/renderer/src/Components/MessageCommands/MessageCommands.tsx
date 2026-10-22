@@ -51,7 +51,11 @@ export function MessageCommands({
 	const archive = byLabel("Archive");
 	const junk = byLabel("Report junk");
 	const print = byLabel("Print");
-	const move = actions.find((action) => action.children);
+	// Folders of this account first; one more entry per other account, each with its own folders.
+	const moves = actions.filter(
+		(action) => action.children && action.label.startsWith("Move to"),
+	);
+	const move = moves[0];
 	const overflow = actions.filter((action) =>
 		["Delete permanently", "Save as .eml"].some((prefix) =>
 			action.label.startsWith(prefix),
@@ -89,7 +93,7 @@ export function MessageCommands({
 				setMenu({
 					x: rect.left,
 					y: rect.bottom,
-					actions: move?.children ?? [],
+					actions: moves.length > 1 ? moves : (move?.children ?? []),
 				});
 			}}
 		>

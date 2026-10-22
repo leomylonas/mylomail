@@ -16,6 +16,7 @@ using MyloMail.Api.Providers.CalDav;
 using MyloMail.Api.Scheduling;
 using MyloMail.Api.Security;
 using MyloMail.Api.Sync;
+using MyloMail.Api.Transfers;
 
 namespace MyloMail.Api.Persistence;
 
@@ -102,6 +103,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IFaultInjector>(NullFaultInjector.Instance);
 		services.TryAddSingleton<IMutationDispatcher, NoMutationDispatcher>();
 		services.TryAddSingleton<IOutboxDispatcher, NoOutboxDispatcher>();
+		services.TryAddSingleton<ITransferDispatcher, NoTransferDispatcher>();
 		services.TryAddSingleton<IDraftDispatcher, NoDraftDispatcher>();
 		services.AddScoped<MutationQueue>();
 		services.AddScoped<MutationClaimService>();
@@ -112,6 +114,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddScoped<Contacts.ContactSuggestionService>();
 		services.AddScoped<OutboxService>();
 		services.AddScoped<SendExecutor>();
+		services.AddScoped<CrossAccountTransferService>();
 		services.AddScoped<SendReconciler>();
 
 		return services;
@@ -181,6 +184,8 @@ public static class PersistenceServiceCollectionExtensions
 		// instead of waiting for the next startup sweep.
 		services.AddSingleton<IMutationDispatcher, MutationDispatcher>();
 		services.AddSingleton<IOutboxDispatcher, OutboxDispatcher>();
+		services.AddSingleton<ITransferDispatcher, TransferDispatcher>();
+		services.AddScoped<TransferJobs>();
 		services.AddSingleton<IDraftDispatcher, DraftDispatcher>();
 		services.AddScoped<DraftJobs>();
 		services.AddScoped<OutboxJobs>();
