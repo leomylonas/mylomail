@@ -30,8 +30,8 @@ public record ProviderCapabilities
 
 	/// <summary>
 	/// Whether <see cref="IMailProvider.ImportMessageAsync"/> can store a received message exactly as
-	/// it was. Microsoft Graph cannot: creating a message from MIME always yields a draft, and the
-	/// documented workaround rebuilds it from parsed JSON and loses what MIME carried.
+	/// it was. Microsoft Graph can, but only through the mailbox import/export API (see
+	/// <c>GraphMailProvider.ImportMessageAsync</c>): creating a message from MIME alone always yields a draft.
 	/// </summary>
 	public bool CanImportMessages { get; init; } = true;
 

@@ -60,9 +60,6 @@ public sealed class CrossAccountTransferService(
 	/// </summary>
 	private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Runs = new();
 
-	/// <summary>Whether mail can be moved into an account of this type.</summary>
-	public static bool CanReceive(ProviderType type) => type != ProviderType.Microsoft365;
-
 	/// <summary>
 	/// Records the intent to move these messages and asks for it to be carried out. Rejects the whole
 	/// request, before anything is recorded, when it cannot work.
@@ -83,14 +80,6 @@ public sealed class CrossAccountTransferService(
 
 		var target = await context.Accounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == targetAccountId, ct)
 			?? throw new MutationHubException(ErrorCategory.Validation, "That account no longer exists.");
-		if (!CanReceive(target.ProviderType))
-		{
-			throw new MutationHubException(
-				ErrorCategory.Validation,
-				"Mail cannot be moved into a Microsoft 365 account: it cannot store a received message as it was."
-			);
-		}
-
 		var mailbox = await context.Mailboxes.AsNoTracking().FirstOrDefaultAsync(m => m.Id == targetMailboxId, ct);
 		if (mailbox is null || mailbox.AccountId != targetAccountId || mailbox.ProviderMailboxId is null)
 		{
@@ -100,6 +89,20 @@ public sealed class CrossAccountTransferService(
 		if (mailbox.SpecialUse == SpecialUse.Drafts)
 		{
 			throw new MutationHubException(ErrorCategory.Validation, "Mail cannot be moved into Drafts.");
+		}
+
+		// Some providers need a permission the sign-in does not carry (Microsoft 365's mailbox import).
+		// Asked for here, where the user has just asked for the move and can answer a consent screen.
+		if (providers.For(target) is IImportAuthorization authorization)
+		{
+			try
+			{
+				await authorization.EnsureImportAuthorizedAsync(target, ct);
+			}
+			catch (InvalidOperationException ex)
+			{
+				throw new MutationHubException(ErrorCategory.Validation, ex.Message);
+			}
 		}
 
 		var messages = await context

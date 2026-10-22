@@ -29,6 +29,20 @@ public sealed class GraphOAuthAuthenticator
 	public static IReadOnlyList<string> ScopesFor(Account account) =>
 		GraphMailbox.For(account).IsShared ? SharedMailboxScopes : Scopes;
 
+	/// <summary>
+	/// The delegated permission for Graph's mailbox import and export API, which is the only way to
+	/// store a received message in a mailbox as it was (<see cref="Providers.Graph.GraphMailProvider.ImportMessageAsync"/>).
+	/// Work or school accounts only, and not part of <see cref="Scopes"/>: it is asked for the first
+	/// time mail is moved into the account, so an account that is never a target is never asked.
+	/// </summary>
+	public const string ImportExportScope = "MailboxItem.ImportExport";
+
+	public static IReadOnlyList<string> ImportScopesFor(Account account) =>
+		[.. ScopesFor(account), ImportExportScope];
+
+	/// <summary>How long the browser consent for the import permission is waited for.</summary>
+	private static readonly TimeSpan ConsentTimeout = TimeSpan.FromMinutes(3);
+
 	private readonly ICredentialStore credentials;
 	private readonly IPublicClientApplication application;
 
@@ -131,6 +145,67 @@ public sealed class GraphOAuthAuthenticator
 		return problem;
 	}
 
+	/// <summary>
+	/// Makes sure the account's sign-in covers the import permission: silently when it already does,
+	/// otherwise through the browser consent screen, which is waited for a bounded time. Meant to be
+	/// called from something the user just asked for, never from a background job.
+	/// </summary>
+	public async Task AuthorizeForImportAsync(Account account, CancellationToken ct)
+	{
+		ConfigureCache(account.Id);
+		var scopes = ImportScopesFor(account);
+		var cachedAccount = (await application.GetAccountsAsync()).SingleOrDefault();
+		try
+		{
+			if (cachedAccount is not null)
+			{
+				try
+				{
+					await application.AcquireTokenSilent(scopes, cachedAccount).ExecuteAsync(ct);
+					return;
+				}
+				catch (MsalUiRequiredException)
+				{
+					// Not consented yet, or the session needs renewing: ask.
+				}
+			}
+
+			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+			timeout.CancelAfter(ConsentTimeout);
+			var interactive = application.AcquireTokenInteractive(scopes).WithUseEmbeddedWebView(false);
+			if (cachedAccount is not null)
+			{
+				interactive = interactive.WithAccount(cachedAccount);
+			}
+
+			await interactive.ExecuteAsync(timeout.Token);
+		}
+		catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+		{
+			throw new InvalidOperationException("The permission screen was not completed in time.");
+		}
+		catch (MsalException ex) when (IsAdminConsentRequired(ex))
+		{
+			throw new InvalidOperationException(
+				"Your Microsoft 365 organisation needs an administrator to approve MyloMail's mailbox import permission (MailboxItem.ImportExport) before mail can be moved into this account."
+			);
+		}
+		catch (MsalException ex)
+		{
+			throw new InvalidOperationException($"Microsoft did not grant the permission to move mail into this account: {ex.Message}");
+		}
+	}
+
+	/// <summary>A token that carries the import permission; silent only, never a browser.</summary>
+	public async Task<AccessToken> AcquireImportTokenAsync(Account account, CancellationToken ct)
+	{
+		ConfigureCache(account.Id);
+		var cachedAccount = (await application.GetAccountsAsync()).SingleOrDefault()
+			?? throw new MsalUiRequiredException("no_account", "No Microsoft credential is available for this account. Authenticate first.");
+		var result = await application.AcquireTokenSilent(ImportScopesFor(account), cachedAccount).ExecuteAsync(ct);
+		return new AccessToken(result.AccessToken, result.ExpiresOn);
+	}
+
 	public async Task<AccessToken> AcquireTokenAsync(Account account, CancellationToken ct)
 	{
 		ConfigureCache(account.Id);
@@ -190,7 +265,8 @@ public sealed class GraphOAuthAuthenticator
 }
 
 /// <summary>Bridges MSAL's per-account token cache into the Graph SDK's token credential.</summary>
-public sealed class GraphAccountTokenCredential(GraphOAuthAuthenticator oauth, Account account)
+/// <param name="withImportPermission">Whether tokens carry the mailbox import permission as well.</param>
+public sealed class GraphAccountTokenCredential(GraphOAuthAuthenticator oauth, Account account, bool withImportPermission = false)
 	: TokenCredential
 {
 	public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken ct) =>
@@ -199,5 +275,5 @@ public sealed class GraphAccountTokenCredential(GraphOAuthAuthenticator oauth, A
 	public override ValueTask<AccessToken> GetTokenAsync(
 		TokenRequestContext requestContext,
 		CancellationToken ct
-	) => new(oauth.AcquireTokenAsync(account, ct));
+	) => new(withImportPermission ? oauth.AcquireImportTokenAsync(account, ct) : oauth.AcquireTokenAsync(account, ct));
 }

@@ -97,6 +97,8 @@ The conformance suite's own names (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`,
 `pnpm app` loads the registration from `.dev/provider-test.env` itself (only those three names, never the test accounts' passwords), or `source .dev/provider-test.env` before another launch route. Configuration wins where
 both are set. `GRAPH_TENANT_ID` belongs to the conformance test account and is never read by the app. The app's Microsoft sign-in directory is per account (`Microsoft365ProviderConfig.TenantId`, chosen in Add account: automatic, work, personal, or a specific tenant), falling back to `Providers__Graph__Authority`, default `common`.
 
+Moving mail _into_ a Microsoft 365 account uses Graph's mailbox import/export API, which needs the delegated `MailboxItem.ImportExport` permission on the same registration (work or school accounts only). It is requested the first time mail is moved into such an account, not at sign-in, so an account that is never a target is never asked; without the permission on the registration that move fails with a message saying so.
+
 Microsoft 365 shared mailboxes (`Microsoft365ProviderConfig.SharedMailbox`) reuse this same registration but request the delegated `Mail.ReadWrite.Shared`, `Mail.Send.Shared` and `Calendars.ReadWrite.Shared` scopes instead of the plain ones, so the Entra app registration must have those permissions added and consented (work or school accounts only). All Graph requests for such an account target `/users/{shared}` through `GraphMailbox`; never branch on it at a call site.
 
 ### Telemetry (optional)

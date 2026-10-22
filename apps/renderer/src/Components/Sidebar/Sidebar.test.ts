@@ -3,10 +3,7 @@ import {
 	accountMoveActions,
 	authStateWarning,
 } from "@mylomail/renderer/Components/Sidebar/Sidebar";
-import {
-	AuthState,
-	ProviderType,
-} from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 
 function findAction(
 	actions: ReturnType<typeof accountMoveActions>,
@@ -18,12 +15,7 @@ function findAction(
 }
 
 function account(id: string) {
-	return {
-		id,
-		displayName: id,
-		color: "#000000",
-		providerType: ProviderType.Imap,
-	};
+	return { id, displayName: id, color: "#000000" };
 }
 
 describe("authStateWarning", () => {

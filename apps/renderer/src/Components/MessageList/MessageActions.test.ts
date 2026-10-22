@@ -259,7 +259,6 @@ describe("messageActions — Move to", () => {
 describe("messageActions — moving to another account", () => {
 	const build = (
 		moveToAccount: ReturnType<typeof vi.fn>,
-		canReceive = true,
 		folders = [
 			{
 				id: "g-inbox",
@@ -282,7 +281,7 @@ describe("messageActions — moving to another account", () => {
 			vi.fn(),
 			vi.fn(),
 			[],
-			[{ id: "other", name: "Work", canReceive, folders }],
+			[{ id: "other", name: "Work", folders }],
 			moveToAccount,
 			undefined,
 			{} as MailHubConnection,
@@ -314,14 +313,8 @@ describe("messageActions — moving to another account", () => {
 		});
 	});
 
-	it("says why an account that cannot receive mail is unavailable", () => {
-		const entry = findAction(build(vi.fn(), false), "Move to Work");
-
-		expect(entry.unavailable).toMatch(/Microsoft 365/);
-	});
-
 	it("is unavailable until that account's folders have loaded", () => {
-		const entry = findAction(build(vi.fn(), true, []), "Move to Work");
+		const entry = findAction(build(vi.fn(), []), "Move to Work");
 
 		expect(entry.unavailable).toMatch(/not loaded/);
 	});

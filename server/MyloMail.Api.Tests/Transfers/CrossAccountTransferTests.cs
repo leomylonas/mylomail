@@ -58,16 +58,6 @@ public sealed class CrossAccountTransferTests
 	}
 
 	[Fact]
-	public async Task Mail_cannot_be_moved_into_a_microsoft_365_account()
-	{
-		await using var harness = await TransferHarness.CreateAsync(target: ProviderShapes.Graph);
-		var message = await harness.AddMessageAsync();
-
-		await Assert.ThrowsAnyAsync<HubException>(() => harness.EnqueueAsync(message));
-		Assert.Empty(await harness.TransfersAsync());
-	}
-
-	[Fact]
 	public async Task Mail_cannot_be_moved_into_drafts()
 	{
 		await using var harness = await TransferHarness.CreateAsync();

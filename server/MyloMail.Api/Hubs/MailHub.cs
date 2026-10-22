@@ -308,8 +308,9 @@ public interface IMailHub
 	/// </summary>
 	/// <returns>How many moves were started; a message already being moved is not started twice.</returns>
 	/// <exception cref="HubException">
-	/// The target account cannot receive mail (Microsoft 365 cannot store a received message as it
-	/// was), the folder is not in it, or a message has not finished downloading yet.
+	/// The folder is not in the target account, it is a Drafts folder, or the target is a Microsoft 365
+	/// account whose organisation has not granted the mailbox import permission (the call waits for the
+	/// user's answer to the consent screen first).
 	/// </exception>
 	Task<int> MoveMessagesToAccount(
 		Guid sourceAccountId,

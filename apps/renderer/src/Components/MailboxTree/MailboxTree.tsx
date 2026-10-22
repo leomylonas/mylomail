@@ -41,11 +41,6 @@ import { FolderNameModal } from "@mylomail/renderer/Components/MailboxTree/Folde
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import {
-	canReceiveMovedMail,
-	microsoft365CannotReceive,
-} from "@mylomail/renderer/Lib/MovedMail";
-import type { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
-import {
 	mailboxDragType,
 	messageDragType,
 	parseMessageDrag,
@@ -144,13 +139,11 @@ export function mailboxesQuery(hub: MailHubConnection, accountId: string) {
 export function MailboxTree({
 	hub,
 	accountId,
-	providerType,
 	showHidden = false,
 	onMailboxSelected,
 }: {
 	hub: MailHubConnection;
 	accountId: string;
-	providerType?: ProviderType;
 	/** Hidden folders appear in place, dimmed and italic, instead of being left out. */
 	showHidden?: boolean;
 	/** Called only for the user's own click on a folder, never when selection is restored. */
@@ -471,14 +464,6 @@ export function MailboxTree({
 			if (messagePayload.accountId !== accountId) {
 				// Dropped on another account's folder: copied there, and the original goes to the
 				// Trash once the copy is known to exist.
-				if (!canReceiveMovedMail(providerType)) {
-					notify(notifications, {
-						kind: "error",
-						title: "Can't move mail here",
-						detail: microsoft365CannotReceive,
-					});
-					return;
-				}
 				moveToAccount.mutate({
 					sourceAccountId: messagePayload.accountId,
 					messageIds: messagePayload.messageIds,

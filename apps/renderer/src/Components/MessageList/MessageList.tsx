@@ -47,10 +47,6 @@ import {
 	TextInput,
 } from "@carbon/react";
 import { createPortal } from "react-dom";
-import {
-	canReceiveMovedMail,
-	microsoft365CannotReceive,
-} from "@mylomail/renderer/Lib/MovedMail";
 import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { MessageCommands } from "@mylomail/renderer/Components/MessageCommands/MessageCommands";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
@@ -93,7 +89,6 @@ import type { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.
 import {
 	MessageFlagField,
 	SpecialUse,
-	type ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { parseSearchSnippet } from "@mylomail/renderer/Components/MessageList/SearchSnippet";
 import {
@@ -147,7 +142,6 @@ interface MailboxOption {
 export interface MoveTargetAccount {
 	id: string;
 	name: string;
-	canReceive: boolean;
 	folders: MailboxOption[];
 }
 
@@ -350,7 +344,7 @@ export function MessageList({
 	 */
 	actionsRef?: { current: readonly MenuAction[] };
 	/** Every account, so mail can be moved to a folder of another one. */
-	moveTargets?: { id: string; name: string; providerType?: ProviderType }[];
+	moveTargets?: { id: string; name: string }[];
 }) {
 	const dateFormats = useDateFormats();
 	const store = useWindowStore();
@@ -1130,7 +1124,6 @@ export function MessageList({
 				.map((account) => ({
 					id: account.id,
 					name: account.name,
-					canReceive: canReceiveMovedMail(account.providerType),
 					folders: (
 						queryClient.getQueryData<MailboxOption[]>(
 							queryKeys.mailboxes(account.id),
@@ -1749,9 +1742,8 @@ export function messageActions(
 		...otherAccounts.map((account): MenuAction => ({
 			label: `Move to ${account.name}${suffix}`,
 			run: () => undefined,
-			unavailable: !account.canReceive
-				? microsoft365CannotReceive
-				: account.folders.length === 0
+			unavailable:
+				account.folders.length === 0
 					? "That account's folders have not loaded yet."
 					: undefined,
 			children: [...account.folders]

@@ -51,6 +51,13 @@ internal readonly partial record struct GraphMailbox(string? SharedMailbox)
 	/// (§2). A shared account additionally retargets <c>/me</c> requests and maps permission
 	/// denial.
 	/// </summary>
+	/// <summary>
+	/// As <see cref="Handlers"/> but without asking for immutable ids. The mailbox import/export API
+	/// takes the ordinary ids Graph returns by default, so a client used for it must not switch them.
+	/// </summary>
+	public DelegatingHandler[] HandlersWithOrdinaryIds() =>
+		SharedMailbox is null ? [] : [new GraphSharedMailboxHandler(this)];
+
 	public DelegatingHandler[] Handlers() =>
 		SharedMailbox is null
 			? [new GraphImmutableIdHandler()]
