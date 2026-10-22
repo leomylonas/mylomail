@@ -1,5 +1,5 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using MyloMail.Api.Compose;
 using MyloMail.Api.Domain;
 using MyloMail.Api.Persistence;
