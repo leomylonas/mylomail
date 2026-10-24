@@ -540,6 +540,69 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Equal([(false, false), (true, false), (true, true)], states.Select(s => (s.IsRead == true, s.Flagged)).ToList());
 	}
 
+	/// <summary>
+	/// A second reader, written by someone else: <c>readpst</c> (libpst, package <c>pst-utils</c>), the
+	/// only PST checker that runs off Windows. Outlook's own scanpst is not available to CI. CI
+	/// installs it and sets <c>MYLOMAIL_REQUIRE_READPST</c>, so the test cannot quietly skip there;
+	/// elsewhere it skips when the tool is not installed.
+	/// </summary>
+	[SkippableFact]
+	public async Task A_pst_export_is_read_whole_by_an_independent_reader_with_the_read_state_it_was_given()
+	{
+		var required = Environment.GetEnvironmentVariable("MYLOMAIL_REQUIRE_READPST") == "1";
+		var available = RunReadPst("-V", destination) is not null;
+		Assert.True(available || !required, "readpst is required here but is not installed.");
+		Skip.IfNot(available, "readpst (pst-utils) is not installed.");
+
+		await SeedAsync(inboxMessages: 3, sentMessages: 0);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			foreach (var message in await context.Messages.Take(2).ToListAsync())
+			{
+				message.IsRead = true;
+			}
+
+			await context.SaveChangesAsync();
+		});
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Pst));
+		await RunToEndAsync(exportId);
+
+		var output = Path.Combine(destination, "readpst-output");
+		Directory.CreateDirectory(output);
+		var log = RunReadPst($"-r -o \"{output}\" \"{PstPath}\"", destination);
+
+		Assert.NotNull(log);
+		Assert.Contains("\"INBOX\" - 3 items done, 0 items skipped.", log);
+		var mbox = Directory.GetFiles(output, "mbox", SearchOption.AllDirectories).Single(path => path.Contains("INBOX"));
+		var text = await File.ReadAllTextAsync(mbox);
+		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "^Status: RO$", System.Text.RegularExpressions.RegexOptions.Multiline).Count);
+	}
+
+	/// <returns>The tool's output, or null when it cannot be started or fails.</returns>
+	private static string? RunReadPst(string arguments, string workingDirectory)
+	{
+		try
+		{
+			Directory.CreateDirectory(workingDirectory);
+			using var process = System.Diagnostics.Process.Start(
+				new System.Diagnostics.ProcessStartInfo("readpst", arguments)
+				{
+					RedirectStandardOutput = true,
+					RedirectStandardError = true,
+					WorkingDirectory = workingDirectory,
+				}
+			)!;
+			var text = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+			process.WaitForExit();
+			return process.ExitCode == 0 ? text : null;
+		}
+		catch (System.ComponentModel.Win32Exception)
+		{
+			return null;
+		}
+	}
+
 	[Fact]
 	public async Task A_pst_export_takes_its_position_from_the_writers_checkpoint_not_the_database()
 	{
