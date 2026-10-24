@@ -102,6 +102,7 @@ export enum SmtpAuthMethod {
 export enum ExportFormat {
     EmlFolders = 0,
     Mbox = 1,
+    Pst = 2,
 }
 
 /** Transpiled from MyloMail.Api.Domain.ExportFileNaming */

@@ -148,6 +148,11 @@ public sealed class ExportJobs(
 		{
 			job.Status = ExportJobStatus.Cancelled;
 			job.CompletedAt = clock.GetUtcNow();
+			if (job.Format == ExportFormat.Pst)
+			{
+				PstExportSession.Discard(job.DestinationPath);
+			}
+
 			await context.SaveChangesAsync(ct);
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
 			return;
@@ -155,16 +160,42 @@ public sealed class ExportJobs(
 
 		var account = await context.Accounts.FirstAsync(a => a.Id == job.AccountId, ct);
 
+		PstExportSession? pst = null;
 		try
 		{
 			var mailboxes = await context.Mailboxes.Where(m => m.AccountId == job.AccountId).ToListAsync(ct);
 			var folders = ExportLayout.Build(mailboxes, job.DestinationPath, job.Format);
 
 			var manifest = JsonSerializer.Deserialize<List<Guid>>(job.ManifestJson) ?? [];
+
+			if (job.Format == ExportFormat.Pst)
+			{
+				pst = PstExportSession.Open(
+					job.DestinationPath,
+					account.DisplayName,
+					mailboxes,
+					JsonSerializer.Deserialize<List<Guid>>(job.MailboxIdsJson) ?? []
+				);
+				if (pst is null)
+				{
+					// The PST was finished and committed; only the database did not hear of it.
+					job.Status = ExportJobStatus.Completed;
+					job.CompletedAt = clock.GetUtcNow();
+					await context.SaveChangesAsync(ct);
+					await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
+					return;
+				}
+
+				// The writer's checkpoint is the truth about what is in the file.
+				job.ResumeToken = pst.State.ResumeToken;
+				job.WrittenCount = pst.State.Written;
+				job.SkippedCount = pst.State.Skipped;
+			}
+
 			var pageIds = manifest.Skip(job.ResumeToken).Take(BatchSize).ToList();
 			if (pageIds.Count == 0)
 			{
-				await ExtendOrCompleteAsync(job, manifest, ct);
+				await ExtendOrCompleteAsync(job, manifest, pst, ct);
 				return;
 			}
 
@@ -287,6 +318,10 @@ public sealed class ExportJobs(
 							await mbox.FlushAsync(ct);
 							offsets[occurrence.MailboxId] = mbox.Length;
 						}
+						else if (job.Format == ExportFormat.Pst)
+						{
+							pst!.AddMessage(occurrence.MailboxId, raw);
+						}
 						else
 						{
 							Directory.CreateDirectory(folder);
@@ -358,9 +393,10 @@ public sealed class ExportJobs(
 			}
 
 			job.MboxOffsetsJson = JsonSerializer.Serialize(offsets);
+			pst?.Checkpoint(job.ResumeToken, job.WrittenCount, job.SkippedCount);
 			if (job.ResumeToken >= manifest.Count)
 			{
-				await ExtendOrCompleteAsync(job, manifest, ct);
+				await ExtendOrCompleteAsync(job, manifest, pst, ct);
 				return;
 			}
 
@@ -382,9 +418,20 @@ public sealed class ExportJobs(
 			job.Status = ExportJobStatus.Failed;
 			job.CompletedAt = clock.GetUtcNow();
 			job.LastError = ex.Message;
+			if (job.Format == ExportFormat.Pst)
+			{
+				pst?.Dispose();
+				pst = null;
+				PstExportSession.Discard(job.DestinationPath);
+			}
+
 			await context.SaveChangesAsync(ct);
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
 			logger.LogWarning(ex, "Export {ExportId} failed.", job.Id);
+		}
+		finally
+		{
+			pst?.Dispose();
 		}
 	}
 
@@ -393,7 +440,7 @@ public sealed class ExportJobs(
 	/// added and written too; the export is complete only when a pass over those folders finds
 	/// nothing it has not already seen, and mail arriving after that is not part of it.
 	/// </summary>
-	private async Task ExtendOrCompleteAsync(ExportJob job, List<Guid> manifest, CancellationToken ct)
+	private async Task ExtendOrCompleteAsync(ExportJob job, List<Guid> manifest, PstExportSession? pst, CancellationToken ct)
 	{
 		var chosen = JsonSerializer.Deserialize<List<Guid>>(job.MailboxIdsJson) ?? [];
 		var seen = manifest.ToHashSet();
@@ -407,6 +454,8 @@ public sealed class ExportJobs(
 		}
 		else
 		{
+			// Commits the PST: its indexes are written and the file is put in place atomically.
+			pst?.Complete();
 			job.Status = ExportJobStatus.Completed;
 			job.CompletedAt = clock.GetUtcNow();
 		}

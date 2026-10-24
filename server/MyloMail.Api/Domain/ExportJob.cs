@@ -83,6 +83,9 @@ public enum ExportFormat
 
 	/// <summary>One mbox file per mailbox, nested the way Thunderbird does (<c>Name</c> and <c>Name.sbd/</c>).</summary>
 	Mbox,
+
+	/// <summary>One Outlook Unicode PST; <see cref="ExportJob.DestinationPath"/> is the file, not a folder.</summary>
+	Pst,
 }
 
 [TranspilationSource]

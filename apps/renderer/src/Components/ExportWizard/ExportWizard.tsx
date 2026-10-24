@@ -327,9 +327,8 @@ export function ExportWizard({
 									/>
 									<RadioButton
 										id="export-pst"
-										labelText="PST file (not available yet)"
-										value="pst"
-										disabled
+										labelText="Outlook PST file, one for the whole selection"
+										value={ExportFormat.Pst}
 									/>
 								</RadioButtonGroup>
 								{format === ExportFormat.EmlFolders ? (
@@ -452,9 +451,9 @@ export function ExportWizard({
 }
 
 function describeFormat(format: ExportFormat, naming: ExportFileNaming) {
-	return format === ExportFormat.Mbox
-		? "mbox files"
-		: `.eml files named by ${naming === ExportFileNaming.DateAndSubject ? "date and subject" : "message id"}`;
+	if (format === ExportFormat.Mbox) return "mbox files";
+	if (format === ExportFormat.Pst) return "Outlook PST file";
+	return `.eml files named by ${naming === ExportFileNaming.DateAndSubject ? "date and subject" : "message id"}`;
 }
 
 function FolderTree({
@@ -536,7 +535,13 @@ function ExportProgress({
 				<dt>To</dt>
 				<dd>{job.destinationPath}</dd>
 				<dt>Format</dt>
-				<dd>{job.format === ExportFormat.Mbox ? "mbox" : ".eml files"}</dd>
+				<dd>
+					{job.format === ExportFormat.Mbox
+						? "mbox"
+						: job.format === ExportFormat.Pst
+							? "Outlook PST"
+							: ".eml files"}
+				</dd>
 			</dl>
 			{job.skippedCount > 0 ? (
 				<InlineNotification

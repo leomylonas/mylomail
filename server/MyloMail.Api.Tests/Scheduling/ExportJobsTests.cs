@@ -480,6 +480,77 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Equal([second, first], recent.Select(job => job.Id).ToList());
 	}
 
+	private string PstPath => Path.Combine(destination, "export.pst");
+
+	private static List<(string Folder, string Subject)> PstContents(string path)
+	{
+		using var session = OfficeIMO.Email.Store.EmailStoreSession.Open(path);
+		return
+		[
+			.. session
+				.EnumerateItems()
+				.Select(reference =>
+				{
+					var item = session.ReadItem(reference);
+					return (item.FolderId ?? string.Empty, item.Document.Subject ?? string.Empty);
+				}),
+		];
+	}
+
+	[Fact]
+	public async Task Pst_export_writes_every_message_into_its_folder_and_leaves_no_working_files()
+	{
+		await SeedAsync(inboxMessages: 2, sentMessages: 1);
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Pst));
+
+		await RunToEndAsync(exportId);
+
+		Assert.Equal(ExportJobStatus.Completed, (await LoadAsync(exportId)).Status);
+		var items = PstContents(PstPath);
+		Assert.Equal(3, items.Count);
+		Assert.Equal([1, 2], items.GroupBy(i => i.Folder).Select(g => g.Count()).Order().ToList());
+		Assert.False(File.Exists(PstPath + ".mylomail-export"));
+	}
+
+	[Fact]
+	public async Task A_pst_export_takes_its_position_from_the_writers_checkpoint_not_the_database()
+	{
+		await SeedAsync(inboxMessages: 30, sentMessages: 0);
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Pst));
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+
+		// The database claims everything was written, as if a later batch saved its position and the
+		// file then lost that work; the checkpoint says only the first batch is in the file.
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var job = await context.ExportJobs.SingleAsync(j => j.Id == exportId);
+			job.ResumeToken = 30;
+			job.WrittenCount = 30;
+			await context.SaveChangesAsync();
+		});
+		await RunToEndAsync(exportId);
+
+		Assert.Equal(30, PstContents(PstPath).Count);
+		Assert.Equal(30, (await LoadAsync(exportId)).WrittenCount);
+	}
+
+	[Fact]
+	public async Task Cancelling_a_pst_export_removes_what_it_had_started()
+	{
+		await SeedAsync(inboxMessages: 30, sentMessages: 0);
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Pst));
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+		Assert.True(File.Exists(PstPath + ".mylomail-export"));
+
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RequestCancelAsync(exportId));
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+
+		Assert.Equal(ExportJobStatus.Cancelled, (await LoadAsync(exportId)).Status);
+		Assert.False(File.Exists(PstPath + ".mylomail-export"));
+		Assert.False(File.Exists(PstPath));
+	}
+
 	private static int MessageCount(string mbox) =>
 		System.Text.RegularExpressions.Regex.Matches(mbox, "^From ", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
 
@@ -492,7 +563,9 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		var context = scope.GetRequiredService<MyloMailDbContext>();
 		var account = await context.Accounts.SingleAsync();
 		var mailboxIds = await context.Mailboxes.Where(m => m.AccountId == account.Id).Select(m => m.Id).ToListAsync();
-		return await scope.GetRequiredService<ExportJobs>().StartAsync(account.Id, mailboxIds, format, naming, destination);
+		return await scope
+			.GetRequiredService<ExportJobs>()
+			.StartAsync(account.Id, mailboxIds, format, naming, format == ExportFormat.Pst ? PstPath : destination);
 	}
 
 	private async Task RunToEndAsync(Guid exportId)

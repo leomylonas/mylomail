@@ -2365,13 +2365,23 @@ public class MailHub(
 			throw new MutationHubException(ErrorCategory.Validation, "Choose at least one folder of this account to export.");
 		}
 
-		return await export.StartAsync(
-			request.AccountId,
-			chosen,
-			request.Format,
-			request.FileNaming,
-			request.DestinationPath
-		);
+		var destination = request.DestinationPath;
+		if (request.Format == ExportFormat.Pst)
+		{
+			// The destination is a folder; the PST is a file in it, named for the account, and never
+			// one that is already there.
+			var name = Export.ExportNames.Segment(
+				(await context.Accounts.AsNoTracking().FirstAsync(a => a.Id == request.AccountId)).DisplayName,
+				"Mail"
+			);
+			destination = Path.Combine(request.DestinationPath, $"{name}.pst");
+			for (var n = 2; File.Exists(destination) || Export.PstExportSession.IsInProgress(destination); n++)
+			{
+				destination = Path.Combine(request.DestinationPath, $"{name} ({n}).pst");
+			}
+		}
+
+		return await export.StartAsync(request.AccountId, chosen, request.Format, request.FileNaming, destination);
 	}
 
 	public Task CancelBulkExport(Guid exportId) => export.RequestCancelAsync(exportId);

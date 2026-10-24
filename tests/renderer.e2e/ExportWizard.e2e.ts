@@ -38,8 +38,6 @@ test("the export wizard writes the chosen folder as an mbox and keeps running wh
 		});
 		await wizard.getByRole("button", { name: "Next" }).click();
 
-		// PST is offered but cannot be chosen yet.
-		await expect(wizard.getByLabel(/PST file/)).toBeDisabled();
 		await wizard.getByLabel(/mbox files/).check({ force: true });
 		await wizard.getByRole("button", { name: "Next" }).click();
 		await wizard.getByRole("button", { name: "Choose folder…" }).click();
@@ -71,6 +69,53 @@ test("the export wizard writes the chosen folder as an mbox and keeps running wh
 				.getByRole("dialog", { name: "Export mail" })
 				.getByText("Export complete"),
 		).toBeVisible({ timeout: 30_000 });
+	} finally {
+		await app.close();
+	}
+});
+
+test("the export wizard can write the account as an Outlook PST", async () => {
+	await clearInbox(port);
+	await appendMessage(port, `Pst ${Date.now()}`);
+	const destination = mkdtempSync(join(tmpdir(), "mylomail-export-e2e-"));
+
+	const { app, window } = await launchApp();
+	try {
+		await createImapAccount(window, port);
+		await app.evaluate(({ dialog }, path) => {
+			dialog.showOpenDialog = () =>
+				Promise.resolve({ canceled: false, filePaths: [path] });
+		}, destination);
+
+		await window
+			.getByRole("button", { name: "Inbox" })
+			.first()
+			.waitFor({ timeout: 60_000 });
+		await window.getByRole("button", { name: "Export mail" }).click();
+		const wizard = window.getByRole("dialog", { name: "Export mail" });
+		await expect(wizard.getByText(/messages in \d+ folders?/)).toBeVisible({
+			timeout: 60_000,
+		});
+		await wizard.getByRole("button", { name: "Next" }).click();
+		await wizard.getByLabel(/Outlook PST file/).check({ force: true });
+		await wizard.getByRole("button", { name: "Next" }).click();
+		await wizard.getByRole("button", { name: "Choose folder…" }).click();
+		await wizard.getByRole("button", { name: "Start export" }).click();
+		await expect(wizard.getByText("Export complete")).toBeVisible({
+			timeout: 60_000,
+		});
+
+		const pst = readdirSync(destination).filter((name) =>
+			name.endsWith(".pst"),
+		);
+		expect(pst).toHaveLength(1);
+		// Every Unicode PST starts with the magic "!BDN".
+		expect(
+			readFileSync(join(destination, pst[0]!)).subarray(0, 4).toString(),
+		).toBe("!BDN");
+		expect(
+			readdirSync(destination).filter((n) => n.endsWith(".mylomail-export")),
+		).toEqual([]);
 	} finally {
 		await app.close();
 	}
