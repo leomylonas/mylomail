@@ -576,7 +576,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		Assert.Contains("\"INBOX\" - 3 items done, 0 items skipped.", log);
 		var mbox = Directory.GetFiles(output, "mbox", SearchOption.AllDirectories).Single(path => path.Contains("INBOX"));
 		var text = await File.ReadAllTextAsync(mbox);
-		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "^Status: RO$", System.Text.RegularExpressions.RegexOptions.Multiline).Count);
+		Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "^Status: RO\\r?$", System.Text.RegularExpressions.RegexOptions.Multiline).Count);
 	}
 
 	/// <returns>The tool's output, or null when it cannot be started or fails.</returns>
