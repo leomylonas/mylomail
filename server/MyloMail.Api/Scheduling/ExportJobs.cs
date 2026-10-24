@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MyloMail.Api.Content;
 using MyloMail.Api.Credentials;
 using MyloMail.Api.Domain;
+using MyloMail.Api.Export;
 using MyloMail.Api.Hubs;
 using MyloMail.Api.Persistence;
 using MyloMail.Api.Providers;
@@ -28,6 +29,7 @@ namespace MyloMail.Api.Scheduling;
 /// </para>
 /// </remarks>
 [AutomaticRetry(Attempts = 0)]
+[Queue(ExportJobs.QueueName)]
 public sealed class ExportJobs(
 	MyloMailDbContext context,
 	ContentAcquisition content,
@@ -42,20 +44,31 @@ public sealed class ExportJobs(
 	private const int BatchSize = 25;
 	private static readonly TimeSpan CredentialStoreRetryDelay = TimeSpan.FromSeconds(30);
 
-	public async Task<Guid> StartAsync(Guid accountId, string destinationPath, CancellationToken ct = default)
+	/// <summary>
+	/// Exports run on a queue and a single worker of their own, so a long export never occupies
+	/// a worker that sync, sending or another account's jobs are waiting for.
+	/// </summary>
+	public const string QueueName = "export";
+
+	public async Task<Guid> StartAsync(
+		Guid accountId,
+		IReadOnlyCollection<Guid> mailboxIds,
+		ExportFormat format,
+		ExportFileNaming fileNaming,
+		string destinationPath,
+		CancellationToken ct = default
+	)
 	{
-		var mailboxIds = context.Mailboxes.Where(m => m.AccountId == accountId).Select(m => m.Id);
-		var occurrenceIds = await context
-			.MessageMailboxes.Where(o => mailboxIds.Contains(o.MailboxId))
-			.OrderBy(o => o.Id)
-			.Select(o => o.Id)
-			.ToListAsync(ct);
+		var occurrenceIds = await OccurrencesAsync(mailboxIds, ct);
 
 		var job = new ExportJob
 		{
 			Id = Guid.NewGuid(),
 			AccountId = accountId,
 			DestinationPath = destinationPath,
+			Format = format,
+			FileNaming = fileNaming,
+			MailboxIdsJson = JsonSerializer.Serialize(mailboxIds),
 			TotalCount = occurrenceIds.Count,
 			ManifestJson = JsonSerializer.Serialize(occurrenceIds),
 			CreatedAt = clock.GetUtcNow(),
@@ -67,16 +80,42 @@ public sealed class ExportJobs(
 		return job.Id;
 	}
 
+	/// <summary>The occurrences in these mailboxes, by mailbox and then date, which is also the order an mbox file is written in.</summary>
+	private async Task<List<Guid>> OccurrencesAsync(IReadOnlyCollection<Guid> mailboxIds, CancellationToken ct)
+	{
+		// Ordered here rather than in SQL: SQLite cannot order by a DateTimeOffset.
+		var rows = await context
+			.MessageMailboxes.Where(o => mailboxIds.Contains(o.MailboxId))
+			.Join(context.Messages, o => o.MessageId, m => m.Id, (o, m) => new { o.Id, o.MailboxId, m.ReceivedAt })
+			.ToListAsync(ct);
+		return [.. rows.OrderBy(x => x.MailboxId).ThenBy(x => x.ReceivedAt).ThenBy(x => x.Id).Select(x => x.Id)];
+	}
+
 	/// <summary>
-	/// The account's most recent export, whatever its status — lets a settings/export screen
-	/// reopened mid-export (or after one finished) show where it left off, rather than only
-	/// ever seeing progress broadcast live while it happened to be open.
+	/// Every export, newest first, so the wizard can find the one it should show. The manifest, which
+	/// can be megabytes, is left out; SQLite cannot order by a DateTimeOffset, so that is done here.
 	/// </summary>
-	public Task<ExportJob?> GetLatestAsync(Guid accountId, CancellationToken ct = default) =>
-		context
-			.ExportJobs.Where(j => j.AccountId == accountId)
-			.OrderByDescending(j => j.CreatedAt)
-			.FirstOrDefaultAsync(ct);
+	public async Task<List<ExportJob>> GetRecentAsync(int count, CancellationToken ct = default)
+	{
+		var jobs = await context
+			.ExportJobs.AsNoTracking()
+			.Select(j => new ExportJob
+			{
+				Id = j.Id,
+				AccountId = j.AccountId,
+				DestinationPath = j.DestinationPath,
+				Status = j.Status,
+				TotalCount = j.TotalCount,
+				WrittenCount = j.WrittenCount,
+				SkippedCount = j.SkippedCount,
+				Format = j.Format,
+				LastError = j.LastError,
+				CreatedAt = j.CreatedAt,
+				CompletedAt = j.CompletedAt,
+			})
+			.ToListAsync(ct);
+		return [.. jobs.OrderByDescending(j => j.CreatedAt).Take(count)];
+	}
 
 	/// <summary>
 	/// Compare-and-swap, the same convention used for scheduled-send cancellation (§13): only a
@@ -108,6 +147,7 @@ public sealed class ExportJobs(
 		if (job.Status == ExportJobStatus.CancelRequested)
 		{
 			job.Status = ExportJobStatus.Cancelled;
+			job.CompletedAt = clock.GetUtcNow();
 			await context.SaveChangesAsync(ct);
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
 			return;
@@ -118,15 +158,13 @@ public sealed class ExportJobs(
 		try
 		{
 			var mailboxes = await context.Mailboxes.Where(m => m.AccountId == job.AccountId).ToListAsync(ct);
-			var folders = BuildFolderPaths(mailboxes, job.DestinationPath);
+			var folders = ExportLayout.Build(mailboxes, job.DestinationPath, job.Format);
 
 			var manifest = JsonSerializer.Deserialize<List<Guid>>(job.ManifestJson) ?? [];
 			var pageIds = manifest.Skip(job.ResumeToken).Take(BatchSize).ToList();
 			if (pageIds.Count == 0)
 			{
-				job.Status = ExportJobStatus.Completed;
-				await context.SaveChangesAsync(ct);
-				await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
+				await ExtendOrCompleteAsync(job, manifest, ct);
 				return;
 			}
 
@@ -135,6 +173,15 @@ public sealed class ExportJobs(
 			var batchById = await context
 				.MessageMailboxes.Where(o => pageIds.Contains(o.Id))
 				.ToDictionaryAsync(o => o.Id, ct);
+
+			var messageIds = batchById.Values.Select(o => o.MessageId).ToList();
+			var messagesById = await context
+				.Messages.AsNoTracking()
+				.Where(m => messageIds.Contains(m.Id))
+				.ToDictionaryAsync(m => m.Id, ct);
+			var offsets =
+				JsonSerializer.Deserialize<Dictionary<Guid, long>>(job.MboxOffsetsJson) ?? [];
+			var truncated = new HashSet<Guid>();
 
 			var contentDeferred = false;
 			var connectivityPaused = false;
@@ -212,12 +259,44 @@ public sealed class ExportJobs(
 
 					try
 					{
-						Directory.CreateDirectory(folder);
-						await File.WriteAllBytesAsync(
-							Path.Combine(folder, $"{occurrence.MessageId:N}.eml"),
-							raw,
-							ct
-						);
+						messagesById.TryGetValue(occurrence.MessageId, out var message);
+						if (job.Format == ExportFormat.Mbox)
+						{
+							var path = folder;
+							Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+							// Cut the file back to what the last saved position accounts for, once per
+							// batch: a crash after appending but before saving would otherwise repeat
+							// the message on resume.
+							if (truncated.Add(occurrence.MailboxId) && File.Exists(path))
+							{
+								await using var existing = new FileStream(path, FileMode.Open, FileAccess.Write);
+								var keep = offsets.GetValueOrDefault(occurrence.MailboxId);
+								if (existing.Length > keep)
+								{
+									existing.SetLength(keep);
+								}
+							}
+
+							await using var mbox = new FileStream(path, FileMode.Append, FileAccess.Write);
+							MboxFormat.Append(
+								mbox,
+								message?.SenderAddress?.Email ?? message?.From.FirstOrDefault()?.Email ?? string.Empty,
+								message?.ReceivedAt ?? DateTimeOffset.UnixEpoch,
+								raw
+							);
+							await mbox.FlushAsync(ct);
+							offsets[occurrence.MailboxId] = mbox.Length;
+						}
+						else
+						{
+							Directory.CreateDirectory(folder);
+							var stem =
+								job.FileNaming == ExportFileNaming.DateAndSubject && message is not null
+									? ExportNames.DateAndSubject(message.ReceivedAt, message.Subject)
+									: occurrence.MessageId.ToString("N");
+							await WriteEmlAsync(folder, stem, occurrence.MessageId, raw, ct);
+						}
+
 						job.WrittenCount++;
 					}
 					catch (Exception ex)
@@ -225,6 +304,7 @@ public sealed class ExportJobs(
 						// A local path failure must not masquerade as offline just because
 						// network transports and File APIs both use IOException.
 						job.LastError = ex.Message;
+						job.SkippedCount++;
 						logger.LogWarning(
 							ex,
 							"Export {ExportId} could not write message {MessageId}.",
@@ -232,6 +312,10 @@ public sealed class ExportJobs(
 							occurrence.MessageId
 						);
 					}
+				}
+				else
+				{
+					job.SkippedCount++;
 				}
 
 				job.ResumeToken++;
@@ -273,19 +357,16 @@ public sealed class ExportJobs(
 				return;
 			}
 
-			// Fewer than a full page of manifest entries means this was the tail: no point
-			// enqueueing a successor just to discover the walk is already empty.
-			if (pageIds.Count < BatchSize)
+			job.MboxOffsetsJson = JsonSerializer.Serialize(offsets);
+			if (job.ResumeToken >= manifest.Count)
 			{
-				job.Status = ExportJobStatus.Completed;
+				await ExtendOrCompleteAsync(job, manifest, ct);
+				return;
 			}
 
 			await context.SaveChangesAsync(ct);
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
-			if (job.Status == ExportJobStatus.Running)
-			{
-				jobs.Enqueue<ExportJobs>(next => next.RunBatchAsync(job.Id, default));
-			}
+			jobs.Enqueue<ExportJobs>(next => next.RunBatchAsync(job.Id, default));
 		}
 		catch (Exception ex) when (ConnectivityMonitor.IsNetworkFailure(ex))
 		{
@@ -299,10 +380,42 @@ public sealed class ExportJobs(
 		catch (Exception ex)
 		{
 			job.Status = ExportJobStatus.Failed;
+			job.CompletedAt = clock.GetUtcNow();
 			job.LastError = ex.Message;
 			await context.SaveChangesAsync(ct);
 			await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
 			logger.LogWarning(ex, "Export {ExportId} failed.", job.Id);
+		}
+	}
+
+	/// <summary>
+	/// The manifest is spent. Mail that arrived in the chosen folders while it was being written is
+	/// added and written too; the export is complete only when a pass over those folders finds
+	/// nothing it has not already seen, and mail arriving after that is not part of it.
+	/// </summary>
+	private async Task ExtendOrCompleteAsync(ExportJob job, List<Guid> manifest, CancellationToken ct)
+	{
+		var chosen = JsonSerializer.Deserialize<List<Guid>>(job.MailboxIdsJson) ?? [];
+		var seen = manifest.ToHashSet();
+		var arrived = (await OccurrencesAsync(chosen, ct)).Where(id => !seen.Contains(id)).ToList();
+		if (arrived.Count > 0)
+		{
+			manifest.AddRange(arrived);
+			job.ManifestJson = JsonSerializer.Serialize(manifest);
+			job.TotalCount = manifest.Count;
+			job.CatchUpPasses++;
+		}
+		else
+		{
+			job.Status = ExportJobStatus.Completed;
+			job.CompletedAt = clock.GetUtcNow();
+		}
+
+		await context.SaveChangesAsync(ct);
+		await events.ExportProgressAsync(job.Id, job.WrittenCount, job.TotalCount);
+		if (job.Status == ExportJobStatus.Running)
+		{
+			jobs.Enqueue<ExportJobs>(next => next.RunBatchAsync(job.Id, default));
 		}
 	}
 
@@ -329,34 +442,25 @@ public sealed class ExportJobs(
 		return fetched.Content;
 	}
 
-	/// <summary>Recreates the mailbox tree as a folder tree, each name sanitised as a path segment.</summary>
-	private static Dictionary<Guid, string> BuildFolderPaths(IReadOnlyList<Mailbox> mailboxes, string root)
+	/// <summary>
+	/// Writes <c>stem.eml</c> in <paramref name="folder"/>. A name already taken by different bytes
+	/// (two messages with the same date and subject) gets the message id appended; one taken by the
+	/// same bytes is this message, written before a restart, and is left as it is.
+	/// </summary>
+	private static async Task WriteEmlAsync(string folder, string stem, Guid messageId, byte[] raw, CancellationToken ct)
 	{
-		var byId = mailboxes.ToDictionary(m => m.Id);
-		var paths = new Dictionary<Guid, string>();
-
-		string PathFor(Guid id)
+		var path = Path.Combine(folder, $"{stem}.eml");
+		if (File.Exists(path))
 		{
-			if (paths.TryGetValue(id, out var known))
+			if (new FileInfo(path).Length == raw.Length && (await File.ReadAllBytesAsync(path, ct)).AsSpan().SequenceEqual(raw))
 			{
-				return known;
+				return;
 			}
 
-			var mailbox = byId[id];
-			var segment = AttachmentTempDirectory.SanitiseFilename(mailbox.Name);
-			var parent =
-				mailbox.ParentId is Guid parentId && byId.ContainsKey(parentId) ? PathFor(parentId) : root;
-			var path = Path.Combine(parent, segment);
-			paths[id] = path;
-			return path;
+			path = Path.Combine(folder, $"{stem} [{messageId:N}].eml");
 		}
 
-		foreach (var mailbox in mailboxes)
-		{
-			PathFor(mailbox.Id);
-		}
-
-		return paths;
+		await File.WriteAllBytesAsync(path, raw, ct);
 	}
 }
 

@@ -1,0 +1,128 @@
+.dialog {
+	width: min(40rem, 94vw);
+	max-height: 90vh;
+	padding: 0;
+	overflow: hidden;
+	border: 1px solid var(--cds-border-subtle);
+	border-radius: 0.5rem;
+	background: var(--cds-background);
+	color: var(--cds-text-primary);
+	box-shadow: 0 1rem 3rem rgb(0 0 0 / 35%);
+}
+
+.dialog[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+.dialog::backdrop {
+	background: rgb(0 0 0 / 45%);
+}
+
+.header {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--cds-spacing-03) var(--cds-spacing-03) var(--cds-spacing-03)
+		var(--cds-spacing-06);
+	border-bottom: 1px solid var(--cds-border-subtle);
+}
+
+.header h2 {
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 600;
+}
+
+.steps {
+	flex: 0 0 auto;
+	padding: var(--cds-spacing-05) var(--cds-spacing-06) 0;
+}
+
+.body {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: var(--cds-spacing-05);
+	min-height: 18rem;
+	padding: var(--cds-spacing-06);
+	overflow-y: auto;
+}
+
+.body h3 {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 600;
+}
+
+.hint {
+	margin: 0;
+	color: var(--cds-text-secondary);
+	font-size: 0.875rem;
+}
+
+.tree {
+	max-height: 16rem;
+	padding: var(--cds-spacing-03);
+	overflow-y: auto;
+	border: 1px solid var(--cds-border-subtle);
+}
+
+.tree ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.tree ul ul {
+	padding-left: var(--cds-spacing-06);
+}
+
+.count {
+	color: var(--cds-text-secondary);
+}
+
+.treeActions {
+	display: flex;
+	gap: var(--cds-spacing-03);
+}
+
+.destination {
+	display: flex;
+	align-items: center;
+	gap: var(--cds-spacing-04);
+}
+
+.path {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--cds-code-01-font-family, monospace);
+}
+
+.summary {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: var(--cds-spacing-02) var(--cds-spacing-05);
+	margin: 0;
+}
+
+.summary dt {
+	color: var(--cds-text-secondary);
+}
+
+.summary dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.footer {
+	display: flex;
+	flex: 0 0 auto;
+	justify-content: flex-end;
+	gap: var(--cds-spacing-03);
+	padding: var(--cds-spacing-05) var(--cds-spacing-06);
+	border-top: 1px solid var(--cds-border-subtle);
+}

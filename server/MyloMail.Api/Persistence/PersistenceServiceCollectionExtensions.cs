@@ -224,6 +224,13 @@ public static class PersistenceServiceCollectionExtensions
 		// The default queue serves work that is not tied to one account; each account's own jobs
 		// run on a queue and workers of their own (AccountQueues), started on first use.
 		services.AddHangfireServer(options => options.Queues = ["default"]);
+		// One worker for exports (ExportJobs): long, disk-bound, and never to take a slot from the above.
+		services.AddHangfireServer(options =>
+		{
+			options.Queues = [Scheduling.ExportJobs.QueueName];
+			options.WorkerCount = 1;
+			options.ServerName = $"{Environment.MachineName}:export";
+		});
 		services.AddSingleton<AccountQueueServers>(provider => new AccountQueueServers(
 			provider.GetRequiredService<JobStorage>()
 		));

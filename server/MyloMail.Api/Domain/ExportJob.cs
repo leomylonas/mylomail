@@ -44,6 +44,52 @@ public class ExportJob
 
 	public string? LastError { get; set; }
 	public DateTimeOffset CreatedAt { get; set; }
+
+	public ExportFormat Format { get; set; } = ExportFormat.EmlFolders;
+	public ExportFileNaming FileNaming { get; set; } = ExportFileNaming.MessageId;
+
+	/// <summary>The mailboxes chosen, as a JSON array of ids. Messages are exported from these only.</summary>
+	public string MailboxIdsJson { get; set; } = "[]";
+
+	/// <summary>
+	/// Manifest entries that could not be written: the message was moved or deleted after the
+	/// manifest was made, or the file could not be created.
+	/// </summary>
+	public int SkippedCount { get; set; }
+
+	/// <summary>
+	/// For mbox: each file's length (JSON object, mailbox id to bytes) as of the last manifest
+	/// position that was saved. A batch that died after appending but before saving is undone by
+	/// cutting the file back to this length, so a message never appears twice.
+	/// </summary>
+	public string MboxOffsetsJson { get; set; } = "{}";
+
+	/// <summary>
+	/// How many times the manifest was extended with mail that arrived while the export ran. The
+	/// export is complete when a pass over the chosen folders finds nothing new; that moment is
+	/// <see cref="CompletedAt"/>, and mail arriving after it is not in the export.
+	/// </summary>
+	public int CatchUpPasses { get; set; }
+
+	/// <summary>When the export ended, however it ended.</summary>
+	public DateTimeOffset? CompletedAt { get; set; }
+}
+
+[TranspilationSource]
+public enum ExportFormat
+{
+	/// <summary>A folder tree matching the mailboxes, one <c>.eml</c> file per message.</summary>
+	EmlFolders,
+
+	/// <summary>One mbox file per mailbox, nested the way Thunderbird does (<c>Name</c> and <c>Name.sbd/</c>).</summary>
+	Mbox,
+}
+
+[TranspilationSource]
+public enum ExportFileNaming
+{
+	MessageId,
+	DateAndSubject,
 }
 
 [TranspilationSource]

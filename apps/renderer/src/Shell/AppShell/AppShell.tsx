@@ -20,6 +20,7 @@ import type { ComposeSeed } from "@mylomail/renderer/Components/Compose/ComposeR
 import { buildMailtoSeed } from "@mylomail/renderer/Components/Compose/ComposeMailto";
 import type { MailtoComposeRequest } from "@mylomail/electron-shell/Mailto";
 import { DraftList } from "@mylomail/renderer/Components/DraftList/DraftList";
+import { ExportWizard } from "@mylomail/renderer/Components/ExportWizard/ExportWizard";
 import { AddAccount } from "@mylomail/renderer/Components/AddAccount/AddAccount";
 import { ReauthenticateAccount } from "@mylomail/renderer/Components/ReauthenticateAccount/ReauthenticateAccount";
 import { Calendar } from "@mylomail/renderer/Components/Calendar/Calendar";
@@ -39,6 +40,7 @@ import {
 	OpenPanelLeft,
 	Renew,
 	OpenPanelRight,
+	Export as ExportIcon,
 	Settings as SettingsIcon,
 	UserMultiple,
 } from "@carbon/icons-react";
@@ -109,6 +111,7 @@ export function AppShell({
 	const [pane, setPane] = useState<
 		"reading" | "compose" | "calendar" | "contacts"
 	>(initialMailto ? "compose" : "reading");
+	const [exportOpen, setExportOpen] = useState(false);
 	const [settingsSection, setSettingsSection] =
 		useState<SettingsSection | null>(null);
 	const [commandHost, setCommandHost] = useState<HTMLElement | null>(null);
@@ -575,6 +578,16 @@ export function AppShell({
 				<div className={styles.appBarActions}>
 					<IconButton
 						className={styles.utilityButton}
+						label="Export mail"
+						kind="ghost"
+						size="lg"
+						align="bottom-end"
+						onClick={() => setExportOpen(true)}
+					>
+						<ExportIcon size={20} />
+					</IconButton>
+					<IconButton
+						className={styles.utilityButton}
 						label="Settings"
 						kind="ghost"
 						size="lg"
@@ -1014,6 +1027,13 @@ export function AppShell({
 				}
 			/>
 
+			{exportOpen && hub && accounts.data ? (
+				<ExportWizard
+					hub={hub}
+					accounts={accounts.data}
+					onClose={() => setExportOpen(false)}
+				/>
+			) : null}
 			{settingsSection && accounts.data ? (
 				<SettingsDialog
 					hub={hub}

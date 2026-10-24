@@ -832,6 +832,12 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.Property<Guid>("AccountId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("CatchUpPasses")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -839,14 +845,31 @@ namespace MyloMail.Api.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("FileNaming")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Format")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MailboxIdsJson")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ManifestJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("MboxOffsetsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ResumeToken")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SkippedCount")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("Status")

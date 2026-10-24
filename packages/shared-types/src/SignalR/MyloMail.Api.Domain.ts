@@ -98,6 +98,18 @@ export enum SmtpAuthMethod {
     OAuth2 = 2,
 }
 
+/** Transpiled from MyloMail.Api.Domain.ExportFormat */
+export enum ExportFormat {
+    EmlFolders = 0,
+    Mbox = 1,
+}
+
+/** Transpiled from MyloMail.Api.Domain.ExportFileNaming */
+export enum ExportFileNaming {
+    MessageId = 0,
+    DateAndSubject = 1,
+}
+
 /** Transpiled from MyloMail.Api.Domain.ExportJobStatus */
 export enum ExportJobStatus {
     Running = 0,

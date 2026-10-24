@@ -19,7 +19,6 @@ import {
 	ProviderType,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import { ErrorCategory } from "@mylomail/shared-types/SignalR/MyloMail.Api.Errors";
-import { ExportAccount } from "@mylomail/renderer/Components/ExportAccount/ExportAccount";
 import { ensureAccentContrast } from "@mylomail/renderer/Components/AccountSettings/AccentContrast";
 import { SendIdentityManager } from "@mylomail/renderer/Components/AccountSettings/SendIdentityManager/SendIdentityManager";
 import {
@@ -443,7 +442,6 @@ export function AccountSettings({
 				registerCommit={registerIdentityCommit}
 				onPendingChange={setIdentityPending}
 			/>
-			<ExportAccount hub={hub} accountId={values.id} />
 			<section className={styles.dangerZone}>
 				<h4>Remove account</h4>
 				<p>

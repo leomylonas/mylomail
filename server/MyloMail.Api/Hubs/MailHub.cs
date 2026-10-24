@@ -406,12 +406,15 @@ public interface IMailHub
 	/// <summary>The raw MIME bytes for one message, base64-encoded, fetched on demand if needed.</summary>
 	Task<string> SaveMessageAsEml(Guid messageId);
 
-	Task<Guid> StartBulkExport(Guid accountId, string destinationPath);
+	Task<Guid> StartBulkExport(StartExportRequestDto request);
 
 	Task CancelBulkExport(Guid exportId);
 
-	/// <summary>The account's most recent export, if it has ever run one (§13 Export).</summary>
-	Task<ExportJobDto?> GetExportStatus(Guid accountId);
+	/// <summary>Recent exports across accounts, newest first (§13 Export).</summary>
+	Task<IReadOnlyList<ExportJobDto>> GetExports();
+
+	/// <summary>The account's folders as the export wizard's tree, with counts and download state.</summary>
+	Task<IReadOnlyList<ExportFolderDto>> GetExportFolders(Guid accountId);
 }
 
 public class MailHub(
@@ -2343,17 +2346,80 @@ public class MailHub(
 		return Convert.ToBase64String(raw);
 	}
 
-	public Task<Guid> StartBulkExport(Guid accountId, string destinationPath) =>
-		export.StartAsync(accountId, destinationPath);
+	public async Task<Guid> StartBulkExport(StartExportRequestDto request)
+	{
+		if (string.IsNullOrWhiteSpace(request.DestinationPath) || !Path.IsPathRooted(request.DestinationPath))
+		{
+			throw new MutationHubException(ErrorCategory.Validation, "Choose a folder to export to.");
+		}
+
+		if (!Enum.IsDefined(request.Format) || !Enum.IsDefined(request.FileNaming))
+		{
+			throw new MutationHubException(ErrorCategory.Validation, "That export format is not available.");
+		}
+
+		var chosen = request.MailboxIds.Distinct().ToList();
+		var owned = await context.Mailboxes.CountAsync(m => m.AccountId == request.AccountId && chosen.Contains(m.Id));
+		if (chosen.Count == 0 || owned != chosen.Count)
+		{
+			throw new MutationHubException(ErrorCategory.Validation, "Choose at least one folder of this account to export.");
+		}
+
+		return await export.StartAsync(
+			request.AccountId,
+			chosen,
+			request.Format,
+			request.FileNaming,
+			request.DestinationPath
+		);
+	}
 
 	public Task CancelBulkExport(Guid exportId) => export.RequestCancelAsync(exportId);
 
-	public async Task<ExportJobDto?> GetExportStatus(Guid accountId)
+	public async Task<IReadOnlyList<ExportJobDto>> GetExports() =>
+		[
+			.. (await export.GetRecentAsync(20)).Select(job => new ExportJobDto(
+				job.Id,
+				job.AccountId,
+				job.Status,
+				job.Format,
+				job.DestinationPath,
+				job.WrittenCount,
+				job.TotalCount,
+				job.SkippedCount,
+				job.LastError,
+				job.CreatedAt,
+				job.CompletedAt
+			)),
+		];
+
+	public async Task<IReadOnlyList<ExportFolderDto>> GetExportFolders(Guid accountId)
 	{
-		var job = await export.GetLatestAsync(accountId);
-		return job is null
-			? null
-			: new ExportJobDto(job.Id, job.Status, job.WrittenCount, job.TotalCount, job.LastError);
+		var mailboxes = await context.Mailboxes.AsNoTracking().Where(m => m.AccountId == accountId).ToListAsync();
+		var ids = mailboxes.Select(m => m.Id).ToList();
+		var counts = await context
+			.MessageMailboxes.Where(o => ids.Contains(o.MailboxId))
+			.Join(context.Messages, o => o.MessageId, m => m.Id, (o, m) => new { o.MailboxId, m.RawFetched })
+			.GroupBy(x => x.MailboxId)
+			.Select(g => new { MailboxId = g.Key, Total = g.Count(), Missing = g.Count(x => !x.RawFetched) })
+			.ToDictionaryAsync(x => x.MailboxId);
+		var coverage = await context
+			.MailboxCoverageStates.Where(c => ids.Contains(c.MailboxId))
+			.ToDictionaryAsync(c => c.MailboxId, c => c.Status);
+
+		return
+		[
+			.. mailboxes
+				.Select(m => new ExportFolderDto(
+					m.Id,
+					m.ParentId,
+					m.Name,
+					m.EffectiveSpecialUse,
+					counts.TryGetValue(m.Id, out var c) ? c.Total : 0,
+					counts.TryGetValue(m.Id, out var d) ? d.Missing : 0,
+					!coverage.TryGetValue(m.Id, out var status) || status == CoverageStatus.Covered
+				)),
+		];
 	}
 }
 

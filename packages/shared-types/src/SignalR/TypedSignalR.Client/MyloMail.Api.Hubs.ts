@@ -3,7 +3,7 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, ExportJobDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, StartExportRequestDto, ExportJobDto, ExportFolderDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
 import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
 
@@ -547,22 +547,26 @@ export type IMailHub = {
     */
     saveMessageAsEml(messageId: string): Promise<string>;
     /**
-    * @param accountId Transpiled from System.Guid
-    * @param destinationPath Transpiled from string
+    * @param request Transpiled from MyloMail.Api.Contracts.StartExportRequestDto
     * @returns Transpiled from System.Threading.Tasks.Task<System.Guid>
     */
-    startBulkExport(accountId: string, destinationPath: string): Promise<string>;
+    startBulkExport(request: StartExportRequestDto): Promise<string>;
     /**
     * @param exportId Transpiled from System.Guid
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     cancelBulkExport(exportId: string): Promise<void>;
     /**
-    * The account's most recent export, if it has ever run one (§13 Export).
-    * @param accountId Transpiled from System.Guid
-    * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.ExportJobDto?>
+    * Recent exports across accounts, newest first (§13 Export).
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ExportJobDto>>
     */
-    getExportStatus(accountId: string): Promise<ExportJobDto>;
+    getExports(): Promise<ExportJobDto[]>;
+    /**
+    * The account's folders as the export wizard's tree, with counts and download state.
+    * @param accountId Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.ExportFolderDto>>
+    */
+    getExportFolders(accountId: string): Promise<ExportFolderDto[]>;
 }
 
 /**

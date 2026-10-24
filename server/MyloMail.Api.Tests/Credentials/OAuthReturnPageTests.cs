@@ -21,7 +21,7 @@ public sealed class OAuthReturnPageTests
 	{
 		foreach (var page in new[] { OAuthReturnPage.Success, OAuthReturnPage.Neutral })
 		{
-			Assert.StartsWith("<!DOCTYPE html>", page);
+			Assert.StartsWith("<!doctype html>", page, StringComparison.OrdinalIgnoreCase);
 			Assert.DoesNotContain("@@", page);
 			Assert.Contains("Return to MyloMail", page);
 		}

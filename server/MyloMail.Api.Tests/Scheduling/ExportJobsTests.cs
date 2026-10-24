@@ -39,7 +39,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		await SeedAsync(inboxMessages: 2, sentMessages: 1);
 
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		await harness.UsingAsync(scope =>
 			scope.GetRequiredService<ConnectivityMonitor>().ReportAsync(false)
@@ -74,7 +74,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		});
 
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		await harness.UsingAsync(scope =>
 			scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId)
@@ -93,7 +93,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		await SeedAsync(inboxMessages: 2, sentMessages: 0);
 
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RequestCancelAsync(exportId));
 		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
@@ -112,7 +112,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		await SeedAsync(inboxMessages: 2, sentMessages: 0);
 
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 
 		// Simulates the process dying mid-export: progress already saved is kept, and a second
@@ -139,32 +139,116 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	}
 
 	[Fact]
-	public async Task Mail_arriving_after_the_manifest_is_frozen_is_neither_skipped_nor_duplicated()
+	public async Task Mail_arriving_during_the_export_is_included_once_and_the_export_ends_when_nothing_new_is_left()
 	{
 		await SeedAsync(inboxMessages: 2, sentMessages: 0);
 
-		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
-		);
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope));
 
-		// A `MessageMailbox.Id` is a random v4 GUID, not a sequential one (§1 identity rule),
-		// so a plain `ORDER BY Id OFFSET n` re-derived against the live table on every batch
-		// would have this row land anywhere relative to already-frozen positions — including
-		// before the export's current point, silently pushing an unwritten row past
-		// `TotalCount`. Freezing the manifest at start removes that dependency entirely: mail
-		// arriving mid-export is simply outside this run, to be picked up by the next one.
+		// A `MessageMailbox.Id` is a random v4 GUID, not a sequential one (§1 identity rule), which
+		// is why the manifest is frozen rather than re-derived by offset on every batch. Mail that
+		// arrives after that is picked up by a catch-up pass over the chosen folders instead.
 		await SeedAsync(inboxMessages: 1, sentMessages: 0);
 
-		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+		await RunToEndAsync(exportId);
 
-		var job = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<MyloMailDbContext>().ExportJobs.SingleAsync(j => j.Id == exportId)
+		var job = await LoadAsync(exportId);
+		Assert.Equal(ExportJobStatus.Completed, job.Status);
+		Assert.Equal(3, job.TotalCount);
+		Assert.Equal(3, job.WrittenCount);
+		Assert.Equal(1, job.CatchUpPasses);
+		Assert.NotNull(job.CompletedAt);
+		Assert.Equal(3, Directory.GetFiles(Path.Combine(destination, "INBOX"), "*.eml").Length);
+	}
+
+	[Fact]
+	public async Task Only_the_chosen_folders_are_exported()
+	{
+		await SeedAsync(inboxMessages: 2, sentMessages: 3);
+		var sentId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<MyloMailDbContext>().Mailboxes.Where(m => m.Name == "Sent").Select(m => m.Id).SingleAsync()
 		);
 
-		Assert.Equal(ExportJobStatus.Completed, job.Status);
-		Assert.Equal(2, job.TotalCount);
-		Assert.Equal(2, job.WrittenCount);
-		Assert.Equal(2, Directory.GetFiles(Path.Combine(destination, "INBOX"), "*.eml").Length);
+		var exportId = await harness.UsingAsync(scope =>
+			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, [sentId], ExportFormat.EmlFolders, ExportFileNaming.MessageId, destination)
+		);
+		await RunToEndAsync(exportId);
+
+		Assert.Equal(3, (await LoadAsync(exportId)).WrittenCount);
+		Assert.False(Directory.Exists(Path.Combine(destination, "INBOX")));
+		Assert.Equal(3, Directory.GetFiles(Path.Combine(destination, "Sent"), "*.eml").Length);
+	}
+
+	[Fact]
+	public async Task Mbox_export_writes_one_file_per_folder_with_subfolders_beside_it_in_a_sbd_directory()
+	{
+		await SeedAsync(inboxMessages: 2, sentMessages: 1);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var inbox = await context.Mailboxes.SingleAsync(m => m.Name == "INBOX");
+			var sent = await context.Mailboxes.SingleAsync(m => m.Name == "Sent");
+			sent.ParentId = inbox.Id;
+			await context.SaveChangesAsync();
+		});
+
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Mbox));
+		await RunToEndAsync(exportId);
+
+		var inboxFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX"));
+		var sentFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX.sbd", "Sent"));
+		Assert.Equal(2, MessageCount(inboxFile));
+		Assert.StartsWith("From ", sentFile, StringComparison.Ordinal);
+		Assert.Contains("Body", sentFile);
+	}
+
+	[Fact]
+	public async Task A_batch_that_appended_to_an_mbox_but_never_saved_does_not_repeat_its_messages_on_resume()
+	{
+		await SeedAsync(inboxMessages: 30, sentMessages: 0);
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Mbox));
+
+		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+		var path = Path.Combine(destination, "INBOX");
+		// The next batch's worth, appended and then lost: the process died before the position was saved.
+		await File.AppendAllTextAsync(path, "From x Mon Jan  1 00:00:00 2024\nSubject: stray\n\nstray\n\n");
+
+		await RunToEndAsync(exportId);
+
+		var text = await File.ReadAllTextAsync(path);
+		Assert.DoesNotContain("stray", text);
+		Assert.Equal(30, MessageCount(text));
+	}
+
+	[Fact]
+	public async Task Files_named_by_date_and_subject_keep_two_messages_with_the_same_name_apart()
+	{
+		await SeedAsync(inboxMessages: 2, sentMessages: 0);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			foreach (var message in context.Messages)
+			{
+				message.Subject = "Invoice: Q3 / final?";
+				message.ReceivedAt = new DateTimeOffset(2026, 10, 21, 15, 42, 0, TimeSpan.Zero);
+			}
+
+			// Different messages, not one stored twice.
+			foreach (var raw in context.MessageRaws)
+			{
+				raw.Content = [.. raw.Content, .. raw.MessageId.ToByteArray()];
+			}
+
+			await context.SaveChangesAsync();
+		});
+
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.EmlFolders, ExportFileNaming.DateAndSubject));
+		await RunToEndAsync(exportId);
+
+		var names = Directory.GetFiles(Path.Combine(destination, "INBOX")).Select(Path.GetFileName).Order().ToList();
+		Assert.Equal(2, names.Count);
+		Assert.Contains("2026-10-21 1542 - Invoice_ Q3 _ final_.eml", names);
+		Assert.Contains(names, name => name!.StartsWith("2026-10-21 1542 - Invoice_ Q3 _ final_ [", StringComparison.Ordinal));
 	}
 
 	[Fact]
@@ -172,7 +256,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	{
 		var (mailboxId, messageId) = await SeedUnfetchedAsync();
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		harness.Provider.BeforeFetchRawMessageReturnAsync = async _ =>
 		{
@@ -212,7 +296,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	{
 		var (_, messageId) = await SeedUnfetchedAsync();
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		var jobs = await harness.UsingAsync(scope =>
 			Task.FromResult(
@@ -264,7 +348,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	{
 		await SeedUnfetchedAsync();
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		Exception failure = providerNotConfigured
 			? new ProviderNotConfiguredException(ProviderType.Imap, "credential")
@@ -296,7 +380,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	{
 		await SeedUnfetchedAsync();
 		var exportId = await harness.UsingAsync(scope =>
-			scope.GetRequiredService<ExportJobs>().StartAsync(harness.Account.Id, destination)
+			StartAllAsync(scope)
 		);
 		harness.Provider.FailFetchRawMessageWith(
 			new CredentialStoreUnavailableException("the keyring is locked")
@@ -375,6 +459,52 @@ public sealed class ExportJobsTests : IAsyncLifetime
 
 		return (mailboxId, messageId);
 	}
+
+	[Fact]
+	public async Task Recent_exports_are_listed_newest_first()
+	{
+		await SeedAsync(inboxMessages: 1, sentMessages: 0);
+		var first = await harness.UsingAsync(scope => StartAllAsync(scope));
+		var second = await harness.UsingAsync(scope => StartAllAsync(scope));
+		// The test clock stands still, so the order is made visible.
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var later = await context.ExportJobs.SingleAsync(j => j.Id == second);
+			later.CreatedAt = later.CreatedAt.AddDays(1);
+			await context.SaveChangesAsync();
+		});
+
+		var recent = await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().GetRecentAsync(10));
+
+		Assert.Equal([second, first], recent.Select(job => job.Id).ToList());
+	}
+
+	private static int MessageCount(string mbox) =>
+		System.Text.RegularExpressions.Regex.Matches(mbox, "^From ", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+
+	private async Task<Guid> StartAllAsync(
+		IServiceProvider scope,
+		ExportFormat format = ExportFormat.EmlFolders,
+		ExportFileNaming naming = ExportFileNaming.MessageId
+	)
+	{
+		var context = scope.GetRequiredService<MyloMailDbContext>();
+		var account = await context.Accounts.SingleAsync();
+		var mailboxIds = await context.Mailboxes.Where(m => m.AccountId == account.Id).Select(m => m.Id).ToListAsync();
+		return await scope.GetRequiredService<ExportJobs>().StartAsync(account.Id, mailboxIds, format, naming, destination);
+	}
+
+	private async Task RunToEndAsync(Guid exportId)
+	{
+		for (var i = 0; i < 50 && (await LoadAsync(exportId)).Status == ExportJobStatus.Running; i++)
+		{
+			await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
+		}
+	}
+
+	private Task<ExportJob> LoadAsync(Guid exportId) =>
+		harness.UsingAsync(scope => scope.GetRequiredService<MyloMailDbContext>().ExportJobs.AsNoTracking().SingleAsync(j => j.Id == exportId));
 
 	private async Task SeedAsync(int inboxMessages, int sentMessages)
 	{
