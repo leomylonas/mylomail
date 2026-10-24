@@ -7,6 +7,9 @@ namespace MyloMail.Api.Credentials;
 /// </summary>
 internal sealed class DiagnosticsLocalServerCodeReceiver : LocalServerCodeReceiver
 {
+	public DiagnosticsLocalServerCodeReceiver()
+		: base(OAuthReturnPage.Neutral) { }
+
 	private const string AuthorizationUrlPathVariable = "MYLOMAIL_OAUTH_DIAGNOSTICS_PATH";
 
 	protected override bool OpenBrowser(string url)

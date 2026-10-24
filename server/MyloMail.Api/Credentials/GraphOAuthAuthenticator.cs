@@ -35,6 +35,12 @@ public sealed class GraphOAuthAuthenticator
 	/// Work or school accounts only, and not part of <see cref="Scopes"/>: it is asked for the first
 	/// time mail is moved into the account, so an account that is never a target is never asked.
 	/// </summary>
+	private static readonly SystemWebViewOptions ReturnPage = new()
+	{
+		HtmlMessageSuccess = OAuthReturnPage.Success,
+		HtmlMessageError = OAuthReturnPage.Failure,
+	};
+
 	public const string ImportExportScope = "MailboxItem.ImportExport";
 
 	public static IReadOnlyList<string> ImportScopesFor(Account account) =>
@@ -94,7 +100,8 @@ public sealed class GraphOAuthAuthenticator
 
 			var interactive = application
 				.AcquireTokenInteractive(ScopesFor(account))
-				.WithUseEmbeddedWebView(false);
+				.WithUseEmbeddedWebView(false)
+				.WithSystemWebViewOptions(ReturnPage);
 			if (reauthenticate)
 			{
 				interactive = interactive.WithPrompt(Prompt.SelectAccount);
@@ -172,7 +179,7 @@ public sealed class GraphOAuthAuthenticator
 
 			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
 			timeout.CancelAfter(ConsentTimeout);
-			var interactive = application.AcquireTokenInteractive(scopes).WithUseEmbeddedWebView(false);
+			var interactive = application.AcquireTokenInteractive(scopes).WithUseEmbeddedWebView(false).WithSystemWebViewOptions(ReturnPage);
 			if (cachedAccount is not null)
 			{
 				interactive = interactive.WithAccount(cachedAccount);

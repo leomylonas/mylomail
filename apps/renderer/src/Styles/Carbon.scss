@@ -95,3 +95,11 @@ body {
 		display: none;
 	}
 }
+
+/*
+ * A menu moves focus to its first item when it opens. Opened with the mouse, that ring reads as a
+ * selection nobody made; it stays for keyboard use, where :focus-visible still matches.
+ */
+.cds--menu-item:focus:not(:focus-visible) {
+	outline: none;
+}
