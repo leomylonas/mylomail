@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	Archive,
 	Edit,
@@ -168,6 +168,7 @@ export function MailboxTree({
 	const [dropTarget, setDropTarget] = useState<string | null>(null);
 
 	const close = () => setDialog(null);
+
 	const refresh = () => {
 		close();
 		return queryClient.invalidateQueries({
@@ -402,6 +403,28 @@ export function MailboxTree({
 
 	const mailboxes = useQuery(mailboxesQuery(hub, accountId));
 
+	// Holding a drag over a collapsed folder opens it. Rows are only ever added below the one
+	// being hovered, so what is under the pointer does not move.
+	const hoveredCollapsed = mailboxes.data?.find(
+		(m) =>
+			m.id === dropTarget &&
+			m.isCollapsed &&
+			mailboxes.data.some((child) => child.parentId === m.id),
+	)?.id;
+	useEffect(() => {
+		if (!hoveredCollapsed) return;
+		const timer = setTimeout(
+			() =>
+				toggleCollapsed.mutate({
+					mailboxId: hoveredCollapsed,
+					collapsed: false,
+				}),
+			1200,
+		);
+		return () => clearTimeout(timer);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [hoveredCollapsed]);
+
 	// Deepest first, so a folder is never deleted out from under one of its marked subfolders. One
 	// at a time and stopping at the first failure, which has already said why.
 	const removeFolders = async (folders: Mailbox[]) => {
@@ -630,7 +653,7 @@ export function MailboxTree({
 							<button
 								type="button"
 								draggable
-								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""} ${marked.includes(mailbox.id) ? styles.marked : ""}`}
+								className={`${styles.item} ${mailbox.id === selectedMailboxId ? styles.selected : ""} ${marked.includes(mailbox.id) || menu?.targets.some((t) => t.id === mailbox.id) ? styles.marked : ""}`}
 								data-mailbox-id={mailbox.id}
 								aria-current={mailbox.id === selectedMailboxId}
 								onClick={(event) => clickMailbox(event, mailbox)}
