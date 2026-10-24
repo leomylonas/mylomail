@@ -2409,9 +2409,9 @@ public class MailHub(
 		var ids = mailboxes.Select(m => m.Id).ToList();
 		var counts = await context
 			.MessageMailboxes.Where(o => ids.Contains(o.MailboxId))
-			.Join(context.Messages, o => o.MessageId, m => m.Id, (o, m) => new { o.MailboxId, m.RawFetched })
+			.Join(context.Messages, o => o.MessageId, m => m.Id, (o, m) => new { o.MailboxId, m.RawFetched, Size = m.SizeEstimate ?? 0 })
 			.GroupBy(x => x.MailboxId)
-			.Select(g => new { MailboxId = g.Key, Total = g.Count(), Missing = g.Count(x => !x.RawFetched) })
+			.Select(g => new { MailboxId = g.Key, Total = g.Count(), Bytes = g.Sum(x => x.Size), Missing = g.Count(x => !x.RawFetched) })
 			.ToDictionaryAsync(x => x.MailboxId);
 		var coverage = await context
 			.MailboxCoverageStates.Where(c => ids.Contains(c.MailboxId))
@@ -2426,6 +2426,7 @@ public class MailHub(
 					m.Name,
 					m.EffectiveSpecialUse,
 					counts.TryGetValue(m.Id, out var c) ? c.Total : 0,
+					counts.TryGetValue(m.Id, out var b) ? b.Bytes : 0,
 					counts.TryGetValue(m.Id, out var d) ? d.Missing : 0,
 					!coverage.TryGetValue(m.Id, out var status) || status == CoverageStatus.Covered
 				)),

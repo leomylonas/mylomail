@@ -13,6 +13,7 @@ import {
 	CoverageStatus,
 	SyncProgressKind,
 } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import type { BackgroundTaskDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import styles from "@mylomail/renderer/Components/StatusBar/StatusBar.module.css";
 
 interface MailboxProgressSeed {
@@ -95,7 +96,6 @@ export function StatusBar({
 	const otherWork = [...(backgroundTasks.data ?? [])].sort(
 		(a, b) => Number(b.running) - Number(a.running),
 	);
-	const workRunning = otherWork.some((task) => task.running);
 	const pendingContent =
 		(queue.data?.waiting ?? 0) + (queue.data?.fetching ?? 0);
 	const totalContent = pendingContent + (queue.data?.ready ?? 0);
@@ -105,13 +105,6 @@ export function StatusBar({
 	const problemList =
 		problems.data?.filter((p) => p.kind !== ProblemKind.MessageRetrying) ?? [];
 	const problemCount = problemList.length;
-	// Only mail going out: say so, rather than calling it syncing.
-	const isSending = (label: string) =>
-		/^(Sending|Checking with the mail server whether .* sent|\d.* scheduled to send)/.test(
-			label,
-		);
-	const sendingOnly =
-		otherWork.length > 0 && otherWork.every((task) => isSending(task.label));
 	const [, refresh] = useReducer((count: number) => count + 1, 0);
 	useEffect(
 		() =>
@@ -202,19 +195,13 @@ export function StatusBar({
 							aria-haspopup="dialog"
 							onClick={() => setActivityOpen(true)}
 						>
-							{sendingOnly &&
-							!activity.syncing &&
-							pendingContent === 0 &&
-							retrying === 0
-								? workRunning
-									? "Sending…"
-									: "Scheduled to send…"
-								: activity.syncing ||
-									  pendingContent > 0 ||
-									  retrying > 0 ||
-									  workRunning
-									? "Syncing…"
-									: "Changes waiting…"}
+							{activityLabel({
+								syncing:
+									Boolean(activity.syncing) ||
+									pendingContent > 0 ||
+									retrying > 0,
+								work: otherWork,
+							})}
 						</button>
 					</Tooltip>
 				) : null}
@@ -337,4 +324,45 @@ export function summariseActivity(
 				? { fetched, total: known ? total : null, folders: pending.length }
 				: null,
 	};
+}
+
+const isSending = (label: string) =>
+	/^(Sending|Checking with the mail server whether .* sent|\d.* scheduled to send)/.test(
+		label,
+	);
+
+/**
+ * The status bar's one-word summary of the background. Mail going out and a mailbox export each
+ * get their own wording when they are all that is happening, rather than being called syncing.
+ */
+export function activityLabel({
+	syncing,
+	work,
+}: {
+	/** Sync or content downloads, apart from the listed background work. */
+	syncing: boolean;
+	work: readonly BackgroundTaskDto[];
+}): string {
+	const running = work.some((task) => task.running);
+	const exporting = work.find(
+		(task) => task.running && task.label === "Exporting mail",
+	);
+	if (
+		!syncing &&
+		exporting &&
+		work.every((task) => task.label === exporting.label)
+	) {
+		return exporting.total
+			? `Exporting ${(exporting.done ?? 0).toLocaleString()} of ${exporting.total.toLocaleString()}…`
+			: "Exporting…";
+	}
+	if (
+		!syncing &&
+		work.length > 0 &&
+		work.every((task) => isSending(task.label))
+	) {
+		return running ? "Sending…" : "Scheduled to send…";
+	}
+	if (exporting) return "Syncing and exporting…";
+	return syncing || running ? "Syncing…" : "Changes waiting…";
 }

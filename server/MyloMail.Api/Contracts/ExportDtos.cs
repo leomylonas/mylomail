@@ -37,6 +37,8 @@ public record ExportFolderDto(
 	string Name,
 	SpecialUse SpecialUse,
 	int MessageCount,
+	/// <summary>The size the provider reported for the mail in this folder, in bytes; messages with no reported size count as zero, so it is a floor.</summary>
+	long SizeBytes,
 	/// <summary>Messages on this computer whose full content is not yet downloaded; the export fetches them from the server as it goes.</summary>
 	int NotDownloadedCount,
 	/// <summary>False when older mail in this folder has not been downloaded to this computer, so the export will not include it.</summary>

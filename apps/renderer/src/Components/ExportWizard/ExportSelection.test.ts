@@ -5,6 +5,7 @@ import {
 	buildExportTree,
 	checkState,
 	describeSelection,
+	formatBytes,
 	toggleNode,
 } from "@mylomail/renderer/Components/ExportWizard/ExportSelection";
 
@@ -19,6 +20,7 @@ function folder(
 		name: id,
 		specialUse: SpecialUse.None,
 		messageCount: 10,
+		sizeBytes: 1000,
 		notDownloadedCount: 0,
 		isFullyDownloaded: true,
 		...extra,
@@ -64,8 +66,16 @@ describe("export folder selection", () => {
 		expect(describeSelection(withGaps, new Set(["x", "y"]))).toEqual({
 			folderCount: 2,
 			messageCount: 12,
+			sizeBytes: 2000,
 			notDownloaded: 2,
 			incompleteFolders: ["y"],
 		});
+	});
+
+	it("reports sizes the way a file manager does", () => {
+		expect(formatBytes(0)).toBe("0 B");
+		expect(formatBytes(820_000)).toBe("820 KB");
+		expect(formatBytes(1_400_000_000)).toBe("1.4 GB");
+		expect(formatBytes(250_000_000_000)).toBe("250 GB");
 	});
 });

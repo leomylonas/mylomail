@@ -195,8 +195,8 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Mbox));
 		await RunToEndAsync(exportId);
 
-		var inboxFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX"));
-		var sentFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX.sbd", "Sent"));
+		var inboxFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX.mbox"));
+		var sentFile = await File.ReadAllTextAsync(Path.Combine(destination, "INBOX.sbd", "Sent.mbox"));
 		Assert.Equal(2, MessageCount(inboxFile));
 		Assert.StartsWith("From ", sentFile, StringComparison.Ordinal);
 		Assert.Contains("Body", sentFile);
@@ -209,7 +209,7 @@ public sealed class ExportJobsTests : IAsyncLifetime
 		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Mbox));
 
 		await harness.UsingAsync(scope => scope.GetRequiredService<ExportJobs>().RunBatchAsync(exportId));
-		var path = Path.Combine(destination, "INBOX");
+		var path = Path.Combine(destination, "INBOX.mbox");
 		// The next batch's worth, appended and then lost: the process died before the position was saved.
 		await File.AppendAllTextAsync(path, "From x Mon Jan  1 00:00:00 2024\nSubject: stray\n\nstray\n\n");
 

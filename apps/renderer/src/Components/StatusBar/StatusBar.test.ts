@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summariseActivity } from "@mylomail/renderer/Components/StatusBar/StatusBar";
+import {
+	activityLabel,
+	summariseActivity,
+} from "@mylomail/renderer/Components/StatusBar/StatusBar";
 import {
 	CoverageStatus,
 	SyncProgressKind,
@@ -106,5 +109,48 @@ describe("summariseActivity", () => {
 			[folder("a", CoverageStatus.Backfilling, 2400, 201)],
 		);
 		expect(result.syncing).toEqual({ fetched: 2400, total: null, folders: 1 });
+	});
+});
+
+describe("activityLabel", () => {
+	const task = (label: string, extra = {}) => ({
+		label,
+		running: true,
+		accountName: undefined,
+		done: undefined,
+		total: undefined,
+		startedAt: undefined,
+		...extra,
+	});
+
+	it("says exporting, with progress, when an export is all that is running", () => {
+		expect(
+			activityLabel({
+				syncing: false,
+				work: [task("Exporting mail", { done: 1900, total: 3064 })],
+			}),
+		).toBe("Exporting 1,900 of 3,064…");
+	});
+
+	it("does not hide ordinary syncing behind the export", () => {
+		expect(
+			activityLabel({
+				syncing: false,
+				work: [task("Exporting mail"), task("Syncing the calendar")],
+			}),
+		).toBe("Syncing and exporting…");
+		expect(
+			activityLabel({ syncing: true, work: [task("Exporting mail")] }),
+		).toBe("Syncing and exporting…");
+	});
+
+	it("keeps its wording for mail going out and for plain syncing", () => {
+		expect(
+			activityLabel({ syncing: false, work: [task("Sending mail")] }),
+		).toBe("Sending…");
+		expect(activityLabel({ syncing: true, work: [] })).toBe("Syncing…");
+		expect(activityLabel({ syncing: false, work: [] })).toBe(
+			"Changes waiting…",
+		);
 	});
 });

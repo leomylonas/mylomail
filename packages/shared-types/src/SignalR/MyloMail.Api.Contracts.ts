@@ -352,6 +352,8 @@ export type ExportFolderDto = {
     specialUse: SpecialUse;
     /** Transpiled from int */
     messageCount: number;
+    /** Transpiled from long */
+    sizeBytes: number;
     /** Transpiled from int */
     notDownloadedCount: number;
     /** Transpiled from bool */

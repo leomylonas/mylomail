@@ -55,12 +55,14 @@ test("the export wizard writes the chosen folder as an mbox and keeps running wh
 		await expect
 			.poll(
 				() =>
-					existsSync(join(destination, "INBOX")) &&
-					readFileSync(join(destination, "INBOX"), "utf8").includes(subject),
+					existsSync(join(destination, "INBOX.mbox")) &&
+					readFileSync(join(destination, "INBOX.mbox"), "utf8").includes(
+						subject,
+					),
 				{ timeout: 60_000, message: "the message never reached the mbox file" },
 			)
 			.toBe(true);
-		expect(readdirSync(destination)).toContain("INBOX");
+		expect(readdirSync(destination)).toContain("INBOX.mbox");
 
 		// Reopening shows the finished export.
 		await window.getByRole("button", { name: "Export mail" }).click();

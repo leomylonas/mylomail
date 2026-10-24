@@ -70,6 +70,7 @@ export function describeSelection(
 ): {
 	folderCount: number;
 	messageCount: number;
+	sizeBytes: number;
 	notDownloaded: number;
 	incompleteFolders: string[];
 } {
@@ -77,9 +78,22 @@ export function describeSelection(
 	return {
 		folderCount: chosen.length,
 		messageCount: chosen.reduce((sum, f) => sum + f.messageCount, 0),
+		sizeBytes: chosen.reduce((sum, f) => sum + f.sizeBytes, 0),
 		notDownloaded: chosen.reduce((sum, f) => sum + f.notDownloadedCount, 0),
 		incompleteFolders: chosen
 			.filter((folder) => !folder.isFullyDownloaded)
 			.map((folder) => folder.name),
 	};
+}
+
+/** "1.4 GB", "820 MB": decimal units, as a disk or a file manager reports them. */
+export function formatBytes(bytes: number): string {
+	const units = ["B", "KB", "MB", "GB", "TB"];
+	let value = bytes;
+	let unit = 0;
+	while (value >= 1000 && unit < units.length - 1) {
+		value /= 1000;
+		unit++;
+	}
+	return `${unit === 0 || value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }

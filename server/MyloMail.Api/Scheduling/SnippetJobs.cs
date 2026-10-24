@@ -18,7 +18,7 @@ namespace MyloMail.Api.Scheduling;
 [AutomaticRetry(Attempts = 0)]
 public sealed class SnippetJobs(MyloMailDbContext context, BackgroundActivityTracker activity, ILogger<SnippetJobs> logger)
 {
-	public const int CurrentVersion = 2;
+	public const int CurrentVersion = 3;
 	private const int BatchSize = 500;
 
 	public async Task RebuildAsync(CancellationToken ct = default)

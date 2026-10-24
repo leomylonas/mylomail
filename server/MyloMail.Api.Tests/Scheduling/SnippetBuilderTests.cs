@@ -21,6 +21,35 @@ public sealed class SnippetBuilderTests
 	}
 
 	[Fact]
+	public void A_stylesheet_pasted_into_the_plain_text_part_is_not_the_preview()
+	{
+		// A sender's text alternative that opens with their CSS, followed by the real words.
+		const string text = """
+			body, table, td { font-family: Arial, Helvetica, sans-serif
+			!important; }
+
+			h1, h2, h3 {
+			font-family: Arial, Helvetica, sans-serif !important;
+			line-height: 96% !important;
+			}
+
+			@media (max-width: 639px) {
+			.hd { font-size: initial !important; }
+			}
+
+			Hey Leo, wanna become a better husband? Become a stripper
+			""";
+
+		Assert.Equal("Hey Leo, wanna become a better husband? Become a stripper", SnippetBuilder.Build(text, null));
+	}
+
+	[Fact]
+	public void Ordinary_text_with_braces_is_left_alone()
+	{
+		Assert.Equal("Use {name} in the template, then {save} it.", SnippetBuilder.Build("Use {name} in the template, then {save} it.", null));
+	}
+
+	[Fact]
 	public void Entities_are_decoded_and_invisible_filler_is_dropped()
 	{
 		// A pre-header padded with &#847;&zwnj; to push the real body out of the preview.

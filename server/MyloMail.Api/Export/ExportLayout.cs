@@ -8,7 +8,7 @@ internal static class ExportLayout
 	/// <summary>
 	/// Every mailbox's path under <paramref name="root"/>. As a folder tree a mailbox is a directory
 	/// inside its parent's. As mbox it is a file, and its subfolders sit in a sibling directory named
-	/// as Thunderbird does: <c>Bills</c> beside <c>Bills.sbd/</c>. Two mailboxes whose names collapse
+	/// as Thunderbird does: <c>Bills.mbox</c> beside <c>Bills.sbd/</c>. Two mailboxes whose names collapse
 	/// to the same text under one parent are kept apart, in a fixed order, so a resumed export
 	/// recreates the same paths.
 	/// </summary>
@@ -16,6 +16,8 @@ internal static class ExportLayout
 	{
 		var byId = mailboxes.ToDictionary(m => m.Id);
 		var paths = new Dictionary<Guid, string>();
+		// Without the .mbox extension: what a mailbox's subfolder directory is named after.
+		var stems = new Dictionary<Guid, string>();
 		var takenUnder = new Dictionary<string, HashSet<string>>();
 
 		string PathFor(Mailbox mailbox)
@@ -28,8 +30,8 @@ internal static class ExportLayout
 			string container;
 			if (mailbox.ParentId is Guid parentId && byId.TryGetValue(parentId, out var parent))
 			{
-				var parentPath = PathFor(parent);
-				container = format == ExportFormat.Mbox ? parentPath + ".sbd" : parentPath;
+				PathFor(parent);
+				container = format == ExportFormat.Mbox ? stems[parent.Id] + ".sbd" : paths[parent.Id];
 			}
 			else
 			{
@@ -42,7 +44,9 @@ internal static class ExportLayout
 			}
 
 			var name = ExportNames.Unique(ExportNames.Segment(mailbox.Name, "Folder"), taken);
-			return paths[mailbox.Id] = Path.Combine(container, name);
+			var stem = Path.Combine(container, name);
+			stems[mailbox.Id] = stem;
+			return paths[mailbox.Id] = format == ExportFormat.Mbox ? stem + ".mbox" : stem;
 		}
 
 		// A parent is always placed before its children, and siblings in a fixed order.

@@ -128,7 +128,7 @@ internal static partial class SnippetBuilder
 	/// <summary>Link markers and inline-image placeholders that plain-text parts carry.</summary>
 	private static string StripPlainTextNoise(string text) =>
 		Url().Replace(
-			Placeholder().Replace(text, " "),
+			Placeholder().Replace(EmptyAtRule().Replace(CssRule().Replace(text, " "), " "), " "),
 			match => Uri.TryCreate(match.Value.Trim('<', '>'), UriKind.Absolute, out var uri) && match.Length > 40
 				? uri.Host
 				: match.Value
@@ -136,6 +136,17 @@ internal static partial class SnippetBuilder
 
 	[GeneratedRegex(@"\[(?:image|cid|inline)[^\]]*\]", RegexOptions.IgnoreCase)]
 	private static partial Regex Placeholder();
+
+	/// <summary>
+	/// A style rule pasted into a plain-text part: some senders' text alternative begins with their
+	/// stylesheet. Only a braced block made entirely of <c>property: value;</c> pairs counts.
+	/// </summary>
+	[GeneratedRegex(@"[\w\s.,#>*:\[\]=~+""'-]{1,200}\{\s*(?:[a-zA-Z-]+\s*:[^{};]*;?\s*)+\}")]
+	private static partial Regex CssRule();
+
+	/// <summary>What is left of an <c>@media</c> block once its rules are removed.</summary>
+	[GeneratedRegex(@"@[a-zA-Z-]+[^{}]*\{\s*\}")]
+	private static partial Regex EmptyAtRule();
 
 	[GeneratedRegex(@"<?https?://[^\s>]+>?", RegexOptions.IgnoreCase)]
 	private static partial Regex Url();

@@ -26,6 +26,7 @@ import {
 	buildExportTree,
 	checkState,
 	describeSelection,
+	formatBytes,
 	toggleNode,
 	type ExportTreeNode,
 } from "@mylomail/renderer/Components/ExportWizard/ExportSelection";
@@ -283,7 +284,7 @@ export function ExportWizard({
 								<p className={styles.hint}>
 									{summary.folderCount === 0
 										? "Choose at least one folder."
-										: `${summary.messageCount.toLocaleString()} messages in ${summary.folderCount} ${summary.folderCount === 1 ? "folder" : "folders"}.`}
+										: `${summary.messageCount.toLocaleString()} messages in ${summary.folderCount} ${summary.folderCount === 1 ? "folder" : "folders"}, about ${formatBytes(summary.sizeBytes)} of mail.`}
 								</p>
 								{summary.notDownloaded > 0 ? (
 									<InlineNotification
@@ -322,7 +323,7 @@ export function ExportWizard({
 									/>
 									<RadioButton
 										id="export-mbox"
-										labelText="mbox files, one per folder, with subfolders nested as Thunderbird does"
+										labelText=".mbox files, one per folder, with subfolders in a .sbd folder beside it"
 										value={ExportFormat.Mbox}
 									/>
 									<RadioButton
@@ -387,7 +388,8 @@ export function ExportWizard({
 									<dt>Folders</dt>
 									<dd>
 										{summary.folderCount} (
-										{summary.messageCount.toLocaleString()} messages)
+										{summary.messageCount.toLocaleString()} messages, about{" "}
+										{formatBytes(summary.sizeBytes)})
 									</dd>
 									<dt>Format</dt>
 									<dd>{describeFormat(format, naming)}</dd>
