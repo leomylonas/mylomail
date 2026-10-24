@@ -320,7 +320,7 @@ public sealed class ExportJobs(
 						}
 						else if (job.Format == ExportFormat.Pst)
 						{
-							pst!.AddMessage(occurrence.MailboxId, raw);
+							pst!.AddMessage(occurrence.MailboxId, raw, message?.IsRead ?? false, message?.IsFlagged ?? false);
 						}
 						else
 						{

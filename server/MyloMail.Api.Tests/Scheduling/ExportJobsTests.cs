@@ -513,6 +513,34 @@ public sealed class ExportJobsTests : IAsyncLifetime
 	}
 
 	[Fact]
+	public async Task Pst_items_keep_the_read_and_flagged_state_of_the_message()
+	{
+		await SeedAsync(inboxMessages: 3, sentMessages: 0);
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var messages = await context.Messages.OrderBy(m => m.Subject).ToListAsync();
+			messages[0].IsRead = true;
+			messages[1].IsFlagged = true;
+			messages[1].IsRead = true;
+			await context.SaveChangesAsync();
+		});
+		var exportId = await harness.UsingAsync(scope => StartAllAsync(scope, ExportFormat.Pst));
+		await RunToEndAsync(exportId);
+
+		using var session = OfficeIMO.Email.Store.EmailStoreSession.Open(PstPath);
+		// The messages are not told apart by anything but their state, so it is compared as a set.
+		var states = session
+			.EnumerateItems()
+			.Select(reference => session.ReadItem(reference).Document.MessageMetadata)
+			.Select(meta => (meta.IsRead, Flagged: meta.FollowUp.Status == OfficeIMO.Email.OutlookFollowUpStatus.Flagged))
+			.OrderBy(state => state.IsRead)
+			.ThenBy(state => state.Flagged)
+			.ToList();
+		Assert.Equal([(false, false), (true, false), (true, true)], states.Select(s => (s.IsRead == true, s.Flagged)).ToList());
+	}
+
+	[Fact]
 	public async Task A_pst_export_takes_its_position_from_the_writers_checkpoint_not_the_database()
 	{
 		await SeedAsync(inboxMessages: 30, sentMessages: 0);

@@ -73,14 +73,25 @@ internal sealed class PstExportSession : IDisposable
 	}
 
 	/// <exception cref="InvalidOperationException">The mailbox is not one this export has a folder for.</exception>
-	public void AddMessage(Guid mailboxId, byte[] raw)
+	public void AddMessage(Guid mailboxId, byte[] raw, bool isRead, bool isFlagged)
 	{
 		if (!State.Folders.TryGetValue(mailboxId, out var folderId))
 		{
 			throw new InvalidOperationException("The mailbox is not part of this export.");
 		}
 
-		writer.AddItem(folderId, EmailDocument.Load(raw));
+		var document = EmailDocument.Load(raw);
+		// The MIME says nothing of either; they are the account's own state, which Outlook keeps as
+		// the read flag and a follow-up flag.
+		document.MessageMetadata.IsRead = isRead;
+		if (isFlagged)
+		{
+			document.MessageMetadata.FollowUp.Status = OutlookFollowUpStatus.Flagged;
+			document.MessageMetadata.FollowUp.Request = "Follow up";
+			document.MessageMetadata.FollowUp.Icon = OutlookFollowUpIcon.Red;
+		}
+
+		writer.AddItem(folderId, document);
 	}
 
 	public void Checkpoint(int resumeToken, int written, int skipped)
