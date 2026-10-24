@@ -45,13 +45,14 @@ jobs:
         with:
           global-json-file: global.json
       - uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: UCRT64
           update: false
           install: mingw-w64-ucrt-x86_64-libpst
       - name: Put readpst on the path
         shell: bash
-        run: echo "C:\\msys64\\ucrt64\\bin" >> "$GITHUB_PATH"
+        run: echo "${{ steps.msys2.outputs.msys2-location }}\\ucrt64\\bin" >> "$GITHUB_PATH"
       - name: PST export tests
         shell: bash
         env:
