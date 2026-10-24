@@ -38,6 +38,7 @@
 	</ItemGroup>
 	<ItemGroup>
 		<EmbeddedResource Include="Content\Fonts\*" />
+		<EmbeddedResource Include="Credentials\Pages\OAuthReturn.html" LogicalName="OAuthReturn.html" />
 		<!-- The base presentation shared with the compose editor: one file, so writing and reading agree. -->
 		<EmbeddedResource Include="..\..\apps\renderer\src\Styles\MessageContent.css" LogicalName="MessageContent.css" />
 		<InternalsVisibleTo Include="MyloMail.Api.Tests" />
