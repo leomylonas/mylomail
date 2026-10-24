@@ -33,6 +33,45 @@ jobs:
         env:
           MYLOMAIL_REQUIRE_READPST: "1"
 
+  # The PST export is the one feature whose output a second program has to accept, and file handling
+  # (atomic commit, working files) differs per OS. Only the PST tests run here, with libpst's readpst
+  # installed as the independent reader; the rest of the suite stays on Linux above.
+  pst-windows:
+    if: github.ref_type != 'tag' && github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-libpst
+      - name: Put readpst on the path
+        shell: bash
+        run: echo "C:\\msys64\\ucrt64\\bin" >> "$GITHUB_PATH"
+      - name: PST export tests
+        shell: bash
+        env:
+          MYLOMAIL_REQUIRE_READPST: "1"
+        run: dotnet test server/MyloMail.Api.Tests --filter "FullyQualifiedName~Pst"
+
+  pst-macos:
+    if: github.ref_type != 'tag' && github.event_name != 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: brew install libpst
+      - name: PST export tests
+        env:
+          MYLOMAIL_REQUIRE_READPST: "1"
+        run: dotnet test server/MyloMail.Api.Tests --filter "FullyQualifiedName~Pst"
+
   cross-platform-check:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     strategy:
