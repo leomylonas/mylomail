@@ -643,6 +643,9 @@ export function MessageList({
 				? undefined
 				: "This folder no longer exists.";
 	const canMoveToTrash = trashUnavailable === undefined;
+	const inTrash =
+		(selectedMailbox?.specialUseOverride ?? selectedMailbox?.specialUse) ===
+		SpecialUse.Trash;
 	const effectiveRole = selectedMailbox
 		? (selectedMailbox.specialUseOverride ?? selectedMailbox.specialUse)
 		: undefined;
@@ -966,6 +969,18 @@ export function MessageList({
 	// diverge in what they actually do either (§13).
 	useShortcuts([
 		{
+			key: "a",
+			ctrlOrMeta: true,
+			unlessTyping: true,
+			// Every row of the list, not just those the virtualizer has mounted.
+			description: "Select all messages in the list",
+			run: () => {
+				if (rows.length === 0) return;
+				setSelectedIds(new Set(rows.map((row) => row.original.id)));
+				setAnchorIndex(0);
+			},
+		},
+		{
 			key: "u",
 			description: "Mark unread",
 			run: () =>
@@ -1006,16 +1021,28 @@ export function MessageList({
 		},
 		{
 			key: "Delete",
-			description: "Move to trash",
-			run: () =>
-				canMoveToTrash &&
-				selectedMessages.length > 0 &&
+			description: "Move to trash; in Trash, delete permanently",
+			run: () => {
+				if (selectedMessages.length === 0) return;
+				// In Trash there is nowhere further to move to, so the key means what it says,
+				// without a prompt: the message is already in the place deleted mail is kept.
+				if (inTrash) {
+					deletePermanently.mutate({
+						messages: selectedMessages,
+						claims: createOptimisticMessageClaims(
+							selectedMessages.map((message) => message.id),
+						),
+					});
+					return;
+				}
+				if (!canMoveToTrash) return;
 				trash.mutate({
 					messages: selectedMessages,
 					claims: createOptimisticMessageClaims(
 						selectedMessages.map((message) => message.id),
 					),
-				}),
+				});
+			},
 		},
 		// Reply/reply-all/forward are single-message actions (§13's own context-menu entries
 		// disable them for a multi-selection too), so these no-op on anything but exactly one

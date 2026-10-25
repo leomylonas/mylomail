@@ -4,6 +4,11 @@ export interface Shortcut {
 	key: string;
 	ctrlOrMeta?: boolean;
 	shift?: boolean;
+	/**
+	 * Leave the key to the focused text field. For a modified key whose browser meaning inside a
+	 * field is the point, such as Ctrl+A selecting the field's text.
+	 */
+	unlessTyping?: boolean;
 	description: string;
 	run: () => void;
 }
@@ -51,5 +56,9 @@ export function resolve(
 	const bare = !event.ctrlKey && !event.metaKey;
 	if (bare && isTypingTarget(event.target)) return undefined;
 
-	return shortcuts.find((shortcut) => matches(shortcut, event));
+	const typing = isTypingTarget(event.target);
+	return shortcuts.find(
+		(shortcut) =>
+			matches(shortcut, event) && !(shortcut.unlessTyping && typing),
+	);
 }
