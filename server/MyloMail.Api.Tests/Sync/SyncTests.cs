@@ -22,6 +22,27 @@ public sealed class SyncTests
 	/// materialised as one structured draft, never as a normal message (§1, §3).
 	/// </summary>
 	[Fact]
+	public async Task A_flag_only_change_from_the_server_is_applied_and_announced_without_failing_the_page()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		var key = harness.Provider.SeedMessage("INBOX", Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+		await ReconcileAsync(harness);
+		await CoverAsync(harness);
+		await SyncAsync(harness);
+
+		harness.Events.Updated.Clear();
+		harness.Provider.ReportFlagChange("INBOX", key, isRead: true);
+		await SyncAsync(harness);
+
+		Assert.True(Assert.Single(harness.Events.Updated).IsRead);
+
+		await harness.UsingAsync(async scope =>
+			Assert.True((await scope.GetRequiredService<MyloMailDbContext>().Messages.SingleAsync()).IsRead)
+		);
+	}
+
+	[Fact]
 	public async Task Coverage_materialises_a_remote_draft_without_creating_a_message()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));

@@ -541,9 +541,12 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 		var occurrences = sources
 			.SelectMany(source => source.Messages.Select(message => (Source: source, Occurrence: message)))
 			.ToList();
-		var page = occurrences.Skip(int.TryParse(continuation, out var offset) ? offset : 0).Take(SyncPageSize).ToList();
+		// A page that reports a flags-only change carries no message upserts: that is what makes it flags-only.
+		var page = flagChangesToReport.Count > 0
+			? []
+			: occurrences.Skip(int.TryParse(continuation, out var offset) ? offset : 0).Take(SyncPageSize).ToList();
 		var consumed = (int.TryParse(continuation, out var seen) ? seen : 0) + page.Count;
-		var more = consumed < occurrences.Count;
+		var more = flagChangesToReport.Count == 0 && consumed < occurrences.Count;
 
 		var removed = sources
 			.SelectMany(source => source.Removed.Select(item => (Source: source, Removal: item)))
@@ -560,7 +563,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 			more && !Capabilities.AdvancesCursorMidWalk ? null : CurrentCursor(),
 			more ? consumed.ToString() : null,
 			[.. page.Select(item => ToDto(item.Source.ProviderMailboxId, item.Occurrence.Key, item.Occurrence.Value))],
-			[],
+			TakeFlagChanges(),
 			[
 				.. removed.Select(item =>
 					new OccurrenceRemoval(item.Source.ProviderMailboxId, item.Removal.Key)
@@ -597,6 +600,19 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 				pair.Value.IsFlagged
 			)).ToList();
 		return new MailboxIntegritySnapshot(source.Messages.Keys.ToHashSet(), flags);
+	}
+
+	private readonly List<OccurrenceFlagChange> flagChangesToReport = [];
+
+	/// <summary>The next change-stream page reports this read/flag change on its own, as IMAP does for a flags-only change.</summary>
+	public void ReportFlagChange(string providerMailboxId, string providerOccurrenceId, bool isRead, bool? isFlagged = null) =>
+		flagChangesToReport.Add(new OccurrenceFlagChange(providerMailboxId, providerOccurrenceId, isRead, isFlagged));
+
+	private IReadOnlyList<OccurrenceFlagChange> TakeFlagChanges()
+	{
+		var taken = flagChangesToReport.ToList();
+		flagChangesToReport.Clear();
+		return taken;
 	}
 
 	private static int CursorGenerationOf(ProviderCursorState cursor) =>

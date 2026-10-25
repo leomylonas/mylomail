@@ -346,7 +346,9 @@ public sealed class ChangeStreamService(
 		//
 		// These are steady-state changes by construction — this is the change stream, not
 		// backfill — so a new message here is genuinely new mail (§7).
-		var summaries = applied.Messages.Observed.Concat(applied.Messages.Rethreaded)
+		var summaries = applied.Messages.Observed.Concat(applied.Messages.Created)
+			.Concat(applied.Messages.Updated)
+			.Concat(applied.Messages.Rethreaded)
 			.DistinctBy(message => message.Id)
 			.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
@@ -707,7 +709,9 @@ public sealed class ChangeStreamService(
 			// These are steady-state changes too — replayed live-stream history, not
 			// backfill — so a message reported here is genuinely new mail just as it is on
 			// the non-staged path (§7).
-			var summaries = applied.Messages.Observed.Concat(applied.Messages.Rethreaded)
+			var summaries = applied.Messages.Observed.Concat(applied.Messages.Created)
+			.Concat(applied.Messages.Updated)
+			.Concat(applied.Messages.Rethreaded)
 				.DistinctBy(message => message.Id)
 				.ToDictionary(m => m.Id, MessageEventMapper.ToSummary);
 
