@@ -18,3 +18,13 @@ public sealed class GmailLabelNameTests
 	public void A_users_own_label_is_left_as_typed() =>
 		Assert.Equal("TAX 2026", GmailMailProvider.DisplayName(new Label { Name = "TAX 2026", Type = "user" }));
 }
+
+public sealed class GraphDeltaPartialTests
+{
+	[Fact]
+	public void A_delta_entry_with_only_changed_properties_is_partial_and_a_whole_message_is_not()
+	{
+		Assert.True(MyloMail.Api.Providers.Graph.GraphMailProvider.IsPartial(new Microsoft.Graph.Models.Message { Id = "x", IsRead = true }));
+		Assert.False(MyloMail.Api.Providers.Graph.GraphMailProvider.IsPartial(new Microsoft.Graph.Models.Message { Id = "x", Subject = "Hi" }));
+	}
+}

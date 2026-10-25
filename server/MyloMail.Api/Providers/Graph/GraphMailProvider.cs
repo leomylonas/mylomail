@@ -295,12 +295,18 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") == true)
 					.Select(message => new OccurrenceRemoval(ProviderMailboxId(mailbox), message.Id!)),
 			];
-			IReadOnlyList<MessageDto> upserted =
-			[
-				.. values
-					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") != true)
-					.Select(ToDto),
-			];
+			// Delta reports a changed message as its id and the properties that changed, without the
+			// subject, sender or date. Mapped as it is, a read or flag change would blank the message
+			// and reset its other flags, so each such message is fetched whole first.
+			var upserted = new List<MessageDto>();
+			foreach (var message in values.Where(m => m.Id is not null && m.AdditionalData?.ContainsKey("@removed") != true))
+			{
+				var whole = IsPartial(message) ? await FetchWholeAsync(client, message.Id!, ct) : message;
+				if (whole is not null)
+				{
+					upserted.Add(ToDto(whole));
+				}
+			}
 
 			return new SyncResult(
 				page?.OdataNextLink is null && page?.OdataDeltaLink is not null
@@ -421,6 +427,25 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			HasNonInlineAttachments = null,
 			SizeEstimate = null,
 		};
+	}
+
+	/// <summary>A delta entry carrying only what changed: no subject, sender or received date.</summary>
+	internal static bool IsPartial(GraphMessage message) =>
+		message.Subject is null && message.From is null && message.ReceivedDateTime is null;
+
+	/// <returns>The message, or null when it no longer exists (its removal arrives on its own).</returns>
+	private static async Task<GraphMessage?> FetchWholeAsync(GraphServiceClient client, string id, CancellationToken ct)
+	{
+		try
+		{
+			return await ThrottleAwareAsync(() =>
+				client.Me.Messages[id].GetAsync(configuration => configuration.QueryParameters.Select = MessageSelect, ct)
+			);
+		}
+		catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 404)
+		{
+			return null;
+		}
 	}
 
 	private static IReadOnlyList<Address> Addresses(IEnumerable<Recipient>? recipients) =>
