@@ -49,6 +49,10 @@ import {
 import { createPortal } from "react-dom";
 import { Avatar } from "@mylomail/renderer/Components/Avatar/Avatar";
 import { MessageCommands } from "@mylomail/renderer/Components/MessageCommands/MessageCommands";
+import {
+	projectTotal,
+	type TotalBaseline,
+} from "@mylomail/renderer/Lib/MailboxTotal";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	acceptOptimisticMessages,
@@ -365,6 +369,10 @@ export function MessageList({
 		new Set(),
 	);
 	const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
+	// What the provider's folder total and the local count were when the total last changed.
+	const totalBaseline = useRef<
+		{ mailboxId: string; baseline: TotalBaseline } | undefined
+	>(undefined);
 
 	// Outlook-style sortable columns and a local filter (§12) — client-side over whatever page
 	// is already loaded, not a new server round trip.
@@ -635,6 +643,23 @@ export function MessageList({
 	const selectedMailbox = mailboxes.data?.find(
 		(mailbox) => mailbox.id === mailboxId,
 	);
+	const projected = selectedMailbox
+		? projectTotal(
+				selectedMailbox.providerTotalCount ?? null,
+				selectedMailbox.localCount,
+				totalBaseline.current?.mailboxId === mailboxId
+					? totalBaseline.current.baseline
+					: undefined,
+				optimisticallyHiddenIds.size,
+			)
+		: undefined;
+	const projectedBaseline = projected?.baseline;
+	useEffect(() => {
+		totalBaseline.current = projectedBaseline
+			? { mailboxId, baseline: projectedBaseline }
+			: undefined;
+	}, [projectedBaseline, mailboxId]);
+	const searchingOrFiltered = searching || filterText !== "";
 	const trashUnavailable = !mailboxes.data
 		? "Folders are still loading."
 		: selectedMailbox?.specialUse === SpecialUse.Trash
@@ -1182,6 +1207,8 @@ export function MessageList({
 			reportFailure,
 			dateFormats.clock,
 		);
+	const headerCount =
+		projected && !searchingOrFiltered ? projected.total : rows.length;
 	const filtersActive =
 		filterText !== "" ||
 		columnFilters.date !== "all" ||
@@ -1195,7 +1222,7 @@ export function MessageList({
 			<header className={styles.listHeader}>
 				<h2>{selectedMailbox?.name ?? "Messages"}</h2>
 				<span className={styles.resultCount}>
-					{rows.length} {rows.length === 1 ? "message" : "messages"}
+					{headerCount} {headerCount === 1 ? "message" : "messages"}
 				</span>
 				{canEmpty ? (
 					<Button
