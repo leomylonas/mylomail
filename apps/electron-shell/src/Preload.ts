@@ -93,6 +93,14 @@ contextBridge.exposeInMainWorld("dialogs", {
 		ipcRenderer.invoke(pickExportFolderChannel) as Promise<string | null>,
 });
 
+/** The user's locale tag, passed on the command line by the main process (not a secret). */
+contextBridge.exposeInMainWorld(
+	"shellLocale",
+	process.argv
+		.find((arg) => arg.startsWith("--mylomail-locale="))
+		?.split("=")[1] ?? undefined,
+);
+
 /** Printing is a privileged main-process operation; the renderer can only print itself. */
 contextBridge.exposeInMainWorld("printing", {
 	print: (): Promise<boolean> =>

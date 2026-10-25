@@ -29,6 +29,8 @@ declare global {
 		dialogs?: {
 			pickExportFolder(): Promise<string | null>;
 		};
+		/** The user's own locale, which Chromium's navigator.language may have replaced with a sibling. */
+		shellLocale?: string;
 		printing?: {
 			print(): Promise<boolean>;
 		};

@@ -81,6 +81,26 @@ if (process.platform === "win32") {
 }
 
 /**
+ * The user's own locale tag ("en-AU"). Chromium has no data for most regional variants and reports
+ * a sibling instead (en-GB for en-AU), whose conventions, such as a 24-hour clock, are not the
+ * user's; so the process locale is read directly where there is one.
+ */
+function systemLocaleTag(): string {
+	const fromEnvironment = (
+		process.env.LC_ALL ||
+		process.env.LC_TIME ||
+		process.env.LANGUAGE?.split(":")[0] ||
+		process.env.LANG ||
+		""
+	)
+		.split(".")[0]!
+		.replace("_", "-");
+	return /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(fromEnvironment)
+		? fromEnvironment
+		: app.getLocale();
+}
+
+/**
  * Read once at startup, same as window bounds and the mailto-prompt flag (§13), then kept in
  * sync by `updateCloseBehaviorChannel` when ShellSettings saves a change mid-session.
  */
@@ -738,6 +758,7 @@ async function createWindow(
 		autoHideMenuBar: true,
 		webPreferences: {
 			preload: join(here, "Preload.cjs"),
+			additionalArguments: [`--mylomail-locale=${systemLocaleTag()}`],
 
 			// The renderer displays remote-authored message HTML, so it never gets Node.
 			contextIsolation: true,

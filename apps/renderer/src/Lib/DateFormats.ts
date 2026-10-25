@@ -77,4 +77,7 @@ export function createDateFormats(
 }
 
 /** The OS locale's own clock, for code that runs before the preference has loaded. */
-export const systemDateFormats = createDateFormats("system");
+export const systemDateFormats = createDateFormats(
+	"system",
+	globalThis.window?.shellLocale,
+);

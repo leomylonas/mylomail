@@ -29,7 +29,10 @@ export function DateFormatsProvider({
 	});
 	const formats = useMemo(
 		() =>
-			createDateFormats(clockPreferenceFromSetting(settings.data?.timeFormat)),
+			createDateFormats(
+				clockPreferenceFromSetting(settings.data?.timeFormat),
+				window.shellLocale,
+			),
 		[settings.data?.timeFormat],
 	);
 	return (

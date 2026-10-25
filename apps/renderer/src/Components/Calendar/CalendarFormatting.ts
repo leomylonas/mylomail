@@ -121,4 +121,6 @@ export function calendarWeekStart(
 }
 
 /** The locale's first weekday does not depend on the clock, so it needs no hook. */
-const localeFirstDayIndex = createCalendarFormatters().firstDayIndex;
+const localeFirstDayIndex = createCalendarFormatters(
+	globalThis.window?.shellLocale,
+).firstDayIndex;

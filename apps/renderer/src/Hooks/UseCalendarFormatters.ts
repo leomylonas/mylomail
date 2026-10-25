@@ -8,5 +8,8 @@ import { useDateFormats } from "@mylomail/renderer/Shell/DateFormats/DateFormats
 /** The calendar's formatters, on the clock the user chose in Settings. */
 export function useCalendarFormatters(): CalendarFormatters {
 	const { clock } = useDateFormats();
-	return useMemo(() => createCalendarFormatters(undefined, clock), [clock]);
+	return useMemo(
+		() => createCalendarFormatters(window.shellLocale, clock),
+		[clock],
+	);
 }
