@@ -309,6 +309,39 @@ public class MessageIdentityTests
 		});
 	}
 
+	[Fact]
+	public async Task A_flags_only_answer_keeps_the_subject_sender_and_date_the_message_already_has()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var inbox = await harness.MailboxAsync(scope, "INBOX");
+			var mailboxes = new Dictionary<string, Mailbox> { ["INBOX"] = inbox };
+			var ingestor = scope.GetRequiredService<MessageIngestor>();
+			var received = new DateTimeOffset(2026, 10, 25, 7, 32, 0, TimeSpan.Zero);
+
+			var full = Observation("INBOX", "7", "ESET Renewal") with { ReceivedAt = received, From = [new Address("Sales", "sales@example.test")] };
+			await ingestor.IngestAsync(account, [full], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
+			await context.SaveChangesAsync();
+
+			// The same message, answered with its flags and nothing else.
+			var bare = new MessageDto { Occurrences = [new MessageOccurrenceDto("INBOX", "7")], ReceivedAt = DateTimeOffset.MinValue, IsRead = true };
+			await ingestor.IngestAsync(account, [bare], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
+			await context.SaveChangesAsync();
+
+			var message = await context.Messages.SingleAsync();
+			Assert.Equal("ESET Renewal", message.Subject);
+			Assert.Equal(received, message.ReceivedAt);
+			Assert.Equal("sales@example.test", message.From.Single().Email);
+			Assert.True(message.IsRead);
+		});
+	}
+
 	private static MessageDto Observation(string mailbox, string occurrenceId, string subject) =>
 		new()
 		{

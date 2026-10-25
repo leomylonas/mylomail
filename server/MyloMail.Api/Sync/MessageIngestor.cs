@@ -405,11 +405,23 @@ public sealed class MessageIngestor(
 		message.SenderAddress = dto.SenderAddress;
 		message.HasProviderThreadId = !string.IsNullOrWhiteSpace(dto.ThreadId);
 		if (message.HasProviderThreadId) message.ThreadId = dto.ThreadId;
-		message.From = dto.From;
-		message.To = dto.To;
-		message.Cc = dto.Cc;
-		message.Bcc = dto.Bcc;
-		message.Subject = dto.Subject;
+		// A server can answer a fetch with the flags and nothing else (no envelope, no internal date).
+		// That is an observation about state, not a statement that the message lost its sender,
+		// subject and date, which overwritten would sink it to the bottom of the list as an
+		// untitled message from 0001.
+		var hasEnvelope = dto.ReceivedAt != DateTimeOffset.MinValue
+			|| dto.From.Count > 0
+			|| !string.IsNullOrEmpty(dto.Subject)
+			|| !string.IsNullOrEmpty(dto.MessageIdHeader);
+		if (hasEnvelope || message.ReceivedAt == DateTimeOffset.MinValue)
+		{
+			message.From = dto.From;
+			message.To = dto.To;
+			message.Cc = dto.Cc;
+			message.Bcc = dto.Bcc;
+			message.Subject = dto.Subject;
+			message.ReceivedAt = dto.ReceivedAt;
+		}
 		// An IMAP envelope has no preview, so replaying or polling it after content acquisition
 		// must not erase the body-derived snippet already committed locally. Provider previews
 		// are still authoritative when present (Graph/Gmail), and a new blank message remains
@@ -418,7 +430,6 @@ public sealed class MessageIngestor(
 		{
 			message.Snippet = dto.Snippet;
 		}
-		message.ReceivedAt = dto.ReceivedAt;
 		message.IsRead = dto.IsRead;
 		message.IsFlagged = dto.IsFlagged;
 		message.IsDraft = dto.IsDraft;
