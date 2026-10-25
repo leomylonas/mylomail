@@ -14,6 +14,15 @@ public sealed class MessageHtmlPreparerTests
 		MessageHtmlPreparer.Prepare(html, allowRemote, inline);
 
 	[Fact]
+	public void Content_inside_an_unknown_wrapper_element_is_kept()
+	{
+		// A template engine's own tag (<show:Product>) wrapping the whole body.
+		var result = Prepare("<html><body><show:ESETProduct><table><tr><td>Renewal Reminder</td></tr></table></show:ESETProduct></body></html>");
+
+		Assert.Contains("Renewal Reminder", result.Html);
+	}
+
+	[Fact]
 	public void Ordinary_formatting_is_kept()
 	{
 		var html = Prepare("<p>Hello <b>there</b></p>").Html;

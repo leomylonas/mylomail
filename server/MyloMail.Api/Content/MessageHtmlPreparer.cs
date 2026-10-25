@@ -32,7 +32,7 @@ public sealed record PrintHtml(string Html, IReadOnlyList<string> Sheets, IReadO
 /// which is already downloaded, and are replaced with the part itself as a data URL.
 /// </para>
 /// </remarks>
-public static class MessageHtmlPreparer
+public static partial class MessageHtmlPreparer
 {
 	/// <summary>Form controls exist to collect credentials; there is no legitimate use for one in mail.</summary>
 	private static readonly string[] ForbiddenTags =
@@ -138,7 +138,7 @@ public static class MessageHtmlPreparer
 			}
 		};
 
-		return new PreparedHtml(sanitizer.Sanitize(html), blocked);
+		return new PreparedHtml(sanitizer.Sanitize(NamespacedTag().Replace(html, string.Empty)), blocked);
 	}
 
 	/// <summary>
@@ -176,6 +176,14 @@ public static class MessageHtmlPreparer
 
 		return new PrintHtml(container.InnerHtml, sheets, inline);
 	}
+
+	/// <summary>
+	/// A template engine's or Office's own tag (<c>&lt;show:Product&gt;</c>, <c>&lt;o:p&gt;</c>) is not HTML. The
+	/// sanitiser drops an unknown element together with everything inside it, which for a tag wrapping
+	/// the whole body leaves an empty message; only the tag itself is removed here.
+	/// </summary>
+	[System.Text.RegularExpressions.GeneratedRegex(@"</?[a-zA-Z][\w-]*:[a-zA-Z][\w:.-]*(?:\s[^>]*)?/?>")]
+	private static partial System.Text.RegularExpressions.Regex NamespacedTag();
 
 	private static HtmlSanitizer Configure()
 	{
