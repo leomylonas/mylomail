@@ -456,6 +456,7 @@ public sealed class MutationReconciler(
 		foreach (var occurrence in vanished)
 		{
 			context.MessageMailboxes.Remove(occurrence);
+			Sync.RecentRemovals.Record(occurrence.MailboxId, occurrence.ProviderOccurrenceId);
 			if (unread)
 			{
 				await UnreadSnapshot.AdjustAsync(context, occurrence.MailboxId, -1, ct);

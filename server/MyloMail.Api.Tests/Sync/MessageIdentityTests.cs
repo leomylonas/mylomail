@@ -343,6 +343,42 @@ public class MessageIdentityTests
 		});
 	}
 
+	[Fact]
+	public async Task A_page_requested_before_a_removal_does_not_put_the_occurrence_back_but_a_later_one_does()
+	{
+		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
+		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
+		await SyncTests.ReconcileAsync(harness);
+
+		await harness.UsingAsync(async scope =>
+		{
+			var context = scope.GetRequiredService<MyloMailDbContext>();
+			var account = await harness.AccountInScopeAsync(scope);
+			var inbox = await harness.MailboxAsync(scope, "INBOX");
+			var mailboxes = new Dictionary<string, Mailbox> { ["INBOX"] = inbox };
+			var ingestor = scope.GetRequiredService<MessageIngestor>();
+
+			await ingestor.IngestAsync(account, [Observation("INBOX", "9", "Doomed")], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
+			await context.SaveChangesAsync();
+
+			// A poll asks the server; the delete is then confirmed and applied; the poll's answer arrives.
+			var staleRequest = GenerationSnapshot.Capture(mailboxes.Values);
+			await Task.Delay(5);
+			context.MessageMailboxes.RemoveRange(context.MessageMailboxes);
+			RecentRemovals.Record(inbox.Id, "9");
+			await context.SaveChangesAsync();
+
+			await ingestor.IngestAsync(account, [Observation("INBOX", "9", "Doomed")], mailboxes, staleRequest);
+			await context.SaveChangesAsync();
+			Assert.Empty(context.MessageMailboxes);
+
+			// A request made after the removal is the server's current word.
+			await ingestor.IngestAsync(account, [Observation("INBOX", "9", "Doomed")], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
+			await context.SaveChangesAsync();
+			Assert.Single(context.MessageMailboxes);
+		});
+	}
+
 	private static MessageDto Observation(string mailbox, string occurrenceId, string subject) =>
 		new()
 		{

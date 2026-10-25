@@ -390,6 +390,7 @@ public sealed class MutationExecutor(
 				if (occurrence is not null)
 				{
 					context.MessageMailboxes.Remove(occurrence);
+					Sync.RecentRemovals.Record(occurrence.MailboxId, occurrence.ProviderOccurrenceId);
 					removedMessageIds.Add(outcome.MessageId);
 					if (await UnreadSnapshot.IsUnreadAsync(context, outcome.MessageId, ct))
 					{

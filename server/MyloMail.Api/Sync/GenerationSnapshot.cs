@@ -28,6 +28,9 @@ public sealed class GenerationSnapshot
 		this.generations = generations;
 	}
 
+	/// <summary>When the work was issued, which is before the provider was asked for anything.</summary>
+	public DateTimeOffset CapturedAt { get; } = DateTimeOffset.UtcNow;
+
 	public IReadOnlyDictionary<string, int> Values => generations;
 
 	public static GenerationSnapshot Capture(IEnumerable<Mailbox> mailboxes) =>

@@ -219,6 +219,12 @@ public sealed class MessageIngestor(
 					continue;
 				}
 
+				// Observed before this process removed it: the page is older than the removal.
+				if (RecentRemovals.RemovedSince(mailbox.Id, occurrence.ProviderOccurrenceId, generations.CapturedAt))
+				{
+					continue;
+				}
+
 				var outcome = await UpsertOccurrenceAsync(
 					message,
 					mailbox,
