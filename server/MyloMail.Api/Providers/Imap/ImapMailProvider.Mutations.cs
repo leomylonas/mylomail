@@ -247,7 +247,16 @@ public sealed partial class ImapMailProvider
 									),
 								]
 							)
-							: NotFound(item.Reference)
+							// Already gone from that folder: what a delete asks for. Reporting it as a
+							// failure sent the message back into the list (a copy this app still held
+							// after the server had lost it) with an error about something that was done.
+							: new BatchItemResult(
+								item.Reference.MessageId,
+								item.Reference.MailboxId,
+								true,
+								null,
+								[new OccurrenceChange(item.Reference.MailboxId, null, Removed: true)]
+							)
 					),
 				];
 			},
