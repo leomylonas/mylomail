@@ -75,6 +75,6 @@ public sealed partial class GraphMailProvider
 			found.AddRange((page?.Value ?? []).Where(message => message.Id is not null));
 		}
 
-		return [.. found.DistinctBy(message => message.Id).Select(ToDto)];
+		return [.. found.DistinctBy(message => message.Id).Select(message => ToDto(message))];
 	}
 }

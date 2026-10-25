@@ -22,9 +22,14 @@ public sealed class GmailLabelNameTests
 public sealed class GraphDeltaPartialTests
 {
 	[Fact]
-	public void A_delta_entry_with_only_changed_properties_is_partial_and_a_whole_message_is_not()
+	public void A_delta_entry_reports_only_the_groups_of_properties_it_carries()
 	{
-		Assert.True(MyloMail.Api.Providers.Graph.GraphMailProvider.IsPartial(new Microsoft.Graph.Models.Message { Id = "x", IsRead = true }));
-		Assert.False(MyloMail.Api.Providers.Graph.GraphMailProvider.IsPartial(new Microsoft.Graph.Models.Message { Id = "x", Subject = "Hi" }));
+		var dto = MyloMail.Api.Providers.Graph.GraphMailProvider.ToDto(
+			new Microsoft.Graph.Models.Message { Id = "x", IsRead = true },
+			"folder-1"
+		);
+
+		Assert.Equal([MyloMail.Api.Providers.Contracts.MessageProperty.IsRead], dto.Reported);
+		Assert.Equal("folder-1", dto.Occurrences.Single().ProviderMailboxId);
 	}
 }

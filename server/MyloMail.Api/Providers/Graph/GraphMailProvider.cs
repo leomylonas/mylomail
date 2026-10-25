@@ -160,7 +160,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			? Math.Min(count, mailbox.ProviderTotalCount ?? count)
 			: (int?)null;
 		return new InitialSyncPage(
-			[.. values.Where(message => message.Id is not null).Select(ToDto)],
+			[.. values.Where(message => message.Id is not null).Select(message => ToDto(message))],
 			continuation.ResumeToken,
 			continuation.HasMore,
 			estimatedTotal
@@ -295,18 +295,12 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") == true)
 					.Select(message => new OccurrenceRemoval(ProviderMailboxId(mailbox), message.Id!)),
 			];
-			// Delta reports a changed message as its id and the properties that changed, without the
-			// subject, sender or date. Mapped as it is, a read or flag change would blank the message
-			// and reset its other flags, so each such message is fetched whole first.
-			var upserted = new List<MessageDto>();
-			foreach (var message in values.Where(m => m.Id is not null && m.AdditionalData?.ContainsKey("@removed") != true))
-			{
-				var whole = IsPartial(message) ? await FetchWholeAsync(client, message.Id!, ct) : message;
-				if (whole is not null)
-				{
-					upserted.Add(ToDto(whole));
-				}
-			}
+			IReadOnlyList<MessageDto> upserted =
+			[
+				.. values
+					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") != true)
+					.Select(message => ToDto(message, ProviderMailboxId(mailbox))),
+			];
 
 			return new SyncResult(
 				page?.OdataNextLink is null && page?.OdataDeltaLink is not null
@@ -388,8 +382,36 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 		"internetMessageHeaders",
 	];
 
-	internal static MessageDto ToDto(GraphMessage message)
+	/// <summary>
+	/// Graph delta reports a changed message as its id and the properties that changed, so each group
+	/// is reported only when Graph sent something for it. <paramref name="folderId"/> stands in for
+	/// the parent folder, which a delta entry may omit.
+	/// </summary>
+	private const int AllProperties = 7;
+
+	internal static MessageDto ToDto(GraphMessage message, string? folderId = null)
 	{
+		var reported = new HashSet<MessageProperty>();
+		void Report(bool present, MessageProperty property)
+		{
+			if (present)
+			{
+				reported.Add(property);
+			}
+		}
+
+		Report(message.InternetMessageId is not null || message.ConversationId is not null || message.InternetMessageHeaders is not null, MessageProperty.Headers);
+		Report(
+			message.Subject is not null || message.From is not null || message.ToRecipients is not null
+				|| message.CcRecipients is not null || message.BccRecipients is not null || message.ReplyTo is not null || message.Sender is not null,
+			MessageProperty.Envelope
+		);
+		Report(message.ReceivedDateTime is not null, MessageProperty.ReceivedAt);
+		Report(message.BodyPreview is not null, MessageProperty.Snippet);
+		Report(message.IsRead is not null, MessageProperty.IsRead);
+		Report(message.Flag is not null, MessageProperty.IsFlagged);
+		Report(message.IsDraft is not null, MessageProperty.IsDraft);
+
 		var headers = (message.InternetMessageHeaders ?? [])
 			.Where(header => header.Name is not null)
 			.GroupBy(header => header.Name!, StringComparer.OrdinalIgnoreCase)
@@ -403,7 +425,7 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 				: null,
 			Occurrences =
 			[
-				new MessageOccurrenceDto(message.ParentFolderId ?? string.Empty, message.Id!),
+				new MessageOccurrenceDto(message.ParentFolderId ?? folderId ?? string.Empty, message.Id!),
 			],
 			MessageIdHeader = message.InternetMessageId,
 			InReplyToHeader = Header(headers, "In-Reply-To"),
@@ -426,26 +448,8 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			// establish the non-inline state exposed by the local MIME-derived model.
 			HasNonInlineAttachments = null,
 			SizeEstimate = null,
+			Reported = reported.Count == AllProperties ? null : reported,
 		};
-	}
-
-	/// <summary>A delta entry carrying only what changed: no subject, sender or received date.</summary>
-	internal static bool IsPartial(GraphMessage message) =>
-		message.Subject is null && message.From is null && message.ReceivedDateTime is null;
-
-	/// <returns>The message, or null when it no longer exists (its removal arrives on its own).</returns>
-	private static async Task<GraphMessage?> FetchWholeAsync(GraphServiceClient client, string id, CancellationToken ct)
-	{
-		try
-		{
-			return await ThrottleAwareAsync(() =>
-				client.Me.Messages[id].GetAsync(configuration => configuration.QueryParameters.Select = MessageSelect, ct)
-			);
-		}
-		catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 404)
-		{
-			return null;
-		}
 	}
 
 	private static IReadOnlyList<Address> Addresses(IEnumerable<Recipient>? recipients) =>

@@ -310,7 +310,7 @@ public class MessageIdentityTests
 	}
 
 	[Fact]
-	public async Task A_flags_only_answer_keeps_the_subject_sender_and_date_the_message_already_has()
+	public async Task An_observation_reporting_only_the_read_flag_leaves_everything_else_as_it_was()
 	{
 		await using var harness = await SyncHarness.CreateAsync(ProviderShapes.Imap(ImapCapabilityTier.QResync));
 		harness.Provider.AddMailbox("INBOX", SpecialUse.Inbox);
@@ -325,12 +325,12 @@ public class MessageIdentityTests
 			var ingestor = scope.GetRequiredService<MessageIngestor>();
 			var received = new DateTimeOffset(2026, 10, 25, 7, 32, 0, TimeSpan.Zero);
 
-			var full = Observation("INBOX", "7", "ESET Renewal") with { ReceivedAt = received, From = [new Address("Sales", "sales@example.test")] };
+			var full = Observation("INBOX", "7", "ESET Renewal") with { ReceivedAt = received, IsFlagged = true, From = [new Address("Sales", "sales@example.test")] };
 			await ingestor.IngestAsync(account, [full], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
 			await context.SaveChangesAsync();
 
-			// The same message, answered with its flags and nothing else.
-			var bare = new MessageDto { Occurrences = [new MessageOccurrenceDto("INBOX", "7")], ReceivedAt = DateTimeOffset.MinValue, IsRead = true };
+			// The same message, reported with its read flag and nothing else (a Graph delta entry).
+			var bare = new MessageDto { Occurrences = [new MessageOccurrenceDto("INBOX", "7")], ReceivedAt = DateTimeOffset.MinValue, IsRead = true, Reported = new HashSet<MessageProperty> { MessageProperty.IsRead } };
 			await ingestor.IngestAsync(account, [bare], mailboxes, GenerationSnapshot.Capture(mailboxes.Values));
 			await context.SaveChangesAsync();
 
@@ -339,6 +339,7 @@ public class MessageIdentityTests
 			Assert.Equal(received, message.ReceivedAt);
 			Assert.Equal("sales@example.test", message.From.Single().Email);
 			Assert.True(message.IsRead);
+			Assert.True(message.IsFlagged);
 		});
 	}
 

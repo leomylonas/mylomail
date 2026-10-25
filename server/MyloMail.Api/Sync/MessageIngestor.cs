@@ -398,41 +398,42 @@ public sealed class MessageIngestor(
 	private static void Apply(MessageDto dto, Message message)
 	{
 		message.ProviderStableId = dto.ProviderStableId ?? message.ProviderStableId;
-		message.MessageIdHeader = dto.MessageIdHeader ?? message.MessageIdHeader;
-		message.InReplyToHeader = dto.InReplyToHeader ?? message.InReplyToHeader;
-		message.ReferencesHeader = dto.ReferencesHeader ?? message.ReferencesHeader;
-		message.ReplyToAddresses = dto.ReplyToAddresses;
-		message.SenderAddress = dto.SenderAddress;
-		message.HasProviderThreadId = !string.IsNullOrWhiteSpace(dto.ThreadId);
-		if (message.HasProviderThreadId) message.ThreadId = dto.ThreadId;
-		// A server can answer a fetch with the flags and nothing else (no envelope, no internal date).
-		// That is an observation about state, not a statement that the message lost its sender,
-		// subject and date, which overwritten would sink it to the bottom of the list as an
-		// untitled message from 0001.
-		var hasEnvelope = dto.ReceivedAt != DateTimeOffset.MinValue
-			|| dto.From.Count > 0
-			|| !string.IsNullOrEmpty(dto.Subject)
-			|| !string.IsNullOrEmpty(dto.MessageIdHeader);
-		if (hasEnvelope || message.ReceivedAt == DateTimeOffset.MinValue)
+		// Only what the observation reports is written: a provider that sends just what changed
+		// has said nothing about the rest.
+		if (dto.Reports(MessageProperty.Envelope))
 		{
+			message.ReplyToAddresses = dto.ReplyToAddresses;
+			message.SenderAddress = dto.SenderAddress;
 			message.From = dto.From;
 			message.To = dto.To;
 			message.Cc = dto.Cc;
 			message.Bcc = dto.Bcc;
 			message.Subject = dto.Subject;
-			message.ReceivedAt = dto.ReceivedAt;
 		}
+
+		if (dto.Reports(MessageProperty.Headers))
+		{
+			message.MessageIdHeader = dto.MessageIdHeader ?? message.MessageIdHeader;
+			message.InReplyToHeader = dto.InReplyToHeader ?? message.InReplyToHeader;
+			message.ReferencesHeader = dto.ReferencesHeader ?? message.ReferencesHeader;
+			message.HasProviderThreadId = !string.IsNullOrWhiteSpace(dto.ThreadId);
+			if (message.HasProviderThreadId) message.ThreadId = dto.ThreadId;
+		}
+
 		// An IMAP envelope has no preview, so replaying or polling it after content acquisition
 		// must not erase the body-derived snippet already committed locally. Provider previews
 		// are still authoritative when present (Graph/Gmail), and a new blank message remains
 		// blank.
-		if (!string.IsNullOrWhiteSpace(dto.Snippet) || string.IsNullOrWhiteSpace(message.Snippet))
+		if (dto.Reports(MessageProperty.Snippet)
+			&& (!string.IsNullOrWhiteSpace(dto.Snippet) || string.IsNullOrWhiteSpace(message.Snippet)))
 		{
 			message.Snippet = dto.Snippet;
 		}
-		message.IsRead = dto.IsRead;
-		message.IsFlagged = dto.IsFlagged;
-		message.IsDraft = dto.IsDraft;
+
+		if (dto.Reports(MessageProperty.ReceivedAt)) message.ReceivedAt = dto.ReceivedAt;
+		if (dto.Reports(MessageProperty.IsRead)) message.IsRead = dto.IsRead;
+		if (dto.Reports(MessageProperty.IsFlagged)) message.IsFlagged = dto.IsFlagged;
+		if (dto.Reports(MessageProperty.IsDraft)) message.IsDraft = dto.IsDraft;
 		message.IsAnswered = dto.IsAnswered;
 		if (dto.HasNonInlineAttachments is { } hasNonInlineAttachments)
 		{

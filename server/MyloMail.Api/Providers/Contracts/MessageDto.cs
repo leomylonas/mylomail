@@ -67,6 +67,26 @@ public record MessageDto
 	public bool? HasNonInlineAttachments { get; init; }
 
 	public long? SizeEstimate { get; init; }
+
+	/// <summary>
+	/// Which groups of properties this observation actually reports. Null means all of them. A
+	/// provider that sends only what changed (Graph delta) lists what it did send, so that a
+	/// property it left out is not read as "now empty".
+	/// </summary>
+	public IReadOnlySet<MessageProperty>? Reported { get; init; }
+
+	public bool Reports(MessageProperty property) => Reported is null || Reported.Contains(property);
+}
+
+public enum MessageProperty
+{
+	Headers,
+	Envelope,
+	ReceivedAt,
+	Snippet,
+	IsRead,
+	IsFlagged,
+	IsDraft,
 }
 
 /// <summary>
