@@ -586,7 +586,11 @@ function InviteBanner({
 				</>
 			) : (
 				<p className={styles.waiting}>
-					Preparing this invitation for a response…
+					This invitation has not been added to your calendar, so it cannot be
+					answered here. MyloMail only adds an invitation it can verify came
+					from its sender (a valid DKIM signature on a domain that publishes a
+					DMARC policy), or when the account has a calendar to put it in. Reply
+					to the sender to respond.
 				</p>
 			)}
 		</div>
