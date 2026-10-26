@@ -441,6 +441,24 @@ public sealed class MailInviteMaterializerTests
 		});
 	}
 
+	[Fact]
+	public async Task Applying_a_reply_says_why_when_it_could_not_be_applied()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, _) = await SeedAsync(database);
+
+		var outcome = await UsingAsync(database, async context =>
+			await new MailInviteMaterializer(context, new RecordingHubEvents(), new NeverAuthenticated())
+				.ApplyUnverifiedReplyAsync(
+					await context.Accounts.SingleAsync(a => a.Id == accountId),
+					ReplyMime("uid-nobody-has", "bob@example.org", "ACCEPTED"),
+					default
+				));
+
+		Assert.Equal(ReplyOutcome.NoEvent, outcome);
+	}
+
 	private sealed class AlwaysAuthenticated : IIncomingMailAuthentication
 	{
 		public Task<MailAuthenticationResult> VerifyAsync(MimeMessage message, CancellationToken ct) =>

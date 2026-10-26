@@ -832,6 +832,8 @@ export type MessageInviteDto = {
     senderAddress?: string;
     /** Transpiled from bool */
     senderVerified: boolean;
+    /** Transpiled from bool */
+    serverRecordsReplies: boolean;
 }
 
 /** Transpiled from MyloMail.Api.Contracts.AttachmentConstraintsDto */

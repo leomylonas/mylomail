@@ -477,7 +477,9 @@ public record MessageInviteDto(
 	/// <summary>The message's single From address, for offering to trust it. Null when it has none or several.</summary>
 	string? SenderAddress = null,
 	/// <summary>Whether DKIM/DMARC, or the user's own trust in this sender, vouches for it.</summary>
-	bool SenderVerified = true
+	bool SenderVerified = true,
+	/// <summary>A reply to an event in a Microsoft 365 calendar: Exchange records responses itself, so there is nothing for this app to apply.</summary>
+	bool ServerRecordsReplies = false
 );
 
 /// <summary>

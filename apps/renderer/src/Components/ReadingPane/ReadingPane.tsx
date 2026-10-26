@@ -550,7 +550,13 @@ function InviteBanner({
 					<p className={styles.inviteTitle}>{invite.data.title}</p>
 				) : null}
 				<p className={styles.inviteWhen}>{when}</p>
-				{invite.data.requiresManualReview ? (
+				{invite.data.serverRecordsReplies ? (
+					<p className={styles.inviteNote}>
+						{invite.data.replyingAddress ?? "The attendee"} {claimed}. Microsoft
+						365 records responses on the event itself, so there is nothing to
+						apply here; their answer shows on the event in your calendar.
+					</p>
+				) : invite.data.requiresManualReview ? (
 					<ActionableNotification
 						kind="warning"
 						title="This calendar reply could not be authenticated"

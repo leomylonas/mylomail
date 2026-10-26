@@ -158,36 +158,35 @@ public sealed class MailInviteMaterializer(
 	/// visible regardless of authentication, but MIME identity is never sufficient for automatic
 	/// state changes because either header can be forged.
 	/// </summary>
-	public async Task ApplyUnverifiedReplyAsync(Account account, MimeMessage mime, CancellationToken ct = default)
+	public async Task<ReplyOutcome> ApplyUnverifiedReplyAsync(Account account, MimeMessage mime, CancellationToken ct = default)
 	{
 		var part = mime.BodyParts
 			.OfType<MimePart>()
 			.FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
 		if (part?.Content is null)
 		{
-			return;
+			return ReplyOutcome.NotAReply;
 		}
 
 		var ics = await CalendarMimeReader.TryReadAsync(part, ct);
 		if (ics is null)
 		{
-			return;
+			return ReplyOutcome.NotAReply;
 		}
 		if (!string.Equals(CalDavIcs.ParseMethod(ics), "REPLY", StringComparison.OrdinalIgnoreCase))
 		{
-			return;
+			return ReplyOutcome.NotAReply;
 		}
 
 		var senders = mime.From.Mailboxes.Select(mailbox => mailbox.Address).ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var reply = CalDavIcs.ParseEvents(ics, "mail:manual-reply", string.Empty, MaximumEventsPerCalendarPart).FirstOrDefault();
-		if (reply is not null)
-		{
-			await ApplyReplyAsync(account, reply, senders, requireNewerTimestamp: false, ct);
-		}
+		return reply is null
+			? ReplyOutcome.NotAReply
+			: await ApplyReplyAsync(account, reply, senders, requireNewerTimestamp: false, ct);
 	}
 
 	/// <summary>Applies an attendee's reply only when the claimed identity matches the sender.</summary>
-	private async Task ApplyReplyAsync(
+	private async Task<ReplyOutcome> ApplyReplyAsync(
 		Account account,
 		CalendarEventDto dto,
 		IReadOnlySet<string> senders,
@@ -198,7 +197,7 @@ public sealed class MailInviteMaterializer(
 		var respondingAttendee = dto.Attendees.FirstOrDefault();
 		if (respondingAttendee is null || !senders.Contains(respondingAttendee.Email))
 		{
-			return;
+			return ReplyOutcome.SenderIsNotTheAttendee;
 		}
 
 		var calendarIds = await AccountCalendarIdsAsync(account.Id, ct);
@@ -208,7 +207,7 @@ public sealed class MailInviteMaterializer(
 			.ToListAsync(ct);
 		if (candidates.Count == 0)
 		{
-			return;
+			return ReplyOutcome.NoEvent;
 		}
 
 		var target = dto.RecurrenceId is { } recurrenceId
@@ -216,7 +215,7 @@ public sealed class MailInviteMaterializer(
 			: candidates.FirstOrDefault(e => e.RecurrenceId is null);
 		if (target is null)
 		{
-			return;
+			return ReplyOutcome.NoEvent;
 		}
 		var calendarOwner = await context.Calendars
 			.Where(calendar => calendar.Id == target.CalendarId)
@@ -225,7 +224,7 @@ public sealed class MailInviteMaterializer(
 			.SingleAsync(ct);
 		if (calendarOwner == ProviderType.Microsoft365)
 		{
-			return;
+			return ReplyOutcome.ServerRecordsReplies;
 		}
 
 		var matchIndex = -1;
@@ -239,7 +238,7 @@ public sealed class MailInviteMaterializer(
 		}
 		if (matchIndex < 0)
 		{
-			return;
+			return ReplyOutcome.NotAnAttendee;
 		}
 
 		var current = target.Attendees[matchIndex];
@@ -255,7 +254,7 @@ public sealed class MailInviteMaterializer(
 				await context.SaveChangesAsync(ct);
 				await events.CalendarEventUpdatedAsync(target.Id);
 			}
-			return;
+			return ReplyOutcome.Applied;
 		}
 		if (requireNewerTimestamp
 			&& (dto.Sequence < target.Sequence
@@ -266,7 +265,7 @@ public sealed class MailInviteMaterializer(
 					&& current.ResponseStatus != ResponseStatus.NeedsAction
 					&& dto.Sequence <= target.Sequence)))
 		{
-			return;
+			return ReplyOutcome.Outdated;
 		}
 
 		var updated = target.Attendees.ToList();
@@ -279,6 +278,7 @@ public sealed class MailInviteMaterializer(
 
 		await context.SaveChangesAsync(ct);
 		await events.CalendarEventUpdatedAsync(target.Id);
+		return ReplyOutcome.Applied;
 	}
 
 	private async Task UpsertAsync(Account account, CalendarEventDto dto, CancellationToken ct)
@@ -380,4 +380,20 @@ public sealed class MailInviteMaterializer(
 		await events.CalendarCollectionChangedAsync(accountId);
 		return created.Id;
 	}
+}
+
+/// <summary>What became of a calendar reply handed to <see cref="MailInviteMaterializer"/>.</summary>
+public enum ReplyOutcome
+{
+	Applied,
+	NotAReply,
+	SenderIsNotTheAttendee,
+
+	/// <summary>No event in this account's calendars carries the reply's UID.</summary>
+	NoEvent,
+
+	/// <summary>The event lives in a Microsoft 365 calendar, where Exchange records responses itself.</summary>
+	ServerRecordsReplies,
+	NotAnAttendee,
+	Outdated,
 }

@@ -725,6 +725,11 @@ public class MailHub(
 				!authenticated.IsAuthenticated
 				|| attendee is null
 				|| !string.Equals(authenticated.AuthenticatedAddress, attendee.Email, StringComparison.OrdinalIgnoreCase);
+			var serverRecords = ev is not null
+				&& await context
+					.Calendars.Where(c => c.Id == ev.CalendarId)
+					.Join(context.Accounts, c => c.AccountId, a => a.Id, (_, a) => a.ProviderType)
+					.FirstOrDefaultAsync() == ProviderType.Microsoft365;
 			return new MessageInviteDto(
 				ev?.Id,
 				parsed.Title,
@@ -736,7 +741,8 @@ public class MailHub(
 				true,
 				attendee?.Email,
 				attendee is null ? null : ToInviteResponse(attendee.ResponseStatus),
-				requiresManualReview
+				requiresManualReview && !serverRecords,
+				ServerRecordsReplies: serverRecords
 			);
 		}
 
@@ -2282,7 +2288,23 @@ public class MailHub(
 		var account = await context.Accounts.SingleAsync(row => row.Id == accountId);
 		using var stream = new MemoryStream(raw.Content);
 		var mime = await MimeKit.MimeMessage.LoadAsync(stream, Context.ConnectionAborted);
-		await invites.ApplyUnverifiedReplyAsync(account, mime, Context.ConnectionAborted);
+		var outcome = await invites.ApplyUnverifiedReplyAsync(account, mime, Context.ConnectionAborted);
+		if (outcome != ReplyOutcome.Applied)
+		{
+			throw new MutationHubException(
+				ErrorCategory.Validation,
+				outcome switch
+				{
+					ReplyOutcome.ServerRecordsReplies =>
+						"This event is in a Microsoft 365 calendar, which records responses itself, so there is nothing to apply here.",
+					ReplyOutcome.NoEvent => "The event this replies to is not in this account's calendars.",
+					ReplyOutcome.NotAnAttendee => "The person replying is not on that event's guest list.",
+					ReplyOutcome.Outdated => "The event already shows a newer response from them.",
+					ReplyOutcome.SenderIsNotTheAttendee => "The message was not sent by the person whose response it claims to be.",
+					_ => "This is not a calendar reply that can be applied.",
+				}
+			);
+		}
 	}
 
 	public Task MarkNotificationDelivered(Guid notificationId) =>
