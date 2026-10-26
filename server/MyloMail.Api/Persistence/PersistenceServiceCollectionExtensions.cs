@@ -139,7 +139,12 @@ public static class PersistenceServiceCollectionExtensions
 		services.AddScoped<Contacts.ContactService>();
 		services.TryAddSingleton<IDnsQuery>(_ => new LookupClient());
 		services.TryAddSingleton<IEmailAuthenticationDns, EmailAuthenticationDns>();
-		services.TryAddSingleton<IIncomingMailAuthentication, DkimDmarcAuthentication>();
+		services.TryAddSingleton<DkimDmarcAuthentication>();
+		services.AddScoped<TrustedCalendarSenders>();
+		services.TryAddScoped<IIncomingMailAuthentication>(provider => new TrustedSenderAuthentication(
+			provider.GetRequiredService<DkimDmarcAuthentication>(),
+			provider.GetRequiredService<TrustedCalendarSenders>()
+		));
 		services.AddScoped<MailInviteMaterializer>();
 		services.AddScoped<ContentAcquisition>();
 		services.AddScoped<SearchIndexer>();

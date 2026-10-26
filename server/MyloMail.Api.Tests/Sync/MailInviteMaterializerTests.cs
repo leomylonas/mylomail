@@ -393,6 +393,54 @@ public sealed class MailInviteMaterializerTests
 		});
 	}
 
+	[Fact]
+	public async Task An_unverified_invite_is_not_added_on_arrival_but_is_when_the_user_answers_it()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, messageId) = await SeedAsync(database);
+		var mime = InviteMime("uid-unverified", "Lunch", sequence: 0);
+
+		await UsingAsync(database, async context =>
+		{
+			var account = await context.Accounts.SingleAsync(a => a.Id == accountId);
+			var materializer = new MailInviteMaterializer(context, new RecordingHubEvents(), new NeverAuthenticated());
+
+			await materializer.MaterializeFromMessageAsync(account, messageId, mime, default);
+			Assert.False(await context.CalendarEvents.AnyAsync());
+
+			var eventId = await materializer.MaterializeForUserAsync(account, messageId, mime, default);
+			Assert.Equal((await context.CalendarEvents.SingleAsync()).Id, eventId);
+			return true;
+		});
+	}
+
+	[Fact]
+	public async Task A_sender_the_user_trusts_is_accepted_without_dkim_or_dmarc()
+	{
+		await using var database = new TestDatabase();
+		await database.MigrateAsync();
+		var (accountId, messageId) = await SeedAsync(database);
+		var mime = InviteMime("uid-trusted", "Planning", sequence: 0);
+		var sender = mime.From.Mailboxes.Single().Address;
+
+		await UsingAsync(database, async context =>
+		{
+			var account = await context.Accounts.SingleAsync(a => a.Id == accountId);
+			var trusted = new TrustedCalendarSenders(context, TimeProvider.System);
+			var authentication = new TrustedSenderAuthentication(new NeverAuthenticated(), trusted);
+			var materializer = new MailInviteMaterializer(context, new RecordingHubEvents(), authentication);
+
+			await materializer.MaterializeFromMessageAsync(account, messageId, mime, default);
+			Assert.False(await context.CalendarEvents.AnyAsync());
+
+			await trusted.AddAsync(TrustedCalendarSenderScope.Domain, "@" + sender.Split('@')[1], default);
+			await materializer.MaterializeFromMessageAsync(account, messageId, mime, default);
+			Assert.Single(await context.CalendarEvents.ToListAsync());
+			return true;
+		});
+	}
+
 	private sealed class AlwaysAuthenticated : IIncomingMailAuthentication
 	{
 		public Task<MailAuthenticationResult> VerifyAsync(MimeMessage message, CancellationToken ct) =>

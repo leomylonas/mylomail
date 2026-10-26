@@ -459,6 +459,9 @@ public record CalendarEventDetailDto(
 /// yet — RSVP is unavailable until it has (normally by the time content finishes fetching).
 /// </param>
 [TranspilationSource]
+public record TrustedCalendarSenderDto(Guid Id, TrustedCalendarSenderScope Scope, string Value);
+
+[TranspilationSource]
 public record MessageInviteDto(
 	Guid? EventId,
 	string Title,
@@ -470,7 +473,11 @@ public record MessageInviteDto(
 	bool IsReply = false,
 	string? ReplyingAddress = null,
 	InviteResponse? ClaimedResponse = null,
-	bool RequiresManualReview = false
+	bool RequiresManualReview = false,
+	/// <summary>The message's single From address, for offering to trust it. Null when it has none or several.</summary>
+	string? SenderAddress = null,
+	/// <summary>Whether DKIM/DMARC, or the user's own trust in this sender, vouches for it.</summary>
+	bool SenderVerified = true
 );
 
 /// <summary>

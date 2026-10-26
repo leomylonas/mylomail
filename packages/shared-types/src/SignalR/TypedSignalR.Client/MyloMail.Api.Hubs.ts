@@ -3,9 +3,9 @@
 /* tslint:disable */
 // @ts-nocheck
 import type { IStreamResult, Subject } from '@microsoft/signalr';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, StartExportRequestDto, ExportJobDto, ExportFolderDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, TrustedCalendarSenderDto, NotificationNavigationDto, StartExportRequestDto, ExportJobDto, ExportFolderDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
-import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
+import type { InitialSyncMode, SpecialUse, InviteResponse, TrustedCalendarSenderScope } from '../MyloMail.Api.Domain';
 
 /**
 * The renderer's connection to the backend (§7).
@@ -516,6 +516,31 @@ export type IMailHub = {
     * @returns Transpiled from System.Threading.Tasks.Task
     */
     respondToInvite(eventId: string, response: InviteResponse, comment: string): Promise<void>;
+    /**
+    * Answers an invitation that has not been added to the calendar (its sender could not be
+    * verified): adds it, because the user chose to, then replies.
+    * remembers the sender so later mail from them is handled without asking.
+    * @param messageId Transpiled from System.Guid
+    * @param response Transpiled from MyloMail.Api.Domain.InviteResponse
+    * @param trustSender Transpiled from bool
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    respondToMessageInvite(messageId: string, response: InviteResponse, trustSender: boolean): Promise<void>;
+    /**
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.TrustedCalendarSenderDto>>
+    */
+    getTrustedCalendarSenders(): Promise<TrustedCalendarSenderDto[]>;
+    /**
+    * @param scope Transpiled from MyloMail.Api.Domain.TrustedCalendarSenderScope
+    * @param value Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    addTrustedCalendarSender(scope: TrustedCalendarSenderScope, value: string): Promise<void>;
+    /**
+    * @param id Transpiled from System.Guid
+    * @returns Transpiled from System.Threading.Tasks.Task
+    */
+    removeTrustedCalendarSender(id: string): Promise<void>;
     /**
     * "Keep mine" ( true, force-overwrite the server) or "keep
     * theirs" (false, discard the local edit and pull the server's current version) for a

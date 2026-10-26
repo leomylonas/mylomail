@@ -4,9 +4,9 @@
 // @ts-nocheck
 import type { HubConnection, IStreamResult, Subject } from '@microsoft/signalr';
 import type { IMailHub, IMailClient } from './MyloMail.Api.Hubs';
-import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, NotificationNavigationDto, StartExportRequestDto, ExportJobDto, ExportFolderDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
+import type { MailboxSummaryDto, MessageSortField, MessageListFilterDto, MessageSummaryDto, MessageBodyDto, MessageInviteDto, AttachmentDto, AttachmentConstraintsDto, MessageReplyContextDto, MessageStateDto, DraftDto, ProblemDto, ContentQueueDto, BackgroundTaskDto, ThrottleStatusDto, ActivityDto, SyncNowResultDto, SendIdentityDto, SaveDraftRequest, ContactDto, ContactSuggestionDto, SaveContactRequest, DeleteContactRequest, AccountCapabilitiesDto, AccountSettingsDto, MutationEnqueueResultDto, CalendarSummaryDto, CalendarEventSummaryDto, SaveCalendarEventRequest, CalendarEventDetailDto, TrustedCalendarSenderDto, NotificationNavigationDto, StartExportRequestDto, ExportJobDto, ExportFolderDto, AccountDto, SyncProgressDto, MutationFailureDto, MutationQueuedDto, MutationSettledDto, OutboxItemDto, NotificationDto } from '../MyloMail.Api.Contracts';
 import type { PendingChangeDto } from '../MyloMail.Api.Hubs';
-import type { InitialSyncMode, SpecialUse, InviteResponse } from '../MyloMail.Api.Domain';
+import type { InitialSyncMode, SpecialUse, InviteResponse, TrustedCalendarSenderScope } from '../MyloMail.Api.Domain';
 
 
 // components
@@ -368,6 +368,22 @@ class IMailHub_HubProxy implements IMailHub {
 
     public readonly respondToInvite = async (eventId: string, response: InviteResponse, comment: string): Promise<void> => {
         return await this.connection.invoke("RespondToInvite", eventId, response, comment);
+    }
+
+    public readonly respondToMessageInvite = async (messageId: string, response: InviteResponse, trustSender: boolean): Promise<void> => {
+        return await this.connection.invoke("RespondToMessageInvite", messageId, response, trustSender);
+    }
+
+    public readonly getTrustedCalendarSenders = async (): Promise<TrustedCalendarSenderDto[]> => {
+        return await this.connection.invoke("GetTrustedCalendarSenders");
+    }
+
+    public readonly addTrustedCalendarSender = async (scope: TrustedCalendarSenderScope, value: string): Promise<void> => {
+        return await this.connection.invoke("AddTrustedCalendarSender", scope, value);
+    }
+
+    public readonly removeTrustedCalendarSender = async (id: string): Promise<void> => {
+        return await this.connection.invoke("RemoveTrustedCalendarSender", id);
     }
 
     public readonly resolveEventConflict = async (eventId: string, keepMine: boolean): Promise<CalendarEventSummaryDto> => {

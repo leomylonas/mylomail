@@ -25,6 +25,8 @@ import {
 	fetchApiJson,
 	notificationForError,
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
+import { TrustedCalendarSenders } from "@mylomail/renderer/Components/TrustedCalendarSenders/TrustedCalendarSenders";
+import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -51,7 +53,7 @@ const defaultRule: PutRemoteContentRuleRequest = {
  * behaviour, credential-storage visibility, and persisted sender/domain remote-content
  * allow/block rules (§13 Epic 5). Per-account settings live in `AccountSettings`.
  */
-export function ShellSettings() {
+export function ShellSettings({ hub }: { hub: MailHubConnection | null }) {
 	const queryClient = useQueryClient();
 	const { store: notifications } = useWindowNotifications();
 
@@ -400,6 +402,7 @@ export function ShellSettings() {
 					<p className={styles.empty}>No remote-content rules yet.</p>
 				)}
 			</section>
+			{hub ? <TrustedCalendarSenders hub={hub} /> : null}
 		</div>
 	);
 }

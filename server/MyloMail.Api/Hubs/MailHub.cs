@@ -386,6 +386,19 @@ public interface IMailHub
 	Task RespondToInvite(Guid eventId, InviteResponse response, string? comment);
 
 	/// <summary>
+	/// Answers an invitation that has not been added to the calendar (its sender could not be
+	/// verified): adds it, because the user chose to, then replies. <paramref name="trustSender"/>
+	/// remembers the sender so later mail from them is handled without asking.
+	/// </summary>
+	Task RespondToMessageInvite(Guid messageId, InviteResponse response, bool trustSender);
+
+	Task<IReadOnlyList<TrustedCalendarSenderDto>> GetTrustedCalendarSenders();
+
+	Task AddTrustedCalendarSender(TrustedCalendarSenderScope scope, string value);
+
+	Task RemoveTrustedCalendarSender(Guid id);
+
+	/// <summary>
 	/// "Keep mine" (<paramref name="keepMine"/> true, force-overwrite the server) or "keep
 	/// theirs" (false, discard the local edit and pull the server's current version) for a
 	/// flagged calendar conflict (§15). A no-op if the event is not currently flagged.
@@ -439,6 +452,7 @@ public class MailHub(
 	Scheduling.ImapIdleRegistry imapIdle,
 	MailInviteMaterializer invites,
 	IIncomingMailAuthentication authentication,
+	TrustedCalendarSenders trustedSenders,
 	IHubEvents events,
 	BackgroundActivityTracker activity,
 	Scheduling.AccountGate gate,
@@ -726,6 +740,8 @@ public class MailHub(
 			);
 		}
 
+		var requestAuthentication = await authentication.VerifyAsync(mime, Context.ConnectionAborted);
+		var onlySender = mime.From.Mailboxes.ToList() is [var single] ? single.Address : null;
 		InviteResponse? myResponse = null;
 		if (ev is not null)
 		{
@@ -746,7 +762,9 @@ public class MailHub(
 			parsed.End,
 			parsed.IsAllDay,
 			parsed.Organizer,
-			myResponse
+			myResponse,
+			SenderAddress: onlySender,
+			SenderVerified: requestAuthentication.IsAuthenticated
 		);
 	}
 
@@ -2207,6 +2225,36 @@ public class MailHub(
 			ev.ExceptionDates
 		);
 	}
+
+	public async Task RespondToMessageInvite(Guid messageId, InviteResponse response, bool trustSender)
+	{
+		var message = await context.Messages.FirstAsync(m => m.Id == messageId);
+		var account = await context.Accounts.FirstAsync(a => a.Id == message.AccountId);
+		var raw = await context.MessageRaws.FirstOrDefaultAsync(r => r.MessageId == messageId)
+			?? throw new MutationHubException(ErrorCategory.Validation, "The message has not finished downloading.");
+		using var stream = new MemoryStream(raw.Content);
+		var mime = await MimeKit.MimeMessage.LoadAsync(stream);
+
+		if (trustSender && mime.From.Mailboxes.ToList() is [var sender])
+		{
+			await trustedSenders.AddAsync(TrustedCalendarSenderScope.Sender, sender.Address, Context.ConnectionAborted);
+		}
+
+		var eventId = await invites.MaterializeForUserAsync(account, messageId, mime, Context.ConnectionAborted)
+			?? throw new MutationHubException(
+				ErrorCategory.Validation,
+				"This invitation could not be added to a calendar on this account."
+			);
+		await calendarEvents.RespondToInviteAsync(eventId, response, null);
+	}
+
+	public async Task<IReadOnlyList<TrustedCalendarSenderDto>> GetTrustedCalendarSenders() =>
+		[.. (await trustedSenders.ListAsync(Context.ConnectionAborted)).Select(r => new TrustedCalendarSenderDto(r.Id, r.Scope, r.Value))];
+
+	public Task AddTrustedCalendarSender(TrustedCalendarSenderScope scope, string value) =>
+		trustedSenders.AddAsync(scope, value, Context.ConnectionAborted);
+
+	public Task RemoveTrustedCalendarSender(Guid id) => trustedSenders.RemoveAsync(id, Context.ConnectionAborted);
 
 	public Task RespondToInvite(Guid eventId, InviteResponse response, string? comment) =>
 		calendarEvents.RespondToInviteAsync(eventId, response, comment);

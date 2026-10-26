@@ -109,6 +109,51 @@ public sealed class MailInviteMaterializer(
 	}
 
 	/// <summary>
+	/// Adds a received invitation to the calendar because the user answered it, which stands in for
+	/// the sender verification automatic materialisation needs: nothing here happens without a click.
+	/// </summary>
+	/// <returns>The event, or null when the message carries no invitation or the account has nowhere to put it.</returns>
+	public async Task<Guid?> MaterializeForUserAsync(
+		Account account,
+		Guid messageId,
+		MimeMessage mime,
+		CancellationToken ct = default
+	)
+	{
+		var part = mime.BodyParts
+			.OfType<MimePart>()
+			.FirstOrDefault(p => p.ContentType.IsMimeType("text", "calendar"));
+		if (part?.Content is null || await CalendarMimeReader.TryReadAsync(part, ct) is not { } ics)
+		{
+			return null;
+		}
+
+		if (!string.Equals(CalDavIcs.ParseMethod(ics), "REQUEST", StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+
+		var parsed = CalDavIcs.ParseEvents(ics, $"mail:{messageId}", string.Empty, MaximumEventsPerCalendarPart);
+		if (parsed.Count == 0 || parsed.Count > MaximumEventsPerCalendarPart)
+		{
+			return null;
+		}
+
+		var master = parsed.FirstOrDefault(e => e.RecurrenceId is null);
+		if (master is null)
+		{
+			return null;
+		}
+
+		await UpsertAsync(account, master, ct);
+		var calendarIds = await AccountCalendarIdsAsync(account.Id, ct);
+		return await context
+			.CalendarEvents.Where(e => e.ICalUid == master.ICalUid && calendarIds.Contains(e.CalendarId) && e.RecurrenceId == null)
+			.Select(e => (Guid?)e.Id)
+			.FirstOrDefaultAsync(ct);
+	}
+
+	/// <summary>
 	/// Applies an unverified iTIP reply only after an explicit user decision. The message remains
 	/// visible regardless of authentication, but MIME identity is never sufficient for automatic
 	/// state changes because either header can be forged.

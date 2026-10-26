@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	ActionableNotification,
 	Button,
+	Checkbox,
 	IconButton,
 	SkeletonText,
 } from "@carbon/react";
@@ -484,6 +485,24 @@ function InviteBanner({
 			),
 	});
 
+	const [trustSender, setTrustSender] = useState(false);
+	const respondUnverified = useMutation({
+		mutationFn: (response: InviteResponse) =>
+			hub.respondToMessageInvite(messageId, response, trustSender),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["invite", messageId] });
+			void queryClient.invalidateQueries({ queryKey: ["calendar"] });
+			void queryClient.invalidateQueries({
+				queryKey: ["trusted-calendar-senders"],
+			});
+		},
+		onError: (error: unknown) =>
+			notify(
+				notifications,
+				notificationForError(error, "The response could not be sent"),
+			),
+	});
+
 	const acceptUnverifiedReply = useMutation({
 		mutationFn: () => hub.acceptUnverifiedInviteReply(messageId),
 		onSuccess: () => {
@@ -584,14 +603,45 @@ function InviteBanner({
 						))}
 					</div>
 				</>
-			) : (
+			) : invite.data.senderVerified ? (
 				<p className={styles.waiting}>
-					This invitation has not been added to your calendar, so it cannot be
-					answered here. MyloMail only adds an invitation it can verify came
-					from its sender (a valid DKIM signature on a domain that publishes a
-					DMARC policy), or when the account has a calendar to put it in. Reply
-					to the sender to respond.
+					Preparing this invitation for a response…
 				</p>
+			) : (
+				<>
+					<p className={styles.waiting}>
+						The sender of this invitation could not be verified (no valid DKIM
+						signature on a domain that publishes a DMARC policy), so it has not
+						been added to your calendar. Answering it adds it.
+					</p>
+					<div className={styles.inviteActions}>
+						{[
+							[InviteResponse.Accept, "Accept", "primary"],
+							[InviteResponse.Tentative, "Tentative", "tertiary"],
+							[InviteResponse.Decline, "Decline", "danger--tertiary"],
+						].map(([response, label, kind]) => (
+							<Button
+								key={label as string}
+								size="sm"
+								kind={kind as "primary" | "tertiary" | "danger--tertiary"}
+								disabled={respondUnverified.isPending}
+								onClick={() =>
+									respondUnverified.mutate(response as InviteResponse)
+								}
+							>
+								{label}
+							</Button>
+						))}
+					</div>
+					{invite.data.senderAddress ? (
+						<Checkbox
+							id={`trust-sender-${messageId}`}
+							labelText={`Always trust invitations and replies from ${invite.data.senderAddress}`}
+							checked={trustSender}
+							onChange={(_, { checked }) => setTrustSender(checked)}
+						/>
+					) : null}
+				</>
 			)}
 		</div>
 	);

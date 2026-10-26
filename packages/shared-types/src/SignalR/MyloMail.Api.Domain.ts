@@ -199,3 +199,9 @@ export enum MailboxAvailability {
     Unavailable = 2,
 }
 
+/** Transpiled from MyloMail.Api.Domain.TrustedCalendarSenderScope */
+export enum TrustedCalendarSenderScope {
+    Sender = 0,
+    Domain = 1,
+}
+

@@ -1638,6 +1638,30 @@ namespace MyloMail.Api.Persistence.Migrations
                     b.ToTable("StagedChangeEvents");
                 });
 
+            modelBuilder.Entity("MyloMail.Api.Domain.TrustedCalendarSender", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "Value")
+                        .IsUnique();
+
+                    b.ToTable("TrustedCalendarSenders");
+                });
+
             modelBuilder.Entity("MyloMail.Api.Domain.AccountCoverageState", b =>
                 {
                     b.HasOne("MyloMail.Api.Domain.Account", null)

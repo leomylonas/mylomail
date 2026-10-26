@@ -57,6 +57,7 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 	public DbSet<NotificationRecord> NotificationRecords => Set<NotificationRecord>();
 	public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
 	public DbSet<RemoteContentRule> RemoteContentRules => Set<RemoteContentRule>();
+	public DbSet<TrustedCalendarSender> TrustedCalendarSenders => Set<TrustedCalendarSender>();
 
 	protected override void OnModelCreating(ModelBuilder model)
 	{
@@ -619,6 +620,12 @@ public class MyloMailDbContext(DbContextOptions<MyloMailDbContext> options) : Db
 
 	private static void ConfigureRemoteContent(ModelBuilder model)
 	{
+		model.Entity<TrustedCalendarSender>(e =>
+		{
+			e.HasKey(x => x.Id);
+			e.HasIndex(x => new { x.Scope, x.Value }).IsUnique();
+		});
+
 		model.Entity<RemoteContentRule>(e =>
 		{
 			e.HasKey(x => x.Id);

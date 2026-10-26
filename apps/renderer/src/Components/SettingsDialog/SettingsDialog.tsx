@@ -124,7 +124,7 @@ export function SettingsDialog({
 					</NavItem>
 				</nav>
 				<div className={styles.content}>
-					{section.kind === "general" ? <ShellSettings /> : null}
+					{section.kind === "general" ? <ShellSettings hub={hub} /> : null}
 					{section.kind === "account" && hub && activeAccount ? (
 						<AccountSettings
 							key={activeAccount.id}
