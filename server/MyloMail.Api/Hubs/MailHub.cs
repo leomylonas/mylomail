@@ -965,9 +965,7 @@ public class MailHub(
 			// Answered at once: a pass over every folder of several accounts can take minutes, and
 			// the caller has nothing to wait for. What it finds arrives through the usual events.
 			var blocked = await syncJobs.SyncNowBlockedAsync(account.Id, Context.ConnectionAborted);
-			// A pass over every folder of an IMAP account takes a minute or more; pressing Sync again
-			// meanwhile joins it instead of running a second one beside it.
-			if (blocked is null && Scheduling.SyncJobs.TryBeginSyncNow(account.Id))
+			if (blocked is null)
 			{
 				jobs.Enqueue<Scheduling.SyncJobs>(job => job.RunSyncNowAsync(account.Id, default));
 			}

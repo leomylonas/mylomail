@@ -27,6 +27,7 @@ public sealed class ChangeStreamService(
 	RemoteDraftMaterializer drafts,
 	TimeProvider clock,
 	ChangeStreamGate gate,
+	MailboxSyncGate mailboxGate,
 	IFaultInjector faults,
 	IHubEvents events,
 	Notifications.NotificationService notifications,
@@ -42,6 +43,31 @@ public sealed class ChangeStreamService(
 	/// resynchronisation path, handled once here rather than three times at the call sites.
 	/// </exception>
 	public async Task<ChangeStreamOutcome> SyncAsync(Account account, Mailbox mailbox, CancellationToken ct = default)
+	{
+		// One sync per mailbox: asking while one runs makes it go round again, not a second one start.
+		if (!mailboxGate.TryEnter(mailbox.Id))
+		{
+			return new ChangeStreamOutcome(0, Staged: false, ResyncTriggered: false);
+		}
+
+		try
+		{
+			ChangeStreamOutcome outcome;
+			do
+			{
+				outcome = await SyncOnceAsync(account, mailbox, ct);
+			}
+			while (mailboxGate.ShouldRepeat(mailbox.Id));
+			return outcome;
+		}
+		catch
+		{
+			mailboxGate.Release(mailbox.Id);
+			throw;
+		}
+	}
+
+	private async Task<ChangeStreamOutcome> SyncOnceAsync(Account account, Mailbox mailbox, CancellationToken ct)
 	{
 		using var lease = await gate.EnterAsync(account.Id, ct);
 		var provider = providers.For(account);

@@ -1059,23 +1059,8 @@ public sealed class SyncJobs(
 	}
 
 	/// <summary>The background job a manual sync starts: the pass itself, results announced by the usual events.</summary>
-	/// <summary>Accounts with a "Sync now" pass queued or running, so asking again joins it rather than stacking another.</summary>
-	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> SyncNowInFlight = new();
-
-	/// <returns>False when a pass for this account is already queued or running.</returns>
-	public static bool TryBeginSyncNow(Guid accountId) => SyncNowInFlight.TryAdd(accountId, 0);
-
-	public async Task RunSyncNowAsync(Guid accountId, CancellationToken ct = default)
-	{
-		try
-		{
-			await SyncNowAsync(accountId, ct);
-		}
-		finally
-		{
-			SyncNowInFlight.TryRemove(accountId, out _);
-		}
-	}
+	public async Task RunSyncNowAsync(Guid accountId, CancellationToken ct = default) =>
+		await SyncNowAsync(accountId, ct);
 
 	public async Task<Contracts.SyncNowOutcome> SyncNowAsync(Guid accountId, CancellationToken ct = default)
 	{

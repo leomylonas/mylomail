@@ -128,6 +128,7 @@ public static class PersistenceServiceCollectionExtensions
 		services.TryAddSingleton<IHubEvents, NoHubEvents>();
 		services.TryAddScoped<Contacts.ContactSuggestionService>();
 		services.AddScoped<MessageIngestor>();
+		services.AddSingleton<Sync.MailboxSyncGate>();
 		services.AddSingleton<CalendarSyncGate>();
 		services.AddSingleton<ChangeStreamGate>();
 		services.TryAddSingleton<ImapIdleRegistry>();

@@ -44,6 +44,14 @@ public sealed class SnippetBuilderTests
 	}
 
 	[Fact]
+	public void Markup_in_the_plain_text_part_is_read_as_html_not_shown_as_tags()
+	{
+		const string text = "<p style=\"margin: 0; font-weight: 400;\"><span style=\"color: rgb(0, 0, 0);\">Making your next career move can feel overwhelming.</span></p><p><br></p>";
+
+		Assert.Equal("Making your next career move can feel overwhelming.", SnippetBuilder.Build(text, null));
+	}
+
+	[Fact]
 	public void Ordinary_text_with_braces_is_left_alone()
 	{
 		Assert.Equal("Use {name} in the template, then {save} it.", SnippetBuilder.Build("Use {name} in the template, then {save} it.", null));

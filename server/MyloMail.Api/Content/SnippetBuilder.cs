@@ -26,6 +26,13 @@ internal static partial class SnippetBuilder
 	{
 		// Entities are decoded in the plain-text part too: some senders paste their HTML pre-header
 		// padding (`&#847;&zwnj;` repeated) into it as literal text.
+		// Some senders put markup in the text/plain part (LinkedIn's digests are <p><span> fragments):
+		// read it as the HTML it is, rather than showing its tags.
+		if (text is not null && MarkupInText().IsMatch(text))
+		{
+			text = ReadHtml(text).Visible;
+		}
+
 		var fromText = Clean(text is null ? null : WebUtility.HtmlDecode(StripPlainTextNoise(text)));
 		if (IsMeaningful(fromText))
 		{
@@ -50,6 +57,9 @@ internal static partial class SnippetBuilder
 
 		return Truncate(fromText);
 	}
+
+	[GeneratedRegex(@"<(?:p|span|div|br|a|b|i|u|strong|em|table|tr|td|ul|ol|li|h[1-6]|font|img)(?:\s[^<>]*)?/?>", RegexOptions.IgnoreCase)]
+	private static partial Regex MarkupInText();
 
 	private static bool IsMeaningful(string value) => value.Count(char.IsLetterOrDigit) >= Meaningful;
 
