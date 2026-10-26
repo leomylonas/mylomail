@@ -295,12 +295,20 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") == true)
 					.Select(message => new OccurrenceRemoval(ProviderMailboxId(mailbox), message.Id!)),
 			];
-			IReadOnlyList<MessageDto> upserted =
-			[
-				.. values
-					.Where(message => message.Id is not null && message.AdditionalData?.ContainsKey("@removed") != true)
-					.Select(message => ToDto(message, ProviderMailboxId(mailbox))),
-			];
+			// A draft is mirrored whole (its MIME and revision), and a delta entry carrying only what
+			// changed has neither, so in the Drafts folder each such entry is fetched in full.
+			var inDrafts = mailbox.EffectiveSpecialUse == SpecialUse.Drafts;
+			var upserted = new List<MessageDto>();
+			foreach (var message in values.Where(m => m.Id is not null && m.AdditionalData?.ContainsKey("@removed") != true))
+			{
+				var entry = inDrafts && message.AdditionalData?.ContainsKey("@odata.etag") != true
+					? await FetchWholeAsync(client, message.Id!, ct)
+					: message;
+				if (entry is not null)
+				{
+					upserted.Add(ToDto(entry, ProviderMailboxId(mailbox)));
+				}
+			}
 
 			return new SyncResult(
 				page?.OdataNextLink is null && page?.OdataDeltaLink is not null
@@ -450,6 +458,21 @@ public sealed partial class GraphMailProvider(GraphOAuthAuthenticator oauth) : I
 			SizeEstimate = null,
 			Reported = reported.Count == AllProperties ? null : reported,
 		};
+	}
+
+	/// <returns>The message, or null when it no longer exists (its removal arrives on its own).</returns>
+	private static async Task<GraphMessage?> FetchWholeAsync(GraphServiceClient client, string id, CancellationToken ct)
+	{
+		try
+		{
+			return await ThrottleAwareAsync(() =>
+				client.Me.Messages[id].GetAsync(configuration => configuration.QueryParameters.Select = MessageSelect, ct)
+			);
+		}
+		catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 404)
+		{
+			return null;
+		}
 	}
 
 	private static IReadOnlyList<Address> Addresses(IEnumerable<Recipient>? recipients) =>
