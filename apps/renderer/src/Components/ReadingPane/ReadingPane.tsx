@@ -524,8 +524,11 @@ function InviteBanner({
 
 	if (!invite.data) return null;
 	// Usually the invitation's title is the subject, which the header above already says.
-	const showTitle =
-		invite.data.title.trim().toLowerCase() !== subject.trim().toLowerCase();
+	// A reply or update prefixes it ("Accepted: Can you make it?"), so ending with it counts too.
+	const showTitle = !subject
+		.trim()
+		.toLowerCase()
+		.endsWith(invite.data.title.trim().toLowerCase());
 
 	const when = describeInviteWhen(
 		typeof invite.data.start === "string"
@@ -550,13 +553,8 @@ function InviteBanner({
 					<p className={styles.inviteTitle}>{invite.data.title}</p>
 				) : null}
 				<p className={styles.inviteWhen}>{when}</p>
-				{invite.data.serverRecordsReplies ? (
-					<p className={styles.inviteNote}>
-						{invite.data.replyingAddress ?? "The attendee"} {claimed}. Microsoft
-						365 records responses on the event itself, so there is nothing to
-						apply here; their answer shows on the event in your calendar.
-					</p>
-				) : invite.data.requiresManualReview ? (
+				{invite.data.serverRecordsReplies ? null : invite.data
+						.requiresManualReview ? (
 					<ActionableNotification
 						kind="warning"
 						title="This calendar reply could not be authenticated"
