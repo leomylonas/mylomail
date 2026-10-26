@@ -121,6 +121,15 @@
 	color: var(--cds-text-secondary);
 }
 
+/* A caveat beside the answer, not the message itself: small and quiet. */
+.inviteNote {
+	max-width: 52rem;
+	margin-block: var(--cds-spacing-03);
+	color: var(--cds-text-helper);
+	font-size: 0.75rem;
+	opacity: 0.8;
+}
+
 .invite {
 	display: flex;
 	flex-direction: column;

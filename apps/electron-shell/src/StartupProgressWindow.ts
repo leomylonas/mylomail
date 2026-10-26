@@ -5,6 +5,8 @@ import { getAppIcon } from "@mylomail/electron-shell/AppIcon";
 const titles: Record<string, string> = {
 	backup: "Updating your database",
 	migrating: "Updating your database",
+	"backup-finishing": "Finishing the backup",
+	cleanup: "Finishing up",
 };
 
 /**

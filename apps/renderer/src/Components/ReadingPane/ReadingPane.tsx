@@ -241,6 +241,7 @@ export function ReadingPane({
 						messageId={messageId}
 						hub={hub}
 						senderAddress={senderAddress}
+						subject={subject}
 						onHtmlReadyChange={handleHtmlReadyChange}
 						invertColours={invertColours}
 					/>
@@ -366,9 +367,11 @@ function Body({
 	messageId,
 	hub,
 	senderAddress,
+	subject,
 	onHtmlReadyChange,
 	invertColours,
 }: {
+	subject: string;
 	body: MessageBody;
 	invertColours: boolean;
 	messageId: string;
@@ -407,7 +410,7 @@ function Body({
 	if (body.html)
 		return (
 			<>
-				<InviteBanner hub={hub} messageId={messageId} />
+				<InviteBanner hub={hub} messageId={messageId} subject={subject} />
 				<MessageHtml
 					// Remounts per message: the "load remote content" override is local state
 					// that must never survive a message switch (§13 Epic 5) — a click on a
@@ -425,14 +428,14 @@ function Body({
 	if (body.text)
 		return (
 			<>
-				<InviteBanner hub={hub} messageId={messageId} />
+				<InviteBanner hub={hub} messageId={messageId} subject={subject} />
 				<div className={styles.body}>{body.text}</div>
 			</>
 		);
 
 	return (
 		<>
-			<InviteBanner hub={hub} messageId={messageId} />
+			<InviteBanner hub={hub} messageId={messageId} subject={subject} />
 			<p className={styles.waiting}>This message has no body.</p>
 		</>
 	);
@@ -458,9 +461,12 @@ const responseStatusLabel = [
 function InviteBanner({
 	hub,
 	messageId,
+	subject,
 }: {
 	hub: MailHubConnection;
 	messageId: string;
+	/** The message's own subject, shown above: the invitation does not repeat it. */
+	subject: string;
 }) {
 	const dateFormats = useDateFormats();
 	const queryClient = useQueryClient();
@@ -517,6 +523,9 @@ function InviteBanner({
 	});
 
 	if (!invite.data) return null;
+	// Usually the invitation's title is the subject, which the header above already says.
+	const showTitle =
+		invite.data.title.trim().toLowerCase() !== subject.trim().toLowerCase();
 
 	const when = describeInviteWhen(
 		typeof invite.data.start === "string"
@@ -537,7 +546,9 @@ function InviteBanner({
 				: `${responseStatusLabel[claimedResponse]} the invitation`;
 		return (
 			<div className={styles.invite}>
-				<p className={styles.inviteTitle}>{invite.data.title}</p>
+				{showTitle ? (
+					<p className={styles.inviteTitle}>{invite.data.title}</p>
+				) : null}
 				<p className={styles.inviteWhen}>{when}</p>
 				{invite.data.requiresManualReview ? (
 					<ActionableNotification
@@ -566,7 +577,9 @@ function InviteBanner({
 
 	return (
 		<div className={styles.invite}>
-			<p className={styles.inviteTitle}>{invite.data.title}</p>
+			{showTitle ? (
+				<p className={styles.inviteTitle}>{invite.data.title}</p>
+			) : null}
 			<p className={styles.inviteWhen}>{when}</p>
 			{invite.data.organizer ? (
 				<p className={styles.inviteFrom}>
@@ -609,10 +622,10 @@ function InviteBanner({
 				</p>
 			) : (
 				<>
-					<p className={styles.waiting}>
-						The sender of this invitation could not be verified (no valid DKIM
-						signature on a domain that publishes a DMARC policy), so it has not
-						been added to your calendar. Answering it adds it.
+					<p className={styles.inviteNote}>
+						Sender not verified (no valid DKIM signature on a domain with a
+						DMARC policy), so this is not in your calendar yet. Answering adds
+						it.
 					</p>
 					<div className={styles.inviteActions}>
 						{[

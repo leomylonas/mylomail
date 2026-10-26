@@ -131,6 +131,8 @@ public sealed class DatabaseBootstrapper(
 
 		if (backedUp)
 		{
+			// Removing a large file is not instant either.
+			progress.Report("cleanup", null);
 			File.Delete(backupPath!);
 		}
 	}
@@ -211,6 +213,11 @@ public sealed class DatabaseBootstrapper(
 				}
 			}
 			while (result is raw.SQLITE_OK or raw.SQLITE_BUSY or raw.SQLITE_LOCKED);
+
+			// Every page has been copied, but the copy is not finished: closing it writes out what
+			// the operating system is still holding, which for a large mailbox takes many seconds
+			// and has no fraction to report. Without this the bar sits at 100% looking stalled.
+			progress.Report("backup-finishing", null);
 
 			if (result != raw.SQLITE_DONE)
 			{
