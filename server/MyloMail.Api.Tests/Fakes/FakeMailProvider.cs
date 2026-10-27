@@ -680,13 +680,31 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 		}
 	}
 
-	public Task<BatchResult> SetFlagsAsync(
+	/// <summary>Awaited inside a flag change, before it answers: holds the provider call open.</summary>
+	public Func<Task>? DuringSetFlagsAsync { get; set; }
+
+	public int SetFlagsCalls { get; private set; }
+
+	public async Task<BatchResult> SetFlagsAsync(
 		Account account,
 		IReadOnlyList<MessageOccurrenceRef> refs,
 		FlagUpdate update,
 		CancellationToken ct
+	)
+	{
+		SetFlagsCalls++;
+		if (DuringSetFlagsAsync is not null)
+		{
+			await DuringSetFlagsAsync();
+		}
+
+		return SetFlagsResult(refs, update);
+	}
+
+	private BatchResult SetFlagsResult(
+		IReadOnlyList<MessageOccurrenceRef> refs,
+		FlagUpdate update
 	) =>
-		Task.FromResult(
 			PerItem(
 				refs,
 				found =>
@@ -704,8 +722,7 @@ public sealed class FakeMailProvider : IMailProvider, IIdleMailProvider, IAccoun
 
 					return [];
 				}
-			)
-		);
+			);
 
 	public Task<BatchResult> MoveMessagesAsync(
 		Account account,

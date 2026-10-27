@@ -50,6 +50,27 @@ public sealed class MutationJobs(
 	/// </remarks>
 	public async Task DrainAsync(Guid accountId, CancellationToken ct = default)
 	{
+		// One drain per account at a time. Each user action asks for a drain, so a quick run of deletes
+		// starts several; a drain begins by settling every dispatched attempt it can see, and that
+		// included the one the drain beside it was still executing. It asked the provider, which had
+		// not finished (or, as Gmail does, still showed the old labels), and put the item back or
+		// recorded where the message still was, so it reappeared and was done again.
+		var turn = DrainTurns.GetOrAdd(accountId, _ => new SemaphoreSlim(1, 1));
+		await turn.WaitAsync(ct);
+		try
+		{
+			await DrainOnceAsync(accountId, ct);
+		}
+		finally
+		{
+			turn.Release();
+		}
+	}
+
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> DrainTurns = new();
+
+	private async Task DrainOnceAsync(Guid accountId, CancellationToken ct)
+	{
 		var workKey = $"{nameof(MutationJobs)}:{accountId}";
 		if (!connectivity.CanRun(
 				workKey,
