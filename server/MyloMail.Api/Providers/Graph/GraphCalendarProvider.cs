@@ -219,14 +219,27 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 	public async Task DeleteEventAsync(Account account, CalendarEvent ev, CancellationToken ct)
 	{
 		var client = await ClientAsync(account, ct);
+		var revision = ev.ProviderRevision;
 		try
 		{
+			// What delta reports for an occurrence of a series is not the occurrence's own revision (every
+			// occurrence of a series carries the same one), so deleting with it was refused as "changed
+			// somewhere else" every time. The occurrence is asked for its current revision instead.
+			if (ev.RecurrenceMasterProviderEventId is not null)
+			{
+				var current = await ThrottleAwareAsync(() => client.Me.Events[ev.ProviderEventId].GetAsync(
+					configuration => configuration.QueryParameters.Select = ["id"],
+					ct
+				));
+				revision = current is null ? revision : RevisionOf(current) ?? revision;
+			}
+
 			await ThrottleAwareAsync(() => client.Me.Events[ev.ProviderEventId].DeleteAsync(
 				configuration =>
 				{
-					if (ev.ProviderRevision is not null)
+					if (revision is not null)
 					{
-						configuration.Headers.Add("If-Match", ev.ProviderRevision);
+						configuration.Headers.Add("If-Match", revision);
 					}
 				},
 				ct
@@ -307,7 +320,10 @@ public sealed class GraphCalendarProvider(GraphOAuthAuthenticator oauth) : ICale
 			Sequence = 0,
 			Title = ev.Subject ?? string.Empty,
 			Location = ev.Location?.DisplayName,
-			Description = ev.Body?.Content,
+			// Exchange keeps an invitation's body as HTML; the description is plain text to read and edit.
+			Description = ev.Body?.ContentType == BodyType.Html && ev.Body.Content is { } html
+				? Content.HtmlToText.Convert(html)
+				: ev.Body?.Content,
 			Start = start,
 			End = end,
 			StartTimeZoneId = startTimeZoneId,
