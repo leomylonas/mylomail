@@ -18,6 +18,7 @@ import {
 	RadioButtonGroup,
 	SkeletonText,
 } from "@carbon/react";
+import { recordMove } from "@mylomail/renderer/Shell/Backend/UndoMoves";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	acceptOptimisticMessages,
@@ -255,6 +256,15 @@ export function MailboxTree({
 				input.claims,
 				result.accepted,
 			);
+			recordMove(queryClient, {
+				description: `Moved to ${
+					mailboxes.data?.find((m) => m.id === input.targetMailboxId)?.name ??
+					"another folder"
+				}`,
+				accountId,
+				messageIds: result.accepted.map((item) => item.messageId),
+				fromMailboxId: input.sourceMailboxId,
+			});
 			if (result.rejectedMessageIds.length > 0)
 				reportFailure("Some messages could not be moved")(
 					new Error(

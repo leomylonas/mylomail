@@ -53,6 +53,10 @@ import {
 	projectTotal,
 	type TotalBaseline,
 } from "@mylomail/renderer/Lib/MailboxTotal";
+import {
+	recordMove,
+	takeLastMove,
+} from "@mylomail/renderer/Shell/Backend/UndoMoves";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	acceptOptimisticMessages,
@@ -550,6 +554,13 @@ export function MessageList({
 				input.claims,
 				result.accepted,
 			);
+			if (!searching)
+				recordMove(queryClient, {
+					description: "Moved to Trash",
+					accountId,
+					messageIds: result.accepted.map((item) => item.messageId),
+					fromMailboxId: mailboxId,
+				});
 			if (result.rejectedMessageIds.length > 0)
 				reportFailure("Some messages could not be moved to trash")(
 					new Error(
@@ -696,6 +707,16 @@ export function MessageList({
 				input.claims,
 				result.accepted,
 			);
+			if (!searching && input.targetMailboxId !== mailboxId)
+				recordMove(queryClient, {
+					description: `Moved to ${
+						mailboxes.data?.find((m) => m.id === input.targetMailboxId)?.name ??
+						"another folder"
+					}`,
+					accountId,
+					messageIds: result.accepted.map((item) => item.messageId),
+					fromMailboxId: mailboxId,
+				});
 			if (result.rejectedMessageIds.length > 0)
 				reportFailure("Some messages could not be moved")(
 					new Error(
@@ -1003,6 +1024,29 @@ export function MessageList({
 				if (rows.length === 0) return;
 				setSelectedIds(new Set(rows.map((row) => row.original.id)));
 				setAnchorIndex(0);
+			},
+		},
+		{
+			key: "z",
+			ctrlOrMeta: true,
+			unlessTyping: true,
+			description: "Undo the last move or delete",
+			run: () => {
+				const last = takeLastMove(queryClient);
+				if (!last) return;
+				// The same move, the other way, through the ordinary queue: it follows the move it
+				// undoes in order, so it is safe before that has even reached the server.
+				void hub
+					.moveMessages(last.accountId, last.messageIds, last.fromMailboxId)
+					.then(() => {
+						notify(notifications, {
+							kind: "info",
+							title: "Undone",
+							detail: `${last.description} was undone.`,
+						});
+						void queryClient.invalidateQueries({ queryKey: ["messages"] });
+					})
+					.catch(reportFailure("The move could not be undone"));
 			},
 		},
 		{
