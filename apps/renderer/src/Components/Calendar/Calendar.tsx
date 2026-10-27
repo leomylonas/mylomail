@@ -8,7 +8,12 @@ import {
 } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { ProviderType } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
 import type { CalendarEventSummaryDto } from "@mylomail/shared-types/SignalR/MyloMail.Api.Contracts";
 import { Button, ContentSwitcher, Switch } from "@carbon/react";
@@ -54,6 +59,7 @@ import {
 	calendarGridStart,
 	calendarWeekStart,
 } from "@mylomail/renderer/Components/Calendar/CalendarFormatting";
+import { CalendarSearchResults } from "@mylomail/renderer/Components/Calendar/CalendarSearchResults/CalendarSearchResults";
 import styles from "@mylomail/renderer/Components/Calendar/Calendar.module.css";
 
 const sidebarPanelId = "calendar-sidebar";
@@ -164,8 +170,11 @@ export function Calendar({
 	hub,
 	accounts,
 	onlyCalendarId,
+	query = "",
 }: {
 	hub: MailHubConnection;
+	/** The search bar's text for this tab; when set, matching events replace the views. */
+	query?: string;
 	accounts: {
 		id: string;
 		displayName: string;
@@ -272,9 +281,36 @@ export function Calendar({
 		[eventQueries, inView],
 	);
 
+	const searchText = query.trim();
+	const search = useQuery({
+		queryKey: ["calendar-search", inView.map((c) => c.id), searchText],
+		queryFn: () =>
+			hub.searchCalendarEvents(
+				inView.map((calendar) => calendar.id),
+				searchText,
+			),
+		enabled: searchText !== "" && inView.length > 0,
+	});
+	const searchEvents = useMemo(
+		() =>
+			(search.data ?? []).map((event) => {
+				const calendar = inView.find((c) => c.id === event.calendarId);
+				const accountName = accounts.find(
+					(account) => account.id === calendar?.accountId,
+				)?.displayName;
+				return {
+					...calendarEventSummary(event),
+					color: calendar?.displayColour ?? "var(--cds-icon-secondary)",
+					where: [accountName, calendar?.name].filter(Boolean).join(" · "),
+				};
+			}),
+		[search.data, inView, accounts],
+	);
+
 	const eventsById = useMemo(
-		() => new Map(events.map((event) => [event.id, event])),
-		[events],
+		() =>
+			new Map([...events, ...searchEvents].map((event) => [event.id, event])),
+		[events, searchEvents],
 	);
 
 	const invalidate = () =>
@@ -560,6 +596,13 @@ export function Calendar({
 			<div className={styles.body}>
 				{message ? (
 					<p className={styles.empty}>{message}</p>
+				) : searchText !== "" ? (
+					<CalendarSearchResults
+						results={searchEvents}
+						loading={search.isPending && search.fetchStatus !== "idle"}
+						query={searchText}
+						onSelect={openEditModal}
+					/>
 				) : view === "grid" ? (
 					<CalendarGrid
 						anchor={anchor}

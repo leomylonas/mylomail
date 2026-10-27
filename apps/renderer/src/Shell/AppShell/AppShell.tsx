@@ -108,6 +108,10 @@ export function AppShell({
 }) {
 	const { hub, status } = useHub();
 	const [query, setQuery] = useState("");
+	// Each tab searches its own thing, so each keeps its own text: what was typed into mail is not
+	// still filtering the calendar when you switch to it.
+	const [calendarQuery, setCalendarQuery] = useState("");
+	const [contactsQuery, setContactsQuery] = useState("");
 	const [pane, setPane] = useState<
 		"reading" | "compose" | "calendar" | "contacts"
 	>(initialMailto ? "compose" : "reading");
@@ -569,6 +573,20 @@ export function AppShell({
 				<div className={styles.globalSearch}>
 					{showMailChrome ? (
 						<SearchBox query={query} onChange={setQuery} />
+					) : effectivePane === "calendar" ? (
+						<SearchBox
+							query={calendarQuery}
+							onChange={setCalendarQuery}
+							label="Search calendar"
+							placeholder="Search calendar events"
+						/>
+					) : effectivePane === "contacts" ? (
+						<SearchBox
+							query={contactsQuery}
+							onChange={setContactsQuery}
+							label="Search people"
+							placeholder="Search people"
+						/>
 					) : (
 						<span className={styles.sectionTitle}>
 							{paneTitle(effectivePane)}
@@ -771,11 +789,12 @@ export function AppShell({
 						hub={hub}
 						accountId={selectedAccountId}
 						providerType={selectedAccount?.providerType ?? ProviderType.Imap}
+						query={contactsQuery}
 					/>
 				</div>
 			) : effectivePane === "calendar" && hub && accounts.data?.length ? (
 				<div className={styles.calendarPanel}>
-					<Calendar hub={hub} accounts={accounts.data} />
+					<Calendar hub={hub} accounts={accounts.data} query={calendarQuery} />
 				</div>
 			) : layout.ready ? (
 				<Group

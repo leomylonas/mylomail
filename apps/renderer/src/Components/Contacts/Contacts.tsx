@@ -27,13 +27,15 @@ export function Contacts({
 	hub,
 	accountId,
 	providerType,
+	query = "",
 }: {
 	hub: MailHubConnection;
 	accountId: string;
 	providerType: ProviderType;
+	/** The search bar's text for this tab. */
+	query?: string;
 }) {
 	const queryClient = useQueryClient();
-	const [query, setQuery] = useState("");
 	const [editing, setEditing] = useState<ContactEditor | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -126,13 +128,6 @@ export function Contacts({
 						hideCloseButton
 					/>
 				) : null}
-				<TextInput
-					className={styles.search}
-					id="contacts-search"
-					labelText="Search contacts"
-					value={query}
-					onChange={(event) => setQuery(event.target.value)}
-				/>
 				<ul className={styles.contactList}>
 					{contacts.data?.map((contact) => (
 						<li key={contact.id} className={styles.contact}>

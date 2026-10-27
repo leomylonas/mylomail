@@ -11,17 +11,21 @@ import styles from "@mylomail/renderer/Components/SearchBox/SearchBox.module.css
 export function SearchBox({
 	query,
 	onChange,
+	label = "Search mail",
+	placeholder = "Search mail — try subject:invoice",
 }: {
 	query: string;
 	onChange: (query: string) => void;
+	label?: string;
+	placeholder?: string;
 }) {
 	return (
 		<div className={styles.box}>
 			<Search
 				className={styles.search}
 				size="sm"
-				labelText="Search mail"
-				placeholder="Search mail — try subject:invoice"
+				labelText={label}
+				placeholder={placeholder}
 				value={query}
 				onChange={(event) => onChange(event.target.value)}
 				onClear={() => onChange("")}
