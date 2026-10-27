@@ -283,9 +283,16 @@ export function Calendar({
 	const liveModalEvent = resolveLiveModalEvent(modal, eventsById);
 	const modalCalendarId =
 		modal?.mode === "create" ? modal.calendarId : modal?.event.calendarId;
-	const modalProviderType = calendars.find(
+	const modalCalendar = calendars.find(
 		(calendar) => calendar.id === modalCalendarId,
-	)?.accountProviderType;
+	);
+	const modalProviderType = modalCalendar?.accountProviderType;
+	const modalAccountName = accounts.find(
+		(account) => account.id === modalCalendar?.accountId,
+	)?.displayName;
+	const modalWhere = modalCalendar
+		? [modalAccountName, modalCalendar.name].filter(Boolean).join(" · ")
+		: undefined;
 
 	// A virtual occurrence's own id is a derived id, not a real row — GetCalendarEventDetail,
 	// DeleteCalendarEvent and ResolveEventConflict all address a real EventId, so opening one
@@ -607,6 +614,7 @@ export function Calendar({
 			{modal ? (
 				<EventModal
 					hub={hub}
+					where={modalWhere}
 					initial={toFormValues(modal)}
 					syncConflict={
 						modal.mode === "edit" ? liveModalEvent?.syncConflict : false

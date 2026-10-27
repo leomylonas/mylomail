@@ -94,6 +94,7 @@ export interface EventFormValues {
 export function EventModal({
 	hub,
 	initial,
+	where,
 	syncConflict,
 	deletesWholeSeries,
 	recurrenceEditable = true,
@@ -105,6 +106,8 @@ export function EventModal({
 }: {
 	hub: MailHubConnection;
 	initial: EventFormValues;
+	/** Which account and calendar the event is in, shown at the top of the dialog. */
+	where?: string;
 	syncConflict?: boolean;
 	/**
 	 * True when this event is a recurring series (a master, or a not-yet-materialised virtual
@@ -288,6 +291,7 @@ export function EventModal({
 			}
 		>
 			<div className={styles.form}>
+				{where ? <p className={styles.where}>{where}</p> : null}
 				{syncConflict ? (
 					<div className={styles.conflict}>
 						<p>
