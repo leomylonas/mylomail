@@ -492,6 +492,15 @@ export type IMailHub = {
     */
     getCalendarEvents(calendarId: string, from: (Date | string), to: (Date | string)): Promise<CalendarEventSummaryDto[]>;
     /**
+    * Events whose title, location or description contains the text, across the given calendars and
+    * all of time, by start. A recurring series is one result (its first occurrence), not one per
+    * occurrence.
+    * @param calendarIds Transpiled from System.Collections.Generic.IReadOnlyList<System.Guid>
+    * @param query Transpiled from string
+    * @returns Transpiled from System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<MyloMail.Api.Contracts.CalendarEventSummaryDto>>
+    */
+    searchCalendarEvents(calendarIds: string[], query: string): Promise<CalendarEventSummaryDto[]>;
+    /**
     * @param request Transpiled from MyloMail.Api.Contracts.SaveCalendarEventRequest
     * @returns Transpiled from System.Threading.Tasks.Task<MyloMail.Api.Contracts.CalendarEventSummaryDto>
     */

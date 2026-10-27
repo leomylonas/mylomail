@@ -354,6 +354,10 @@ class IMailHub_HubProxy implements IMailHub {
         return await this.connection.invoke("GetCalendarEvents", calendarId, from, to);
     }
 
+    public readonly searchCalendarEvents = async (calendarIds: string[], query: string): Promise<CalendarEventSummaryDto[]> => {
+        return await this.connection.invoke("SearchCalendarEvents", calendarIds, query);
+    }
+
     public readonly saveCalendarEvent = async (request: SaveCalendarEventRequest): Promise<CalendarEventSummaryDto> => {
         return await this.connection.invoke("SaveCalendarEvent", request);
     }

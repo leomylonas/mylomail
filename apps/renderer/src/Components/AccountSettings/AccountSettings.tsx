@@ -28,6 +28,7 @@ import {
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/AccountSettings/AccountSettings.module.css";
 
 export interface AccountSettingsValues {
@@ -106,6 +107,20 @@ function toAccountSettingsValues(
 		appendToSentOnSend: settings.appendToSentOnSend ?? null,
 	};
 }
+
+/** A few Carbon colours to pick from at a click; the picker beside them takes any other. */
+const accountColours = [
+	{ name: "Blue", value: "#4589ff" },
+	{ name: "Cyan", value: "#33b1ff" },
+	{ name: "Teal", value: "#08bdba" },
+	{ name: "Green", value: "#42be65" },
+	{ name: "Yellow", value: "#f1c21b" },
+	{ name: "Orange", value: "#ff832b" },
+	{ name: "Red", value: "#fa4d56" },
+	{ name: "Magenta", value: "#ee5396" },
+	{ name: "Purple", value: "#a56eff" },
+	{ name: "Gray", value: "#8d8d8d" },
+] as const;
 
 /**
  * The account settings a user owns.
@@ -254,6 +269,25 @@ export function AccountSettings({
 					}
 				/>
 			</label>
+			<div className={styles.swatches} role="group" aria-label="Colour choices">
+				{accountColours.map(({ name, value }) => {
+					const chosen = ensureAccentContrast(value);
+					return (
+						<Hint key={value} hint={name}>
+							<button
+								type="button"
+								className={styles.swatch}
+								style={{ backgroundColor: value }}
+								aria-label={name}
+								aria-pressed={
+									(values.color || "").toLowerCase() === chosen.toLowerCase()
+								}
+								onClick={() => setValues({ ...values, color: chosen })}
+							/>
+						</Hint>
+					);
+				})}
+			</div>
 			<NumberInput
 				id="settings-poll"
 				label="Check for mail every (seconds)"

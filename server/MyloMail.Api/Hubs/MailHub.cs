@@ -374,6 +374,13 @@ public interface IMailHub
 
 	Task<IReadOnlyList<CalendarEventSummaryDto>> GetCalendarEvents(Guid calendarId, DateTimeOffset from, DateTimeOffset to);
 
+	/// <summary>
+	/// Events whose title, location or description contains the text, across the given calendars and
+	/// all of time, by start. A recurring series is one result (its first occurrence), not one per
+	/// occurrence.
+	/// </summary>
+	Task<IReadOnlyList<CalendarEventSummaryDto>> SearchCalendarEvents(IReadOnlyList<Guid> calendarIds, string query);
+
 	Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request);
 
 	Task DeleteCalendarEvent(Guid eventId);
@@ -2156,6 +2163,33 @@ public class MailHub(
 		DateTimeOffset from,
 		DateTimeOffset to
 	) => CalendarEventOccurrences.ForCalendarAsync(context, calendarId, from, to);
+
+	public async Task<IReadOnlyList<CalendarEventSummaryDto>> SearchCalendarEvents(
+		IReadOnlyList<Guid> calendarIds,
+		string query
+	)
+	{
+		var text = query.Trim();
+		if (text.Length == 0)
+		{
+			return [];
+		}
+
+		var matches = await context
+			.CalendarEvents.AsNoTracking()
+			.Where(e => calendarIds.Contains(e.CalendarId) && e.RecurrenceMasterProviderEventId == null && e.RecurrenceId == null)
+			.Where(e =>
+				EF.Functions.Like(e.Title, $"%{EscapeLike(text)}%", "\\")
+				|| (e.Location != null && EF.Functions.Like(e.Location, $"%{EscapeLike(text)}%", "\\"))
+				|| (e.Description != null && EF.Functions.Like(e.Description, $"%{EscapeLike(text)}%", "\\"))
+			)
+			.Take(500)
+			.ToListAsync();
+		return [.. matches.OrderBy(e => e.Start).Select(ToSummaryDto)];
+	}
+
+	private static string EscapeLike(string text) =>
+		text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
 	public async Task<CalendarEventSummaryDto> SaveCalendarEvent(SaveCalendarEventRequest request)
 	{
