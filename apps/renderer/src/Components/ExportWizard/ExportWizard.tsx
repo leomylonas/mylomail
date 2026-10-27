@@ -30,6 +30,7 @@ import {
 	toggleNode,
 	type ExportTreeNode,
 } from "@mylomail/renderer/Components/ExportWizard/ExportSelection";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/ExportWizard/ExportWizard.module.css";
 
 const recentResultMs = 10 * 60 * 1000;
@@ -376,9 +377,11 @@ export function ExportWizard({
 									>
 										{destination ? "Change folder…" : "Choose folder…"}
 									</Button>
-									<span className={styles.path} title={destination ?? ""}>
-										{destination ?? "No folder chosen"}
-									</span>
+									<Hint hint={destination ?? undefined}>
+										<span className={styles.path}>
+											{destination ?? "No folder chosen"}
+										</span>
+									</Hint>
 								</div>
 								<dl className={styles.summary}>
 									<dt>Account</dt>

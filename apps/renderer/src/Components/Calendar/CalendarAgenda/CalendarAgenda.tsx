@@ -14,6 +14,7 @@ import {
 	titleWithLocation,
 } from "@mylomail/renderer/Components/Calendar/CalendarEventText";
 import { agendaDayIndex } from "@mylomail/renderer/Components/Calendar/CalendarAgenda/CalendarAgendaFocus";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarAgenda/CalendarAgenda.module.css";
 
 export interface AgendaEvent {
@@ -269,21 +270,23 @@ export function CalendarAgenda({
 															calendarFormatters,
 														)}
 													</span>
-													<span
-														className={styles.title}
-														title={titleWithLocation(
-															event.title,
-															event.location,
-														)}
-													>
-														{eventTitle(event.title)}
+													<span className={styles.title}>
+														<Hint
+															hint={titleWithLocation(
+																event.title,
+																event.location,
+															)}
+														>
+															<span>{eventTitle(event.title)}</span>
+														</Hint>
 													</span>
 													{locationText(event.location) ? (
-														<span
-															className={styles.location}
-															title={locationText(event.location) ?? undefined}
-														>
-															{locationText(event.location)}
+														<span className={styles.location}>
+															<Hint
+																hint={locationText(event.location) ?? undefined}
+															>
+																<span>{locationText(event.location)}</span>
+															</Hint>
 														</span>
 													) : null}
 												</button>

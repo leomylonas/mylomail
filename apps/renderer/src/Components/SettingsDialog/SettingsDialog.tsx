@@ -43,6 +43,13 @@ export function SettingsDialog({
 }) {
 	const dialogRef = useRef<HTMLDialogElement>(null);
 	const [section, setSection] = useState(initialSection);
+	const contentRef = useRef<HTMLDivElement>(null);
+	// Another section is another page: start it at the top, not wherever the last one was scrolled.
+	const sectionKey =
+		section.kind === "account" ? `account:${section.accountId}` : section.kind;
+	useEffect(() => {
+		contentRef.current?.scrollTo({ top: 0 });
+	}, [sectionKey]);
 
 	// `showModal` puts the dialog in the top layer with a focus trap and Escape handling.
 	// No cleanup close: unmounting removes it, and a `close()` here would fire a `close`
@@ -123,7 +130,7 @@ export function SettingsDialog({
 						<span className={styles.navLabel}>Add account</span>
 					</NavItem>
 				</nav>
-				<div className={styles.content}>
+				<div className={styles.content} ref={contentRef}>
 					{section.kind === "general" ? <ShellSettings hub={hub} /> : null}
 					{section.kind === "account" && hub && activeAccount ? (
 						<AccountSettings

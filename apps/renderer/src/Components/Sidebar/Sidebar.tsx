@@ -24,6 +24,7 @@ import { notificationForError } from "@mylomail/renderer/Shell/Backend/ProblemDe
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { AuthState } from "@mylomail/shared-types/SignalR/MyloMail.Api.Domain";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/Sidebar/Sidebar.module.css";
 
 interface SidebarAccount {
@@ -390,17 +391,15 @@ export function Sidebar({
 								}}
 								aria-hidden
 							/>
-							<span className={styles.name} title={account.displayName}>
-								{account.displayName}
-							</span>
+							<Hint hint={account.displayName}>
+								<span className={styles.name}>{account.displayName}</span>
+							</Hint>
 							{authWarning ? (
-								<span
-									className={styles.warning}
-									aria-label={authWarning}
-									title={authWarning}
-								>
-									<WarningAltFilled size={16} />
-								</span>
+								<Hint hint={authWarning}>
+									<span className={styles.warning} aria-label={authWarning}>
+										<WarningAltFilled size={16} />
+									</span>
+								</Hint>
 							) : null}
 							{isCollapsed && inboxUnread > 0 ? (
 								<span

@@ -15,6 +15,7 @@ import {
 import { Button } from "@carbon/react";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import { MessageContextMenu } from "@mylomail/renderer/Shell/Registries/ContextMenus/MessageContextMenu/MessageContextMenu";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/MessageCommands/MessageCommands.module.css";
 
 type OpenMenu = {
@@ -67,38 +68,45 @@ export function MessageCommands({
 		icon: typeof Reply,
 		action: MenuAction | undefined,
 	) => (
-		<Button
-			className={styles.command}
-			size="sm"
-			kind="ghost"
-			renderIcon={icon}
-			disabled={disabled || !action || Boolean(action.unavailable)}
-			title={action?.unavailable}
-			onClick={() => action?.run()}
-		>
-			{label}
-		</Button>
+		<Hint hint={action?.unavailable}>
+			{/* A disabled button takes no mouse events, so the hint hangs on a wrapper. */}
+			<span className={styles.commandHint}>
+				<Button
+					className={styles.command}
+					size="sm"
+					kind="ghost"
+					renderIcon={icon}
+					disabled={disabled || !action || Boolean(action.unavailable)}
+					onClick={() => action?.run()}
+				>
+					{label}
+				</Button>
+			</span>
+		</Hint>
 	);
 
 	const moveTo = (
-		<Button
-			className={styles.command}
-			size="sm"
-			kind="ghost"
-			renderIcon={FolderMoveTo}
-			disabled={disabled || !move || Boolean(move.unavailable)}
-			title={move?.unavailable}
-			onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-				const rect = event.currentTarget.getBoundingClientRect();
-				setMenu({
-					x: rect.left,
-					y: rect.bottom,
-					actions: moves.length > 1 ? moves : (move?.children ?? []),
-				});
-			}}
-		>
-			Move to
-		</Button>
+		<Hint hint={move?.unavailable}>
+			<span className={styles.commandHint}>
+				<Button
+					className={styles.command}
+					size="sm"
+					kind="ghost"
+					renderIcon={FolderMoveTo}
+					disabled={disabled || !move || Boolean(move.unavailable)}
+					onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+						const rect = event.currentTarget.getBoundingClientRect();
+						setMenu({
+							x: rect.left,
+							y: rect.bottom,
+							actions: moves.length > 1 ? moves : (move?.children ?? []),
+						});
+					}}
+				>
+					Move to
+				</Button>
+			</span>
+		</Hint>
 	);
 
 	return (

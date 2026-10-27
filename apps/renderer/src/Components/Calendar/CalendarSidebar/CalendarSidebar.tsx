@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Checkbox } from "@carbon/react";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/Calendar/CalendarSidebar/CalendarSidebar.module.css";
 
 export interface CalendarSidebarCalendar {
@@ -73,16 +74,15 @@ export function CalendarSidebar({
 								}}
 								aria-hidden
 							/>
-							<span
-								className={styles.name}
-								title={
+							<Hint
+								hint={
 									account.emailAddress && account.emailAddress !== accountName
 										? `${accountName} (${account.emailAddress})`
 										: accountName
 								}
 							>
-								{accountName}
-							</span>
+								<span className={styles.name}>{accountName}</span>
+							</Hint>
 						</button>
 						{isCollapsed ? null : (
 							<div className={styles.tree}>
@@ -107,7 +107,6 @@ export function CalendarSidebar({
 														<button
 															type="button"
 															className={styles.item}
-															title={`${name} — double-click or press Enter to open it in its own window`}
 															onDoubleClick={() =>
 																onOpenCalendar(calendar.id, account.id)
 															}
@@ -124,7 +123,11 @@ export function CalendarSidebar({
 																style={{ backgroundColor: calendar.colour }}
 																aria-hidden
 															/>
-															<span className={styles.name}>{name}</span>
+															<Hint
+																hint={`${name} — double-click or press Enter to open it in its own window`}
+															>
+																<span className={styles.name}>{name}</span>
+															</Hint>
 														</button>
 													</div>
 												</li>

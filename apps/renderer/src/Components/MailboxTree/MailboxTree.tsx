@@ -49,6 +49,7 @@ import {
 	displayMailboxName,
 	systemRank,
 } from "@mylomail/renderer/Components/MailboxTree/MailboxOrdering";
+import { Hint } from "@mylomail/renderer/Components/Hint/Hint";
 import styles from "@mylomail/renderer/Components/MailboxTree/MailboxTree.module.css";
 
 export interface Mailbox {
@@ -683,9 +684,11 @@ export function MailboxTree({
 										}
 									/>
 								</span>
-								<span className={styles.name} title={mailbox.name}>
-									{displayMailboxName(mailbox)}
-								</span>
+								<Hint hint={mailbox.name}>
+									<span className={styles.name}>
+										{displayMailboxName(mailbox)}
+									</span>
+								</Hint>
 								<MailboxAvailabilityStatus
 									availability={mailbox.availability}
 								/>
@@ -1360,10 +1363,12 @@ function MailboxAvailabilityStatus({
 		return <span className={styles.srOnly}>Availability: {label}</span>;
 
 	return (
-		<span className={styles.availability} title={label}>
-			<WarningAlt size={16} aria-hidden="true" />
-			<span className={styles.srOnly}>Availability: {label}</span>
-		</span>
+		<Hint hint={label}>
+			<span className={styles.availability}>
+				<WarningAlt size={16} aria-hidden="true" />
+				<span className={styles.srOnly}>Availability: {label}</span>
+			</span>
+		</Hint>
 	);
 }
 

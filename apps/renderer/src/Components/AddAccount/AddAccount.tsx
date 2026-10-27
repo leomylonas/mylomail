@@ -124,6 +124,8 @@ const initial: FormState = {
  */
 export function AddAccount({ onAdded }: { onAdded: () => void }) {
 	const [form, setForm] = useState(initial);
+	// Whether the account name has been typed by the user, rather than copied from the address.
+	const [nameEdited, setNameEdited] = useState(false);
 	const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
 		setForm({ ...form, [key]: value });
 
@@ -269,12 +271,6 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 			</RadioButtonGroup>
 
 			<TextInput
-				id="add-account-name"
-				labelText="Account name"
-				value={form.displayName}
-				onChange={(event) => set("displayName", event.target.value)}
-			/>
-			<TextInput
 				id="add-account-email"
 				labelText={
 					form.providerType === ProviderType.Microsoft365 &&
@@ -284,7 +280,25 @@ export function AddAccount({ onAdded }: { onAdded: () => void }) {
 				}
 				type="email"
 				value={form.emailAddress}
-				onChange={(event) => set("emailAddress", event.target.value)}
+				onChange={(event) => {
+					const emailAddress = event.target.value;
+					// The name follows the address until the user has chosen their own.
+					setForm({
+						...form,
+						emailAddress,
+						displayName: nameEdited ? form.displayName : emailAddress,
+					});
+				}}
+			/>
+			<TextInput
+				id="add-account-name"
+				labelText="Account name"
+				helperText="Shown in the folder list. Starts as the email address; change it if you like."
+				value={form.displayName}
+				onChange={(event) => {
+					setNameEdited(event.target.value !== "");
+					set("displayName", event.target.value);
+				}}
 			/>
 			{form.providerType === ProviderType.Microsoft365 ? (
 				<>

@@ -10,7 +10,8 @@
 
 .appBar {
 	position: relative;
-	z-index: 2;
+	/* Above every panel below it, so a tooltip opening downward is never cut by one. */
+	z-index: 8000;
 	display: grid;
 	grid-row: 1;
 	grid-column: 1 / -1;

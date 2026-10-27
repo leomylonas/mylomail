@@ -8,3 +8,7 @@
 button.command {
 	padding-inline: var(--cds-spacing-03) 2.25rem;
 }
+
+.commandHint {
+	display: inline-flex;
+}
