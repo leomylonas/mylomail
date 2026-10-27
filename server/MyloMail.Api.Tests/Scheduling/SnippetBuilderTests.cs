@@ -52,6 +52,15 @@ public sealed class SnippetBuilderTests
 	}
 
 	[Fact]
+	public void A_provider_preview_loses_its_padding_and_escapes()
+	{
+		Assert.Equal(
+			"View in browser Ubisoft Hello isn't",
+			SnippetBuilder.Normalize("\u200c \u200c \u200c\u200c \u200c View in browser Ubisoft Hello isn&#39;t")
+		);
+	}
+
+	[Fact]
 	public void Ordinary_text_with_braces_is_left_alone()
 	{
 		Assert.Equal("Use {name} in the template, then {save} it.", SnippetBuilder.Build("Use {name} in the template, then {save} it.", null));

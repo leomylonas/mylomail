@@ -61,6 +61,14 @@ internal static partial class SnippetBuilder
 	[GeneratedRegex(@"<(?:p|span|div|br|a|b|i|u|strong|em|table|tr|td|ul|ol|li|h[1-6]|font|img)(?:\s[^<>]*)?/?>", RegexOptions.IgnoreCase)]
 	private static partial Regex MarkupInText();
 
+	/// <summary>
+	/// A preview a provider supplied (Gmail's and Graph's), made fit to show: entities decoded (Gmail
+	/// escapes them), invisible padding dropped, whitespace collapsed. Senders pad their pre-header
+	/// with <c>&amp;zwnj;</c> runs that, left in, render as a blank indent.
+	/// </summary>
+	public static string Normalize(string? providerSnippet) =>
+		Truncate(Clean(providerSnippet is null ? null : WebUtility.HtmlDecode(providerSnippet)));
+
 	private static bool IsMeaningful(string value) => value.Count(char.IsLetterOrDigit) >= Meaningful;
 
 	private static (string Visible, string Hidden) ReadHtml(string html)

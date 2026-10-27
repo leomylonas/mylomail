@@ -433,7 +433,7 @@ public sealed class MessageIngestor(
 		if (dto.Reports(MessageProperty.Snippet)
 			&& (!string.IsNullOrWhiteSpace(dto.Snippet) || string.IsNullOrWhiteSpace(message.Snippet)))
 		{
-			message.Snippet = dto.Snippet;
+			message.Snippet = Content.SnippetBuilder.Normalize(dto.Snippet);
 		}
 
 		if (dto.Reports(MessageProperty.ReceivedAt)) message.ReceivedAt = dto.ReceivedAt;

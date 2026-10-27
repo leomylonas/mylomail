@@ -18,16 +18,13 @@ namespace MyloMail.Api.Scheduling;
 [AutomaticRetry(Attempts = 0)]
 public sealed class SnippetJobs(MyloMailDbContext context, BackgroundActivityTracker activity, ILogger<SnippetJobs> logger)
 {
-	public const int CurrentVersion = 4;
+	public const int CurrentVersion = 5;
 	private const int BatchSize = 500;
 
 	public async Task RebuildAsync(CancellationToken ct = default)
 	{
-		var imapMessages = context.Messages.Where(m =>
-			context.Accounts.Any(a => a.Id == m.AccountId && a.ProviderType == ProviderType.Imap)
-		);
 		using var task = activity.Begin("Rebuilding message previews");
-		var total = await imapMessages.CountAsync(ct);
+		var total = await context.Messages.CountAsync(ct);
 		task.Report(0, total);
 		var done = 0;
 		var changed = 0;
@@ -36,10 +33,14 @@ public sealed class SnippetJobs(MyloMailDbContext context, BackgroundActivityTra
 		{
 			var batch = await context
 				.Messages.Where(m => m.Id > lastId)
-				.Where(m => context.Accounts.Any(a => a.Id == m.AccountId && a.ProviderType == ProviderType.Imap))
 				.OrderBy(m => m.Id)
 				.Take(BatchSize)
-				.Select(m => new { m.Id, m.Snippet })
+				.Select(m => new
+				{
+					m.Id,
+					m.Snippet,
+					IsImap = context.Accounts.Any(a => a.Id == m.AccountId && a.ProviderType == ProviderType.Imap),
+				})
 				.ToListAsync(ct);
 			if (batch.Count == 0)
 			{
@@ -53,12 +54,13 @@ public sealed class SnippetJobs(MyloMailDbContext context, BackgroundActivityTra
 				.ToDictionaryAsync(b => b.MessageId, ct);
 			foreach (var row in batch)
 			{
-				if (!bodies.TryGetValue(row.Id, out var body))
-				{
-					continue;
-				}
-
-				var rebuilt = SnippetBuilder.Build(body.TextBody, body.HtmlBody);
+				// IMAP has no preview of its own, so it is rebuilt from the body; the others keep the
+				// provider's, cleaned of padding and entities.
+				var rebuilt = row.IsImap
+					? bodies.TryGetValue(row.Id, out var body)
+						? SnippetBuilder.Build(body.TextBody, body.HtmlBody)
+						: string.Empty
+					: SnippetBuilder.Normalize(row.Snippet);
 				if (rebuilt.Length > 0 && rebuilt != row.Snippet)
 				{
 					await context
