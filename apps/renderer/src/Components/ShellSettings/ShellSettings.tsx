@@ -27,6 +27,7 @@ import {
 } from "@mylomail/renderer/Shell/Backend/ProblemDetailsTransport";
 import { TrustedCalendarSenders } from "@mylomail/renderer/Components/TrustedCalendarSenders/TrustedCalendarSenders";
 import type { MailHubConnection } from "@mylomail/renderer/Shell/Backend/HubConnection";
+import { ReappearedMessages } from "@mylomail/renderer/Components/ReappearedMessages/ReappearedMessages";
 import styles from "@mylomail/renderer/Components/ShellSettings/ShellSettings.module.css";
 import { notify } from "@mylomail/renderer/Shell/Registries/Notifications/NotificationStore";
 import { useWindowNotifications } from "@mylomail/renderer/Shell/Registries/Notifications/UseNotifications";
@@ -403,6 +404,7 @@ export function ShellSettings({ hub }: { hub: MailHubConnection | null }) {
 				)}
 			</section>
 			{hub ? <TrustedCalendarSenders hub={hub} /> : null}
+			<ReappearedMessages />
 		</div>
 	);
 }

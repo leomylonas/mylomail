@@ -57,6 +57,13 @@ import {
 	recordMove,
 	takeLastMove,
 } from "@mylomail/renderer/Shell/Backend/UndoMoves";
+import {
+	expectedReturns,
+	expectReturn,
+	recordReappearance,
+	trace,
+} from "@mylomail/renderer/Shell/Backend/ActivityTrace";
+import { findReappeared } from "@mylomail/renderer/Lib/ReappearedMessages";
 import { queryKeys } from "@mylomail/renderer/Shell/Backend/HubConnection";
 import {
 	acceptOptimisticMessages,
@@ -786,6 +793,22 @@ export function MessageList({
 	const selectedMessages = sourceMessages.filter((message) =>
 		selectedIds.has(message.id),
 	);
+	// A message hidden for a delete or move that shows again without a failure or an undo is a bug
+	// worth explaining: the events around it are kept, and listed under Settings → General.
+	const rememberedHidden = useRef<ReadonlySet<string>>(new Set());
+	useEffect(() => {
+		const found = findReappeared(
+			rememberedHidden.current,
+			optimisticallyHiddenIds,
+			new Set(sourceMessages.map((message) => message.id)),
+			expectedReturns(queryClient),
+		);
+		rememberedHidden.current = found.remembered;
+		for (const id of found.reappeared) {
+			trace(queryClient, "list:reappeared", id.slice(0, 8));
+			recordReappearance(queryClient, id);
+		}
+	});
 	const filteredMessages = useMemo(
 		() =>
 			sourceMessages.filter(
@@ -1034,6 +1057,7 @@ export function MessageList({
 			run: () => {
 				const last = takeLastMove(queryClient);
 				if (!last) return;
+				expectReturn(queryClient, last.messageIds);
 				// The same move, the other way, through the ordinary queue: it follows the move it
 				// undoes in order, so it is safe before that has even reached the server.
 				void hub

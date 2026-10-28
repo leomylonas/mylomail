@@ -1,4 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
+import {
+	expectReturn,
+	trace,
+} from "@mylomail/renderer/Shell/Backend/ActivityTrace";
 
 type OptimisticMessageClaims = Record<string, string[]>;
 
@@ -69,6 +73,12 @@ export function hideOptimisticMessages(
 	mailboxId: string,
 	claims: readonly OptimisticMessageClaim[],
 ): void {
+	for (const claim of claims)
+		trace(
+			queryClient,
+			"claim:hide",
+			`${claim.messageId.slice(0, 8)} ${claim.claimId.slice(0, 14)}`,
+		);
 	queryClient.setQueryData<OptimisticMessageClaims>(
 		optimisticMessageIdsKey(mailboxId),
 		(current) => {
@@ -88,6 +98,17 @@ export function restoreOptimisticMessages(
 	claims: readonly OptimisticMessageClaim[],
 ): void {
 	const claimIds = new Set(claims.map((claim) => claim.claimId));
+	// A message put back because its move failed is meant to reappear.
+	expectReturn(
+		queryClient,
+		claims.map((claim) => claim.messageId),
+	);
+	for (const claim of claims)
+		trace(
+			queryClient,
+			"claim:restore",
+			`${claim.messageId.slice(0, 8)} ${claim.claimId.slice(0, 14)}`,
+		);
 	queryClient.setQueryData<OptimisticMessageClaims>(
 		optimisticMessageIdsKey(mailboxId),
 		(current) => removeClaims(current, claimIds),
@@ -108,6 +129,16 @@ export function acceptOptimisticMessages(
 	const acceptedByMessage = new Map(
 		accepted.map((item) => [item.messageId, item.mutationItemId]),
 	);
+	for (const claim of claims) {
+		const id = acceptedByMessage.get(claim.messageId);
+		trace(
+			queryClient,
+			id ? "claim:accepted" : "claim:rejected",
+			`${claim.messageId.slice(0, 8)} ${id ? `as ${id.slice(0, 14)}` : ""}`,
+		);
+		// Not queued: the server refused it, so the message is meant to come back (with a notice).
+		if (!id) expectReturn(queryClient, [claim.messageId]);
+	}
 	const settled = new Set(
 		queryClient.getQueryData<string[]>(settledMutationIdsKey) ?? [],
 	);
@@ -136,6 +167,11 @@ export function settleOptimisticMutation(
 	queryClient: QueryClient,
 	settlement: { mutationItemId: string; messageId: string },
 ): void {
+	trace(
+		queryClient,
+		"claim:settle",
+		`${settlement.messageId.slice(0, 8)} ${settlement.mutationItemId.slice(0, 14)}`,
+	);
 	let matched = false;
 	queryClient.setQueriesData<OptimisticMessageClaims>(
 		{ queryKey: ["optimistic-message-ids"] },

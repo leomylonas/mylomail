@@ -43,6 +43,12 @@ test("Ctrl+Z undoes a delete", async () => {
 			})
 			.toBe(1);
 		await expect(row).toBeVisible({ timeout: 60_000 });
+
+		// An undone delete is meant to come back, so it is not reported as one that did by mistake.
+		await window.getByRole("button", { name: "Settings", exact: true }).click();
+		await expect(
+			window.getByText("No deleted or moved message has reappeared"),
+		).toBeVisible();
 	} finally {
 		await app.close();
 	}

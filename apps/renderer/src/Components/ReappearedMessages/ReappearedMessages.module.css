@@ -1,0 +1,12 @@
+.hint {
+	margin: var(--cds-spacing-03) 0;
+	color: var(--cds-text-secondary);
+	font-size: 0.875rem;
+}
+
+.list {
+	margin: var(--cds-spacing-04) 0 0;
+	padding: 0;
+	font-size: 0.875rem;
+	list-style: none;
+}

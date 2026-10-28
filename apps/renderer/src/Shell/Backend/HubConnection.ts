@@ -1,4 +1,8 @@
 import {
+	expectReturn,
+	trace,
+} from "@mylomail/renderer/Shell/Backend/ActivityTrace";
+import {
 	HubConnectionBuilder,
 	LogLevel,
 	type HubConnection,
@@ -392,12 +396,21 @@ export function connectHub(
 	};
 	hub.subscribe("messageReceived", invalidateMessageCaches);
 	hub.subscribe("messageUpdated", (message: MessageSummaryDto) => {
+		trace(queryClient, "event:messageUpdated", message.id.slice(0, 8));
 		updateMessageSummaryCaches(queryClient, message);
 		invalidateMessageCaches();
 	});
-	hub.subscribe("messageDeleted", invalidateMessageCaches);
+	hub.subscribe("messageDeleted", (messageId: string) => {
+		trace(queryClient, "event:messageDeleted", String(messageId).slice(0, 8));
+		invalidateMessageCaches();
+	});
 
 	hub.subscribe("messageMutationQueued", (queued: MutationQueuedDto) => {
+		trace(
+			queryClient,
+			"event:queued",
+			`${queued.messageId.slice(0, 8)} ${queued.mutationItemId.slice(0, 14)} ${queued.sourceMailboxId ? "hides" : ""}`,
+		);
 		refreshMailboxCounts();
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.pending(queued.accountId),
@@ -412,6 +425,11 @@ export function connectHub(
 	});
 
 	hub.subscribe("messageMutationSettled", (settlement: MutationSettledDto) => {
+		trace(
+			queryClient,
+			"event:settled",
+			`${settlement.messageId.slice(0, 8)} ${settlement.mutationItemId.slice(0, 14)}`,
+		);
 		refreshMailboxCounts();
 		const releaseProjection = () =>
 			settleOptimisticMutation(queryClient, settlement);
@@ -472,6 +490,9 @@ export function connectHub(
 	// state has already been reverted, so without this the flag springs back with no
 	// explanation and the user is left believing the app is simply unreliable.
 	hub.subscribe("messageSyncFailed", (failure: MutationFailureDto) => {
+		trace(queryClient, "event:failed", failure.messageId.slice(0, 8));
+		// A change that failed puts the message back on purpose.
+		expectReturn(queryClient, [failure.messageId]);
 		settleOptimisticMutation(queryClient, failure);
 		const presentation = present(
 			failure.category,
