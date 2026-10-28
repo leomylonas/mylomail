@@ -1,4 +1,7 @@
-import { releaseWhenListsAreFresh } from "@mylomail/renderer/Shell/Backend/ListRefresh";
+import {
+	refreshMessageLists,
+	releaseWhenListsAreFresh,
+} from "@mylomail/renderer/Shell/Backend/ListRefresh";
 import {
 	expectReturn,
 	trace,
@@ -389,11 +392,7 @@ export function connectHub(
 	};
 	const invalidateMessageCaches = () => {
 		refreshMailboxCounts();
-		void Promise.all([
-			queryClient.invalidateQueries({ queryKey: ["messages"] }),
-			queryClient.invalidateQueries({ queryKey: ["search"] }),
-			queryClient.invalidateQueries({ queryKey: ["pending"] }),
-		]);
+		void refreshMessageLists(queryClient);
 	};
 	hub.subscribe("messageReceived", invalidateMessageCaches);
 	hub.subscribe("messageUpdated", (message: MessageSummaryDto) => {
@@ -437,11 +436,10 @@ export function connectHub(
 			void releaseWhenListsAreFresh(queryClient, settledAt, () =>
 				settleOptimisticMutation(queryClient, settlement),
 			);
-		void Promise.all([
-			queryClient.invalidateQueries({ queryKey: ["messages"] }),
-			queryClient.invalidateQueries({ queryKey: ["search"] }),
-			queryClient.invalidateQueries({ queryKey: ["pending"] }),
-		]).then(releaseProjection, releaseProjection);
+		void refreshMessageLists(queryClient).then(
+			releaseProjection,
+			releaseProjection,
+		);
 	});
 
 	// GetMessageBody's own existence check exists specifically so a reading pane left open on
