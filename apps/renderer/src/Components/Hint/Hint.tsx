@@ -2,7 +2,7 @@ import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { Tooltip } from "@carbon/react";
 
 /**
- * Carbon's tooltip for hover and focus hints, in place of a `title` attribute (which the browser
+ * Carbon's tooltip for hover and focus hints (a description, so the element keeps its own accessible name), in place of a `title` attribute (which the browser
  * draws in its own unthemed style, after its own delay, and which no keyboard user ever sees).
  * Without a hint it renders the child as it is.
  */
@@ -18,7 +18,7 @@ export function Hint({
 	if (hint === undefined || hint === null || hint === "" || hint === false)
 		return children as ReactElement;
 	return (
-		<Tooltip label={hint} align={align} enterDelayMs={300}>
+		<Tooltip description={hint} align={align} enterDelayMs={300}>
 			{children}
 		</Tooltip>
 	);

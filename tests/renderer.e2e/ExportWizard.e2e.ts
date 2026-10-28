@@ -41,7 +41,7 @@ test("the export wizard writes the chosen folder as an mbox and keeps running wh
 		await wizard.getByLabel(/mbox files/).check({ force: true });
 		await wizard.getByRole("button", { name: "Next" }).click();
 		await wizard.getByRole("button", { name: "Choose folder…" }).click();
-		await expect(wizard.getByText(destination)).toBeVisible();
+		await expect(wizard.getByText(destination).first()).toBeVisible();
 		await wizard.getByRole("button", { name: "Start export" }).click();
 
 		// A single small message can finish before the progress view is drawn, so it is

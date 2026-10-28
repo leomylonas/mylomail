@@ -69,11 +69,7 @@ export function TrustedCalendarSenders({ hub }: { hub: MailHubConnection }) {
 				</Select>
 				<TextInput
 					id="trusted-sender-value"
-					labelText={
-						scope === TrustedCalendarSenderScope.Domain
-							? "Domain"
-							: "Email address"
-					}
+					labelText="Sender to trust"
 					size="sm"
 					value={value}
 					onChange={(event) => setValue(event.target.value)}

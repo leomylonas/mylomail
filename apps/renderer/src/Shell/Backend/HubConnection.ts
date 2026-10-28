@@ -1,3 +1,4 @@
+import { releaseWhenListsAreFresh } from "@mylomail/renderer/Shell/Backend/ListRefresh";
 import {
 	expectReturn,
 	trace,
@@ -431,8 +432,11 @@ export function connectHub(
 			`${settlement.messageId.slice(0, 8)} ${settlement.mutationItemId.slice(0, 14)}`,
 		);
 		refreshMailboxCounts();
+		const settledAt = Date.now();
 		const releaseProjection = () =>
-			settleOptimisticMutation(queryClient, settlement);
+			void releaseWhenListsAreFresh(queryClient, settledAt, () =>
+				settleOptimisticMutation(queryClient, settlement),
+			);
 		void Promise.all([
 			queryClient.invalidateQueries({ queryKey: ["messages"] }),
 			queryClient.invalidateQueries({ queryKey: ["search"] }),
