@@ -146,7 +146,7 @@ internal static partial class SnippetBuilder
 	/// <summary>Link markers and inline-image placeholders that plain-text parts carry.</summary>
 	private static string StripPlainTextNoise(string text) =>
 		Url().Replace(
-			Placeholder().Replace(EmptyAtRule().Replace(CssRule().Replace(text, " "), " "), " "),
+			Placeholder().Replace(EmptyAtRule().Replace(CssRule().Replace(CssComment().Replace(text, " "), " "), " "), " "),
 			match => Uri.TryCreate(match.Value.Trim('<', '>'), UriKind.Absolute, out var uri) && match.Length > 40
 				? uri.Host
 				: match.Value
@@ -161,6 +161,10 @@ internal static partial class SnippetBuilder
 	/// </summary>
 	[GeneratedRegex(@"[\w\s.,#>*:\[\]=~+""'-]{1,200}\{\s*(?:[a-zA-Z-]+\s*:[^{};]*;?\s*)+\}")]
 	private static partial Regex CssRule();
+
+	/// <summary>A comment from that stylesheet; removed first, since a rule inside one is not a rule to match by itself.</summary>
+	[GeneratedRegex(@"/\*[\s\S]*?\*/")]
+	private static partial Regex CssComment();
 
 	/// <summary>What is left of an <c>@media</c> block once its rules are removed.</summary>
 	[GeneratedRegex(@"@[a-zA-Z-]+[^{}]*\{\s*\}")]

@@ -61,6 +61,14 @@ public sealed class SnippetBuilderTests
 	}
 
 	[Fact]
+	public void A_commented_out_rule_in_a_pasted_stylesheet_leaves_nothing_behind()
+	{
+		const string text = "a { color: #e0004d; }\r\n/* a[href^=\"tel\"]:hover{text-decoration:none !important;} */\r\n.x:hover{opacity:0.8;}\r\n\r\nMember login\r\nHi Tessa, we noticed a recent login to your account.";
+
+		Assert.Equal("Member login Hi Tessa, we noticed a recent login to your account.", SnippetBuilder.Build(text, null));
+	}
+
+	[Fact]
 	public void Ordinary_text_with_braces_is_left_alone()
 	{
 		Assert.Equal("Use {name} in the template, then {save} it.", SnippetBuilder.Build("Use {name} in the template, then {save} it.", null));
