@@ -16,6 +16,8 @@ export const notificationNavigationReadyChannel =
 export const openWindowChannel = "window:open";
 export const pickExportFolderChannel = "export:pick-folder";
 export const printMessageChannel = "message:print";
+/** The renderer's total of unread mail, for the launcher or dock badge. */
+export const setUnreadBadgeChannel = "badge:set-unread";
 export const updateCloseBehaviorChannel =
 	"shell-settings:close-behavior-changed";
 export const persistPanelLayoutChannel = "shell-settings:persist-panel-layout";

@@ -1,3 +1,8 @@
+import {
+	mailboxesQuery,
+	type Mailbox,
+} from "@mylomail/renderer/Components/MailboxTree/MailboxTree";
+import { inboxUnreadCount } from "@mylomail/renderer/Components/MailboxTree/MailboxOrdering";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MenuAction } from "@mylomail/renderer/Shell/Registries/ContextMenus/ContextMenus";
 import {
@@ -6,7 +11,12 @@ import {
 	Separator,
 	type PanelImperativeHandle,
 } from "react-resizable-panels";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import brandMarkDark from "@mylomail/renderer/Assets/Brand/MarkDark.svg";
 import brandMarkLight from "@mylomail/renderer/Assets/Brand/MarkLight.svg";
 import { Sidebar } from "@mylomail/renderer/Components/Sidebar/Sidebar";
@@ -404,6 +414,23 @@ export function AppShell({
 				});
 			});
 	}
+	// Unread mail in every account's inbox, on the app's icon in the dock or taskbar. The same
+	// queries the folder tree runs, so this costs no extra request.
+	const inboxQueries = useQueries({
+		queries: (accounts.data ?? []).map((account) =>
+			hub
+				? mailboxesQuery(hub, account.id)
+				: { queryKey: queryKeys.mailboxes(account.id), enabled: false },
+		),
+	});
+	const unreadTotal = inboxQueries.reduce(
+		(sum, query) =>
+			sum + inboxUnreadCount((query.data as Mailbox[] | undefined) ?? []),
+		0,
+	);
+	useEffect(() => {
+		void window.badge?.setUnread(unreadTotal);
+	}, [unreadTotal]);
 	const effectivePane = accounts.data?.length === 0 ? "add-account" : pane;
 	const connectionProblem = describeConnectionProblem(status, accounts.isError);
 	const showMailChrome =

@@ -30,6 +30,7 @@ import {
 	composeCloseReadyChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
+	setUnreadBadgeChannel,
 	type BackendConnection,
 	type NotificationClicked,
 	type NotificationRequest,
@@ -350,6 +351,17 @@ export async function startShell(): Promise<void> {
 	// backend answers `loadCloseBehavior` from at the *next* startup — `closeBehavior` above
 	// would keep acting on whatever was true when this window opened, silently ignoring a
 	// setting the user just changed and saw succeed with no error (§8, §13 Epic 10).
+	// The count on the app's icon in the dock or taskbar. Electron maps this onto each platform's
+	// own mechanism (the Unity launcher API the Ubuntu dock reads, the macOS dock, the Windows
+	// taskbar overlay is not covered by it and is left as it was).
+	ipcMain.handle(setUnreadBadgeChannel, (_event, value: unknown): void => {
+		const count =
+			typeof value === "number" && Number.isFinite(value) && value > 0
+				? Math.min(Math.floor(value), 99999)
+				: 0;
+		app.setBadgeCount(count);
+	});
+
 	ipcMain.handle(updateCloseBehaviorChannel, (_event, value: unknown): void => {
 		// The renderer already confirmed the write succeeded, so this trusts the value it
 		// hands back rather than re-fetching.

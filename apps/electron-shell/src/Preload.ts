@@ -12,6 +12,7 @@ import {
 	reportDraftStateChannel,
 	showNotificationChannel,
 	updateCloseBehaviorChannel,
+	setUnreadBadgeChannel,
 	requestComposeCloseChannel,
 	composeCloseReadyChannel,
 	type BackendConnection,
@@ -102,6 +103,11 @@ contextBridge.exposeInMainWorld(
 );
 
 /** Printing is a privileged main-process operation; the renderer can only print itself. */
+contextBridge.exposeInMainWorld("badge", {
+	setUnread: (count: number): Promise<void> =>
+		ipcRenderer.invoke(setUnreadBadgeChannel, count) as Promise<void>,
+});
+
 contextBridge.exposeInMainWorld("printing", {
 	print: (): Promise<boolean> =>
 		ipcRenderer.invoke(printMessageChannel) as Promise<boolean>,

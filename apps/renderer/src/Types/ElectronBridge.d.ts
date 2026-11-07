@@ -31,6 +31,9 @@ declare global {
 		};
 		/** The user's own locale, which Chromium's navigator.language may have replaced with a sibling. */
 		shellLocale?: string;
+		badge?: {
+			setUnread(count: number): Promise<void>;
+		};
 		printing?: {
 			print(): Promise<boolean>;
 		};
