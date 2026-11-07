@@ -694,11 +694,9 @@ export function MailboxTree({
 										}
 									/>
 								</span>
-								<Hint hint={mailbox.name}>
-									<span className={styles.name}>
-										{displayMailboxName(mailbox)}
-									</span>
-								</Hint>
+								<span className={styles.name}>
+									{displayMailboxName(mailbox)}
+								</span>
 								<MailboxAvailabilityStatus
 									availability={mailbox.availability}
 								/>
