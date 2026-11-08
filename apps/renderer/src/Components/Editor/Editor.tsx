@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
 import { LinkNode } from "@lexical/link";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -19,6 +19,9 @@ import {
 	$isRangeSelection,
 	COMMAND_PRIORITY_LOW,
 	INSERT_PARAGRAPH_COMMAND,
+	PASTE_COMMAND,
+	$nodesOfType,
+	$getNodeByKey,
 	$insertNodes,
 	$isTextNode,
 	type DOMExportOutputMap,
@@ -30,6 +33,11 @@ import {
 	SignatureNode,
 	$isSignatureNode,
 } from "@mylomail/renderer/Components/Editor/SignatureNode";
+import {
+	$createInlineImageNode,
+	$isInlineImageNode,
+	InlineImageNode,
+} from "@mylomail/renderer/Components/Editor/InlineImageNode";
 import styles from "@mylomail/renderer/Components/Editor/Editor.module.css";
 
 const composeHtmlExport: DOMExportOutputMap = new Map([
@@ -98,10 +106,19 @@ export function Editor({
 	onChange,
 	placeholder = "Write your message",
 	initialHtml = "",
+	onPasteImage,
+	loadInlineImage,
 }: {
 	onChange: (html: string) => void;
 	placeholder?: string;
 	initialHtml?: string;
+	/**
+	 * Stores a picture pasted from the clipboard as an inline attachment and returns its
+	 * Content-ID, or null when it could not be kept (the paste is then dropped, not half-made).
+	 */
+	onPasteImage?: (image: File) => Promise<string | null>;
+	/** Fetches an inline image already on the draft, as an address the editor can show. */
+	loadInlineImage?: (contentId: string) => Promise<string | null>;
 }) {
 	return (
 		<LexicalComposer
@@ -114,6 +131,7 @@ export function Editor({
 					ListItemNode,
 					LinkNode,
 					SignatureNode,
+					InlineImageNode,
 				],
 				// A composition failure must not take the window with it: the surrounding
 				// compose form still holds the user's recipients and subject.
@@ -166,6 +184,10 @@ export function Editor({
 			</div>
 			<HistoryPlugin />
 			<SignatureLineBreakPlugin />
+			<InlineImagePlugin
+				onPasteImage={onPasteImage}
+				loadInlineImage={loadInlineImage}
+			/>
 			<ListPlugin />
 			<LinkPlugin />
 			<HtmlChangePlugin onChange={onChange} />
@@ -215,5 +237,104 @@ function SignatureLineBreakPlugin() {
 			),
 		[editor],
 	);
+	return null;
+}
+
+/**
+ * Pasting a picture from the clipboard puts it in the message where the caret is.
+ *
+ * The picture is handed to `onPasteImage` first, to become an inline attachment; only then does it
+ * appear in the body, so the body never refers to something that was not kept. Pictures the draft
+ * already holds (reopened, replied to) are fetched once so the editor can show them.
+ */
+function InlineImagePlugin({
+	onPasteImage,
+	loadInlineImage,
+}: {
+	onPasteImage?: (image: File) => Promise<string | null>;
+	loadInlineImage?: (contentId: string) => Promise<string | null>;
+}) {
+	const [editor] = useLexicalComposerContext();
+	const sources = useRef(new Map<string, Promise<string | null>>());
+
+	const sourceFor = useCallback(
+		(contentId: string, local?: string): Promise<string | null> => {
+			let found = sources.current.get(contentId);
+			if (!found) {
+				found = local
+					? Promise.resolve(local)
+					: (loadInlineImage?.(contentId) ?? Promise.resolve(null));
+				sources.current.set(contentId, found);
+			}
+			return found;
+		},
+		[loadInlineImage],
+	);
+
+	useEffect(() => {
+		const showWhenLoaded = (contentId: string, local?: string) => {
+			void sourceFor(contentId, local).then((source) => {
+				if (!source) return;
+				editor.update(() => {
+					for (const node of $nodesOfType(InlineImageNode)) {
+						if (node.getContentId() === contentId && !node.getSource()) {
+							node.setSource(source);
+						}
+					}
+				});
+			});
+		};
+
+		const stopWatching = editor.registerMutationListener(
+			InlineImageNode,
+			(mutations) => {
+				for (const [key, mutation] of mutations) {
+					if (mutation === "destroyed") continue;
+					const contentId = editor.read(() => {
+						const node = $getNodeByKey(key);
+						return $isInlineImageNode(node) && !node.getSource()
+							? node.getContentId()
+							: null;
+					});
+					if (contentId) showWhenLoaded(contentId);
+				}
+			},
+			{ skipInitialization: false },
+		);
+
+		const stopPasting = editor.registerCommand(
+			PASTE_COMMAND,
+			(event) => {
+				const files =
+					event instanceof ClipboardEvent
+						? Array.from(event.clipboardData?.files ?? []).filter((file) =>
+								file.type.startsWith("image/"),
+							)
+						: [];
+				if (files.length === 0 || !onPasteImage) return false;
+				event.preventDefault();
+				void (async () => {
+					for (const file of files) {
+						const contentId = await onPasteImage(file);
+						if (!contentId) continue;
+						const local = URL.createObjectURL(file);
+						sources.current.set(contentId, Promise.resolve(local));
+						editor.update(() => {
+							const selection = $getSelection();
+							if (!$isRangeSelection(selection)) $getRoot().selectEnd();
+							$insertNodes([$createInlineImageNode(contentId, "", local)]);
+						});
+					}
+				})();
+				return true;
+			},
+			COMMAND_PRIORITY_LOW,
+		);
+		return () => {
+			stopWatching();
+			stopPasting();
+		};
+	}, [editor, onPasteImage, sourceFor]);
+
 	return null;
 }

@@ -46,7 +46,23 @@ public sealed class DraftAttachmentsController(DraftService drafts) : Controller
 			isInline,
 			contentId
 		);
-		return Ok(new { attachment.Id, attachment.Filename, attachment.MimeType, attachment.Size, attachment.IsInline });
+		return Ok(new { attachment.Id, attachment.Filename, attachment.MimeType, attachment.Size, attachment.IsInline, attachment.ContentId });
+	}
+
+	/// <summary>
+	/// An inline image's bytes, so the editor can show a <c>cid:</c> reference it is holding. Only
+	/// images are served, and as the type they were stored with.
+	/// </summary>
+	[HttpGet("cid/{contentId}")]
+	public async Task<IActionResult> InlineImage(Guid draftId, string contentId, CancellationToken ct)
+	{
+		var image = await drafts.FindInlineImageAsync(draftId, contentId, ct);
+		if (image is null || !image.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+		{
+			return NotFound();
+		}
+
+		return File(image.Content, image.MimeType);
 	}
 
 	[HttpDelete("{attachmentId:guid}")]

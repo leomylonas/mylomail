@@ -760,6 +760,40 @@ export function Compose({
 		}
 	};
 
+	/** A picture pasted into the body becomes an inline attachment the body refers to by cid:. */
+	const pasteImage = async (image: File): Promise<string | null> => {
+		try {
+			const id = await save();
+			const contentId = `${crypto.randomUUID()}@mylomail`;
+			const extension = image.type.split("/")[1]?.split("+")[0] ?? "png";
+			await uploadAttachment(
+				id,
+				image,
+				`image-${contentId.slice(0, 8)}.${extension}`,
+				true,
+				contentId,
+			);
+			return contentId;
+		} catch (error) {
+			reportFailure("This picture could not be added")(error);
+			return null;
+		}
+	};
+
+	/** An inline picture the draft already holds, as an address the editor can show. */
+	const loadInlineImage = async (contentId: string): Promise<string | null> => {
+		const id = fieldsRef.current.draftId;
+		if (!id) return null;
+		try {
+			const response = await fetchApi(
+				`/drafts/${id}/attachments/cid/${encodeURIComponent(contentId)}`,
+			);
+			return URL.createObjectURL(await response.blob());
+		} catch {
+			return null;
+		}
+	};
+
 	const send = async (scheduledFor?: Date) => {
 		const constraints = attachmentConstraints.data;
 		if (attachments.length && constraints) {
@@ -1326,31 +1360,6 @@ export function Compose({
 					/>
 				</div>
 			</div>
-			<div className={styles.editor}>
-				{editorReady ? (
-					<Editor
-						key={editorRevision}
-						onChange={updateBody}
-						initialHtml={body}
-					/>
-				) : (
-					<SkeletonText paragraph lineCount={4} />
-				)}
-			</div>
-			<input
-				className={styles.fileInput}
-				ref={fileInput}
-				type="file"
-				multiple
-				onChange={(event) =>
-					event.target.files && void addFiles(event.target.files)
-				}
-			/>
-			{forwardCopyError ? (
-				<p className={styles.forwardCopyError} role="alert">
-					{forwardCopyError}
-				</p>
-			) : null}
 			{attachments.some((attachment) => !attachment.isInline) ? (
 				<ul className={styles.attachments} aria-label="Attached files">
 					{attachments
@@ -1374,6 +1383,33 @@ export function Compose({
 							</li>
 						))}
 				</ul>
+			) : null}
+			<div className={styles.editor}>
+				{editorReady ? (
+					<Editor
+						key={editorRevision}
+						onChange={updateBody}
+						initialHtml={body}
+						onPasteImage={pasteImage}
+						loadInlineImage={loadInlineImage}
+					/>
+				) : (
+					<SkeletonText paragraph lineCount={4} />
+				)}
+			</div>
+			<input
+				className={styles.fileInput}
+				ref={fileInput}
+				type="file"
+				multiple
+				onChange={(event) =>
+					event.target.files && void addFiles(event.target.files)
+				}
+			/>
+			{forwardCopyError ? (
+				<p className={styles.forwardCopyError} role="alert">
+					{forwardCopyError}
+				</p>
 			) : null}
 		</div>
 	);

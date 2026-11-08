@@ -276,6 +276,15 @@ public sealed class DraftService(
 		return attachment;
 	}
 
+	/// <summary>An inline image of a draft by its <c>cid:</c> content id, for the editor to show it.</summary>
+	public async Task<DraftAttachment?> FindInlineImageAsync(Guid draftId, string contentId, CancellationToken ct = default)
+	{
+		var draft = await context.Drafts.AsNoTracking().FirstOrDefaultAsync(d => d.Id == draftId, ct);
+		return draft?.Attachments.FirstOrDefault(a =>
+			a.IsInline && string.Equals(a.ContentId, contentId, StringComparison.Ordinal)
+		);
+	}
+
 	public async Task RemoveAttachmentAsync(Guid draftId, Guid attachmentId, CancellationToken ct = default)
 	{
 		var draft = await context.Drafts.FirstAsync(d => d.Id == draftId, ct);

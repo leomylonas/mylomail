@@ -87,3 +87,9 @@
 .input :global(a) {
 	color: var(--cds-link-primary);
 }
+
+/* A pasted picture never runs wider than the message it sits in. */
+.input img {
+	max-width: 100%;
+	height: auto;
+}

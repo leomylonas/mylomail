@@ -102,7 +102,7 @@
 
 .editor {
 	display: flex;
-	flex: 1;
+	flex: 1 0 auto;
 	flex-direction: column;
 	min-height: 12rem;
 }
@@ -130,6 +130,7 @@
 }
 
 .attachments {
+	flex-shrink: 0;
 	margin: 0;
 	padding: var(--cds-spacing-03) var(--cds-spacing-04);
 	border: 1px solid var(--cds-border-subtle);

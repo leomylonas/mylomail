@@ -1,7 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "@mylomail/renderer-e2e/AppFixture";
 import { createImapAccount } from "@mylomail/renderer-e2e/SeedAccount";
-import { appendMessage, clearInbox } from "@mylomail/renderer-e2e/SeedImap";
+import {
+	appendMessage,
+	clearInbox,
+	countWithSubject,
+} from "@mylomail/renderer-e2e/SeedImap";
 
 /**
  * The Basic tier of the local matrix (`pnpm imap:up`).
@@ -272,6 +276,12 @@ test("opening a draft does not save it again, and a sent draft leaves the list",
 		// And nothing puts it back once the send has been queued.
 		await window.waitForTimeout(4_000);
 		await expect(row).toHaveCount(0);
+		// The server's copy of the draft goes too; the message was sent, not kept as a draft.
+		await expect
+			.poll(async () => countWithSubject(imapPort, "Drafts", draftSubject), {
+				timeout: 30_000,
+			})
+			.toBe(0);
 	} finally {
 		await app.close();
 	}

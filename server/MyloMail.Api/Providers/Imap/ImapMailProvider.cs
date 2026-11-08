@@ -359,18 +359,48 @@ public sealed partial class ImapMailProvider : IMailProvider
 			ProviderCode = providerCode,
 		};
 
-	public Task<AttachmentConstraints> GetAttachmentConstraintsAsync(
+	/// <summary>
+	/// IMAP itself advertises no message-size limit, but the SMTP server that carries the mail
+	/// usually does (the <c>SIZE</c> extension in its greeting). Asked once per call by connecting
+	/// without authenticating or sending anything; a server that says nothing, or cannot be
+	/// reached, leaves the limit unknown rather than guessed (§15). A configured override wins.
+	/// </summary>
+	public async Task<AttachmentConstraints> GetAttachmentConstraintsAsync(
 		Account account,
 		CancellationToken ct
-	) =>
-		// IMAP advertises no message-size limit, and guessing one would be a false precision
-		// the user is then blocked by (§15).
-		Task.FromResult(
-			new AttachmentConstraints(
-				null,
-				null,
-				account.AttachmentSizeLimitOverride,
-				IsUnknown: account.AttachmentSizeLimitOverride is null
-			)
-		);
+	)
+	{
+		if (account.AttachmentSizeLimitOverride is { } configured)
+		{
+			return new AttachmentConstraints(null, null, configured, IsUnknown: false);
+		}
+
+		try
+		{
+			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+			timeout.CancelAfter(TimeSpan.FromSeconds(10));
+			using var smtp = new MailKit.Net.Smtp.SmtpClient();
+			smtp.ServerCertificateValidationCallback = SmtpCertificateValidator(_ => { });
+			await smtp.ConnectAsync(
+				settings.SmtpHost,
+				settings.SmtpPort,
+				SocketOptions(settings.SmtpSecurity),
+				timeout.Token
+			);
+			var advertised = smtp.Capabilities.HasFlag(MailKit.Net.Smtp.SmtpCapabilities.Size);
+			var size = smtp.MaxSize;
+			await smtp.DisconnectAsync(true, CancellationToken.None);
+			if (advertised)
+			{
+				// SIZE with no number means the server declares no limit of its own.
+				return new AttachmentConstraints(null, size > 0 ? size : null, null, IsUnknown: false);
+			}
+		}
+		catch (Exception) when (!ct.IsCancellationRequested)
+		{
+			// Unreachable, refused or slow: the same as a server that did not say.
+		}
+
+		return new AttachmentConstraints(null, null, null, IsUnknown: true);
+	}
 }

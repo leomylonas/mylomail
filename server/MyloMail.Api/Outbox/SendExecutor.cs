@@ -274,6 +274,16 @@ public sealed class SendExecutor(
 			await transaction.CommitAsync(ct);
 		});
 
+		// The server's copy of the draft is still in its Drafts folder: IMAP and Gmail send a
+		// message built from the local draft and never touch it, so without this it stays listed
+		// as a draft after the message has gone. Microsoft 365 sends that very draft, which
+		// consumes it. Best-effort and after the outcome is durable: the message has left, and a
+		// failed cleanup must not turn that into anything but a sent message.
+		if (account.ProviderType != ProviderType.Microsoft365 && draft.ProviderDraftId is { } remoteDraftId)
+		{
+			await draftSync.RemoveRemoteAsync(account.Id, remoteDraftId, draft.ProviderRevision, ct);
+		}
+
 		if (contactSuggestionsChanged)
 			await events.ContactsChangedAsync(account.Id);
 		// The draft is gone: open Drafts lists would otherwise keep showing it.

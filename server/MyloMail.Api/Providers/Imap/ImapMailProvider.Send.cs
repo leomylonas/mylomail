@@ -22,6 +22,36 @@ public sealed partial class ImapMailProvider
 	private string? appendFailure;
 
 	/// <summary>
+	/// The certificate check for an SMTP connection, shared by sending and by asking the server
+	/// what it accepts. <paramref name="onRejected"/> receives the certificate's fingerprint and
+	/// issuer when it is refused, so a caller can tell a certificate refusal from other failures.
+	/// </summary>
+	private System.Net.Security.RemoteCertificateValidationCallback SmtpCertificateValidator(
+		Action<(string Fingerprint, string Issuer)> onRejected
+	) =>
+		(_, certificate, _, sslPolicyErrors) =>
+		{
+			if (certificate is null)
+			{
+				return false;
+			}
+
+			var certificate2 = certificate as X509Certificate2 ?? new X509Certificate2(certificate);
+			var trusted = CertificateTrust.Validate(
+				settings.CertificateTrustMode,
+				settings.TrustedCertificates ?? [],
+				settings.SmtpHost,
+				certificate2,
+				sslPolicyErrors
+			);
+			if (!trusted)
+			{
+				onRejected((CertificateTrust.Fingerprint(certificate2), certificate2.Issuer));
+			}
+			return trusted;
+		};
+
+	/// <summary>
 	/// Sends over SMTP, then files a copy if the server will not (§15).
 	/// </summary>
 	/// <remarks>
@@ -57,27 +87,9 @@ public sealed partial class ImapMailProvider
 		using (var smtp = new SmtpClient())
 		{
 			(string Fingerprint, string Issuer)? rejected = null;
-			smtp.ServerCertificateValidationCallback = (_, certificate, _, sslPolicyErrors) =>
-			{
-				if (certificate is null)
-				{
-					return false;
-				}
-
-				var certificate2 = certificate as X509Certificate2 ?? new X509Certificate2(certificate);
-				var trusted = CertificateTrust.Validate(
-					settings.CertificateTrustMode,
-					settings.TrustedCertificates ?? [],
-					settings.SmtpHost,
-					certificate2,
-					sslPolicyErrors
-				);
-				if (!trusted)
-				{
-					rejected = (CertificateTrust.Fingerprint(certificate2), certificate2.Issuer);
-				}
-				return trusted;
-			};
+			smtp.ServerCertificateValidationCallback = SmtpCertificateValidator(
+				fingerprint => rejected = fingerprint
+			);
 
 			try
 			{
